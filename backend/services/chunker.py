@@ -1,6 +1,30 @@
 """Recursive character text splitter for document chunking."""
 
 
+def build_contextual_header(metadata: dict) -> str:
+    """Build the per-chunk contextual header used for retrieval text shaping.
+
+    Format: 'Source: file.pdf | Topic: ... | Keywords: a, b, c | Chunk 3 of 10'.
+
+    Used at ingestion (prepended before embedding so vector search matches the
+    contextualized text) AND at rerank time (the cross-encoder must score the
+    same text shape that was indexed; otherwise it scores naked chunks and the
+    contextual signal is lost).
+    """
+    parts = [f"Source: {metadata.get('source_filename', 'unknown')}"]
+    topic = metadata.get("topic")
+    if topic and topic != "unknown":
+        parts.append(f"Topic: {topic}")
+    keywords = metadata.get("keywords") or []
+    if keywords:
+        parts.append(f"Keywords: {', '.join(keywords)}")
+    chunk_index = metadata.get("chunk_index")
+    total_chunks = metadata.get("total_chunks")
+    if chunk_index is not None and total_chunks is not None:
+        parts.append(f"Chunk {chunk_index + 1} of {total_chunks}")
+    return " | ".join(parts)
+
+
 def chunk_text(
     text: str,
     chunk_size: int = 2048,

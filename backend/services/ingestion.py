@@ -8,7 +8,7 @@ from pathlib import Path
 from storage3.exceptions import StorageApiError
 
 from db.client import get_supabase_thread_safe as get_supabase
-from services.chunker import chunk_text
+from services.chunker import build_contextual_header, chunk_text
 from services.embeddings import embed_document
 from services.metadata import extract_metadata
 from services.parser import extract_from_image, parse_document, transcribe_audio
@@ -238,24 +238,6 @@ def ingest_document(
         )
         meta = extract_metadata(chunk)
 
-        # Build contextual header for better embedding quality
-        header_parts = [f"Source: {filename}"]
-        if meta["topic"] != "unknown":
-            header_parts.append(f"Topic: {meta['topic']}")
-        if meta["keywords"]:
-            header_parts.append(f"Keywords: {', '.join(meta['keywords'])}")
-        header_parts.append(f"Chunk {i + 1} of {len(chunks)}")
-        contextual_header = " | ".join(header_parts)
-
-        # Embed the chunk with contextual header for better retrieval
-        _update(
-            "embedding",
-            chunks_done=i,
-            stage_detail=f"Embedding chunk {i + 1}/{len(chunks)}",
-        )
-        chunk_with_context = f"{contextual_header}\n\n{chunk}"
-        embedding = embed_document(chunk_with_context)
-
         metadata = {
             "source_filename": filename,
             "chunk_index": i,
@@ -263,6 +245,15 @@ def ingest_document(
             "topic": meta["topic"],
             "keywords": meta["keywords"],
         }
+
+        # Embed the chunk with contextual header for better retrieval
+        _update(
+            "embedding",
+            chunks_done=i,
+            stage_detail=f"Embedding chunk {i + 1}/{len(chunks)}",
+        )
+        chunk_with_context = f"{build_contextual_header(metadata)}\n\n{chunk}"
+        embedding = embed_document(chunk_with_context)
         if media_storage_path and media_type == "image":
             metadata["image_url"] = media_storage_path
         elif media_storage_path and media_type == "audio":
