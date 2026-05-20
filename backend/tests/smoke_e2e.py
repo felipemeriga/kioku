@@ -84,8 +84,10 @@ def main() -> int:
     if fast_results:
         print("\n--- fast mode top-1 ---")
         top = fast_results[0]
-        print(f"  source   : {top.get('source_filename', top.get('metadata', {}).get('source_filename'))}")
-        print(f"  rerank   : {top.get('rerank_score'):.3f}" if top.get("rerank_score") else "  rerank   : -")
+        source = top.get("source_filename") or (top.get("metadata") or {}).get("source_filename")
+        print(f"  source   : {source}")
+        score = top.get("rerank_score")
+        print(f"  rerank   : {score:.3f}" if score is not None else "  rerank   : -")
         print(f"  expanded : {top.get('expanded', False)}")
         snippet = top.get("content", "")[:200].replace("\n", " ")
         print(f"  content  : {snippet}...")

@@ -9,6 +9,7 @@ from db.client import get_supabase
 from services.embeddings import embed_query
 from services.query import generate_multi_queries, rewrite_query
 from services.rerank import rerank
+from services.timing import stage
 
 logger = logging.getLogger(__name__)
 
@@ -180,111 +181,118 @@ def search_documents(
     fetch_k = 20
 
     if fast_mode:
-        # Fast path: skip query rewriting and multi-query, use original query directly
-        vector_results, keyword_results = _run_hybrid_search(
-            query_embedding, query_text, user_id, fetch_k, topic, keyword, root_folder_id
-        )
+        with stage("search_documents (fast)", indent=2):
+            # Fast path: skip query rewriting and multi-query, use original query directly
+            with stage("hybrid_search (vector || keyword)", indent=3):
+                vector_results, keyword_results = _run_hybrid_search(
+                    query_embedding, query_text, user_id, fetch_k, topic, keyword, root_folder_id
+                )
 
-        if not vector_results and not keyword_results:
+            if not vector_results and not keyword_results:
+                return []
+
+            if not keyword_results:
+                fused = vector_results
+            elif not vector_results:
+                fused = keyword_results
+            else:
+                fused = _reciprocal_rank_fusion(vector_results, keyword_results)
+
+            with stage("rerank", indent=3):
+                reranked = rerank(query_text or "query", fused, top_k=top_k)
+            with stage("neighbor_expansion (parallel)", indent=3):
+                return _expand_with_neighbors(reranked)
+
+    with stage("search_documents (full)", indent=2):
+        # Full path: query rewriting + multi-query for better recall.
+        # Phase 1: rewrite_query and generate_multi_queries are independent LLM
+        # calls — fan them out in parallel and join.
+        rewritten = query_text
+        variants: list[str] = []
+        if query_text:
+            with stage("phase1: rewrite + multi_query (parallel)", indent=3):
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    rewrite_future = pool.submit(rewrite_query, query_text)
+                    multi_future = pool.submit(generate_multi_queries, query_text)
+                    try:
+                        rewritten = rewrite_future.result()
+                    except Exception:
+                        logger.warning("rewrite_query failed", exc_info=True)
+                        rewritten = query_text
+                    try:
+                        variants = multi_future.result()
+                    except Exception:
+                        logger.warning("generate_multi_queries failed", exc_info=True)
+                        variants = []
+
+        # Variant 0 reuses the precomputed embedding only if rewriting didn't
+        # change the text; otherwise it must be re-embedded.
+        variant_specs: list[tuple[str, list[float] | None]] = [
+            (rewritten, query_embedding if rewritten == query_text else None)
+        ]
+        for v in variants:
+            variant_specs.append((v, None))
+
+        # Phase 2: run all variants in parallel.
+        all_vector: list[dict] = []
+        all_keyword: list[dict] = []
+        with stage(f"phase2: {len(variant_specs)} variants (parallel)", indent=3):
+            with ThreadPoolExecutor(max_workers=max(len(variant_specs), 1)) as pool:
+                futures = [
+                    pool.submit(
+                        _embed_and_search,
+                        vt,
+                        user_id,
+                        fetch_k,
+                        topic,
+                        keyword,
+                        root_folder_id,
+                        emb,
+                    )
+                    for vt, emb in variant_specs
+                ]
+                for f in futures:
+                    try:
+                        vec, kw = f.result()
+                    except Exception:
+                        logger.warning("Variant search failed", exc_info=True)
+                        continue
+                    all_vector.extend(vec)
+                    all_keyword.extend(kw)
+
+        # Deduplicate by document id (keep first occurrence)
+        seen: set[str] = set()
+        deduped_vector: list[dict] = []
+        for doc in all_vector:
+            if doc["id"] not in seen:
+                seen.add(doc["id"])
+                deduped_vector.append(doc)
+
+        seen_kw: set[str] = set()
+        deduped_keyword: list[dict] = []
+        for doc in all_keyword:
+            if doc["id"] not in seen_kw:
+                seen_kw.add(doc["id"])
+                deduped_keyword.append(doc)
+
+        if not deduped_vector and not deduped_keyword:
             return []
 
-        if not keyword_results:
-            fused = vector_results
-        elif not vector_results:
-            fused = keyword_results
+        # Step 4: RRF fusion
+        if not deduped_keyword:
+            fused = deduped_vector
+        elif not deduped_vector:
+            fused = deduped_keyword
         else:
-            fused = _reciprocal_rank_fusion(vector_results, keyword_results)
+            fused = _reciprocal_rank_fusion(deduped_vector, deduped_keyword)
 
-        reranked = rerank(query_text or "query", fused, top_k=top_k)
-        return _expand_with_neighbors(reranked)
+        # Step 5: Rerank with score threshold filtering
+        with stage("rerank", indent=3):
+            reranked = rerank(query_text or "query", fused, top_k=top_k)
 
-    # Full path: query rewriting + multi-query for better recall.
-    # Phase 1: rewrite_query and generate_multi_queries are independent LLM
-    # calls — fan them out in parallel and join.
-    rewritten = query_text
-    variants: list[str] = []
-    if query_text:
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            rewrite_future = pool.submit(rewrite_query, query_text)
-            multi_future = pool.submit(generate_multi_queries, query_text)
-            try:
-                rewritten = rewrite_future.result()
-            except Exception:
-                logger.warning("rewrite_query failed", exc_info=True)
-                rewritten = query_text
-            try:
-                variants = multi_future.result()
-            except Exception:
-                logger.warning("generate_multi_queries failed", exc_info=True)
-                variants = []
-
-    # Variant 0 reuses the precomputed embedding only if rewriting didn't
-    # change the text; otherwise it must be re-embedded.
-    variant_specs: list[tuple[str, list[float] | None]] = [
-        (rewritten, query_embedding if rewritten == query_text else None)
-    ]
-    for v in variants:
-        variant_specs.append((v, None))
-
-    # Phase 2: run all variants in parallel. Each variant fans out into a
-    # nested pool for its own (vector || keyword) search — total worker count
-    # is bounded by len(variant_specs) outer × 2 inner.
-    all_vector: list[dict] = []
-    all_keyword: list[dict] = []
-    with ThreadPoolExecutor(max_workers=max(len(variant_specs), 1)) as pool:
-        futures = [
-            pool.submit(
-                _embed_and_search,
-                vt,
-                user_id,
-                fetch_k,
-                topic,
-                keyword,
-                root_folder_id,
-                emb,
-            )
-            for vt, emb in variant_specs
-        ]
-        for f in futures:
-            try:
-                vec, kw = f.result()
-            except Exception:
-                logger.warning("Variant search failed", exc_info=True)
-                continue
-            all_vector.extend(vec)
-            all_keyword.extend(kw)
-
-    # Deduplicate by document id (keep first occurrence)
-    seen: set[str] = set()
-    deduped_vector: list[dict] = []
-    for doc in all_vector:
-        if doc["id"] not in seen:
-            seen.add(doc["id"])
-            deduped_vector.append(doc)
-
-    seen_kw: set[str] = set()
-    deduped_keyword: list[dict] = []
-    for doc in all_keyword:
-        if doc["id"] not in seen_kw:
-            seen_kw.add(doc["id"])
-            deduped_keyword.append(doc)
-
-    if not deduped_vector and not deduped_keyword:
-        return []
-
-    # Step 4: RRF fusion
-    if not deduped_keyword:
-        fused = deduped_vector
-    elif not deduped_vector:
-        fused = deduped_keyword
-    else:
-        fused = _reciprocal_rank_fusion(deduped_vector, deduped_keyword)
-
-    # Step 5: Rerank with score threshold filtering
-    reranked = rerank(query_text or "query", fused, top_k=top_k)
-
-    # Step 6: Parent document retrieval — expand each result with adjacent chunks
-    return _expand_with_neighbors(reranked)
+        # Step 6: Parent document retrieval — expand each result with adjacent chunks
+        with stage("neighbor_expansion (parallel)", indent=3):
+            return _expand_with_neighbors(reranked)
 
 
 def _expand_with_neighbors(results: list[dict]) -> list[dict]:
