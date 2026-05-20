@@ -1,6 +1,7 @@
 """Hybrid search: vector + keyword with RRF fusion and reranking."""
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 from langsmith import traceable
 
@@ -95,16 +96,69 @@ def _run_hybrid_search(
     keyword: str | None,
     root_folder_id: str | None,
 ) -> tuple[list[dict], list[dict]]:
-    """Run vector + keyword search for a single query."""
-    vector_results = _vector_search(
-        query_embedding, user_id, fetch_k, topic, keyword, root_folder_id=root_folder_id
-    )
-    keyword_results = []
-    if query_text:
-        keyword_results = _keyword_search(
-            query_text, user_id, fetch_k, topic, keyword, root_folder_id=root_folder_id
+    """Run vector + keyword search for a single query, in parallel.
+
+    Both calls are independent network round-trips against Supabase RPCs and
+    do not depend on each other, so we issue them concurrently and join.
+    """
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        vec_future = pool.submit(
+            _vector_search,
+            query_embedding,
+            user_id,
+            fetch_k,
+            topic,
+            keyword,
+            root_folder_id,
         )
+        kw_future = (
+            pool.submit(
+                _keyword_search,
+                query_text,
+                user_id,
+                fetch_k,
+                topic,
+                keyword,
+                root_folder_id,
+            )
+            if query_text
+            else None
+        )
+
+        try:
+            vector_results = vec_future.result()
+        except Exception:
+            logger.warning("Vector search failed", exc_info=True)
+            vector_results = []
+        try:
+            keyword_results = kw_future.result() if kw_future else []
+        except Exception:
+            logger.warning("Keyword search failed", exc_info=True)
+            keyword_results = []
+
     return vector_results, keyword_results
+
+
+def _embed_and_search(
+    variant_text: str,
+    user_id: str | None,
+    fetch_k: int,
+    topic: str | None,
+    keyword: str | None,
+    root_folder_id: str | None,
+    precomputed_embedding: list[float] | None = None,
+) -> tuple[list[dict], list[dict]]:
+    """Embed a query variant (if needed) then run parallel hybrid search."""
+    embedding = precomputed_embedding
+    if embedding is None:
+        try:
+            embedding = embed_query(variant_text)
+        except Exception:
+            logger.warning("Embed failed for variant %r", variant_text, exc_info=True)
+            return [], []
+    return _run_hybrid_search(
+        embedding, variant_text, user_id, fetch_k, topic, keyword, root_folder_id
+    )
 
 
 @traceable(name="search_documents", run_type="retriever")
@@ -144,54 +198,61 @@ def search_documents(
         reranked = rerank(query_text or "query", fused, top_k=top_k)
         return _expand_with_neighbors(reranked)
 
-    # Full path: query rewriting + multi-query for better recall
-
-    # Step 1: Rewrite the original query for better retrieval
+    # Full path: query rewriting + multi-query for better recall.
+    # Phase 1: rewrite_query and generate_multi_queries are independent LLM
+    # calls — fan them out in parallel and join.
     rewritten = query_text
+    variants: list[str] = []
     if query_text:
-        try:
-            rewritten = rewrite_query(query_text)
-        except Exception:
-            rewritten = query_text
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            rewrite_future = pool.submit(rewrite_query, query_text)
+            multi_future = pool.submit(generate_multi_queries, query_text)
+            try:
+                rewritten = rewrite_future.result()
+            except Exception:
+                logger.warning("rewrite_query failed", exc_info=True)
+                rewritten = query_text
+            try:
+                variants = multi_future.result()
+            except Exception:
+                logger.warning("generate_multi_queries failed", exc_info=True)
+                variants = []
 
-    # Step 2: Generate multi-query variants
-    query_variants = [rewritten]
-    if query_text:
-        try:
-            variants = generate_multi_queries(query_text)
-            query_variants.extend(variants)
-        except Exception:
-            pass
+    # Variant 0 reuses the precomputed embedding only if rewriting didn't
+    # change the text; otherwise it must be re-embedded.
+    variant_specs: list[tuple[str, list[float] | None]] = [
+        (rewritten, query_embedding if rewritten == query_text else None)
+    ]
+    for v in variants:
+        variant_specs.append((v, None))
 
-    # Step 3: Run hybrid search for each variant, collect all results
+    # Phase 2: run all variants in parallel. Each variant fans out into a
+    # nested pool for its own (vector || keyword) search — total worker count
+    # is bounded by len(variant_specs) outer × 2 inner.
     all_vector: list[dict] = []
     all_keyword: list[dict] = []
-
-    # First variant uses the provided embedding (rewritten query)
-    rewritten_embedding = query_embedding
-    if rewritten != query_text:
-        try:
-            rewritten_embedding = embed_query(rewritten)
-        except Exception:
-            rewritten_embedding = query_embedding
-
-    vec, kw = _run_hybrid_search(
-        rewritten_embedding, rewritten, user_id, fetch_k, topic, keyword, root_folder_id
-    )
-    all_vector.extend(vec)
-    all_keyword.extend(kw)
-
-    # Additional variants
-    for variant in query_variants[1:]:
-        try:
-            variant_embedding = embed_query(variant)
-            vec, kw = _run_hybrid_search(
-                variant_embedding, variant, user_id, fetch_k, topic, keyword, root_folder_id
+    with ThreadPoolExecutor(max_workers=max(len(variant_specs), 1)) as pool:
+        futures = [
+            pool.submit(
+                _embed_and_search,
+                vt,
+                user_id,
+                fetch_k,
+                topic,
+                keyword,
+                root_folder_id,
+                emb,
             )
+            for vt, emb in variant_specs
+        ]
+        for f in futures:
+            try:
+                vec, kw = f.result()
+            except Exception:
+                logger.warning("Variant search failed", exc_info=True)
+                continue
             all_vector.extend(vec)
             all_keyword.extend(kw)
-        except Exception:
-            continue
 
     # Deduplicate by document id (keep first occurrence)
     seen: set[str] = set()
