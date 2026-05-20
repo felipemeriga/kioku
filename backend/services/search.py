@@ -321,24 +321,16 @@ def _expand_with_neighbors(results: list[dict]) -> list[dict]:
         except Exception:
             logger.warning("Failed to backfill content_hash for neighbor expansion", exc_info=True)
 
-    expanded = []
-
-    for doc in results:
+    def _fetch_neighbors(doc: dict) -> dict:
+        """Fetch this doc's prev/next chunks and return the expanded doc."""
         meta = doc.get("metadata") or {}
         chunk_index = meta.get("chunk_index")
         content_hash = doc.get("content_hash")
 
-        # If we don't have chunk metadata or content_hash, return as-is
         if chunk_index is None or not content_hash:
-            expanded.append(doc)
-            continue
+            return doc
 
-        # Only fetch the neighbors we actually need (prev + next).
-        # chunk_index can be 0 → asking for -1 just won't match; still safe.
-        neighbor_indices = [chunk_index - 1, chunk_index + 1]
-        # metadata->>chunk_index extracts as text in Postgrest; cast to str.
-        neighbor_keys = [str(n) for n in neighbor_indices]
-
+        neighbor_keys = [str(chunk_index - 1), str(chunk_index + 1)]
         try:
             neighbors = (
                 sb.table("documents")
@@ -347,8 +339,6 @@ def _expand_with_neighbors(results: list[dict]) -> list[dict]:
                 .in_("metadata->>chunk_index", neighbor_keys)
                 .execute()
             )
-
-            # Build a map of chunk_index -> content
             chunk_map: dict[int, str] = {}
             for row in neighbors.data:
                 row_meta = row.get("metadata") or {}
@@ -356,7 +346,6 @@ def _expand_with_neighbors(results: list[dict]) -> list[dict]:
                 if idx is not None:
                     chunk_map[idx] = row["content"]
 
-            # Assemble expanded content: prev + current + next
             parts = []
             if chunk_index - 1 in chunk_map:
                 parts.append(chunk_map[chunk_index - 1])
@@ -367,9 +356,11 @@ def _expand_with_neighbors(results: list[dict]) -> list[dict]:
             expanded_doc = doc.copy()
             expanded_doc["content"] = "\n\n".join(parts)
             expanded_doc["expanded"] = len(parts) > 1
-            expanded.append(expanded_doc)
+            return expanded_doc
         except Exception:
             logger.warning("Failed to expand chunk neighbors", exc_info=True)
-            expanded.append(doc)
+            return doc
 
-    return expanded
+    # Fan out the per-result neighbor queries in parallel — they're independent.
+    with ThreadPoolExecutor(max_workers=max(len(results), 1)) as pool:
+        return list(pool.map(_fetch_neighbors, results))
