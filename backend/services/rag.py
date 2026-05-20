@@ -2,6 +2,7 @@
 
 import json
 from collections.abc import Generator
+from concurrent.futures import ThreadPoolExecutor
 
 from langsmith import traceable
 
@@ -76,25 +77,34 @@ def stream_rag_response(
             if response.stop_reason == "tool_use":
                 messages.append({"role": "assistant", "content": response.content})
 
-                tool_results = []
-                for block in response.content:
-                    if block.type == "tool_use":
-                        with stage(f"tool: {block.name}"):
-                            result_text = execute_tool(
-                                block.name,
-                                block.input,
-                                user_id,
-                                topic,
-                                keyword,
-                                fast_mode=fast_mode,
-                            )
-                        tool_results.append(
-                            {
-                                "type": "tool_result",
-                                "tool_use_id": block.id,
-                                "content": result_text,
-                            }
+                tool_uses = [b for b in response.content if b.type == "tool_use"]
+
+                def _run_tool(block, _indent: int = 1) -> dict:
+                    with stage(f"tool: {block.name}", indent=_indent):
+                        result_text = execute_tool(
+                            block.name,
+                            block.input,
+                            user_id,
+                            topic,
+                            keyword,
+                            fast_mode=fast_mode,
                         )
+                    return {
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": result_text,
+                    }
+
+                if len(tool_uses) > 1:
+                    # Claude's parallel tool use: run them concurrently instead of
+                    # blocking on each in sequence.
+                    with stage(f"{len(tool_uses)} tools (parallel)"):
+                        with ThreadPoolExecutor(max_workers=len(tool_uses)) as pool:
+                            tool_results = list(
+                                pool.map(lambda b: _run_tool(b, _indent=2), tool_uses)
+                            )
+                else:
+                    tool_results = [_run_tool(b) for b in tool_uses]
 
                 messages.append({"role": "user", "content": tool_results})
 
