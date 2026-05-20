@@ -1,14 +1,12 @@
 """Text-to-SQL: generate and execute read-only queries against document metadata."""
 
 import logging
-import os
 import re
 
-import anthropic
 from langsmith import traceable
-from langsmith.wrappers import wrap_anthropic
 
 from db.client import get_supabase
+from services.llm import Task, complete
 
 logger = logging.getLogger(__name__)
 
@@ -72,8 +70,6 @@ def generate_and_execute_sql(
     Returns dict with keys: sql (the generated query), results (list of rows),
     error (string if failed).
     """
-    client = wrap_anthropic(anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"]))
-
     schema = DOCUMENTS_SCHEMA.format(user_id=user_id, root_folder_id=root_folder_id or "N/A")
     prompt = SQL_GENERATION_PROMPT.format(
         schema=schema,
@@ -83,10 +79,10 @@ def generate_and_execute_sql(
     )
 
     try:
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=256,
+        response = complete(
+            task=Task.TEXT_TO_SQL,
             messages=[{"role": "user", "content": prompt}],
+            max_tokens=256,
         )
         sql = response.content[0].text.strip()
 
