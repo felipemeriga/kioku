@@ -6,7 +6,6 @@ import math
 import os
 from concurrent.futures import ThreadPoolExecutor
 
-import anthropic
 import voyageai
 from langsmith import traceable
 from ragas import EvaluationDataset, SingleTurnSample, evaluate
@@ -21,6 +20,7 @@ from ragas.metrics import (
 )
 
 from services.embeddings import embed_query
+from services.llm import MODEL_FOR_TASK, Task, complete, get_client
 from services.search import search_documents
 
 _executor = ThreadPoolExecutor(max_workers=1)
@@ -50,9 +50,12 @@ class VoyageEmbeddings(BaseRagasEmbeddings):
 
 
 def _get_ragas_llm():
-    """Create a RAGAS-compatible LLM using Claude."""
-    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-    llm = llm_factory("claude-haiku-4-5-20251001", provider="anthropic", client=client)
+    """Create a RAGAS-compatible LLM using Claude.
+
+    Uses the shared, LangSmith-wrapped singleton from services.llm so RAGAS
+    judge calls appear in tracing alongside the rest of the pipeline.
+    """
+    llm = llm_factory(MODEL_FOR_TASK[Task.EVAL_JUDGE], provider="anthropic", client=get_client())
     # Claude API rejects requests with both temperature and top_p set.
     # RAGAS defaults both; patch _map_provider_params to exclude top_p.
     _original_map = llm._map_provider_params
@@ -83,10 +86,9 @@ def _run_retrieval(query: str, user_id: str | None, root_folder_id: str | None) 
 
 def _run_generation(query: str, contexts: list[str]) -> str:
     """Generate an answer from retrieved contexts using Claude."""
-    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     context_text = "\n\n---\n\n".join(contexts)
-    response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
+    response = complete(
+        task=Task.EVAL_JUDGE,
         max_tokens=512,
         messages=[
             {
