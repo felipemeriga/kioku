@@ -1,14 +1,12 @@
 """Agentic RAG pipeline: tool-use loop with streaming."""
 
 import json
-import os
 from collections.abc import Generator
 
-import anthropic
 from langsmith import traceable
-from langsmith.wrappers import wrap_anthropic
 
 from db.client import get_supabase
+from services.llm import Task, complete
 from services.tools import TOOL_DEFINITIONS, execute_tool
 
 SYSTEM_PROMPT = """You are a helpful assistant with access to tools.
@@ -61,15 +59,14 @@ def stream_rag_response(
     messages = [{"role": m["role"], "content": m["content"]} for m in history.data]
 
     # 3. Tool-use loop (max 10 rounds to prevent runaway)
-    client = wrap_anthropic(anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"]))
     full_response = ""
     max_rounds = 10
 
     yield f"data: {json.dumps({'stage': 'searching'})}\n\n"
 
     for _ in range(max_rounds):
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+        response = complete(
+            task=Task.RAG_AGENT,
             max_tokens=1024,
             system=SYSTEM_PROMPT,
             messages=messages,
