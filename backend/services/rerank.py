@@ -4,6 +4,8 @@ import logging
 
 import voyageai
 
+from services.chunker import build_contextual_header
+
 logger = logging.getLogger(__name__)
 
 _client: voyageai.Client | None = None
@@ -17,6 +19,18 @@ def _get_client() -> voyageai.Client:
 
 
 RERANK_SCORE_THRESHOLD = 0.2
+
+
+def _scoring_text(doc: dict) -> str:
+    """Reconstruct the contextualized chunk text that was indexed at embed time.
+
+    The cross-encoder must score the same text shape that was indexed; otherwise
+    it scores naked chunks stripped of filename/topic/keyword/position context
+    and the contextual signal is lost.
+    """
+    metadata = doc.get("metadata") or {}
+    header = build_contextual_header(metadata)
+    return f"{header}\n\n{doc['content']}"
 
 
 def rerank(
@@ -37,7 +51,7 @@ def rerank(
         return []
 
     try:
-        texts = [doc["content"] for doc in documents]
+        texts = [_scoring_text(doc) for doc in documents]
         result = _get_client().rerank(
             query=query,
             documents=texts,
