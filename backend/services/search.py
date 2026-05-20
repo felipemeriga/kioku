@@ -296,11 +296,31 @@ def _expand_with_neighbors(results: list[dict]) -> list[dict]:
     The neighbor query is scoped to the exact prev/next chunk_index values via
     a jsonb filter, so a 200-page PDF doesn't pull all ~1000 chunks just to
     locate two neighbors.
+
+    NOTE: the match_documents RPC does not return content_hash at the top
+    level (only id, content, metadata, similarity), so we backfill it via a
+    single batched lookup before grouping. Without this, every vector-search
+    result hits the early-return path and never gets expanded.
     """
     if not results:
         return []
 
     sb = get_supabase()
+
+    # Backfill content_hash on any row that's missing it (single batched query).
+    missing_ids = [doc["id"] for doc in results if not doc.get("content_hash") and doc.get("id")]
+    if missing_ids:
+        try:
+            backfill = (
+                sb.table("documents").select("id, content_hash").in_("id", missing_ids).execute()
+            )
+            hash_by_id = {row["id"]: row["content_hash"] for row in backfill.data}
+            for doc in results:
+                if not doc.get("content_hash"):
+                    doc["content_hash"] = hash_by_id.get(doc.get("id"))
+        except Exception:
+            logger.warning("Failed to backfill content_hash for neighbor expansion", exc_info=True)
+
     expanded = []
 
     for doc in results:
