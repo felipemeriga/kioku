@@ -231,6 +231,10 @@ def _expand_with_neighbors(results: list[dict]) -> list[dict]:
 
     Uses content_hash and chunk_index from metadata to find neighbors.
     Merges prev + current + next content into a single expanded content field.
+
+    The neighbor query is scoped to the exact prev/next chunk_index values via
+    a jsonb filter, so a 200-page PDF doesn't pull all ~1000 chunks just to
+    locate two neighbors.
     """
     if not results:
         return []
@@ -248,17 +252,18 @@ def _expand_with_neighbors(results: list[dict]) -> list[dict]:
             expanded.append(doc)
             continue
 
-        # Fetch adjacent chunks from the same file (scoped by content_hash)
-        neighbor_indices = []
-        if chunk_index > 0:
-            neighbor_indices.append(chunk_index - 1)
-        neighbor_indices.append(chunk_index + 1)
+        # Only fetch the neighbors we actually need (prev + next).
+        # chunk_index can be 0 → asking for -1 just won't match; still safe.
+        neighbor_indices = [chunk_index - 1, chunk_index + 1]
+        # metadata->>chunk_index extracts as text in Postgrest; cast to str.
+        neighbor_keys = [str(n) for n in neighbor_indices]
 
         try:
             neighbors = (
                 sb.table("documents")
                 .select("content, metadata")
                 .eq("content_hash", content_hash)
+                .in_("metadata->>chunk_index", neighbor_keys)
                 .execute()
             )
 
