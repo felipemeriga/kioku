@@ -16,6 +16,7 @@ import argparse
 import asyncio
 import json
 import math
+import os
 import sys
 import time
 from datetime import datetime
@@ -23,13 +24,44 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from dotenv import load_dotenv
 
-from eval.ir_metrics import mrr, ndcg_at_k, recall_at_k
-from services.embeddings import embed_query
-from services.evaluation import VoyageEmbeddings, _get_ragas_llm, _run_generation
-from services.ingestion import ingest_document
-from services.metrics import collect_request
-from services.search import search_documents
+# Load .env (for VOYAGE_API_KEY / ANTHROPIC_API_KEY) BEFORE importing modules
+# that read env at import time. Callers override SUPABASE_URL/SUPABASE_SERVICE_KEY
+# on the command line to point at the local stack instead of prod.
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
+
+def _guard_against_prod() -> None:
+    """Refuse to run if SUPABASE_URL points at a remote (prod-looking) host.
+
+    The eval harness ingests fixture documents and runs queries against
+    a throwaway database. Hitting prod by accident would pollute it with
+    test data under EVAL_USER_ID.
+    """
+    url = os.environ.get("SUPABASE_URL", "")
+    if not url:
+        sys.exit("[eval] SUPABASE_URL is not set. Export local stack URL before running.")
+    if "127.0.0.1" in url or "localhost" in url:
+        return
+    if os.environ.get("EVAL_ALLOW_REMOTE") == "1":
+        print(f"[eval] WARNING: SUPABASE_URL={url!r} looks remote; EVAL_ALLOW_REMOTE=1 honored.")
+        return
+    sys.exit(
+        f"[eval] refusing to run against non-local SUPABASE_URL={url!r}. "
+        "Set SUPABASE_URL=http://127.0.0.1:54321 (and matching SUPABASE_SERVICE_KEY) "
+        "or export EVAL_ALLOW_REMOTE=1 to override."
+    )
+
+
+_guard_against_prod()
+
+from eval.ir_metrics import mrr, ndcg_at_k, recall_at_k  # noqa: E402
+from services.embeddings import embed_query  # noqa: E402
+from services.evaluation import VoyageEmbeddings, _get_ragas_llm, _run_generation  # noqa: E402
+from services.ingestion import ingest_document  # noqa: E402
+from services.metrics import collect_request  # noqa: E402
+from services.search import search_documents  # noqa: E402
 
 EVAL_USER_ID = "00000000-0000-0000-0000-000000000001"
 FIXTURE_CORPUS = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "corpus"

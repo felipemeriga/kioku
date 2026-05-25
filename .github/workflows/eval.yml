@@ -24,10 +24,11 @@ jobs:
       - name: Start Supabase
         run: supabase start
 
-      - name: Apply schema
+      - name: Apply schema + local setup
         run: |
           DB_URL=$(supabase status --output env | grep '^DB_URL=' | cut -d= -f2- | tr -d '"')
           psql "$DB_URL" -f backend/db/schema.sql
+          psql "$DB_URL" -f backend/db/local_setup.sql
 
       - name: Install uv
         uses: astral-sh/setup-uv@v3
