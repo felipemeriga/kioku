@@ -22,12 +22,11 @@ jobs:
           version: latest
 
       - name: Start Supabase
-        working-directory: backend/eval
         run: supabase start
 
       - name: Apply schema
         run: |
-          DB_URL=$(cd backend/eval && supabase status --output env | grep '^DB_URL=' | cut -d= -f2- | tr -d '"')
+          DB_URL=$(supabase status --output env | grep '^DB_URL=' | cut -d= -f2- | tr -d '"')
           psql "$DB_URL" -f backend/db/schema.sql
 
       - name: Install uv
@@ -38,15 +37,14 @@ jobs:
         run: uv sync
 
       - name: Run eval with gate
-        working-directory: backend
         env:
           VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          SUPABASE_URL=$(cd eval && supabase status --output env | grep '^API_URL=' | cut -d= -f2- | tr -d '"')
-          SUPABASE_SERVICE_KEY=$(cd eval && supabase status --output env | grep '^SERVICE_ROLE_KEY=' | cut -d= -f2- | tr -d '"')
+          SUPABASE_URL=$(supabase status --output env | grep '^API_URL=' | cut -d= -f2- | tr -d '"')
+          SUPABASE_SERVICE_KEY=$(supabase status --output env | grep '^SERVICE_ROLE_KEY=' | cut -d= -f2- | tr -d '"')
           export SUPABASE_URL SUPABASE_SERVICE_KEY
-          uv run python -m eval.runner --gate
+          cd backend && uv run python -m eval.runner --gate
 
       - uses: actions/upload-artifact@v4
         if: always()
