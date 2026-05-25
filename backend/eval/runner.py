@@ -95,9 +95,10 @@ def _chunk_id_of(doc: dict) -> str:
 
 def _score_question(q: dict, mode: str) -> dict:
     """Run retrieval for one golden question and return per-question scores."""
-    import os
-
-    os.environ.setdefault("RAG_METRICS", "1")
+    # Force the metrics collector on for eval — we capture proxy_metrics in the
+    # report regardless of the user's shell env. setdefault would silently
+    # leave it disabled if RAG_METRICS=0 was already exported.
+    os.environ["RAG_METRICS"] = "1"
 
     embedding = embed_query(q["question"])
     t0 = time.monotonic()
