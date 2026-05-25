@@ -1,0 +1,75 @@
+System Design Principles for Retrieval-Augmented Systems
+
+KEEP THE RETRIEVAL PATH SIMPLE
+
+The retrieval path is on the critical path of every user query. Every added
+component (query rewriter, multi-query expander, hypothetical document
+embedder) adds latency and a failure mode. Add complexity only when you can
+measure an improvement on your eval harness. Resist the urge to add every
+technique from every paper.
+
+SEPARATE BUILD TIME FROM QUERY TIME
+
+Expensive operations — embedding generation, index construction, parent
+document storage, contextual header generation — belong at ingestion time,
+not query time. At query time you want to: embed the query once, search once
+or twice, rerank once, and return. Everything else is technical debt against
+your latency budget.
+
+MEASURE BEFORE OPTIMIZING
+
+Instrument your pipeline with wall-clock timings at each stage: embedding,
+vector search, keyword search, neighbor expansion, reranking, LLM generation.
+Optimization without instrumentation means guessing. Guessing is expensive.
+
+PREFER IDEMPOTENT INGESTION
+
+Ingestion pipelines should be safe to run multiple times on the same document.
+Use a content hash (SHA-256 of the raw file) to detect unchanged documents
+and skip re-embedding. This makes reruns safe and avoids duplicate chunks in
+the vector store.
+
+DESIGN FOR FILTERING FROM DAY ONE
+
+Multi-tenant retrieval systems need per-user document isolation from the
+start. Adding user_id filters to vector and keyword search after the fact
+requires index changes and schema migrations. If you know users will have
+private documents, add user_id as a filter parameter at the schema design
+stage.
+
+FAIL LOUDLY IN RETRIEVAL, GRACEFULLY IN GENERATION
+
+If the retriever returns zero results, return an empty context to the LLM
+and let it say it doesn't know — do not silently pass an empty string that
+causes the LLM to hallucinate. On the generation side, graceful degradation
+is acceptable: a partial answer is better than an error response.
+
+GOLDEN SETS ARE EXPENSIVE, USE THEM WISELY
+
+A manually annotated golden set of 50-100 queries with relevance judgments
+takes significant time to build. Once built, it is one of the most valuable
+artifacts in the project. Never auto-generate relevance labels without human
+review. Store the golden set in version control alongside the code.
+
+AVOID EMBEDDING MODEL LOCK-IN
+
+Your embedding dimension is baked into the vector schema. Switching models
+requires re-embedding the entire corpus and migrating the index. Choose a
+model that fits your accuracy, latency, and cost requirements before going
+to production. If you must switch later, plan for a dual-model transition
+period where both old and new embeddings coexist.
+
+CHUNK SIZE IS A HYPERPARAMETER
+
+The chunk size that works for a dense technical manual is not the same as
+the chunk size that works for short news articles. Tune chunk_size and
+chunk_overlap on your actual corpus using your golden set. A few percentage
+points of Recall@5 can be won or lost on this single decision.
+
+CONTEXT WINDOW BUDGETING
+
+The LLM has a finite context window. Retrieved chunks compete with the system
+prompt, conversation history, and the generated answer for space. Calculate
+your worst-case token usage: if the system prompt is 2000 tokens, conversation
+history is 3000, and each chunk is 512, then passing 10 chunks leaves no room
+for a meaningful answer. Pick a top-K that fits.
