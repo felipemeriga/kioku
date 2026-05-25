@@ -8,6 +8,7 @@ from langsmith import traceable
 
 from db.client import get_supabase
 from services.llm import Task, complete
+from services.metrics import collect_request, record, submit_with_context
 from services.timing import request, stage
 from services.tools import TOOL_DEFINITIONS, execute_tool
 
@@ -40,107 +41,115 @@ def stream_rag_response(
     """Agentic RAG pipeline: save message, run tool-use loop, stream response."""
     sb = get_supabase()
 
-    with request(f"rag chat turn ({'fast' if fast_mode else 'full'})"):
-        # 1. Save user message + update title + fetch history
-        with stage("db: save user msg + fetch history"):
-            sb.table("messages").insert(
-                {
-                    "conversation_id": conversation_id,
-                    "role": "user",
-                    "content": user_message,
-                }
-            ).execute()
-            sb.table("conversations").update({"title": user_message[:50]}).eq(
-                "id", conversation_id
-            ).eq("user_id", user_id).execute()
-            history = (
-                sb.table("messages")
-                .select("role, content")
-                .eq("conversation_id", conversation_id)
-                .order("created_at")
-                .execute()
-            )
-            messages = [{"role": m["role"], "content": m["content"]} for m in history.data]
-
-        # 2. Tool-use loop (max 10 rounds to prevent runaway)
-        full_response = ""
-        max_rounds = 10
-
-        yield f"data: {json.dumps({'stage': 'searching'})}\n\n"
-
-        for round_num in range(max_rounds):
-            with stage(f"round {round_num + 1}: anthropic call"):
-                response = complete(
-                    task=Task.RAG_AGENT,
-                    max_tokens=1024,
-                    system=SYSTEM_PROMPT,
-                    messages=messages,
-                    tools=TOOL_DEFINITIONS,
-                )
-
-            if response.stop_reason == "tool_use":
-                messages.append({"role": "assistant", "content": response.content})
-
-                tool_uses = [b for b in response.content if b.type == "tool_use"]
-
-                def _run_tool(block, _indent: int = 1) -> dict:
-                    with stage(f"tool: {block.name}", indent=_indent):
-                        result_text = execute_tool(
-                            block.name,
-                            block.input,
-                            user_id,
-                            topic,
-                            keyword,
-                            fast_mode=fast_mode,
-                        )
-                    return {
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": result_text,
+    with collect_request(f"rag chat turn ({'fast' if fast_mode else 'full'})"):
+        with request(f"rag chat turn ({'fast' if fast_mode else 'full'})"):
+            # 1. Save user message + update title + fetch history
+            with stage("db: save user msg + fetch history"):
+                sb.table("messages").insert(
+                    {
+                        "conversation_id": conversation_id,
+                        "role": "user",
+                        "content": user_message,
                     }
+                ).execute()
+                sb.table("conversations").update({"title": user_message[:50]}).eq(
+                    "id", conversation_id
+                ).eq("user_id", user_id).execute()
+                history = (
+                    sb.table("messages")
+                    .select("role, content")
+                    .eq("conversation_id", conversation_id)
+                    .order("created_at")
+                    .execute()
+                )
+                messages = [{"role": m["role"], "content": m["content"]} for m in history.data]
 
-                if len(tool_uses) > 1:
-                    # Claude's parallel tool use: run them concurrently instead of
-                    # blocking on each in sequence.
-                    with stage(f"{len(tool_uses)} tools (parallel)"):
-                        with ThreadPoolExecutor(max_workers=len(tool_uses)) as pool:
-                            tool_results = list(
-                                pool.map(lambda b: _run_tool(b, _indent=2), tool_uses)
+            # 2. Tool-use loop (max 10 rounds to prevent runaway)
+            full_response = ""
+            max_rounds = 10
+            tool_call_count = 0
+            rounds_used = 0
+
+            yield f"data: {json.dumps({'stage': 'searching'})}\n\n"
+
+            for round_num in range(max_rounds):
+                rounds_used = round_num + 1
+                with stage(f"round {round_num + 1}: anthropic call"):
+                    response = complete(
+                        task=Task.RAG_AGENT,
+                        max_tokens=1024,
+                        system=SYSTEM_PROMPT,
+                        messages=messages,
+                        tools=TOOL_DEFINITIONS,
+                    )
+
+                if response.stop_reason == "tool_use":
+                    messages.append({"role": "assistant", "content": response.content})
+
+                    tool_uses = [b for b in response.content if b.type == "tool_use"]
+                    tool_call_count += len(tool_uses)
+
+                    def _run_tool(block, _indent: int = 1) -> dict:
+                        with stage(f"tool: {block.name}", indent=_indent):
+                            result_text = execute_tool(
+                                block.name,
+                                block.input,
+                                user_id,
+                                topic,
+                                keyword,
+                                fast_mode=fast_mode,
                             )
-                else:
-                    tool_results = [_run_tool(b) for b in tool_uses]
+                        return {
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": result_text,
+                        }
 
-                messages.append({"role": "user", "content": tool_results})
+                    if len(tool_uses) > 1:
+                        # Claude's parallel tool use: run them concurrently instead of
+                        # blocking on each in sequence.
+                        with stage(f"{len(tool_uses)} tools (parallel)"):
+                            with ThreadPoolExecutor(max_workers=len(tool_uses)) as pool:
+                                futures = [
+                                    submit_with_context(pool, _run_tool, b, 2) for b in tool_uses
+                                ]
+                                tool_results = [f.result() for f in futures]
+                    else:
+                        tool_results = [_run_tool(b) for b in tool_uses]
 
-                doc_count = 0
-                for tr in tool_results:
-                    content = tr.get("content", "")
-                    if isinstance(content, str):
-                        doc_count += content.count("Source:")
-                yield f"data: {json.dumps({'stage': 'analyzing', 'docs': doc_count})}\n\n"
+                    messages.append({"role": "user", "content": tool_results})
 
-                continue
+                    doc_count = 0
+                    for tr in tool_results:
+                        content = tr.get("content", "")
+                        if isinstance(content, str):
+                            doc_count += content.count("Source:")
+                    yield f"data: {json.dumps({'stage': 'analyzing', 'docs': doc_count})}\n\n"
 
-            # Claude is done with tools — stream the final text response
-            yield f"data: {json.dumps({'stage': 'generating'})}\n\n"
+                    continue
 
-            for block in response.content:
-                if hasattr(block, "text"):
-                    full_response += block.text
-                    yield f"data: {json.dumps({'token': block.text})}\n\n"
-            break
-        else:
-            yield f"data: {json.dumps({'stage': 'generating'})}\n\n"
-            full_response = "I was unable to complete the request after multiple attempts."
-            yield f"data: {json.dumps({'token': full_response})}\n\n"
+                # Claude is done with tools — stream the final text response
+                yield f"data: {json.dumps({'stage': 'generating'})}\n\n"
 
-        with stage("db: save assistant msg"):
-            sb.table("messages").insert(
-                {
-                    "conversation_id": conversation_id,
-                    "role": "assistant",
-                    "content": full_response,
-                }
-            ).execute()
+                for block in response.content:
+                    if hasattr(block, "text"):
+                        full_response += block.text
+                        yield f"data: {json.dumps({'token': block.text})}\n\n"
+                break
+            else:
+                yield f"data: {json.dumps({'stage': 'generating'})}\n\n"
+                full_response = "I was unable to complete the request after multiple attempts."
+                yield f"data: {json.dumps({'token': full_response})}\n\n"
+
+            with stage("db: save assistant msg"):
+                sb.table("messages").insert(
+                    {
+                        "conversation_id": conversation_id,
+                        "role": "assistant",
+                        "content": full_response,
+                    }
+                ).execute()
+
+            record("agent_loop", n_rounds=rounds_used, n_tool_calls=tool_call_count)
 
     yield f"data: {json.dumps({'done': True})}\n\n"
