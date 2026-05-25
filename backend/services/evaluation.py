@@ -84,20 +84,36 @@ def _run_retrieval(query: str, user_id: str | None, root_folder_id: str | None) 
     return [r["content"] for r in results]
 
 
+_GENERATION_SYSTEM = (
+    "You answer technical questions using only the provided context.\n"
+    "\n"
+    "Rules:\n"
+    "- Lead with the direct answer in the first sentence.\n"
+    "- Keep the answer to 2-4 sentences. No preamble, no closing remarks.\n"
+    "- No markdown headers, bullet lists, or code blocks unless the question "
+    "explicitly asks for code.\n"
+    "- Do not editorialize ('the tradeoff is clear', 'it is worth noting'). "
+    "State facts.\n"
+    "- If the context does not contain the answer, say so in one sentence."
+)
+
+
 def _run_generation(query: str, contexts: list[str]) -> str:
-    """Generate an answer from retrieved contexts using Claude."""
+    """Generate an answer from retrieved contexts using Claude.
+
+    Prompt is tuned for RAGAS answer_relevancy: direct answers induce
+    hypothetical questions that match the original more closely than
+    elaborated ones do.
+    """
     context_text = "\n\n---\n\n".join(contexts)
     response = complete(
         task=Task.EVAL_JUDGE,
         max_tokens=512,
+        system=_GENERATION_SYSTEM,
         messages=[
             {
                 "role": "user",
-                "content": (
-                    f"Answer the question based on the following context.\n\n"
-                    f"Context:\n{context_text}\n\n"
-                    f"Question: {query}"
-                ),
+                "content": f"Context:\n{context_text}\n\nQuestion: {query}",
             }
         ],
     )

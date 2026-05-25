@@ -274,6 +274,8 @@ def _run_ragas(per_question: list[dict], questions: list[dict]) -> dict:
     q_by_id = {q["id"]: q for q in questions}
 
     samples = []
+    sample_qids: list[str] = []
+    sample_responses: dict[str, str] = {}
     for qid in full_results:
         q = q_by_id[qid]
         embedding = embed_query(q["question"])
@@ -294,9 +296,11 @@ def _run_ragas(per_question: list[dict], questions: list[dict]) -> dict:
             reference=q["ground_truth_answer"],
         )
         samples.append(sample)
+        sample_qids.append(qid)
+        sample_responses[qid] = response
 
     if not samples:
-        return {}
+        return {"aggregate": {}, "per_question": {}}
 
     dataset = EvaluationDataset(samples=samples)
     metrics = [Faithfulness(), AnswerRelevancy(), ContextPrecision(), ContextRecall()]
@@ -316,14 +320,38 @@ def _run_ragas(per_question: list[dict], questions: list[dict]) -> dict:
             loop.close()
 
     result = _run_evaluate()
-    raw = result._repr_dict
 
     def _sanitize(v):
         if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
             return None
         return v
 
-    return {k: _sanitize(v) for k, v in raw.items()}
+    aggregate = {k: _sanitize(v) for k, v in result._repr_dict.items()}
+
+    # Per-question scores — aligned with samples by index. Lets diagnostic
+    # tooling show "this exact question scored low, here's the answer it gave".
+    per_question: dict[str, dict] = {}
+    df = result.to_pandas()
+    metric_cols = [
+        c
+        for c in df.columns
+        if c
+        in (
+            "faithfulness",
+            "answer_relevancy",
+            "context_precision",
+            "context_recall",
+        )
+    ]
+    for idx, qid in enumerate(sample_qids):
+        if idx >= len(df):
+            break
+        per_question[qid] = {
+            "response": sample_responses[qid],
+            "scores": {col: _sanitize(df.iloc[idx][col]) for col in metric_cols},
+        }
+
+    return {"aggregate": aggregate, "per_question": per_question}
 
 
 def main() -> int:
@@ -359,8 +387,21 @@ def main() -> int:
 
     aggregate = _aggregate(per_question)
     print("[eval] running RAGAS...")
-    ragas_scores = _run_ragas(per_question, questions)
-    aggregate["ragas"] = ragas_scores
+    ragas_result = _run_ragas(per_question, questions)
+    aggregate["ragas"] = ragas_result.get("aggregate", {})
+
+    # Merge per-question RAGAS data (response + per-q scores) into per_question
+    # entries with mode='full' so diagnostic tooling can show "this answer for
+    # qNNN scored AR=0.X".
+    ragas_per_q = ragas_result.get("per_question", {})
+    for entry in per_question:
+        if entry["mode"] != "full":
+            continue
+        merged = ragas_per_q.get(entry["id"])
+        if not merged:
+            continue
+        entry["response"] = merged["response"]
+        entry["ragas_scores"] = merged["scores"]
 
     report = {
         "git_sha": _git_sha(),
