@@ -19,6 +19,7 @@ dependencies = [
     "ragas>=0.2.0",
     "torch>=2.0.0",
     "torchvision>=0.15.0",
+    "pyyaml>=6.0.3",
 ]
 
 [tool.uv]
@@ -35,6 +36,7 @@ triton = { index = "pytorch-cpu" }
 
 [dependency-groups]
 dev = [
+    "pytest>=9.0.3",
     "ruff>=0.15.5",
 ]
 
