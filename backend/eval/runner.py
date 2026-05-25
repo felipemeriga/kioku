@@ -63,9 +63,13 @@ def _chunk_id_of(doc: dict) -> str:
 
 def _score_question(q: dict, mode: str) -> dict:
     """Run retrieval for one golden question and return per-question scores."""
+    import os
+
+    os.environ.setdefault("RAG_METRICS", "1")
+
     embedding = embed_query(q["question"])
     t0 = time.monotonic()
-    with collect_request(f"eval q={q['id']} mode={mode}"):
+    with collect_request(f"eval q={q['id']} mode={mode}") as collector:
         results = search_documents(
             query_embedding=embedding,
             query_text=q["question"],
@@ -73,6 +77,13 @@ def _score_question(q: dict, mode: str) -> dict:
             fast_mode=(mode == "fast"),
         )
     latency_ms = int((time.monotonic() - t0) * 1000)
+
+    proxy: dict[str, float] = {}
+    if collector is not None:
+        for stage, kvs in collector._stages:
+            for k, v in kvs.items():
+                if isinstance(v, (int, float)) and v is not None:
+                    proxy[f"{stage}.{k}"] = float(v)
 
     retrieved_ids = [_chunk_id_of(r) for r in results]
     relevant_ids = set(q["relevant_chunk_ids"])
@@ -92,12 +103,18 @@ def _score_question(q: dict, mode: str) -> dict:
         "retrieved_ids": retrieved_ids,
         "expected_ids": list(relevant_ids),
         "latency_ms": latency_ms,
+        "proxy_metrics": proxy,
     }
 
 
 def _aggregate(per_question: list[dict]) -> dict:
     """Compute aggregate IR scores from per-question results."""
-    out: dict[str, Any] = {"ir": {}, "by_mode": {}, "by_difficulty": {}}
+    out: dict[str, Any] = {
+        "ir": {},
+        "by_mode": {},
+        "by_difficulty": {},
+        "proxy_metrics_means": {},
+    }
 
     metric_keys = [f"recall_at_{k}" for k in K_VALUES] + ["mrr", "ndcg_at_10"]
 
@@ -108,6 +125,12 @@ def _aggregate(per_question: list[dict]) -> dict:
     for metric in metric_keys:
         all_vals = [q["scores"][metric] for q in per_question]
         out["ir"][metric] = _mean(all_vals)
+
+    # Aggregate proxy metrics across all questions
+    proxy_keys = sorted({pk for q in per_question for pk in q.get("proxy_metrics", {})})
+    for pk in proxy_keys:
+        vals = [q["proxy_metrics"].get(pk) for q in per_question]
+        out["proxy_metrics_means"][pk] = _mean(vals)
 
     for mode in ("fast", "full"):
         mode_qs = [q for q in per_question if q["mode"] == mode]
