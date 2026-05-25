@@ -5,6 +5,7 @@ import logging
 import voyageai
 
 from services.chunker import build_contextual_header
+from services.metrics import record
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,7 @@ def rerank(
     Falls back to returning the first top_k documents if reranking fails.
     """
     if not documents:
+        record("rerank", n_in=0, n_kept=0, n_dropped=0)
         return []
 
     try:
@@ -59,6 +61,7 @@ def rerank(
             top_k=min(top_k, len(documents)),
         )
 
+        all_scores = [r.relevance_score for r in result.results]
         reranked = []
         for r in result.results:
             if r.relevance_score < score_threshold:
@@ -67,7 +70,36 @@ def rerank(
             doc["rerank_score"] = r.relevance_score
             reranked.append(doc)
 
+        record(
+            "rerank",
+            n_in=len(documents),
+            n_kept=len(reranked),
+            n_dropped=len(documents) - len(reranked),
+            score_p50=_percentile(all_scores, 50),
+            score_p95=_percentile(all_scores, 95),
+        )
         return reranked
     except Exception:
         logger.warning("Voyage reranker failed, falling back to un-reranked results")
+        record(
+            "rerank",
+            n_in=len(documents),
+            n_kept=min(top_k, len(documents)),
+            n_dropped=0,
+            score_p50=None,
+            score_p95=None,
+            failed=True,
+        )
         return documents[:top_k]
+
+
+def _percentile(values: list[float], p: int) -> float | None:
+    """Quick-and-dirty percentile. Returns None on empty input."""
+    if not values:
+        return None
+    s = sorted(values)
+    k = (len(s) - 1) * (p / 100)
+    f = int(k)
+    if f == len(s) - 1:
+        return round(s[f], 3)
+    return round(s[f] + (s[f + 1] - s[f]) * (k - f), 3)
