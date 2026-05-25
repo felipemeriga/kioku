@@ -15,3 +15,23 @@ VALUES
     ('images',    'images',    false, NULL),
     ('audio',     'audio',     false, NULL)
 ON CONFLICT (id) DO NOTHING;
+
+-- Eval user — documents.user_id has an FK to auth.users(id). The runner uses
+-- this synthetic UUID (EVAL_USER_ID in backend/eval/runner.py); satisfy the
+-- FK so ingestion inserts can land. Local-only; never insert into prod
+-- auth.users from SQL.
+INSERT INTO auth.users (
+    id, instance_id, email, aud, role,
+    email_confirmed_at, created_at, updated_at,
+    raw_app_meta_data, raw_user_meta_data
+)
+VALUES (
+    '00000000-0000-0000-0000-000000000001',
+    '00000000-0000-0000-0000-000000000000',
+    'eval@local.test',
+    'authenticated',
+    'authenticated',
+    now(), now(), now(),
+    '{}'::jsonb, '{}'::jsonb
+)
+ON CONFLICT (id) DO NOTHING;
