@@ -10,10 +10,18 @@ regressions, warns on RAGAS regressions.
 From the project root:
 
 ```bash
-./backend/eval/run_local.sh              # just run, write report
+./backend/eval/run_local.sh              # full eval (~$1-2, ~5-8 min)
+./backend/eval/run_local.sh --quick      # 9-question subset (~$0.30, ~1-2 min)
 ./backend/eval/run_local.sh --gate       # also assert against baseline.json
 ./backend/eval/run_local.sh --capture    # accept this run as the new baseline
 ```
+
+`--quick` runs one curated question per (difficulty × retrieval_type) cell —
+9 questions total, full coverage of the matrix. Use for prompt-tweak
+iterations: tight loop, ~$0.30 per run, ~1-2 min. Caveat: RAGAS is noisier
+at N=9 than N=25 (±0.03 variance on `answer_relevancy` between two runs
+even without any code change). Use `--quick` for trend, full eval for the
+sign-off measurement before committing baseline.
 
 The script:
 - starts the local Supabase stack if needed (`supabase start`)

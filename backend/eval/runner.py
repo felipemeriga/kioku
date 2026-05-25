@@ -331,10 +331,23 @@ def main() -> int:
     parser.add_argument(
         "--gate", action="store_true", help="Fail with non-zero exit if baseline regression."
     )
+    parser.add_argument(
+        "--quick",
+        action="store_true",
+        help=(
+            "Run only questions tagged `quick: true` in golden_set.yaml "
+            "(curated 1-per-cell subset for fast prompt-iteration loops). "
+            "RAGAS is noisier with the smaller N — use for trend, not for gating."
+        ),
+    )
     args = parser.parse_args()
 
     questions = yaml.safe_load(GOLDEN_SET.read_text())
-    print(f"[eval] loaded {len(questions)} golden questions")
+    if args.quick:
+        questions = [q for q in questions if q.get("quick")]
+        print(f"[eval] --quick: loaded {len(questions)} of golden set")
+    else:
+        print(f"[eval] loaded {len(questions)} golden questions")
 
     _ingest_corpus()
 

@@ -5,7 +5,8 @@
 # table for EVAL_USER_ID so the ingestion step re-runs without dedup skips.
 #
 # Usage:
-#     ./backend/eval/run_local.sh              # ingest + score + write report
+#     ./backend/eval/run_local.sh              # full eval, write report
+#     ./backend/eval/run_local.sh --quick      # 9-question curated subset (~$0.30, ~1 min)
 #     ./backend/eval/run_local.sh --gate       # also compare to baseline.json
 #     ./backend/eval/run_local.sh --capture    # capture this run as new baseline
 
@@ -15,10 +16,12 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 EVAL_USER_ID="00000000-0000-0000-0000-000000000001"
 
 GATE=""
+QUICK=""
 CAPTURE=""
 for arg in "$@"; do
     case "$arg" in
         --gate)    GATE="--gate" ;;
+        --quick)   QUICK="--quick" ;;
         --capture) CAPTURE=1 ;;
         *)         echo "unknown flag: $arg" >&2; exit 2 ;;
     esac
@@ -52,7 +55,7 @@ psql "$DB_URL" -c "DELETE FROM public.documents WHERE user_id = '$EVAL_USER_ID';
 # 6. Run the eval
 export SUPABASE_URL SUPABASE_SERVICE_KEY
 cd backend
-uv run python -m eval.runner $GATE
+uv run python -m eval.runner $QUICK $GATE
 
 # 7. Optionally capture this run as the new baseline
 if [[ -n "$CAPTURE" ]]; then
