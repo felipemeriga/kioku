@@ -13,7 +13,9 @@ Run with the CI gate (compares aggregates to baseline.json):
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
+import math
 import sys
 import time
 from datetime import datetime
@@ -24,6 +26,7 @@ import yaml
 
 from eval.ir_metrics import mrr, ndcg_at_k, recall_at_k
 from services.embeddings import embed_query
+from services.evaluation import VoyageEmbeddings, _get_ragas_llm, _run_generation
 from services.ingestion import ingest_document
 from services.metrics import collect_request
 from services.search import search_documents
@@ -159,7 +162,10 @@ def _write_report(report: dict) -> Path:
 
 
 def _check_gate(report: dict) -> bool:
-    """Return True if the report passes the baseline gate, False otherwise."""
+    """Return True if the report passes the baseline gate.
+
+    Hard-gates on IR metrics; warns on RAGAS deltas without failing.
+    """
     if not BASELINE_PATH.exists():
         print("[eval] no baseline.json yet — gate bypassed (first run).")
         return True
@@ -169,22 +175,99 @@ def _check_gate(report: dict) -> bool:
     all_pass = True
     for key, spec in thresholds.items():
         section, metric = key.split(".", 1)
-        if section != "ir":
-            continue  # RAGAS is soft-gate, handled separately in Task 12
-        actual = report["aggregate"]["ir"].get(metric)
+        actual_section = report["aggregate"].get(section) or {}
+        actual = actual_section.get(metric)
         if actual is None:
             print(f"[eval]   {key}: missing in report — FAIL")
-            all_pass = False
+            if section == "ir":
+                all_pass = False
             continue
         floor = spec["min"] - spec["tolerance"]
         ok = actual >= floor
-        sym = "PASS" if ok else "FAIL"
+        if section == "ir":
+            sym = "PASS" if ok else "FAIL"
+        else:
+            sym = "OK" if ok else "WARN"
+        soft_tag = " (soft)" if section == "ragas" else ""
         print(
-            f"[eval]   [{sym}] {key}: actual={actual:.4f} min={spec['min']:.4f} floor={floor:.4f}"
+            f"[eval]   [{sym}] {key}{soft_tag}: actual={actual:.4f} "
+            f"min={spec['min']:.4f} floor={floor:.4f}"
         )
-        if not ok:
+        if not ok and section == "ir":
             all_pass = False
     return all_pass
+
+
+def _run_ragas(per_question: list[dict], questions: list[dict]) -> dict:
+    """Run RAGAS on questions that have at least one retrieved context.
+
+    Re-runs retrieval per question to capture the actual content text (we only
+    kept IDs in per_question). Marginal extra cost is fine for eval.
+    """
+    from ragas import EvaluationDataset, SingleTurnSample, evaluate
+    from ragas.metrics import (
+        AnswerRelevancy,
+        ContextPrecision,
+        ContextRecall,
+        Faithfulness,
+    )
+
+    # Pick the "full" mode results for RAGAS — fast mode is the same retrieval
+    # path minus query expansion; scoring both doubles cost without much signal.
+    full_results = {q["id"]: q for q in per_question if q["mode"] == "full"}
+    q_by_id = {q["id"]: q for q in questions}
+
+    samples = []
+    for qid in full_results:
+        q = q_by_id[qid]
+        embedding = embed_query(q["question"])
+        results = search_documents(
+            query_embedding=embedding,
+            query_text=q["question"],
+            user_id=EVAL_USER_ID,
+            fast_mode=False,
+        )
+        contexts = [r["content"] for r in results]
+        if not contexts:
+            continue
+        response = _run_generation(q["question"], contexts)
+        sample = SingleTurnSample(
+            user_input=q["question"],
+            response=response,
+            retrieved_contexts=contexts,
+            reference=q["ground_truth_answer"],
+        )
+        samples.append(sample)
+
+    if not samples:
+        return {}
+
+    dataset = EvaluationDataset(samples=samples)
+    metrics = [Faithfulness(), AnswerRelevancy(), ContextPrecision(), ContextRecall()]
+
+    def _run_evaluate():
+        asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return evaluate(
+                dataset=dataset,
+                metrics=metrics,
+                llm=_get_ragas_llm(),
+                embeddings=VoyageEmbeddings(),
+            )
+        finally:
+            loop.close()
+
+    result = _run_evaluate()
+    raw = result._repr_dict
+
+    def _sanitize(v):
+        if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+            return None
+        return v
+
+    return {k: _sanitize(v) for k, v in raw.items()}
 
 
 def main() -> int:
@@ -205,10 +288,15 @@ def main() -> int:
             print(f"[eval] scoring q={q['id']} mode={mode}...")
             per_question.append(_score_question(q, mode))
 
+    aggregate = _aggregate(per_question)
+    print("[eval] running RAGAS...")
+    ragas_scores = _run_ragas(per_question, questions)
+    aggregate["ragas"] = ragas_scores
+
     report = {
         "git_sha": _git_sha(),
         "timestamp": datetime.utcnow().isoformat() + "Z",
-        "aggregate": _aggregate(per_question),
+        "aggregate": aggregate,
         "per_question": per_question,
     }
 
