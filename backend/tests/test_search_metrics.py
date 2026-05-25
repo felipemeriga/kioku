@@ -57,7 +57,7 @@ class TestSearchMetrics(unittest.TestCase):
         self.assertIn("rrf_fusion", stage_names)
 
         # query_expansion records n_variants and rewrite_changed_text
-        qx = dict(m._stages)["query_expansion"]
+        qx = next(kvs for stage, kvs in m._stages if stage == "query_expansion")
         self.assertEqual(qx["n_variants"], 4)  # rewritten + 3 multi
         self.assertTrue(qx["rewrite_changed_text"])
 

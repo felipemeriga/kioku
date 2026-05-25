@@ -191,9 +191,7 @@ def search_documents(
                     query_embedding, query_text, user_id, fetch_k, topic, keyword, root_folder_id
                 )
 
-            _record_search_metrics(
-                [vector_results], [keyword_results], rewrite_changed=False, n_variants=1
-            )
+            _record_search_metrics([vector_results], [keyword_results])
 
             if not vector_results and not keyword_results:
                 return []
@@ -284,8 +282,6 @@ def search_documents(
         _record_search_metrics(
             per_variant_vec,
             per_variant_kw,
-            rewrite_changed=rewrite_changed,
-            n_variants=len(variant_specs),
         )
 
         # Deduplicate by document id (keep first occurrence)
@@ -417,8 +413,6 @@ def _expand_with_neighbors(results: list[dict]) -> list[dict]:
 def _record_search_metrics(
     per_variant_vec: list[list[dict]],
     per_variant_kw: list[list[dict]],
-    rewrite_changed: bool,
-    n_variants: int,
 ) -> None:
     """Record per-stage metric snapshots after vector + keyword searches complete."""
     vec_counts = [len(v) for v in per_variant_vec]
@@ -445,13 +439,13 @@ def _record_search_metrics(
         unique=len(unique_kw_ids),
     )
 
-    if unique_vec_ids and unique_kw_ids:
+    union_size = len(unique_vec_ids | unique_kw_ids)
+    if union_size:
         overlap = len(unique_vec_ids & unique_kw_ids)
-        denom = len(unique_vec_ids | unique_kw_ids)
-        overlap_pct = round(100 * overlap / denom) if denom else 0
+        overlap_pct = round(100 * overlap / union_size) if union_size else 0
         record(
             "rrf_fusion",
             n_in=len(unique_vec_ids) + len(unique_kw_ids),
-            n_out=denom,
+            n_out=union_size,
             overlap_pct=overlap_pct,
         )
