@@ -7,6 +7,7 @@ from langsmith import traceable
 
 from db.client import get_supabase
 from services.embeddings import embed_query
+from services.metrics import record, submit_with_context
 from services.query import generate_multi_queries, rewrite_query
 from services.rerank import rerank
 from services.timing import stage
@@ -103,7 +104,8 @@ def _run_hybrid_search(
     do not depend on each other, so we issue them concurrently and join.
     """
     with ThreadPoolExecutor(max_workers=2) as pool:
-        vec_future = pool.submit(
+        vec_future = submit_with_context(
+            pool,
             _vector_search,
             query_embedding,
             user_id,
@@ -113,7 +115,8 @@ def _run_hybrid_search(
             root_folder_id,
         )
         kw_future = (
-            pool.submit(
+            submit_with_context(
+                pool,
                 _keyword_search,
                 query_text,
                 user_id,
@@ -188,6 +191,10 @@ def search_documents(
                     query_embedding, query_text, user_id, fetch_k, topic, keyword, root_folder_id
                 )
 
+            _record_search_metrics(
+                [vector_results], [keyword_results], rewrite_changed=False, n_variants=1
+            )
+
             if not vector_results and not keyword_results:
                 return []
 
@@ -212,8 +219,8 @@ def search_documents(
         if query_text:
             with stage("phase1: rewrite + multi_query (parallel)", indent=3):
                 with ThreadPoolExecutor(max_workers=2) as pool:
-                    rewrite_future = pool.submit(rewrite_query, query_text)
-                    multi_future = pool.submit(generate_multi_queries, query_text)
+                    rewrite_future = submit_with_context(pool, rewrite_query, query_text)
+                    multi_future = submit_with_context(pool, generate_multi_queries, query_text)
                     try:
                         rewritten = rewrite_future.result()
                     except Exception:
@@ -225,6 +232,13 @@ def search_documents(
                         logger.warning("generate_multi_queries failed", exc_info=True)
                         variants = []
 
+        rewrite_changed = rewritten != query_text
+        record(
+            "query_expansion",
+            n_variants=1 + len(variants),
+            rewrite_changed_text=rewrite_changed,
+        )
+
         # Variant 0 reuses the precomputed embedding only if rewriting didn't
         # change the text; otherwise it must be re-embedded.
         variant_specs: list[tuple[str, list[float] | None]] = [
@@ -234,12 +248,15 @@ def search_documents(
             variant_specs.append((v, None))
 
         # Phase 2: run all variants in parallel.
+        per_variant_vec: list[list[dict]] = []
+        per_variant_kw: list[list[dict]] = []
         all_vector: list[dict] = []
         all_keyword: list[dict] = []
         with stage(f"phase2: {len(variant_specs)} variants (parallel)", indent=3):
             with ThreadPoolExecutor(max_workers=max(len(variant_specs), 1)) as pool:
                 futures = [
-                    pool.submit(
+                    submit_with_context(
+                        pool,
                         _embed_and_search,
                         vt,
                         user_id,
@@ -256,9 +273,20 @@ def search_documents(
                         vec, kw = f.result()
                     except Exception:
                         logger.warning("Variant search failed", exc_info=True)
+                        per_variant_vec.append([])
+                        per_variant_kw.append([])
                         continue
+                    per_variant_vec.append(vec)
+                    per_variant_kw.append(kw)
                     all_vector.extend(vec)
                     all_keyword.extend(kw)
+
+        _record_search_metrics(
+            per_variant_vec,
+            per_variant_kw,
+            rewrite_changed=rewrite_changed,
+            n_variants=len(variant_specs),
+        )
 
         # Deduplicate by document id (keep first occurrence)
         seen: set[str] = set()
@@ -314,6 +342,9 @@ def _expand_with_neighbors(results: list[dict]) -> list[dict]:
         return []
 
     sb = get_supabase()
+
+    # Count missing hashes BEFORE backfill so the metric reflects the initial state.
+    n_missing_hash_initial = sum(1 for d in results if not d.get("content_hash"))
 
     # Backfill content_hash on any row that's missing it (single batched query).
     missing_ids = [doc["id"] for doc in results if not doc.get("content_hash") and doc.get("id")]
@@ -371,4 +402,56 @@ def _expand_with_neighbors(results: list[dict]) -> list[dict]:
 
     # Fan out the per-result neighbor queries in parallel — they're independent.
     with ThreadPoolExecutor(max_workers=max(len(results), 1)) as pool:
-        return list(pool.map(_fetch_neighbors, results))
+        expanded = list(pool.map(_fetch_neighbors, results))
+
+    n_expanded = sum(1 for d in expanded if d.get("expanded"))
+    record(
+        "neighbor_expansion",
+        n_results=len(results),
+        n_expanded=n_expanded,
+        n_skipped_missing_hash=n_missing_hash_initial,
+    )
+    return expanded
+
+
+def _record_search_metrics(
+    per_variant_vec: list[list[dict]],
+    per_variant_kw: list[list[dict]],
+    rewrite_changed: bool,
+    n_variants: int,
+) -> None:
+    """Record per-stage metric snapshots after vector + keyword searches complete."""
+    vec_counts = [len(v) for v in per_variant_vec]
+    kw_counts = [len(k) for k in per_variant_kw]
+
+    flat_vec = [d for batch in per_variant_vec for d in batch]
+    flat_kw = [d for batch in per_variant_kw for d in batch]
+
+    unique_vec_ids = {d["id"] for d in flat_vec}
+    unique_kw_ids = {d["id"] for d in flat_kw}
+
+    sims = [d.get("similarity") for d in flat_vec if d.get("similarity") is not None]
+    avg_sim = round(sum(sims) / len(sims), 3) if sims else None
+
+    record(
+        "vector_search",
+        per_variant=vec_counts,
+        unique=len(unique_vec_ids),
+        avg_sim=avg_sim,
+    )
+    record(
+        "keyword_search",
+        per_variant=kw_counts,
+        unique=len(unique_kw_ids),
+    )
+
+    if unique_vec_ids and unique_kw_ids:
+        overlap = len(unique_vec_ids & unique_kw_ids)
+        denom = len(unique_vec_ids | unique_kw_ids)
+        overlap_pct = round(100 * overlap / denom) if denom else 0
+        record(
+            "rrf_fusion",
+            n_in=len(unique_vec_ids) + len(unique_kw_ids),
+            n_out=denom,
+            overlap_pct=overlap_pct,
+        )
