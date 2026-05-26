@@ -64,7 +64,12 @@ def _get_ragas_llm():
         # params is a pydantic model; convert to dict and drop top_p
         d = dict(params) if not isinstance(params, dict) else params
         d.pop("top_p", None)
-        d["max_tokens"] = 4096
+        # RAGAS judge outputs (claim lists, hypothetical questions, yes/no
+        # verdicts) are short. 4096 let Haiku ramble; 512 is plenty and
+        # cuts per-call latency by 5-10x. Doesn't change what's measured —
+        # the metric values come from short structured outputs that fit
+        # well within 512 tokens.
+        d["max_tokens"] = 512
         return d
 
     llm._map_provider_params = _anthropic_params
