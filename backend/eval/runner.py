@@ -31,6 +31,15 @@ from dotenv import load_dotenv
 # on the command line to point at the local stack instead of prod.
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
+# LangSmith tracing wraps every LLM call with a roundtrip to api.smith.langchain.com,
+# adding ~1-2s per call. Eval is synthetic — tracing it pollutes the prod project
+# and slows runs by 5-15 min. Disable explicitly. Override with LANGCHAIN_TRACING_V2=true
+# for a single run if you need to debug a specific failure.
+import os as _os  # noqa: E402
+
+_os.environ.setdefault("LANGCHAIN_TRACING_V2", "false")
+_os.environ.setdefault("LANGSMITH_TRACING", "false")
+
 
 def _guard_against_prod() -> None:
     """Refuse to run if SUPABASE_URL points at a remote (prod-looking) host.
@@ -56,11 +65,13 @@ def _guard_against_prod() -> None:
 
 _guard_against_prod()
 
+from concurrent.futures import ThreadPoolExecutor  # noqa: E402
+
 from eval.ir_metrics import mrr, ndcg_at_k, recall_at_k  # noqa: E402
 from services.embeddings import embed_query  # noqa: E402
 from services.evaluation import VoyageEmbeddings, _get_ragas_llm  # noqa: E402
 from services.ingestion import ingest_document  # noqa: E402
-from services.metrics import collect_request  # noqa: E402
+from services.metrics import collect_request, submit_with_context  # noqa: E402
 from services.rag import answer_question  # noqa: E402
 from services.search import search_documents  # noqa: E402
 
@@ -374,11 +385,18 @@ def main() -> int:
 
     _ingest_corpus()
 
-    per_question = []
-    for q in questions:
-        for mode in ("full", "fast"):
-            print(f"[eval] scoring q={q['id']} mode={mode}...")
-            per_question.append(_score_question(q, mode))
+    # Build the list of (question, mode) jobs upfront
+    jobs = [(q, mode) for q in questions for mode in ("full", "fast")]
+    print(f"[eval] scoring {len(jobs)} (question × mode) jobs in parallel...")
+
+    with ThreadPoolExecutor(max_workers=10) as pool:
+        futures = [submit_with_context(pool, _score_question, q, mode) for q, mode in jobs]
+        per_question = []
+        for f in futures:
+            try:
+                per_question.append(f.result())
+            except Exception as e:
+                print(f"[eval] scoring job failed: {e}")
 
     aggregate = _aggregate(per_question)
     print("[eval] running RAGAS...")

@@ -54,6 +54,8 @@ psql "$DB_URL" -c "DELETE FROM public.documents WHERE user_id = '$EVAL_USER_ID';
 
 # 6. Run the eval
 export SUPABASE_URL SUPABASE_SERVICE_KEY
+export LANGCHAIN_TRACING_V2="${LANGCHAIN_TRACING_V2:-false}"
+export LANGSMITH_TRACING="${LANGSMITH_TRACING:-false}"
 cd backend
 uv run python -m eval.runner $QUICK $GATE
 

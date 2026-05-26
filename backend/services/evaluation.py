@@ -10,7 +10,6 @@ import voyageai
 from langsmith import traceable
 from ragas import EvaluationDataset, SingleTurnSample, evaluate
 from ragas.embeddings import BaseRagasEmbeddings
-from ragas.llms import llm_factory
 from ragas.metrics import (
     AnswerRelevancy,
     ContextPrecision,
@@ -19,7 +18,6 @@ from ragas.metrics import (
     LLMContextPrecisionWithoutReference,
 )
 
-from services.llm import MODEL_FOR_TASK, Task, get_client
 from services.rag import answer_question
 
 _executor = ThreadPoolExecutor(max_workers=1)
@@ -49,31 +47,23 @@ class VoyageEmbeddings(BaseRagasEmbeddings):
 
 
 def _get_ragas_llm():
-    """Create a RAGAS-compatible LLM using Claude.
+    """Create a RAGAS-compatible LLM using OpenAI gpt-4o-mini.
 
-    Uses the shared, LangSmith-wrapped singleton from services.llm so RAGAS
-    judge calls appear in tracing alongside the rest of the pipeline.
+    Reasons we don't use the prod Anthropic singleton here:
+      - Anthropic doesn't support n>1 generations; RAGAS's AnswerRelevancy
+        requests 3, falls back to 3 sequential calls (~3x latency on that metric).
+      - OpenAI gpt-4o-mini is ~3-5x faster per call than Haiku for short
+        judge outputs, and has higher rate limits so RAGAS's internal
+        concurrency (16 workers default) is actually utilized.
+    Trade-off: judge model differs from the model under test (Haiku), so
+    baseline scores aren't directly comparable to runs with the previous
+    Anthropic-judged baseline. Capture a fresh baseline after this change.
     """
-    llm = llm_factory(MODEL_FOR_TASK[Task.EVAL_JUDGE], provider="anthropic", client=get_client())
-    # Claude API rejects requests with both temperature and top_p set.
-    # RAGAS defaults both; patch _map_provider_params to exclude top_p.
-    _original_map = llm._map_provider_params
+    import openai
+    from ragas.llms import llm_factory
 
-    def _anthropic_params():
-        params = _original_map()
-        # params is a pydantic model; convert to dict and drop top_p
-        d = dict(params) if not isinstance(params, dict) else params
-        d.pop("top_p", None)
-        # RAGAS judge outputs (claim lists, hypothetical questions, yes/no
-        # verdicts) are short. 4096 let Haiku ramble; 512 is plenty and
-        # cuts per-call latency by 5-10x. Doesn't change what's measured —
-        # the metric values come from short structured outputs that fit
-        # well within 512 tokens.
-        d["max_tokens"] = 512
-        return d
-
-    llm._map_provider_params = _anthropic_params
-    return llm
+    client = openai.OpenAI()
+    return llm_factory("gpt-4o-mini", provider="openai", client=client)
 
 
 @traceable(name="evaluate_rag_pipeline", run_type="chain")
