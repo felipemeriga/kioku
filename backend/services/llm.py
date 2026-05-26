@@ -16,6 +16,7 @@ class Task(str, Enum):
     MULTI_QUERY = "multi_query"
     IMAGE_OCR = "image_ocr"
     TEXT_TO_SQL = "text_to_sql"
+    EVAL_JUDGE = "eval_judge"
     RAG_AGENT = "rag_agent"
 
 
@@ -25,6 +26,7 @@ MODEL_FOR_TASK: dict[Task, str] = {
     Task.MULTI_QUERY: "claude-haiku-4-5-20251001",
     Task.IMAGE_OCR: "claude-haiku-4-5-20251001",
     Task.TEXT_TO_SQL: "claude-haiku-4-5-20251001",
+    Task.EVAL_JUDGE: "claude-haiku-4-5-20251001",
     Task.RAG_AGENT: "claude-haiku-4-5-20251001",
 }
 

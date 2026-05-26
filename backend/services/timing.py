@@ -17,6 +17,8 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 
+from services.metrics import record
+
 
 def _fmt(elapsed_s: float) -> str:
     return f"{elapsed_s * 1000:.0f}ms"
@@ -24,13 +26,22 @@ def _fmt(elapsed_s: float) -> str:
 
 @contextmanager
 def stage(name: str, indent: int = 1) -> Iterator[None]:
-    """Time a span and print its wall-clock duration on exit."""
+    """Time a span, print its wall-clock duration on exit, and record it.
+
+    The elapsed_ms gets pushed into the active metrics collector (if any)
+    under key `timing.{name}`. The eval harness aggregates this into
+    `proxy_metrics_means` so the report shows per-stage means like
+    `timing.rerank.elapsed_ms: 480` — visible bottleneck per stage,
+    across all questions, without needing to read stderr.
+    """
     t0 = time.monotonic()
     try:
         yield
     finally:
+        elapsed_s = time.monotonic() - t0
         prefix = "  " * indent
-        print(f"[perf] {prefix}{name}: {_fmt(time.monotonic() - t0)}", file=sys.stderr, flush=True)
+        print(f"[perf] {prefix}{name}: {_fmt(elapsed_s)}", file=sys.stderr, flush=True)
+        record(f"timing.{name}", elapsed_ms=int(elapsed_s * 1000))
 
 
 @contextmanager

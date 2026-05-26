@@ -18,6 +18,7 @@ from ragas.metrics import (
     LLMContextPrecisionWithoutReference,
 )
 
+from services.llm import MODEL_FOR_TASK, Task, get_client
 from services.rag import answer_question
 
 _executor = ThreadPoolExecutor(max_workers=1)
@@ -47,23 +48,34 @@ class VoyageEmbeddings(BaseRagasEmbeddings):
 
 
 def _get_ragas_llm():
-    """Create a RAGAS-compatible LLM using OpenAI gpt-4o-mini.
+    """Create a RAGAS-compatible LLM using Claude Haiku (the prod singleton).
 
-    Reasons we don't use the prod Anthropic singleton here:
-      - Anthropic doesn't support n>1 generations; RAGAS's AnswerRelevancy
-        requests 3, falls back to 3 sequential calls (~3x latency on that metric).
-      - OpenAI gpt-4o-mini is ~3-5x faster per call than Haiku for short
-        judge outputs, and has higher rate limits so RAGAS's internal
-        concurrency (16 workers default) is actually utilized.
-    Trade-off: judge model differs from the model under test (Haiku), so
-    baseline scores aren't directly comparable to runs with the previous
-    Anthropic-judged baseline. Capture a fresh baseline after this change.
+    We tried OpenAI gpt-4o-mini as the judge; it didn't materially speed up
+    RAGAS (the cost is dominated by per-claim verification calls regardless
+    of model). Sticking with Haiku is simpler — one vendor, no extra API key
+    in CI for normal flow, judge matches the model under test.
+
+    RAGAS is opt-in via runner.py's `--ragas` flag; speed is no longer a
+    primary concern for the judge since RAGAS isn't in the per-PR gate.
     """
-    import openai
     from ragas.llms import llm_factory
 
-    client = openai.OpenAI()
-    return llm_factory("gpt-4o-mini", provider="openai", client=client)
+    llm = llm_factory(MODEL_FOR_TASK[Task.EVAL_JUDGE], provider="anthropic", client=get_client())
+    # Claude API rejects requests with both temperature and top_p set;
+    # RAGAS sets both. Patch _map_provider_params to drop top_p. Also cap
+    # max_tokens to 512 — judge outputs are short structured payloads
+    # (claim lists, yes/no verdicts), and lower cap reduces variance.
+    _original_map = llm._map_provider_params
+
+    def _anthropic_params():
+        params = _original_map()
+        d = dict(params) if not isinstance(params, dict) else params
+        d.pop("top_p", None)
+        d["max_tokens"] = 512
+        return d
+
+    llm._map_provider_params = _anthropic_params
+    return llm
 
 
 @traceable(name="evaluate_rag_pipeline", run_type="chain")
