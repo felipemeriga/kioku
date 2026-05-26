@@ -97,5 +97,6 @@ class TestComplete(unittest.TestCase):
         call_kwargs = mock_client.messages.create.call_args.kwargs
         self.assertNotIn("cache_control", call_kwargs["tools"][0])
 
+
 if __name__ == "__main__":
     unittest.main()
