@@ -246,9 +246,15 @@ def _check_gate(report: dict) -> bool:
         actual_section = report["aggregate"].get(section) or {}
         actual = actual_section.get(metric)
         if actual is None:
-            print(f"[eval]   {key}: missing in report — FAIL")
             if section == "ir":
+                # IR metrics are hard-gated and should always be present.
+                print(f"[eval]   [FAIL] {key}: missing in report")
                 all_pass = False
+            else:
+                # Non-IR thresholds (RAGAS) only apply when --ragas was used.
+                # Skip rather than fail — baseline can legitimately carry
+                # RAGAS floors from a prior diagnostic run.
+                print(f"[eval]   [SKIP] {key}: not in this run (use --ragas)")
             continue
         floor = spec["min"] - spec["tolerance"]
         ok = actual >= floor
