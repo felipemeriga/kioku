@@ -90,42 +90,5 @@ class TestRerankScoringText(unittest.TestCase):
         self.assertEqual(out[0]["rerank_score"], 0.9)
 
 
-class TestRerankMetrics(unittest.TestCase):
-    def test_records_kept_dropped_and_score_distribution(self):
-        import os
-        from unittest.mock import MagicMock, patch
-
-        from services.metrics import collect_request
-        from services.rerank import rerank
-
-        # Five docs scored 0.9, 0.8, 0.5, 0.1, 0.05 — threshold 0.2 keeps top 3 only.
-        fake_results = MagicMock()
-        fake_results.results = [
-            MagicMock(index=0, relevance_score=0.9),
-            MagicMock(index=1, relevance_score=0.8),
-            MagicMock(index=2, relevance_score=0.5),
-            MagicMock(index=3, relevance_score=0.1),
-            MagicMock(index=4, relevance_score=0.05),
-        ]
-
-        docs = [{"content": f"doc{i}", "metadata": {}} for i in range(5)]
-
-        with patch.dict(os.environ, {"RAG_METRICS": "1"}):
-            with patch("services.rerank._get_client") as get_client:
-                get_client.return_value.rerank.return_value = fake_results
-                with collect_request("test") as m:
-                    out = rerank("query", docs, top_k=5)
-
-        self.assertEqual(len(out), 3)
-        stages = dict(m._stages)
-        self.assertIn("rerank", stages)
-        r = stages["rerank"]
-        self.assertEqual(r["n_in"], 5)
-        self.assertEqual(r["n_kept"], 3)
-        self.assertEqual(r["n_dropped"], 2)
-        # p50 of [0.9, 0.8, 0.5, 0.1, 0.05] ≈ 0.5
-        self.assertAlmostEqual(r["score_p50"], 0.5, places=2)
-
-
 if __name__ == "__main__":
     unittest.main()

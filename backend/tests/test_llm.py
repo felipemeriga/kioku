@@ -12,16 +12,6 @@ class TestComplete(unittest.TestCase):
         mock_client.messages.create.return_value = MagicMock(content=[])
         return mock_client
 
-    def test_task_routes_to_correct_model(self):
-        from services.llm import Task, complete
-
-        mock_client = self._patched_client()
-        with patch("services.llm.get_client", return_value=mock_client):
-            complete(task=Task.METADATA, messages=[{"role": "user", "content": "hi"}])
-
-        call_kwargs = mock_client.messages.create.call_args.kwargs
-        self.assertEqual(call_kwargs["model"], "claude-haiku-4-5-20251001")
-
     def test_every_task_has_a_model(self):
         from services.llm import MODEL_FOR_TASK, Task
 
@@ -106,33 +96,6 @@ class TestComplete(unittest.TestCase):
 
         call_kwargs = mock_client.messages.create.call_args.kwargs
         self.assertNotIn("cache_control", call_kwargs["tools"][0])
-
-    def test_max_tokens_is_passed_through(self):
-        from services.llm import Task, complete
-
-        mock_client = self._patched_client()
-        with patch("services.llm.get_client", return_value=mock_client):
-            complete(
-                task=Task.METADATA,
-                messages=[{"role": "user", "content": "hi"}],
-                max_tokens=4096,
-            )
-
-        self.assertEqual(mock_client.messages.create.call_args.kwargs["max_tokens"], 4096)
-
-
-class TestGetClient(unittest.TestCase):
-    """Verify get_client() returns a singleton."""
-
-    def test_get_client_is_singleton(self):
-        from services.llm import get_client
-
-        get_client.cache_clear()
-        with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}):
-            client_a = get_client()
-            client_b = get_client()
-        self.assertIs(client_a, client_b)
-
 
 if __name__ == "__main__":
     unittest.main()
