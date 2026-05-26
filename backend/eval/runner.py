@@ -58,9 +58,10 @@ _guard_against_prod()
 
 from eval.ir_metrics import mrr, ndcg_at_k, recall_at_k  # noqa: E402
 from services.embeddings import embed_query  # noqa: E402
-from services.evaluation import VoyageEmbeddings, _get_ragas_llm, _run_generation  # noqa: E402
+from services.evaluation import VoyageEmbeddings, _get_ragas_llm  # noqa: E402
 from services.ingestion import ingest_document  # noqa: E402
 from services.metrics import collect_request  # noqa: E402
+from services.rag import answer_question  # noqa: E402
 from services.search import search_documents  # noqa: E402
 
 EVAL_USER_ID = "00000000-0000-0000-0000-000000000001"
@@ -278,17 +279,11 @@ def _run_ragas(per_question: list[dict], questions: list[dict]) -> dict:
     sample_responses: dict[str, str] = {}
     for qid in full_results:
         q = q_by_id[qid]
-        embedding = embed_query(q["question"])
-        results = search_documents(
-            query_embedding=embedding,
-            query_text=q["question"],
-            user_id=EVAL_USER_ID,
-            fast_mode=False,
-        )
-        contexts = [r["content"] for r in results]
+        result = answer_question(q["question"], EVAL_USER_ID)
+        contexts = result["retrieved_chunks"]
+        response = result["response"]
         if not contexts:
             continue
-        response = _run_generation(q["question"], contexts)
         sample = SingleTurnSample(
             user_input=q["question"],
             response=response,

@@ -19,9 +19,8 @@ from ragas.metrics import (
     LLMContextPrecisionWithoutReference,
 )
 
-from services.embeddings import embed_query
-from services.llm import MODEL_FOR_TASK, Task, complete, get_client
-from services.search import search_documents
+from services.llm import MODEL_FOR_TASK, Task, get_client
+from services.rag import answer_question
 
 _executor = ThreadPoolExecutor(max_workers=1)
 
@@ -72,38 +71,6 @@ def _get_ragas_llm():
     return llm
 
 
-def _run_retrieval(query: str, user_id: str | None, root_folder_id: str | None) -> list[str]:
-    """Run the full search pipeline and return retrieved context strings."""
-    embedding = embed_query(query)
-    results = search_documents(
-        query_embedding=embedding,
-        query_text=query,
-        user_id=user_id,
-        root_folder_id=root_folder_id,
-    )
-    return [r["content"] for r in results]
-
-
-def _run_generation(query: str, contexts: list[str]) -> str:
-    """Generate an answer from retrieved contexts using Claude."""
-    context_text = "\n\n---\n\n".join(contexts)
-    response = complete(
-        task=Task.EVAL_JUDGE,
-        max_tokens=512,
-        messages=[
-            {
-                "role": "user",
-                "content": (
-                    f"Answer the question based on the following context.\n\n"
-                    f"Context:\n{context_text}\n\n"
-                    f"Question: {query}"
-                ),
-            }
-        ],
-    )
-    return response.content[0].text.strip()
-
-
 @traceable(name="evaluate_rag_pipeline", run_type="chain")
 async def evaluate_rag_pipeline(
     test_questions: list[dict],
@@ -125,14 +92,28 @@ async def evaluate_rag_pipeline(
     llm = _get_ragas_llm()
     embeddings = VoyageEmbeddings()
 
+    if root_folder_id:
+        logger.warning(
+            "evaluate_rag_pipeline received root_folder_id=%r but the agent path "
+            "doesn't propagate folder scope yet — running against all user docs. "
+            "Folder-scoped eval is a known limitation; track separately.",
+            root_folder_id,
+        )
+
     samples = []
     for item in test_questions:
         question = item["question"]
         ground_truth = item.get("ground_truth")
 
-        # Run the full pipeline: retrieve + generate
-        contexts = _run_retrieval(question, user_id, root_folder_id)
-        response = _run_generation(question, contexts) if contexts else "No relevant context found."
+        # Run the REAL prod agent loop (same path as the chat UI).
+        result = answer_question(
+            user_message=question,
+            user_id=user_id,
+        )
+        response = result["response"]
+        contexts = result["retrieved_chunks"]
+        if not contexts:
+            response = response or "No relevant context found."
 
         sample = SingleTurnSample(
             user_input=question,
