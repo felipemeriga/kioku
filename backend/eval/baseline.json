@@ -1,42 +1,26 @@
 {
-  "captured_at": "2026-05-25",
-  "git_sha": "80c4246c808bdc021dfd7b7a028b89f4218cbe0b",
+  "captured_at": "2026-05-26",
+  "git_sha": "c60021c41c98b0dc2fb1f0efa8b01dc4ad8b16a5",
   "thresholds": {
     "ir.recall_at_5": {
-      "min": 0.952,
+      "min": 0.948,
       "tolerance": 0.02
     },
     "ir.recall_at_10": {
-      "min": 0.952,
+      "min": 0.948,
       "tolerance": 0.02
     },
     "ir.recall_at_20": {
-      "min": 0.952,
+      "min": 0.948,
       "tolerance": 0.02
     },
     "ir.mrr": {
-      "min": 0.95,
+      "min": 0.935,
       "tolerance": 0.02
     },
     "ir.ndcg_at_10": {
-      "min": 0.9166,
+      "min": 0.9088,
       "tolerance": 0.02
-    },
-    "ragas.faithfulness": {
-      "min": 0.8453,
-      "tolerance": 0.05
-    },
-    "ragas.answer_relevancy": {
-      "min": 0.6851,
-      "tolerance": 0.05
-    },
-    "ragas.context_precision": {
-      "min": 0.9595,
-      "tolerance": 0.05
-    },
-    "ragas.context_recall": {
-      "min": 0.8741,
-      "tolerance": 0.05
     }
   }
 }

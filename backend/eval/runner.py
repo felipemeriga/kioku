@@ -370,8 +370,18 @@ def main() -> int:
         action="store_true",
         help=(
             "Run only questions tagged `quick: true` in golden_set.yaml "
-            "(curated 1-per-cell subset for fast prompt-iteration loops). "
-            "RAGAS is noisier with the smaller N — use for trend, not for gating."
+            "(curated 1-per-cell subset for fast prompt-iteration loops)."
+        ),
+    )
+    parser.add_argument(
+        "--ragas",
+        action="store_true",
+        help=(
+            "Also run RAGAS metrics (faithfulness, answer_relevancy, "
+            "context_precision, context_recall). Slow (~hours on N=25) and "
+            "judge-model-dependent. Default is OFF: eval gates on IR metrics "
+            "only, which are deterministic and fast. Use --ragas for occasional "
+            "diagnostic runs."
         ),
     )
     args = parser.parse_args()
@@ -399,22 +409,24 @@ def main() -> int:
                 print(f"[eval] scoring job failed: {e}")
 
     aggregate = _aggregate(per_question)
-    print("[eval] running RAGAS...")
-    ragas_result = _run_ragas(per_question, questions)
-    aggregate["ragas"] = ragas_result.get("aggregate", {})
 
-    # Merge per-question RAGAS data (response + per-q scores) into per_question
-    # entries with mode='full' so diagnostic tooling can show "this answer for
-    # qNNN scored AR=0.X".
-    ragas_per_q = ragas_result.get("per_question", {})
-    for entry in per_question:
-        if entry["mode"] != "full":
-            continue
-        merged = ragas_per_q.get(entry["id"])
-        if not merged:
-            continue
-        entry["response"] = merged["response"]
-        entry["ragas_scores"] = merged["scores"]
+    if args.ragas:
+        print("[eval] running RAGAS (this can take a long time)...")
+        ragas_result = _run_ragas(per_question, questions)
+        aggregate["ragas"] = ragas_result.get("aggregate", {})
+
+        # Merge per-question RAGAS data (response + per-q scores) into
+        # per_question entries with mode='full' so diagnostic tooling can show
+        # "this answer for qNNN scored AR=0.X".
+        ragas_per_q = ragas_result.get("per_question", {})
+        for entry in per_question:
+            if entry["mode"] != "full":
+                continue
+            merged = ragas_per_q.get(entry["id"])
+            if not merged:
+                continue
+            entry["response"] = merged["response"]
+            entry["ragas_scores"] = merged["scores"]
 
     report = {
         "git_sha": _git_sha(),
