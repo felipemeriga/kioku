@@ -18,7 +18,6 @@
     - "sha256:d924db3bd14c860318bf8886f0186e83fc79a3f3a59b3122660be606ef97be00:chunk_0"
   difficulty: easy
   retrieval_type: factual
-  quick: true
 
 - id: q002
   question: "What is the default ranking algorithm in Elasticsearch?"
@@ -79,7 +78,6 @@
     - "sha256:6e788380c1a8450cd23b60dc08e52716e934f0d4fc205d9094c8c22caa8832d0:chunk_0"
   difficulty: easy
   retrieval_type: comparison
-  quick: true
 
 - id: q006
   question: "How does BM25 differ from TF-IDF in handling term frequency?"
@@ -117,7 +115,6 @@
     - "sha256:ccd43a8b62604a70ced2117351fefe44b1067c24de26c1a3e2220845ab1b51f8:chunk_0"
   difficulty: easy
   retrieval_type: multi_hop
-  quick: true
 
 # ---------------------------------------------------------------------------
 # MEDIUM / FACTUAL (3)
@@ -152,7 +149,6 @@
     - "sha256:ccd43a8b62604a70ced2117351fefe44b1067c24de26c1a3e2220845ab1b51f8:chunk_0"
   difficulty: medium
   retrieval_type: factual
-  quick: true
 
 - id: q010
   question: "What RAGAS metric requires a ground-truth reference answer, and how does it work?"
@@ -191,7 +187,6 @@
     - "sha256:789e2f54f8fa1e1dcf705a9e0ea963e29d3e2be80ce1ea7bce6e35e8d194006c:chunk_0"
   difficulty: medium
   retrieval_type: comparison
-  quick: true
 
 - id: q012
   question: "How does FAISS differ from pgvector for production RAG systems?"
@@ -271,7 +266,6 @@
     - "sha256:789e2f54f8fa1e1dcf705a9e0ea963e29d3e2be80ce1ea7bce6e35e8d194006c:chunk_0"
   difficulty: medium
   retrieval_type: multi_hop
-  quick: true
 
 # ---------------------------------------------------------------------------
 # HARD / FACTUAL (2)
@@ -293,7 +287,6 @@
     - "sha256:3e868a17a9625f62c06caa138578d5fa0622a238b5e144d37747bac6a089778b:chunk_0"
   difficulty: hard
   retrieval_type: factual
-  quick: true
 
 - id: q017
   question: "Why does switching embedding models in a production vector store require a dual-model transition period?"
@@ -354,7 +347,6 @@
     - "sha256:ccd43a8b62604a70ced2117351fefe44b1067c24de26c1a3e2220845ab1b51f8:chunk_0"
   difficulty: hard
   retrieval_type: comparison
-  quick: true
 
 # ---------------------------------------------------------------------------
 # HARD / MULTI_HOP (1)
@@ -382,7 +374,6 @@
     - "sha256:be23e767f6b4c4aea095f5221f13d50c5c67373b3e1751ebad52e2a60ec59943:chunk_0"
   difficulty: hard
   retrieval_type: multi_hop
-  quick: true
 
 # ---------------------------------------------------------------------------
 # BONUS QUESTIONS — bringing total to 25

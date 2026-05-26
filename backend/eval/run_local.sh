@@ -5,8 +5,7 @@
 # table for EVAL_USER_ID so the ingestion step re-runs without dedup skips.
 #
 # Usage:
-#     ./backend/eval/run_local.sh              # IR-only full eval (~3-5 min)
-#     ./backend/eval/run_local.sh --quick      # IR-only, 9-question subset (~1 min)
+#     ./backend/eval/run_local.sh              # IR-only full eval (~100s)
 #     ./backend/eval/run_local.sh --ragas      # add RAGAS metrics (slow, hours)
 #     ./backend/eval/run_local.sh --gate       # also compare to baseline.json
 #     ./backend/eval/run_local.sh --capture    # capture this run as new baseline
@@ -17,13 +16,11 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 EVAL_USER_ID="00000000-0000-0000-0000-000000000001"
 
 GATE=""
-QUICK=""
 RAGAS=""
 CAPTURE=""
 for arg in "$@"; do
     case "$arg" in
         --gate)    GATE="--gate" ;;
-        --quick)   QUICK="--quick" ;;
         --ragas)   RAGAS="--ragas" ;;
         --capture) CAPTURE=1 ;;
         *)         echo "unknown flag: $arg" >&2; exit 2 ;;
@@ -60,7 +57,7 @@ export SUPABASE_URL SUPABASE_SERVICE_KEY
 export LANGCHAIN_TRACING_V2="${LANGCHAIN_TRACING_V2:-false}"
 export LANGSMITH_TRACING="${LANGSMITH_TRACING:-false}"
 cd backend
-uv run python -m eval.runner $QUICK $RAGAS $GATE
+uv run python -m eval.runner $RAGAS $GATE
 
 # 7. Optionally capture this run as the new baseline
 if [[ -n "$CAPTURE" ]]; then

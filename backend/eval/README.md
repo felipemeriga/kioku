@@ -12,17 +12,13 @@ judge-model-dependent.
 From the project root:
 
 ```bash
-./backend/eval/run_local.sh              # IR-only full eval (~3-5 min)
-./backend/eval/run_local.sh --quick      # IR-only, 9-question subset (~1 min)
+./backend/eval/run_local.sh              # IR-only full eval (~100s)
 ./backend/eval/run_local.sh --ragas      # add RAGAS metrics (slow, can be hours)
 ./backend/eval/run_local.sh --gate       # also assert against baseline.json
 ./backend/eval/run_local.sh --capture    # write baseline.json from this run
 ```
 
-Flags compose: `--quick --ragas`, `--gate --capture`, etc.
-
-`--quick` runs one curated question per (difficulty × retrieval_type) cell —
-9 questions total, full coverage of the matrix. Use for fast iteration cycles.
+Flags compose: `--gate --capture`, `--ragas --gate`, etc.
 
 `--ragas` runs RAGAS metrics in addition to IR. Each metric makes many LLM
 judge calls per question, scaling with answer richness. Expect tens of minutes
