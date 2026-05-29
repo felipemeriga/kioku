@@ -68,7 +68,10 @@ def answer_question(
         with stage(f"round {round_num + 1}: anthropic call"):
             response = complete(
                 task=Task.RAG_AGENT,
-                max_tokens=1024,
+                # 1024 truncated rich answers on comparison/multi-hop questions.
+                # Haiku supports up to 8192; 4096 is plenty for thorough answers
+                # without leaving the runaway-loop ceiling too open.
+                max_tokens=4096,
                 system=SYSTEM_PROMPT,
                 messages=messages,
                 tools=TOOL_DEFINITIONS,
