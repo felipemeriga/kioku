@@ -30,6 +30,26 @@ jobs:
       - name: Ruff format check
         run: uv run ruff format --check .
 
+  backend-tests:
+    name: Backend Unit Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: uv sync --frozen
+
+      - name: Pytest
+        run: uv run pytest tests/ -v
+
   frontend-lint:
     name: Frontend Lint & Typecheck
     runs-on: ubuntu-latest

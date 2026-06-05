@@ -1,0 +1,459 @@
+# Golden set — 25 labeled questions for the agentic-rag eval harness.
+# All chunk IDs verified against eval/label_helper output.
+
+# ---------------------------------------------------------------------------
+# EASY / FACTUAL (4)
+# ---------------------------------------------------------------------------
+
+- id: q001
+  question: "What does the 'm' parameter in HNSW control?"
+  ground_truth_answer: |
+    In HNSW, the m parameter controls the number of bidirectional links each
+    node maintains in the proximity graph during index construction. Higher m
+    values increase recall and memory usage. Typical values range from 16 to 64.
+    Memory grows linearly with the number of vectors and the value of m, so
+    setting m too high on large corpora significantly increases the index
+    footprint.
+  relevant_chunk_ids:
+    - "sha256:d924db3bd14c860318bf8886f0186e83fc79a3f3a59b3122660be606ef97be00:chunk_0"
+  difficulty: easy
+  retrieval_type: factual
+
+- id: q002
+  question: "What is the default ranking algorithm in Elasticsearch?"
+  ground_truth_answer: |
+    Elasticsearch uses BM25 (Best Match 25) as its default similarity function
+    for full-text search. BM25 replaced the older TF-IDF scoring that was the
+    default before Elasticsearch version 5. The k1 and b parameters of BM25
+    can be tuned per-index through the similarity settings block to adjust
+    term frequency saturation and document length normalization.
+  relevant_chunk_ids:
+    - "sha256:ab523e996713b7336f5643d7ae9bccf14bb8240e2828ddc8668d6f7672320702:chunk_0"
+  difficulty: easy
+  retrieval_type: factual
+
+- id: q003
+  question: "What does the Annoy library use to build its index?"
+  ground_truth_answer: |
+    Annoy builds its index as a forest of random projection trees. Each tree is
+    constructed by recursively splitting the vector space with random hyperplanes
+    until each leaf contains at most a configured number of vectors. The same
+    set of vectors appears in all trees, but with different random splits, so
+    trees collectively cover different neighborhoods. At query time, Annoy
+    traverses all trees simultaneously using a priority queue of candidate nodes.
+  relevant_chunk_ids:
+    - "sha256:a5609ac440410d13326f7ea56ba2cf8fdc260e92cfaa5370f00d9af87315d8d0:chunk_0"
+  difficulty: easy
+  retrieval_type: factual
+
+- id: q004
+  question: "What is the TTL of cached prefixes in Anthropic's prompt caching?"
+  ground_truth_answer: |
+    Cached prefixes in Anthropic's prompt caching have a time-to-live (TTL) of
+    approximately 5 minutes. After this window expires, the cached key-value
+    attention states are no longer available and the next call that uses the
+    same prefix will incur a cache-creation charge to rebuild the cache. Cache
+    hits are reflected in the usage object via the cache_read_input_tokens and
+    cache_creation_input_tokens fields.
+  relevant_chunk_ids:
+    - "sha256:609b1b596a0b9a490aeed1cbde8fcf39961cadc336cad782c28cd14c9327a796:chunk_1"
+  difficulty: easy
+  retrieval_type: factual
+
+# ---------------------------------------------------------------------------
+# EASY / COMPARISON (2)
+# ---------------------------------------------------------------------------
+
+- id: q005
+  question: "How does HNSW differ from IVFFlat in terms of memory usage and build speed?"
+  ground_truth_answer: |
+    HNSW requires more memory than IVFFlat because each node stores edges to m
+    neighbors per layer, adding 20–40% overhead on top of the raw embeddings.
+    IVFFlat stores only raw vectors plus a small centroid table, giving it lower
+    memory overhead. For build speed, IVFFlat is much faster because it only
+    requires a single k-means pass. HNSW is slower to build because edges must
+    be selected and inserted one vector at a time, making parallelization harder.
+  relevant_chunk_ids:
+    - "sha256:d924db3bd14c860318bf8886f0186e83fc79a3f3a59b3122660be606ef97be00:chunk_1"
+    - "sha256:6e788380c1a8450cd23b60dc08e52716e934f0d4fc205d9094c8c22caa8832d0:chunk_0"
+  difficulty: easy
+  retrieval_type: comparison
+
+- id: q006
+  question: "How does BM25 differ from TF-IDF in handling term frequency?"
+  ground_truth_answer: |
+    BM25 introduces term frequency saturation: its denominator causes score
+    growth to plateau as term frequency increases, so the 1000th occurrence of
+    a word contributes almost nothing beyond the 100th. The k1 parameter
+    controls how quickly this plateau is reached. TF-IDF, by contrast, has no
+    such saturation — raw TF grows linearly without bound, rewarding documents
+    with very high term repetition disproportionately. BM25 also adds explicit
+    document length normalization via the b parameter, which TF-IDF lacks.
+  relevant_chunk_ids:
+    - "sha256:e533894d1e4463cb128281d9a4a3532535f6225816fc009679d5b496d1c224a8:chunk_0"
+    - "sha256:ea8c4ff9026f27e4474d86a0ea62e514841081d1b90ff925379397a4a6e3d5d7:chunk_1"
+  difficulty: easy
+  retrieval_type: comparison
+
+# ---------------------------------------------------------------------------
+# EASY / MULTI_HOP (1)
+# ---------------------------------------------------------------------------
+
+- id: q007
+  question: "In a hybrid RAG system using Postgres, what components are needed to combine vector and keyword search results?"
+  ground_truth_answer: |
+    A hybrid RAG system in Postgres requires three components working together.
+    First, pgvector provides the vector similarity search using HNSW or IVFFlat
+    indexes and the cosine distance operator. Second, PostgreSQL's tsvector and
+    GIN index provide the keyword search leg via full-text search. Third,
+    Reciprocal Rank Fusion merges the ranked result lists from both legs into a
+    single fused ranking without requiring score normalization, since RRF works
+    on rank positions rather than raw scores.
+  relevant_chunk_ids:
+    - "sha256:7f5618334f0a3947968911e88378b9643f4522a3d8030d881a65b5b44749b547:chunk_1"
+    - "sha256:93e198fe36bc6adef783e2eb03f7c9e1b3f9f1109f7f913d62c676f573038545:chunk_1"
+    - "sha256:ccd43a8b62604a70ced2117351fefe44b1067c24de26c1a3e2220845ab1b51f8:chunk_0"
+  difficulty: easy
+  retrieval_type: multi_hop
+
+# ---------------------------------------------------------------------------
+# MEDIUM / FACTUAL (3)
+# ---------------------------------------------------------------------------
+
+- id: q008
+  question: "Why is Lucene's segment-based storage model efficient for concurrent reads?"
+  ground_truth_answer: |
+    Lucene's segments are immutable after being written, which means Lucene
+    never needs complex concurrent write locking. Because segments never change,
+    the operating system can aggressively cache them. Deletions are recorded in
+    a per-segment deletion bitmap rather than rewriting the segment. Space is
+    reclaimed only when a background merge rewrites and combines smaller segments
+    into larger ones. This design lets many readers access the same on-disk
+    segments simultaneously with no coordination overhead.
+  relevant_chunk_ids:
+    - "sha256:51e7e4448cf11eab6857dd27a509624d8fbed058c4f484f8b8f75d35f2ec7f32:chunk_0"
+  difficulty: medium
+  retrieval_type: factual
+
+- id: q009
+  question: "What is the purpose of the 'k' constant in the RRF formula and what is its common value?"
+  ground_truth_answer: |
+    In Reciprocal Rank Fusion, the constant k smooths the impact of
+    high-ranked items so that a single top-ranked result does not dominate the
+    fused score. The formula gives each document a score of 1 / (k + rank),
+    so when k is 60 the difference between rank 1 and rank 2 is only 1/61
+    versus 1/62. The value 60 was empirically found to reduce sensitivity to
+    particularly high-ranked outliers and is the widely adopted default. Smaller
+    k values give more weight to top-ranked results.
+  relevant_chunk_ids:
+    - "sha256:ccd43a8b62604a70ced2117351fefe44b1067c24de26c1a3e2220845ab1b51f8:chunk_0"
+  difficulty: medium
+  retrieval_type: factual
+
+- id: q010
+  question: "What RAGAS metric requires a ground-truth reference answer, and how does it work?"
+  ground_truth_answer: |
+    Context recall is the RAGAS metric that requires a ground-truth reference
+    answer. It measures whether all information needed to answer the question
+    was present in the retrieved context. RAGAS checks how many claims in the
+    reference answer are supported by the retrieved chunks, using an LLM judge
+    to decompose the reference into atomic statements and verify each one
+    against the retrieved context. The other RAGAS metrics — faithfulness,
+    answer relevancy, and context precision — do not require a ground-truth
+    answer.
+  relevant_chunk_ids:
+    - "sha256:d252ad465272de64c9121999f153b142a8de17137f6c56afd72944110aad5e6b:chunk_0"
+    - "sha256:d252ad465272de64c9121999f153b142a8de17137f6c56afd72944110aad5e6b:chunk_1"
+  difficulty: medium
+  retrieval_type: factual
+
+# ---------------------------------------------------------------------------
+# MEDIUM / COMPARISON (3)
+# ---------------------------------------------------------------------------
+
+- id: q011
+  question: "How does a cross-encoder differ from a bi-encoder for document reranking?"
+  ground_truth_answer: |
+    A bi-encoder encodes the query and each document independently into
+    fixed-length vectors; document embeddings can be precomputed and stored,
+    making retrieval very fast via ANN search. A cross-encoder, by contrast,
+    takes the query and document concatenated as a single input and produces a
+    relevance score. This joint processing allows the cross-encoder's attention
+    to capture fine-grained interactions between query terms and document
+    content, yielding significantly higher precision. The tradeoff is that
+    cross-encoders cannot precompute anything and require a forward pass over
+    every candidate at query time, limiting practical candidate sizes to 100–200.
+  relevant_chunk_ids:
+    - "sha256:789e2f54f8fa1e1dcf705a9e0ea963e29d3e2be80ce1ea7bce6e35e8d194006c:chunk_0"
+  difficulty: medium
+  retrieval_type: comparison
+
+- id: q012
+  question: "How does FAISS differ from pgvector for production RAG systems?"
+  ground_truth_answer: |
+    FAISS is a pure in-process library optimized for large-scale offline search.
+    It runs entirely in memory with no SQL overhead and can be 10–100x faster
+    for large batch queries, especially with GPU support. pgvector integrates
+    vector search directly into Postgres, which allows combined vector and
+    metadata filtering (on user_id, topic, or date) in a single SQL query —
+    a major advantage for production RAG systems. pgvector also benefits from
+    Postgres transactions and existing infrastructure. FAISS is typically used
+    when search speed and scale are the primary goals, while pgvector is
+    preferred when filtered retrieval or tight database integration matters.
+  relevant_chunk_ids:
+    - "sha256:f279d7b5fb5b9026ff5ef7c9d90f7c4f21ce8a7ed324f021c403f2dbc2f0bdc8:chunk_1"
+    - "sha256:7f5618334f0a3947968911e88378b9643f4522a3d8030d881a65b5b44749b547:chunk_0"
+  difficulty: medium
+  retrieval_type: comparison
+
+- id: q013
+  question: "What are the advantages of parent document retrieval over fixed-token chunking for RAG?"
+  ground_truth_answer: |
+    Fixed-token chunking splits documents at arbitrary token boundaries, which
+    may cut sentences or sections mid-way and reduce coherence. Parent document
+    retrieval addresses this by indexing small child chunks for high-precision
+    retrieval, then returning the larger parent passage to the LLM for more
+    context. This gives the precision of small-chunk retrieval — because the
+    vector search matches tightly-scoped passages — combined with the coherence
+    of large-chunk context for the LLM. The recommended starting point for
+    fixed-token chunking is chunk_size 512 with chunk_overlap 64, but parent
+    retrieval is preferred when the LLM frequently reports insufficient
+    information.
+  relevant_chunk_ids:
+    - "sha256:be23e767f6b4c4aea095f5221f13d50c5c67373b3e1751ebad52e2a60ec59943:chunk_0"
+    - "sha256:be23e767f6b4c4aea095f5221f13d50c5c67373b3e1751ebad52e2a60ec59943:chunk_1"
+  difficulty: medium
+  retrieval_type: comparison
+
+# ---------------------------------------------------------------------------
+# MEDIUM / MULTI_HOP (2)
+# ---------------------------------------------------------------------------
+
+- id: q014
+  question: "How does Elasticsearch implement hybrid vector and keyword search internally?"
+  ground_truth_answer: |
+    Elasticsearch implements hybrid search by combining a knn search block
+    for vector retrieval with a standard query block for full-text search in
+    the same request, then merging results using Reciprocal Rank Fusion. Under
+    the hood, Elasticsearch's vector indexes use HNSW, the same graph-based
+    algorithm described in dedicated ANN literature. The num_candidates
+    parameter in the knn block is analogous to ef_search in standalone HNSW
+    implementations, controlling recall versus latency. BM25 handles the
+    keyword leg. This end-to-end design mirrors the retrieval pattern used in
+    modern RAG systems.
+  relevant_chunk_ids:
+    - "sha256:ab523e996713b7336f5643d7ae9bccf14bb8240e2828ddc8668d6f7672320702:chunk_0"
+    - "sha256:ab523e996713b7336f5643d7ae9bccf14bb8240e2828ddc8668d6f7672320702:chunk_1"
+    - "sha256:ccd43a8b62604a70ced2117351fefe44b1067c24de26c1a3e2220845ab1b51f8:chunk_0"
+  difficulty: medium
+  retrieval_type: multi_hop
+
+- id: q015
+  question: "What sequence of steps does a well-designed RAG pipeline follow from query to LLM context, combining first-stage retrieval and reranking?"
+  ground_truth_answer: |
+    A well-designed RAG pipeline follows four stages. First, a bi-encoder ANN
+    search recalls a large candidate set (typically top-100) very quickly using
+    precomputed document embeddings. Second, RRF may fuse results from vector
+    search and keyword search into a unified ranking. Third, a cross-encoder
+    reranker scores the top-20 to top-100 candidates precisely by processing
+    query and document jointly, pruning to the top-5 results. Finally, the
+    reranked chunks are inserted into the LLM context window. Each stage trades
+    some latency for precision, so the first stage must achieve sufficient recall
+    that the correct answer is present before reranking begins.
+  relevant_chunk_ids:
+    - "sha256:789e2f54f8fa1e1dcf705a9e0ea963e29d3e2be80ce1ea7bce6e35e8d194006c:chunk_1"
+    - "sha256:ccd43a8b62604a70ced2117351fefe44b1067c24de26c1a3e2220845ab1b51f8:chunk_1"
+    - "sha256:789e2f54f8fa1e1dcf705a9e0ea963e29d3e2be80ce1ea7bce6e35e8d194006c:chunk_0"
+  difficulty: medium
+  retrieval_type: multi_hop
+
+# ---------------------------------------------------------------------------
+# HARD / FACTUAL (2)
+# ---------------------------------------------------------------------------
+
+- id: q016
+  question: "What technique does ScaNN use that makes it outperform standard product quantization at the same compression ratio?"
+  ground_truth_answer: |
+    ScaNN uses anisotropic vector quantization (AVQ) instead of standard
+    product quantization. Standard PQ minimizes reconstruction error uniformly
+    across all dimensions. AVQ weights the quantization error by a function of
+    the inner product, penalizing error more in dimensions that most distinguish
+    near from far neighbors — specifically, the dimensions most likely to affect
+    ranking. This direction-aware weighting yields significantly higher recall
+    at the same compression ratio, particularly for inner-product similarity
+    (dot product). ScaNN's three-stage pipeline adds a rescoring phase to
+    further refine the candidates shortlisted by the hashed search.
+  relevant_chunk_ids:
+    - "sha256:3e868a17a9625f62c06caa138578d5fa0622a238b5e144d37747bac6a089778b:chunk_0"
+  difficulty: hard
+  retrieval_type: factual
+
+- id: q017
+  question: "Why does switching embedding models in a production vector store require a dual-model transition period?"
+  ground_truth_answer: |
+    A vector store's embedding dimension is baked into the schema at creation
+    time. Switching to a different embedding model — even one with the same
+    dimension — changes the vector space geometry, making old embeddings
+    incompatible with new query embeddings for nearest-neighbor search. A full
+    re-embedding of the entire corpus is required. The dual-model transition
+    period allows both old and new embeddings to coexist: old embeddings continue
+    serving queries while new embeddings are generated in the background. Once
+    the full corpus is re-embedded, traffic can be cut over to the new model.
+    This avoids downtime during the migration.
+  relevant_chunk_ids:
+    - "sha256:08b8a22b7f71a409fc7984bbca4815a4dcaa56da5d8cbe0243bfd0ac4dde1717:chunk_1"
+  difficulty: hard
+  retrieval_type: factual
+
+# ---------------------------------------------------------------------------
+# HARD / COMPARISON (2)
+# ---------------------------------------------------------------------------
+
+- id: q018
+  question: "For a memory-constrained deployment serving a static corpus from multiple read-only replicas, which ANN library is more suitable: Annoy or HNSW, and why?"
+  ground_truth_answer: |
+    Annoy is more suitable in this scenario. Its indexes can be memory-mapped
+    from disk, allowing multiple worker processes to share a single .ann file
+    simultaneously without duplicating RAM. HNSW, by contrast, loads the full
+    graph into memory per process. Annoy's index is also immutable after
+    construction, which is acceptable for static corpora. The tradeoff is that
+    Annoy achieves lower recall at the same latency compared to HNSW in most
+    benchmarks, because random projection trees use fixed splits that may not
+    align with the density structure of real embeddings. For read-heavy,
+    static workloads where shared memory across replicas is a priority, Annoy
+    remains the practical choice despite its recall penalty.
+  relevant_chunk_ids:
+    - "sha256:a5609ac440410d13326f7ea56ba2cf8fdc260e92cfaa5370f00d9af87315d8d0:chunk_0"
+    - "sha256:a5609ac440410d13326f7ea56ba2cf8fdc260e92cfaa5370f00d9af87315d8d0:chunk_1"
+    - "sha256:d924db3bd14c860318bf8886f0186e83fc79a3f3a59b3122660be606ef97be00:chunk_0"
+  difficulty: hard
+  retrieval_type: comparison
+
+- id: q019
+  question: "How does RRF compare to score normalization for merging hybrid search results, and when might score normalization be preferred?"
+  ground_truth_answer: |
+    RRF relies only on rank position and ignores raw scores, making it robust
+    to the fact that vector similarity scores (cosine distances) and BM25 scores
+    exist on completely different scales. Score normalization min-max scales each
+    retriever's scores to [0, 1] and takes a weighted sum. This approach is more
+    sensitive to tuning: the normalization range depends on the query distribution
+    and optimal weights differ across domains. RRF avoids all tuning with no
+    training data required. Score normalization might be preferred when sufficient
+    labeled data exists to learn optimal per-retriever weights — in that case a
+    learned linear combination or LambdaMART can outperform RRF by adapting
+    to query type.
+  relevant_chunk_ids:
+    - "sha256:ccd43a8b62604a70ced2117351fefe44b1067c24de26c1a3e2220845ab1b51f8:chunk_1"
+    - "sha256:ccd43a8b62604a70ced2117351fefe44b1067c24de26c1a3e2220845ab1b51f8:chunk_0"
+  difficulty: hard
+  retrieval_type: comparison
+
+# ---------------------------------------------------------------------------
+# HARD / MULTI_HOP (1)
+# ---------------------------------------------------------------------------
+
+- id: q020
+  question: "You are designing a low-RAM, latency-sensitive search system over a static corpus of short technical documents. Which ANN index, keyword search approach, and result merging strategy would you choose, and what are the key tradeoffs?"
+  ground_truth_answer: |
+    For low-RAM constraints with a static corpus, IVFFlat is preferable to HNSW
+    because it stores only raw vectors plus a small centroid table, reducing
+    memory overhead. Set nprobe to a value between 10 and 50 to balance recall
+    and latency. For keyword search, PostgreSQL tsvector with a GIN index avoids
+    an external search engine while keeping everything in Postgres. For merging,
+    Reciprocal Rank Fusion requires no score normalization and no training data,
+    making it operationally simple. The key tradeoff is that IVFFlat recall
+    degrades more sharply at low nprobe values than HNSW, particularly in
+    high-dimensional spaces, so Recall@5 must be verified on a golden set.
+    For very short documents, small chunk sizes (256–512 tokens) with minimal
+    overlap are appropriate.
+  relevant_chunk_ids:
+    - "sha256:6e788380c1a8450cd23b60dc08e52716e934f0d4fc205d9094c8c22caa8832d0:chunk_0"
+    - "sha256:6e788380c1a8450cd23b60dc08e52716e934f0d4fc205d9094c8c22caa8832d0:chunk_1"
+    - "sha256:93e198fe36bc6adef783e2eb03f7c9e1b3f9f1109f7f913d62c676f573038545:chunk_1"
+    - "sha256:ccd43a8b62604a70ced2117351fefe44b1067c24de26c1a3e2220845ab1b51f8:chunk_0"
+    - "sha256:be23e767f6b4c4aea095f5221f13d50c5c67373b3e1751ebad52e2a60ec59943:chunk_0"
+  difficulty: hard
+  retrieval_type: multi_hop
+
+# ---------------------------------------------------------------------------
+# BONUS QUESTIONS — bringing total to 25
+# (coverage gap fill: more easy/factual on cluster B and singletons)
+# ---------------------------------------------------------------------------
+
+- id: q021
+  question: "What is the nprobe parameter in IVFFlat and what is its default value in pgvector?"
+  ground_truth_answer: |
+    The nprobe parameter in IVFFlat controls how many Voronoi cells are probed
+    at query time. Higher nprobe values improve recall because more cells are
+    scanned, but increase query latency. At nprobe equal to the total number of
+    lists, the search becomes an exact full scan. In pgvector, the default value
+    of ivfflat.probes is 1, which is very low for real workloads and typically
+    needs to be raised to between 10 and 100 for acceptable recall in production.
+  relevant_chunk_ids:
+    - "sha256:6e788380c1a8450cd23b60dc08e52716e934f0d4fc205d9094c8c22caa8832d0:chunk_0"
+    - "sha256:6e788380c1a8450cd23b60dc08e52716e934f0d4fc205d9094c8c22caa8832d0:chunk_1"
+  difficulty: easy
+  retrieval_type: factual
+
+- id: q022
+  question: "How does PostgreSQL's tsvector represent a document for full-text search?"
+  ground_truth_answer: |
+    A tsvector is a sorted list of lexemes — normalized word stems with their
+    positions in the original document. Postgres uses a language-specific text
+    search configuration to stem words and remove stop words. For example, the
+    phrase "Vector databases store high-dimensional embeddings" becomes lexemes
+    like 'databas', 'dimension', 'embed', 'high', 'store', and 'vector' with
+    their positional offsets. Weights (A, B, C, D) can be assigned to lexemes
+    to boost matches in important fields such as document titles.
+  relevant_chunk_ids:
+    - "sha256:93e198fe36bc6adef783e2eb03f7c9e1b3f9f1109f7f913d62c676f573038545:chunk_0"
+  difficulty: easy
+  retrieval_type: factual
+
+- id: q023
+  question: "What input_type values does the Voyage AI embedding API accept, and how do they differ?"
+  ground_truth_answer: |
+    The Voyage AI API accepts two input_type values: 'query' and 'document'.
+    Using 'query' produces embeddings optimized for matching against documents,
+    and should be used for user queries at search time. Using 'document' produces
+    embeddings optimized for being retrieved, and should be used when embedding
+    corpus documents at ingestion time. This asymmetric embedding design is
+    sometimes called a bi-encoder with input type conditioning and typically
+    improves retrieval quality compared to using a single embedding function for
+    both sides.
+  relevant_chunk_ids:
+    - "sha256:82eb0d003ee2760677e76edd69e14b298535e99864251d816241f4de736bdf15:chunk_0"
+  difficulty: easy
+  retrieval_type: factual
+
+- id: q024
+  question: "What IR metric is most appropriate when the primary goal is ensuring the correct chunk appears somewhere in the retrieved context, and why?"
+  ground_truth_answer: |
+    Recall@K is the most appropriate metric when the primary goal is ensuring
+    the correct chunk appears in the retrieved context. It measures the fraction
+    of all relevant documents that appear in the top-K results, regardless of
+    their position. For RAG systems the LLM can only use what was retrieved, so
+    if the correct chunk is not in the top-K, no amount of reranking or
+    generation quality can compensate. Recall@5 and Recall@10 are the primary
+    metrics recommended for most RAG evaluation harnesses, rather than
+    Precision@K which measures whether irrelevant results were excluded.
+  relevant_chunk_ids:
+    - "sha256:90c30ce03a8aa1f13662e1eae01a3455fd0b5767e3164fd0f4c2e96097707016:chunk_0"
+    - "sha256:90c30ce03a8aa1f13662e1eae01a3455fd0b5767e3164fd0f4c2e96097707016:chunk_1"
+  difficulty: medium
+  retrieval_type: factual
+
+- id: q025
+  question: "How does Claude's tool_choice parameter differ from the default 'auto' behavior, and when would you force a specific tool?"
+  ground_truth_answer: |
+    The default tool_choice value of 'auto' lets Claude decide whether to call
+    any tool or generate a plain text response. Setting it to 'any' forces Claude
+    to call at least one tool from the available set. Setting it to a specific
+    tool by name forces Claude to call exactly that named tool. Forcing a specific
+    tool is useful for structured extraction tasks where you always want Claude to
+    return a typed JSON schema rather than prose — for example, when extracting
+    document metadata or classifying user intent into a predefined category.
+  relevant_chunk_ids:
+    - "sha256:bdb62d2a957b6102e4f7526f08cbd8892faf311c996ce503bc24ceec04be3e16:chunk_1"
+  difficulty: medium
+  retrieval_type: factual

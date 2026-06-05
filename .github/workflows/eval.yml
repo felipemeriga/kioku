@@ -1,0 +1,93 @@
+name: eval
+
+on:
+  pull_request:
+    paths:
+      - 'backend/**'
+      - '.github/workflows/eval.yml'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: eval-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start Supabase
+        run: supabase start
+
+      - name: Apply schema + local setup
+        run: |
+          DB_URL=$(supabase status --output env | grep '^DB_URL=' | cut -d= -f2- | tr -d '"')
+          psql "$DB_URL" -f backend/db/schema.sql
+          psql "$DB_URL" -f backend/db/local_setup.sql
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install backend deps
+        working-directory: backend
+        run: uv sync
+
+      - name: Run eval with gate
+        env:
+          VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          SUPABASE_URL=$(supabase status --output env | grep '^API_URL=' | cut -d= -f2- | tr -d '"')
+          SUPABASE_SERVICE_KEY=$(supabase status --output env | grep '^SERVICE_ROLE_KEY=' | cut -d= -f2- | tr -d '"')
+          export SUPABASE_URL SUPABASE_SERVICE_KEY
+          cd backend && uv run python -m eval.runner --gate
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-report
+          path: backend/eval/eval-results/latest.json
+
+      - name: Post results to PR
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let report;
+            try {
+              report = JSON.parse(fs.readFileSync('backend/eval/eval-results/latest.json', 'utf8'));
+            } catch (e) {
+              console.log('No eval report available (workflow may have failed earlier).');
+              return;
+            }
+            const agg = report.aggregate;
+
+            const lines = ['## Eval results', '', '| metric | value |', '| --- | --- |'];
+            for (const [k, v] of Object.entries(agg.ir || {})) {
+              lines.push(`| ir.${k} | ${v ?? 'n/a'} |`);
+            }
+            for (const [k, v] of Object.entries(agg.ragas || {})) {
+              lines.push(`| ragas.${k} | ${v ?? 'n/a'} |`);
+            }
+            for (const [k, v] of Object.entries(agg.by_mode || {})) {
+              if (typeof v === 'number' || v === null) {
+                lines.push(`| by_mode.${k} | ${v ?? 'n/a'} |`);
+              }
+            }
+
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: lines.join('\n')
+            });

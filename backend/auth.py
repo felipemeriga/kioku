@@ -1,30 +1,58 @@
+"""JWT validation for incoming requests.
+
+Fetches JWKS lazily from the configured Supabase project (the URL in
+SUPABASE_URL). This works for both prod and local development — point
+SUPABASE_URL at http://127.0.0.1:54321 and the local Supabase stack's
+JWKS endpoint will be used automatically. No hardcoded keys.
+"""
+
+import os
+import threading
+import time
+
+import httpx
 import jwt
 from fastapi import HTTPException, Request
 
-SUPABASE_JWKS = {
-    "keys": [
-        {
-            "x": "c2B19uCoenDmiTWnrCSUelIvsaHgK03IpPRKrJ13NlQ",
-            "y": "CnMz6g_LzjoyrN2FSZ3h_RpgtffIIa5ha2LOg8qZHNA",
-            "alg": "ES256",
-            "crv": "P-256",
-            "ext": True,
-            "kid": "b8e21536-cf32-4ab7-9901-c42afcc2cae2",
-            "kty": "EC",
-            "key_ops": ["verify"],
-        }
-    ]
-}
-
-_jwk_client = jwt.PyJWKSet.from_dict(SUPABASE_JWKS)
+_JWKS_CACHE: jwt.PyJWKSet | None = None
+_JWKS_FETCHED_AT: float = 0.0
+_JWKS_TTL_S: float = 3600.0  # 1 hour. Supabase rotates rarely; this is plenty.
+_JWKS_LOCK = threading.Lock()
 
 
-def _get_signing_key(token: str):
+def _fetch_jwks() -> dict:
+    """Fetch JWKS from the configured Supabase Auth well-known endpoint."""
+    base = os.environ.get("SUPABASE_URL")
+    if not base:
+        raise RuntimeError("SUPABASE_URL is not set; cannot fetch JWKS for auth")
+    url = base.rstrip("/") + "/auth/v1/.well-known/jwks.json"
+    response = httpx.get(url, timeout=5.0)
+    response.raise_for_status()
+    return response.json()
+
+
+def _get_jwks() -> jwt.PyJWKSet:
+    """Return cached JWKS, refreshing if past TTL. Thread-safe."""
+    global _JWKS_CACHE, _JWKS_FETCHED_AT
+    now = time.time()
+    if _JWKS_CACHE is None or now - _JWKS_FETCHED_AT > _JWKS_TTL_S:
+        with _JWKS_LOCK:
+            # Re-check under the lock — another thread may have refreshed.
+            if _JWKS_CACHE is None or time.time() - _JWKS_FETCHED_AT > _JWKS_TTL_S:
+                _JWKS_CACHE = jwt.PyJWKSet.from_dict(_fetch_jwks())
+                _JWKS_FETCHED_AT = time.time()
+    return _JWKS_CACHE
+
+
+def _get_signing_key(token: str) -> tuple[jwt.PyJWK, str]:
+    """Find the JWK that signed `token`. Returns (key, algorithm)."""
     header = jwt.get_unverified_header(token)
     kid = header.get("kid")
-    for key in _jwk_client.keys:
+    jwks = _get_jwks()
+    for key in jwks.keys:
         if key.key_id == kid:
-            return key
+            alg = (key._jwk_data or {}).get("alg") or header.get("alg") or "ES256"
+            return key, alg
     raise jwt.InvalidTokenError(f"No matching key found for kid: {kid}")
 
 
@@ -37,11 +65,11 @@ async def get_current_user(request: Request) -> str:
     token = auth_header.split(" ", 1)[1]
 
     try:
-        signing_key = _get_signing_key(token)
+        signing_key, alg = _get_signing_key(token)
         payload = jwt.decode(
             token,
             signing_key.key,
-            algorithms=["ES256"],
+            algorithms=[alg],
             audience="authenticated",
         )
         user_id = payload.get("sub")

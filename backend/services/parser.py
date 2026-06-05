@@ -6,12 +6,12 @@ import os
 import tempfile
 from pathlib import Path
 
-import anthropic
 from docling.datamodel.base_models import InputFormat
 from docling.datamodel.pipeline_options import PdfPipelineOptions
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from langsmith import traceable
-from langsmith.wrappers import wrap_anthropic
+
+from services.llm import Task, complete
 
 PLAIN_TEXT_EXTENSIONS = {".json", ".yaml", ".yml", ".txt", ".text"}
 
@@ -96,10 +96,8 @@ def extract_from_image(file_bytes: bytes, filename: str) -> str:
     media_type = "image/png" if ext == "png" else "image/jpeg"
     image_data = base64.standard_b64encode(file_bytes).decode("utf-8")
 
-    client = wrap_anthropic(anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"]))
-
-    response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
+    response = complete(
+        task=Task.IMAGE_OCR,
         max_tokens=4096,
         messages=[
             {

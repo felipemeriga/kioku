@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!.env.local.example
 
 # npm credentials
 .npmrc
@@ -30,3 +31,6 @@ Thumbs.db
 
 # Plans and specs
 docs/
+
+# Eval reports (generated)
+backend/eval/eval-results/

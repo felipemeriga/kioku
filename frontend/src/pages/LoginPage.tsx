@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { Navigate } from "react-router-dom";
 import {
   Box,
   TextField,
@@ -9,13 +10,21 @@ import {
   CircularProgress,
 } from "@mui/material";
 import { supabase } from "../lib/supabase";
+import { useAuth } from "../hooks/useAuth";
 
 export default function LoginPage() {
+  const { session, loading: authLoading } = useAuth();
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // If we're already signed in (either persisted session or onAuthStateChange
+  // just fired after a successful sign-in/sign-up), bounce to the app.
+  if (!authLoading && session) {
+    return <Navigate to="/" replace />;
+  }
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
