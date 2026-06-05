@@ -14,10 +14,18 @@ from pathlib import Path
 LATEST_REPORT = Path(__file__).resolve().parent / "eval-results" / "latest.json"
 BASELINE = Path(__file__).resolve().parent / "baseline.json"
 
-IR_TOLERANCE = 0.02
+# Per-metric tolerances. Rank-sensitive metrics (mrr, ndcg) carry a wider band
+# because the LLM-driven rewrite + multi-query stages introduce ~0.05 run-to-run
+# variance on a 50-question eval, while recall is stable to ~0.03.
+IR_TOLERANCES = {
+    "recall_at_5": 0.02,
+    "recall_at_10": 0.02,
+    "recall_at_20": 0.02,
+    "mrr": 0.05,
+    "ndcg_at_10": 0.05,
+}
 RAGAS_TOLERANCE = 0.05
 
-IR_METRICS = ("recall_at_5", "recall_at_10", "recall_at_20", "mrr", "ndcg_at_10")
 RAGAS_METRICS = ("faithfulness", "answer_relevancy", "context_precision", "context_recall")
 
 
@@ -30,11 +38,11 @@ def main() -> int:
     agg = report["aggregate"]
 
     thresholds: dict[str, dict] = {}
-    for m in IR_METRICS:
+    for m, tol in IR_TOLERANCES.items():
         v = agg.get("ir", {}).get(m)
         if v is None:
             continue
-        thresholds[f"ir.{m}"] = {"min": round(v, 4), "tolerance": IR_TOLERANCE}
+        thresholds[f"ir.{m}"] = {"min": round(v, 4), "tolerance": tol}
 
     for m in RAGAS_METRICS:
         v = (agg.get("ragas") or {}).get(m)

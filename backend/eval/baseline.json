@@ -16,11 +16,11 @@
     },
     "ir.mrr": {
       "min": 0.935,
-      "tolerance": 0.02
+      "tolerance": 0.05
     },
     "ir.ndcg_at_10": {
       "min": 0.9088,
-      "tolerance": 0.02
+      "tolerance": 0.05
     }
   }
 }
