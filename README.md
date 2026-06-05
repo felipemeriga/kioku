@@ -9,8 +9,14 @@ Built as a self-hosted alternative to project-scoped RAG tools. Unlike per-proje
 ## Features
 
 - **Agentic RAG pipeline** — Claude autonomously decides which tools to call (up to 10 rounds per query)
-- **Hybrid search** — vector similarity + BM25 keyword search, fused with Reciprocal Rank Fusion, then reranked
+- **Hybrid search** — vector similarity + BM25 keyword search, fused with Reciprocal Rank Fusion, reranked with Voyage Rerank-2, expanded with neighbor chunks. Optional query rewriting + multi-query expansion on the UI path
+- **Fast vs Full search modes** — MCP uses a fast path that skips LLM-driven query enrichment; the UI uses the full path for higher recall
+- **Centralized LLM client** — task → model routing (Haiku for routing/metadata, Sonnet/Opus for synthesis) with prompt caching across rewrite, multi-query, and tool-use turns
 - **Document ingestion** — parse, chunk, extract metadata (topics/keywords), embed, and store with deduplication
+- **Notes & per-folder context** — save snippets and pin context that the agent always sees
+- **API keys** — scoped programmatic access; external apps can push files into your KB via `/api/drop`
+- **Eval harness** — IR metrics (recall, MRR, nDCG) plus optional RAGAS, gated against a baseline on every PR. See [`backend/eval/README.md`](backend/eval/README.md)
+- **Runtime metrics + stage timings** — every retrieval emits search, rerank, cache-hit, and per-stage latency records
 - **Text-to-SQL** — natural language queries against document metadata
 - **Web search** — falls back to Tavily when documents don't have the answer
 - **Folder organization** — nested folders (Google Drive-style) with drag-and-drop
@@ -56,12 +62,14 @@ Built as a self-hosted alternative to project-scoped RAG tools. Unlike per-proje
 |-------|-----------|
 | Frontend | React 19, TypeScript, Material-UI, Vite |
 | Backend | Python, FastAPI, Uvicorn |
-| AI | Claude Haiku (Anthropic), Voyage AI (embeddings + reranking) |
-| Search | pgvector (cosine similarity), PostgreSQL full-text search, RRF fusion |
+| AI | Claude (Opus / Sonnet / Haiku) via a centralized client with task→model routing and prompt caching; Voyage AI (embeddings + Rerank-2) |
+| Search | pgvector (cosine similarity), PostgreSQL full-text search, RRF fusion, neighbor expansion |
 | Database | Supabase (PostgreSQL + Auth + RLS) |
 | Web Search | Tavily API |
 | Document Parsing | Docling (PDF, DOCX, HTML, Markdown, text) |
 | MCP | FastMCP over SSE |
+| Eval | IR metrics (recall, MRR, nDCG) + optional RAGAS, gated in CI |
+| Observability | Per-request runtime metrics + per-stage timings |
 | Deployment | Docker Compose, Nginx |
 
 ## Prerequisites
@@ -244,6 +252,8 @@ Use folders to scope what gets searched — e.g., connect only your "Work" folde
 | `DELETE` | `/api/conversations/:id` | Delete conversation |
 | `POST` | `/api/documents/upload` | Upload document |
 | `GET` | `/api/documents` | List documents (optional folder filter) |
+| `GET` | `/api/documents/ingestion-status` | Poll ingestion progress |
+| `GET` | `/api/documents/:filename/download` | Download original file |
 | `GET` | `/api/documents/filters` | Get available topics and keywords |
 | `PATCH` | `/api/documents/:filename/move` | Move document to folder |
 | `DELETE` | `/api/documents/:filename` | Delete document and chunks |
@@ -252,9 +262,19 @@ Use folders to scope what gets searched — e.g., connect only your "Work" folde
 | `PATCH` | `/api/folders/:id` | Rename folder |
 | `DELETE` | `/api/folders/:id` | Delete folder (cascades subfolders) |
 | `GET` | `/api/folders/:id/breadcrumbs` | Get folder path |
+| `GET` | `/api/notes` | List notes |
+| `DELETE` | `/api/notes/:note_id` | Delete a note |
+| `GET` | `/api/context` | List per-folder pinned context |
+| `DELETE` | `/api/context/clear` | Clear all pinned context |
+| `DELETE` | `/api/context/:context_id` | Remove one pinned context entry |
+| `GET` | `/api/api-keys` | List API keys |
+| `POST` | `/api/api-keys` | Create a scoped API key |
+| `DELETE` | `/api/api-keys/:key_id` | Revoke an API key |
+| `POST` | `/api/drop` | External file ingest (API-key auth, used by `/api/api-keys`) |
+| `POST` | `/api/evaluate` | Run an IR / RAGAS evaluation request |
 | `GET` | `/api/health` | Health check |
 
-All endpoints except `/api/health` require a valid Supabase JWT in the `Authorization` header.
+All endpoints except `/api/health` and `/api/drop` require a valid Supabase JWT in the `Authorization` header. `/api/drop` accepts a Bearer token issued via `/api/api-keys`.
 
 ## Project Structure
 
@@ -266,23 +286,44 @@ All endpoints except `/api/health` require a valid Supabase JWT in the `Authoriz
 │   ├── routes/
 │   │   ├── chat.py             # Chat endpoint with SSE streaming
 │   │   ├── conversations.py    # Conversation CRUD
-│   │   ├── documents.py        # Document upload, list, delete, move
-│   │   └── folders.py          # Folder CRUD + breadcrumbs
+│   │   ├── documents.py        # Document upload, list, delete, move, status, download
+│   │   ├── folders.py          # Folder CRUD + breadcrumbs
+│   │   ├── notes.py            # Saved snippets
+│   │   ├── context.py          # Per-folder pinned context
+│   │   ├── api_keys.py         # Scoped API keys for programmatic access
+│   │   ├── drop.py             # External file ingest (API-key auth)
+│   │   └── evaluation.py       # On-demand IR / RAGAS evaluation
 │   ├── services/
 │   │   ├── rag.py              # Agentic loop (tool dispatch + streaming)
 │   │   ├── tools.py            # Tool definitions for Claude
-│   │   ├── search.py           # Hybrid search + RRF + reranking
+│   │   ├── search.py           # Hybrid search + RRF + reranking + neighbor expansion (fast/full modes)
+│   │   ├── query.py            # Query rewriting + multi-query expansion (full mode)
+│   │   ├── llm.py              # Centralized Anthropic client: task→model routing + prompt cache
 │   │   ├── embeddings.py       # Voyage AI embedding client
 │   │   ├── rerank.py           # Voyage Rerank-2
 │   │   ├── ingestion.py        # Orchestrates parsing → chunking → embedding
 │   │   ├── parser.py           # Docling document parser
 │   │   ├── chunker.py          # Recursive text splitter
 │   │   ├── metadata.py         # Topic/keyword extraction (Claude)
+│   │   ├── scope.py            # Folder / context scoping helpers
+│   │   ├── metrics.py          # Per-request runtime metrics (search, rerank, cache-hit)
+│   │   ├── timing.py           # Stage timing instrumentation
+│   │   ├── evaluation.py       # RAGAS wrapper (faithfulness, relevancy, ctx precision/recall)
 │   │   ├── web_search.py       # Tavily web search
 │   │   └── text_to_sql.py      # NL → SQL generation + execution
+│   ├── eval/                   # Eval harness (see backend/eval/README.md)
+│   │   ├── runner.py           # Run eval + emit aggregate report + gate against baseline
+│   │   ├── ir_metrics.py       # Recall@k, MRR, nDCG@k
+│   │   ├── baseline.json       # Per-metric min + tolerance (regression floor)
+│   │   ├── update_baseline.py  # Re-pin baseline from latest run
+│   │   └── run_local.sh        # End-to-end loop against local Supabase
 │   └── db/
 │       ├── client.py           # Supabase client singleton
-│       └── schema.sql          # Full database schema
+│       ├── schema.sql          # Full database schema (dumped from Supabase)
+│       ├── api_keys_schema.sql # API keys table (loaded separately)
+│       ├── local_setup.sql     # Local-dev seed user + RLS shortcuts
+│       ├── clean_schema.py     # Strip auth-managed bits from supabase db dump
+│       └── seed.py             # Seed example documents for local dev
 ├── frontend/
 │   ├── src/
 │   │   ├── pages/              # ChatPage, DocumentsPage, LoginPage
