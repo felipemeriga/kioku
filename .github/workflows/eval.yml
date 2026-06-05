@@ -6,6 +6,10 @@ on:
       - 'backend/**'
       - '.github/workflows/eval.yml'
 
+permissions:
+  contents: read
+  pull-requests: write
+
 concurrency:
   group: eval-${{ github.ref }}
   cancel-in-progress: true
