@@ -5,6 +5,7 @@ description = "Add your description here"
 requires-python = ">=3.10.0"
 dependencies = [
     "anthropic>=0.84.0",
+    "arq>=0.26.0",
     "cryptography>=43.0.0",
     "docling>=2.78.0",
     "notion-client>=2.2.1",
