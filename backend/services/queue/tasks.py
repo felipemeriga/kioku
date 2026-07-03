@@ -12,7 +12,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from typing import Any
+from datetime import datetime, timezone
+from typing import Any, Iterable
 
 # Import whichever supabase accessor exists in db/client.py. Preflight in the
 # task instructions verifies which name is used.
@@ -22,19 +23,22 @@ except ImportError:  # pragma: no cover - fallback for older codebases
     from db.client import get_supabase as get_supabase_thread_safe  # type: ignore
 
 from services.chunker import chunk_text
+from services.crypto import decrypt_secret
 from services.embeddings import embed_batch
 from services.metadata import extract_metadata
 from services.notion_sync.attachments import resolve_attachments
 from services.notion_sync.blocks_to_markdown import blocks_to_markdown
-from services.notion_sync.client import NotionClient
+from services.notion_sync.client import NotionClient, NotionPage
 from services.notion_sync.folder_paths import ensure_notion_folder_path
 from services.notion_sync.page_helpers import ancestor_chain_titles, fetch_block_tree
 from services.queue.batching import into_batches
 from services.queue.jobs import (
+    create_job,
     increment_processed_batches,
     increment_processed_pages,
     mark_failed,
     set_total_batches,
+    set_total_pages,
 )
 
 logger = logging.getLogger(__name__)
@@ -155,6 +159,111 @@ async def ingest_notion_page_task(ctx: dict, payload: dict) -> None:
 
     if payload.get("parent_job_id"):
         increment_processed_pages(supabase, job_id=payload["parent_job_id"])
+
+
+async def notion_sync_task(ctx: dict, payload: dict) -> None:
+    """
+    payload = {
+        "job_id": str,
+        "config_id": str,
+        "full_reconcile": bool,
+    }
+    """
+    supabase = get_supabase_thread_safe()
+    cfg_rows = (
+        supabase.table("notion_sync_configs")
+        .select("*")
+        .eq("id", payload["config_id"])
+        .execute()
+        .data
+    )
+    if not cfg_rows:
+        logger.error("notion_sync_task: config %s not found", payload["config_id"])
+        return
+    cfg = cfg_rows[0]
+
+    token = decrypt_secret(cfg["integration_token_encrypted"])
+    notion = NotionClient(token)
+    mapped_root = cfg["notion_page_id"]
+
+    if payload.get("full_reconcile"):
+        page_ids = list(_walk_tree_pages(notion, mapped_root))
+    else:
+        since = _parse_ts(cfg.get("last_fast_sync_at"))
+        page_ids = []
+        for page in notion.iter_pages_edited_since(since):
+            if _is_under_root(notion, page, mapped_root):
+                page_ids.append(page.page_id)
+
+    set_total_pages(supabase, job_id=payload["job_id"], total=len(page_ids))
+
+    for pid in page_ids:
+        page_job_id = create_job(
+            supabase,
+            user_id=cfg["user_id"],
+            kind="notion_page",
+            source_ref=pid,
+            root_folder_id=cfg["root_folder_id"],
+            parent_job_id=payload["job_id"],
+        )
+        await ctx["redis"].enqueue_job(
+            "ingest_notion_page_task",
+            {
+                "job_id": page_job_id,
+                "parent_job_id": payload["job_id"],
+                "config_id": cfg["id"],
+                "user_id": cfg["user_id"],
+                "root_folder_id": cfg["root_folder_id"],
+                "mapped_root_page_id": mapped_root,
+                "page_id": pid,
+                "integration_token": token,
+            },
+        )
+
+    now = datetime.now(timezone.utc).isoformat()
+    col = "last_full_sync_at" if payload.get("full_reconcile") else "last_fast_sync_at"
+    (
+        supabase.table("notion_sync_configs")
+        .update({col: now, "last_error": None})
+        .eq("id", cfg["id"])
+        .execute()
+    )
+
+
+def _is_under_root(notion: "NotionClient", page: NotionPage, mapped_root: str) -> bool:
+    if page.page_id == mapped_root:
+        return False
+    current = page
+    safety = 32
+    while current.parent_page_id and safety > 0:
+        if current.parent_page_id == mapped_root:
+            return True
+        current = notion.get_page(current.parent_page_id)
+        safety -= 1
+    return False
+
+
+def _walk_tree_pages(notion: "NotionClient", root_page_id: str) -> Iterable[str]:
+    """Yield every descendant page id under root_page_id."""
+    stack = [root_page_id]
+    seen: set[str] = set()
+    while stack:
+        pid = stack.pop()
+        for block in notion.iter_child_blocks(pid):
+            if block.get("type") == "child_page":
+                child_id = block["id"]
+                if child_id not in seen:
+                    seen.add(child_id)
+                    yield child_id
+                    stack.append(child_id)
+
+
+def _parse_ts(value) -> datetime | None:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value
+    return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
 
 
 async def _parallel_metadata(chunks: list[str]) -> list[dict]:
