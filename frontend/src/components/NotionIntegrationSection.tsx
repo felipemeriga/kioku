@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Autocomplete,
@@ -25,10 +25,13 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import {
   connectNotion,
   disconnectNotion,
+  fetchActiveIngestionJobs,
   fetchFolders,
+  fetchIngestionJob,
   fetchNotionConfigs,
   listNotionPages,
   syncNotionNow,
+  type IngestionJob,
   type NotionConfig,
   type NotionPageOption,
 } from "../lib/api";
@@ -38,6 +41,8 @@ export function NotionIntegrationSection() {
   const [folders, setFolders] = useState<{ id: string; name: string }[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeJobsByConfig, setActiveJobsByConfig] = useState<Record<string, IngestionJob>>({});
+  const pollTimers = useRef<Record<string, number>>({});
 
   const refresh = useCallback(async () => {
     try {
@@ -53,10 +58,66 @@ export function NotionIntegrationSection() {
     void refresh();
   }, [refresh]);
 
+  const stopPolling = (configId: string) => {
+    const t = pollTimers.current[configId];
+    if (t) {
+      window.clearInterval(t);
+      delete pollTimers.current[configId];
+    }
+  };
+
+  const startPolling = useCallback(
+    (configId: string, jobId: string) => {
+      stopPolling(configId);
+      const tick = async () => {
+        try {
+          const job = await fetchIngestionJob(jobId);
+          setActiveJobsByConfig((prev) => ({ ...prev, [configId]: job }));
+          if (job.status === "completed" || job.status === "failed") {
+            stopPolling(configId);
+            setActiveJobsByConfig((prev) => {
+              const next = { ...prev };
+              delete next[configId];
+              return next;
+            });
+            await refresh();
+          }
+        } catch (e) {
+          stopPolling(configId);
+          setError(String(e));
+        }
+      };
+      void tick();
+      pollTimers.current[configId] = window.setInterval(tick, 2000);
+    },
+    [refresh],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const active = await fetchActiveIngestionJobs();
+        if (cancelled) return;
+        const notionSyncJobs = active.filter((j) => j.kind === "notion_sync");
+        for (const job of notionSyncJobs) {
+          startPolling(job.source_ref, job.id);
+        }
+      } catch {
+        // non-fatal
+      }
+    })();
+    return () => {
+      cancelled = true;
+      for (const configId of Object.keys(pollTimers.current)) stopPolling(configId);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleSync = async (id: string) => {
     try {
-      await syncNotionNow(id);
-      await refresh();
+      const { job_id } = await syncNotionNow(id);
+      startPolling(id, job_id);
     } catch (e) {
       setError(String(e));
     }
@@ -97,42 +158,56 @@ export function NotionIntegrationSection() {
         )}
 
         <Stack divider={<Divider flexItem />} spacing={2}>
-          {configs.map((cfg) => (
-            <Box key={cfg.id}>
-              <Stack direction="row" justifyContent="space-between" alignItems="center">
-                <Box>
-                  <Typography fontWeight="bold">
-                    {cfg.notion_page_title ?? cfg.notion_page_id}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Root folder: {folderName(folders, cfg.root_folder_id)} · Poll every{" "}
-                    {cfg.fast_poll_interval_min} min
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    Last fast: {formatTs(cfg.last_fast_sync_at)} · Last full:{" "}
-                    {formatTs(cfg.last_full_sync_at)}
-                  </Typography>
-                  {cfg.last_error && (
-                    <Alert severity="warning" sx={{ mt: 1 }}>
-                      {cfg.last_error}
-                    </Alert>
-                  )}
-                </Box>
-                <Stack direction="row" spacing={1}>
-                  <Button startIcon={<RefreshIcon />} onClick={() => handleSync(cfg.id)}>
-                    Sync now
-                  </Button>
-                  <Button
-                    color="error"
-                    startIcon={<DeleteIcon />}
-                    onClick={() => handleDisconnect(cfg.id)}
-                  >
-                    Disconnect
-                  </Button>
+          {configs.map((cfg) => {
+            const activeJob = activeJobsByConfig[cfg.id];
+            const syncing = !!activeJob;
+            return (
+              <Box key={cfg.id}>
+                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                  <Box>
+                    <Typography fontWeight="bold">
+                      {cfg.notion_page_title ?? cfg.notion_page_id}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Root folder: {folderName(folders, cfg.root_folder_id)} · Poll every{" "}
+                      {cfg.fast_poll_interval_min} min
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Last fast: {formatTs(cfg.last_fast_sync_at)} · Last full:{" "}
+                      {formatTs(cfg.last_full_sync_at)}
+                    </Typography>
+                    {cfg.last_error && (
+                      <Alert severity="warning" sx={{ mt: 1 }}>
+                        {cfg.last_error}
+                      </Alert>
+                    )}
+                  </Box>
+                  <Stack direction="row" spacing={1}>
+                    <Button
+                      startIcon={<RefreshIcon />}
+                      onClick={() => handleSync(cfg.id)}
+                      disabled={syncing}
+                    >
+                      {syncing ? "Syncing…" : "Sync now"}
+                    </Button>
+                    <Button
+                      color="error"
+                      startIcon={<DeleteIcon />}
+                      onClick={() => handleDisconnect(cfg.id)}
+                    >
+                      Disconnect
+                    </Button>
+                  </Stack>
                 </Stack>
-              </Stack>
-            </Box>
-          ))}
+                {activeJob && (
+                  <Alert severity="info" sx={{ mt: 1 }}>
+                    Syncing {activeJob.processed_pages ?? 0}/{activeJob.total_pages ?? "?"} pages —
+                    batches {activeJob.processed_batches}/{activeJob.total_batches}
+                  </Alert>
+                )}
+              </Box>
+            );
+          })}
         </Stack>
       </CardContent>
 

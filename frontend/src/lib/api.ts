@@ -369,10 +369,37 @@ export interface NotionPageOption {
   title: string;
 }
 
-export interface NotionSyncResult {
-  fast: { processed: number; errors: number };
-  full: { reachable: number; tombstoned: number };
-  synced_at: string;
+export interface IngestionJob {
+  id: string;
+  user_id: string;
+  kind: "upload" | "drop" | "notion_sync" | "notion_page";
+  source_ref: string;
+  parent_job_id: string | null;
+  root_folder_id: string | null;
+  status: "queued" | "running" | "completed" | "failed";
+  current_step: string | null;
+  total_batches: number;
+  processed_batches: number;
+  total_pages: number | null;
+  processed_pages: number | null;
+  error: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+export interface SyncNowResponse {
+  job_id: string;
+  already_running: boolean;
+}
+
+export async function fetchIngestionJob(jobId: string): Promise<IngestionJob> {
+  const res = await apiFetch(`/api/ingestion-jobs/${jobId}`);
+  return res.json();
+}
+
+export async function fetchActiveIngestionJobs(): Promise<IngestionJob[]> {
+  const res = await apiFetch("/api/ingestion-jobs");
+  return res.json();
 }
 
 export async function fetchNotionConfigs(): Promise<NotionConfig[]> {
@@ -406,7 +433,7 @@ export async function disconnectNotion(
 
 export async function syncNotionNow(
   configId: string
-): Promise<NotionSyncResult> {
+): Promise<SyncNowResponse> {
   const res = await apiFetch(`/api/notion/configs/${configId}/sync`, {
     method: "POST",
   });
