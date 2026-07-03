@@ -21,6 +21,7 @@ load_dotenv()
 
 from services.queue.tasks import (  # noqa: E402 — env must load before task imports
     embed_and_store_batch_task,
+    ingest_document_task,
     ingest_notion_page_task,
     notion_sync_task,
 )
@@ -36,6 +37,7 @@ class WorkerSettings:
     redis_settings = _redis_settings()
     functions = [
         embed_and_store_batch_task,
+        ingest_document_task,
         ingest_notion_page_task,
         notion_sync_task,
     ]

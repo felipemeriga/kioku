@@ -51,7 +51,8 @@ async def embed_and_store_batch_task(ctx: dict, payload: dict) -> None:
     """
     payload = {
         "job_id": str,
-        "row_template": dict,              # base row shared across chunks
+        "row_template": dict,              # base row (documents columns) shared across chunks
+        "metadata_base": dict = {},        # jsonb defaults merged with per-chunk metadata
         "chunks": list[str],               # up to 128 chunk texts
         "chunk_index_offset": int = 0,     # first chunk_index for upload/drop (not notion)
     }
@@ -59,30 +60,36 @@ async def embed_and_store_batch_task(ctx: dict, payload: dict) -> None:
     job_id = payload["job_id"]
     chunks: list[str] = payload["chunks"]
     row_template: dict = payload["row_template"]
+    metadata_base: dict = payload.get("metadata_base") or {}
     chunk_index_offset: int = payload.get("chunk_index_offset", 0)
 
     try:
         supabase = get_supabase_thread_safe()
 
-        embeddings = embed_batch(chunks)
+        embeddings = await asyncio.to_thread(embed_batch, chunks)
         metadata_list = await _parallel_metadata(chunks)
 
         rows: list[dict[str, Any]] = []
         for i, (chunk, embedding, meta) in enumerate(
             zip(chunks, embeddings, metadata_list, strict=True)
         ):
+            merged_meta = {
+                **metadata_base,
+                **(meta or {}),
+                "chunk_index": chunk_index_offset + i,
+            }
             row: dict[str, Any] = {
                 **row_template,
                 "content": chunk,
                 "embedding": embedding,
-                "metadata": meta,
+                "metadata": merged_meta,
             }
             if row_template.get("source_type") != "notion":
                 row["chunk_index"] = chunk_index_offset + i
             rows.append(row)
 
         if rows:
-            supabase.table("documents").insert(rows).execute()
+            await asyncio.to_thread(lambda: supabase.table("documents").insert(rows).execute())
 
         increment_processed_batches(supabase, job_id=job_id)
     except Exception as exc:
@@ -395,6 +402,101 @@ def _parse_ts(value) -> datetime | None:
         frac = (frac + "000000")[:6]
         s = f"{prefix}.{frac}{suffix}"
     return datetime.fromisoformat(s)
+
+
+async def ingest_document_task(ctx: dict, payload: dict) -> None:
+    """Parse an uploaded document and enqueue embed batches.
+
+    payload = {
+        "job_id": str,
+        "user_id": str,
+        "folder_id": str | None,
+        "root_folder_id": str | None,
+        "storage_bucket": str,     # 'images' | 'audio' | 'documents'
+        "storage_path": str,       # path inside the bucket
+        "filename": str,
+        "source_type": str,        # 'pdf' | 'markdown' | 'image' | 'audio' | ...
+        "media_kind": str,         # 'image' | 'audio' | 'document'
+        "media_url": str | None,   # public URL for UI download links
+        "content_hash": str,
+    }
+    """
+    from services.parser import extract_from_image, parse_document, transcribe_audio
+
+    job_id = payload["job_id"]
+    try:
+        supabase = get_supabase_thread_safe()
+
+        # Download file bytes
+        bucket = supabase.storage.from_(payload["storage_bucket"])
+        file_bytes = await asyncio.to_thread(bucket.download, payload["storage_path"])
+
+        # Parse (CPU-bound — offload to thread)
+        media_kind = payload["media_kind"]
+        filename = payload["filename"]
+        if media_kind == "image":
+            text = await asyncio.to_thread(extract_from_image, file_bytes, filename)
+        elif media_kind == "audio":
+            text = await asyncio.to_thread(transcribe_audio, file_bytes, filename)
+        else:
+            text = await asyncio.to_thread(parse_document, file_bytes, filename)
+
+        if not text or not text.strip():
+            mark_completed(supabase, job_id=job_id)
+            return
+
+        chunks = chunk_text(text)
+        if not chunks:
+            mark_completed(supabase, job_id=job_id)
+            return
+
+        batches = list(into_batches(chunks, size=128))
+        set_total_batches(supabase, job_id=job_id, total=len(batches))
+
+        row_template: dict = {
+            "user_id": payload["user_id"],
+            "source_filename": filename,
+            "source_type": payload["source_type"],
+            "content_hash": payload["content_hash"],
+            "status": "completed",
+        }
+        if payload.get("folder_id"):
+            row_template["folder_id"] = payload["folder_id"]
+        if payload.get("root_folder_id"):
+            row_template["root_folder_id"] = payload["root_folder_id"]
+
+        metadata_base: dict = {
+            "source_filename": filename,
+            "total_chunks": len(chunks),
+        }
+        if payload.get("media_url"):
+            key = {
+                "image": "image_url",
+                "audio": "audio_url",
+                "document": "file_url",
+            }.get(media_kind, "file_url")
+            metadata_base[key] = payload["media_url"]
+
+        offset = 0
+        for batch in batches:
+            await ctx["redis"].enqueue_job(
+                "embed_and_store_batch_task",
+                {
+                    "job_id": job_id,
+                    "row_template": row_template,
+                    "metadata_base": metadata_base,
+                    "chunks": batch,
+                    "chunk_index_offset": offset,
+                },
+            )
+            offset += len(batch)
+    except Exception as exc:
+        logger.exception("ingest_document_task failed for job %s", job_id)
+        try:
+            mark_failed(get_supabase_thread_safe(), job_id=job_id, error=str(exc))
+        except Exception:
+            logger.exception("Failed to mark upload job %s as failed", job_id)
+        raise
 
 
 async def _parallel_metadata(chunks: list[str]) -> list[dict]:
