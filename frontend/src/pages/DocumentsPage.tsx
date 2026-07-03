@@ -330,9 +330,30 @@ export default function DocumentsPage() {
             bgcolor: alpha("#121219", 0.4),
           }}
         >
-          <Typography variant="subtitle2" sx={{ flex: 1, fontWeight: 600 }}>
-            {currentFolderId ? "Folder Contents" : "All Documents"}
-          </Typography>
+          <Box sx={{ flex: 1 }}>
+            <Typography
+              sx={{
+                fontFamily: '"Space Grotesk", sans-serif',
+                fontWeight: 700,
+                fontSize: "1.15rem",
+                letterSpacing: "-0.02em",
+                lineHeight: 1.1,
+              }}
+            >
+              {currentFolderId ? "Folder Contents" : "All Documents"}
+            </Typography>
+            <Typography
+              sx={{
+                fontFamily: '"JetBrains Mono", monospace',
+                fontSize: "0.62rem",
+                letterSpacing: "0.24em",
+                color: "text.secondary",
+                mt: 0.25,
+              }}
+            >
+              INGESTED CORPUS
+            </Typography>
+          </Box>
           {ingestionTasks.length > 0 && (
             <Tooltip title="Processing status">
               <IconButton size="small" onClick={openIngestionDrawer}>

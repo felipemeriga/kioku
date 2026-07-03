@@ -110,9 +110,38 @@ export default function SettingsPage() {
         p: 3,
       }}
     >
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 3 }}>
-        <Typography variant="h6" sx={{ fontWeight: 600 }}>
+      <Box sx={{ mb: 3, maxWidth: 700, mx: "auto", width: "100%" }}>
+        <Typography
+          sx={{
+            fontFamily: '"JetBrains Mono", monospace',
+            fontSize: "0.64rem",
+            letterSpacing: "0.28em",
+            color: "text.secondary",
+          }}
+        >
+          WORKSPACE
+        </Typography>
+        <Typography
+          sx={{
+            fontFamily: '"Space Grotesk", sans-serif',
+            fontWeight: 700,
+            fontSize: "1.75rem",
+            letterSpacing: "-0.02em",
+            lineHeight: 1.15,
+            mt: 0.5,
+          }}
+        >
           Settings
+        </Typography>
+        <Typography
+          sx={{
+            fontFamily: '"Inter", sans-serif',
+            fontSize: "0.9rem",
+            color: "text.secondary",
+            mt: 0.75,
+          }}
+        >
+          Manage MCP keys, Notion sync, and workspace connections.
         </Typography>
       </Box>
 
