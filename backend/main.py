@@ -1,7 +1,11 @@
+import asyncio
+from contextlib import asynccontextmanager
+
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from db.client import get_supabase
 from routes.api_keys import router as api_keys_router
 from routes.chat import router as chat_router
 from routes.context import router as context_router
@@ -11,10 +15,26 @@ from routes.drop import router as drop_router
 from routes.evaluation import router as evaluation_router
 from routes.folders import router as folders_router
 from routes.notes import router as notes_router
+from routes.notion import router as notion_router
+from services.notion_sync.sync_engine import sync_loop
 
 load_dotenv()
 
-app = FastAPI(title="Agentic RAG API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    task = asyncio.create_task(sync_loop(get_supabase))
+    try:
+        yield
+    finally:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
+app = FastAPI(title="Agentic RAG API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -33,6 +53,7 @@ app.include_router(drop_router)
 app.include_router(evaluation_router)
 app.include_router(notes_router)
 app.include_router(context_router)
+app.include_router(notion_router)
 
 
 @app.get("/api/health")
