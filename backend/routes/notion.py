@@ -114,8 +114,7 @@ async def disconnect(
     return {"deleted": True, "docs_deleted": delete_docs}
 
 
-@router.post("/configs/{config_id}/sync")
-async def sync_now(config_id: str, user_id: str = Depends(get_current_user)):
+async def _enqueue_sync(config_id: str, user_id: str, full_reconcile: bool) -> dict:
     sb = get_supabase()
     rows = (
         sb.table("notion_sync_configs")
@@ -144,12 +143,26 @@ async def sync_now(config_id: str, user_id: str = Depends(get_current_user)):
     try:
         await pool.enqueue_job(
             "notion_sync_task",
-            {"job_id": job_id, "config_id": config_id, "full_reconcile": False},
+            {
+                "job_id": job_id,
+                "config_id": config_id,
+                "full_reconcile": full_reconcile,
+            },
         )
     finally:
         await pool.close()
 
     return {"job_id": job_id, "already_running": False}
+
+
+@router.post("/configs/{config_id}/sync")
+async def sync_now(config_id: str, user_id: str = Depends(get_current_user)):
+    return await _enqueue_sync(config_id, user_id, full_reconcile=False)
+
+
+@router.post("/configs/{config_id}/reconcile")
+async def reconcile_now(config_id: str, user_id: str = Depends(get_current_user)):
+    return await _enqueue_sync(config_id, user_id, full_reconcile=True)
 
 
 @router.get("/pages", response_model=list[NotionPageOption])

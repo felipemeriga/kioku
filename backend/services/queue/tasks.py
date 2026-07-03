@@ -31,6 +31,7 @@ from services.notion_sync.blocks_to_markdown import blocks_to_markdown
 from services.notion_sync.client import NotionClient, NotionPage
 from services.notion_sync.folder_paths import ensure_notion_folder_path
 from services.notion_sync.page_helpers import ancestor_chain_titles, fetch_block_tree
+from services.notion_sync.reconciliation import NotionPageSnapshot, diff_pages
 from services.queue.batching import into_batches
 from services.queue.jobs import (
     create_job,
@@ -188,7 +189,38 @@ async def notion_sync_task(ctx: dict, payload: dict) -> None:
     mapped_root = cfg["notion_page_id"]
 
     if payload.get("full_reconcile"):
-        page_ids = list(_walk_tree_pages(notion, mapped_root))
+        # Enumerate all pages under the mapped root via search API (returns
+        # last_edited_time in the same call, no per-page get_page needed).
+        reachable_snaps: list[NotionPageSnapshot] = []
+        for page in notion.iter_pages_edited_since(None):
+            if _is_under_root(notion, page, mapped_root):
+                reachable_snaps.append(
+                    NotionPageSnapshot(
+                        page_id=page.page_id,
+                        last_edited_time=page.last_edited_time,
+                    )
+                )
+
+        # What's currently in DB for this root?
+        db_page_map = _load_db_page_edit_map(
+            supabase,
+            user_id=cfg["user_id"],
+            root_folder_id=cfg["root_folder_id"],
+        )
+
+        diff = diff_pages(reachable_snaps, db_page_map)
+        page_ids = diff.to_ingest
+
+        # Tombstone pages that disappeared from Notion (do this before
+        # enqueueing so the UI reflects the delete count immediately).
+        if diff.to_tombstone:
+            _tombstone_pages(
+                supabase,
+                user_id=cfg["user_id"],
+                root_folder_id=cfg["root_folder_id"],
+                page_ids=diff.to_tombstone,
+            )
+            logger.info("full reconciliation: tombstoned %d pages", len(diff.to_tombstone))
     else:
         since = _parse_ts(cfg.get("last_fast_sync_at"))
         page_ids = []
@@ -198,8 +230,9 @@ async def notion_sync_task(ctx: dict, payload: dict) -> None:
 
     set_total_pages(supabase, job_id=payload["job_id"], total=len(page_ids))
 
-    # If no pages to process (e.g., fast poll with no recent edits), mark the
-    # sync job completed immediately — no child jobs will ever fire increment.
+    # If no pages to process (fast poll with no recent edits, or full reconcile
+    # with no changes), mark the sync job completed immediately — no child jobs
+    # will ever fire increment.
     if not page_ids:
         mark_completed(supabase, job_id=payload["job_id"])
 
@@ -247,6 +280,45 @@ def _is_under_root(notion: "NotionClient", page: NotionPage, mapped_root: str) -
         current = notion.get_page(current.parent_page_id)
         safety -= 1
     return False
+
+
+def _load_db_page_edit_map(supabase, *, user_id: str, root_folder_id: str) -> dict[str, datetime]:
+    """Return {notion_page_id: last_edited_time} for all Notion-sourced rows in the root."""
+    rows = (
+        supabase.table("documents")
+        .select("notion_page_id,notion_last_edited_time")
+        .eq("user_id", user_id)
+        .eq("root_folder_id", root_folder_id)
+        .eq("source_type", "notion")
+        .eq("status", "completed")
+        .execute()
+        .data
+    ) or []
+
+    out: dict[str, datetime] = {}
+    for r in rows:
+        pid = r.get("notion_page_id")
+        ts = _parse_ts(r.get("notion_last_edited_time"))
+        if not pid or ts is None:
+            continue
+        # Multiple chunks share the same edit time — first-write wins is fine.
+        if pid not in out:
+            out[pid] = ts
+    return out
+
+
+def _tombstone_pages(supabase, *, user_id: str, root_folder_id: str, page_ids: list[str]) -> None:
+    """Mark all documents for the given notion_page_ids as status='deleted'."""
+    if not page_ids:
+        return
+    (
+        supabase.table("documents")
+        .update({"status": "deleted"})
+        .eq("user_id", user_id)
+        .eq("root_folder_id", root_folder_id)
+        .in_("notion_page_id", page_ids)
+        .execute()
+    )
 
 
 def _walk_tree_pages(notion: "NotionClient", root_page_id: str) -> Iterable[str]:

@@ -440,6 +440,15 @@ export async function syncNotionNow(
   return res.json();
 }
 
+export async function reconcileNotionNow(
+  configId: string
+): Promise<SyncNowResponse> {
+  const res = await apiFetch(`/api/notion/configs/${configId}/reconcile`, {
+    method: "POST",
+  });
+  return res.json();
+}
+
 export async function listNotionPages(
   integrationToken: string,
   query: string

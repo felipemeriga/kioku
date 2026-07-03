@@ -30,6 +30,7 @@ import {
   fetchIngestionJob,
   fetchNotionConfigs,
   listNotionPages,
+  reconcileNotionNow,
   syncNotionNow,
   type IngestionJob,
   type NotionConfig,
@@ -123,6 +124,15 @@ export function NotionIntegrationSection() {
     }
   };
 
+  const handleReconcile = async (id: string) => {
+    try {
+      const { job_id } = await reconcileNotionNow(id);
+      startPolling(id, job_id);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
   const handleDisconnect = async (id: string) => {
     const deleteDocs = window.confirm(
       "Delete all Notion-sourced documents from the mapped folder?\n\nOK = delete\nCancel = keep",
@@ -189,6 +199,13 @@ export function NotionIntegrationSection() {
                       disabled={syncing}
                     >
                       {syncing ? "Syncing…" : "Sync now"}
+                    </Button>
+                    <Button
+                      onClick={() => handleReconcile(cfg.id)}
+                      disabled={syncing}
+                      title="Full walk: detects deletions and re-ingests any drift"
+                    >
+                      Reconcile
                     </Button>
                     <Button
                       color="error"
