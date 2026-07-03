@@ -21,11 +21,20 @@ try:
 except ImportError:  # pragma: no cover - fallback for older codebases
     from db.client import get_supabase as get_supabase_thread_safe  # type: ignore
 
+from services.chunker import chunk_text
 from services.embeddings import embed_batch
 from services.metadata import extract_metadata
+from services.notion_sync.attachments import resolve_attachments
+from services.notion_sync.blocks_to_markdown import blocks_to_markdown
+from services.notion_sync.client import NotionClient
+from services.notion_sync.folder_paths import ensure_notion_folder_path
+from services.notion_sync.page_helpers import ancestor_chain_titles, fetch_block_tree
+from services.queue.batching import into_batches
 from services.queue.jobs import (
     increment_processed_batches,
+    increment_processed_pages,
     mark_failed,
+    set_total_batches,
 )
 
 logger = logging.getLogger(__name__)
@@ -78,6 +87,74 @@ async def embed_and_store_batch_task(ctx: dict, payload: dict) -> None:
         except Exception:
             logger.exception("Failed to mark job %s as failed after primary error", job_id)
         raise
+
+
+async def ingest_notion_page_task(ctx: dict, payload: dict) -> None:
+    """
+    payload = {
+        "job_id": str,
+        "parent_job_id": str | None,
+        "config_id": str,
+        "user_id": str,
+        "root_folder_id": str,
+        "mapped_root_page_id": str,
+        "page_id": str,
+        "integration_token": str,   # decrypted
+    }
+    """
+    supabase = get_supabase_thread_safe()
+    notion = NotionClient(payload["integration_token"])
+    page = notion.get_page(payload["page_id"])
+    blocks = list(fetch_block_tree(notion, payload["page_id"]))
+
+    markdown = blocks_to_markdown(blocks)
+    markdown = resolve_attachments(markdown)
+
+    titles = ancestor_chain_titles(notion, page, payload["mapped_root_page_id"])
+    leaf_folder_id, parent_path = ensure_notion_folder_path(
+        supabase,
+        user_id=payload["user_id"],
+        root_folder_id=payload["root_folder_id"],
+        ancestor_titles=titles,
+    )
+
+    (
+        supabase.table("documents")
+        .delete()
+        .eq("user_id", payload["user_id"])
+        .eq("root_folder_id", payload["root_folder_id"])
+        .eq("notion_page_id", payload["page_id"])
+        .execute()
+    )
+
+    chunks = chunk_text(markdown)
+    batches = list(into_batches(chunks, size=128))
+    set_total_batches(supabase, job_id=payload["job_id"], total=len(batches))
+
+    row_template = {
+        "user_id": payload["user_id"],
+        "root_folder_id": payload["root_folder_id"],
+        "folder_id": leaf_folder_id,
+        "source_filename": page.title,
+        "source_type": "notion",
+        "notion_page_id": page.page_id,
+        "notion_last_edited_time": page.last_edited_time.isoformat(),
+        "notion_parent_path": parent_path,
+        "status": "completed",
+    }
+
+    for batch in batches:
+        await ctx["redis"].enqueue_job(
+            "embed_and_store_batch_task",
+            {
+                "job_id": payload["job_id"],
+                "row_template": row_template,
+                "chunks": batch,
+            },
+        )
+
+    if payload.get("parent_job_id"):
+        increment_processed_pages(supabase, job_id=payload["parent_job_id"])
 
 
 async def _parallel_metadata(chunks: list[str]) -> list[dict]:
