@@ -238,16 +238,15 @@ async def _notion_sync_task_impl(ctx: dict, payload: dict) -> None:
         diff = diff_pages(reachable_snaps, db_page_map)
         page_ids = diff.to_ingest
 
-        # Tombstone pages that disappeared from Notion (do this before
-        # enqueueing so the UI reflects the delete count immediately).
+        # Hard-delete pages that disappeared from Notion.
         if diff.to_tombstone:
-            _tombstone_pages(
+            _remove_pages(
                 supabase,
                 user_id=cfg["user_id"],
                 root_folder_id=cfg["root_folder_id"],
                 page_ids=diff.to_tombstone,
             )
-            logger.info("full reconciliation: tombstoned %d pages", len(diff.to_tombstone))
+            logger.info("full reconciliation: removed %d pages", len(diff.to_tombstone))
     else:
         since = _parse_ts(cfg.get("last_fast_sync_at"))
         page_ids = []
@@ -334,13 +333,19 @@ def _load_db_page_edit_map(supabase, *, user_id: str, root_folder_id: str) -> di
     return out
 
 
-def _tombstone_pages(supabase, *, user_id: str, root_folder_id: str, page_ids: list[str]) -> None:
-    """Mark all documents for the given notion_page_ids as status='deleted'."""
+def _remove_pages(supabase, *, user_id: str, root_folder_id: str, page_ids: list[str]) -> None:
+    """Hard-delete all documents for the given notion_page_ids.
+
+    Notion is the source of truth. If a page reappears in Notion later, the
+    next reconcile treats it as new and re-ingests. Hard delete avoids the
+    need for downstream consumers (search, folder view, MCP) to filter out
+    tombstoned rows.
+    """
     if not page_ids:
         return
     (
         supabase.table("documents")
-        .update({"status": "deleted"})
+        .delete()
         .eq("user_id", user_id)
         .eq("root_folder_id", root_folder_id)
         .in_("notion_page_id", page_ids)
