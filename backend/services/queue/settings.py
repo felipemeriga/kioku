@@ -13,8 +13,13 @@ from __future__ import annotations
 import os
 
 from arq.connections import RedisSettings
+from dotenv import load_dotenv
 
-from services.queue.tasks import (
+# Load .env so the arq worker process gets SUPABASE_URL, ANTHROPIC_API_KEY,
+# etc. uvicorn's main.py loads it too — this makes both entry points work.
+load_dotenv()
+
+from services.queue.tasks import (  # noqa: E402 — env must load before task imports
     embed_and_store_batch_task,
     ingest_notion_page_task,
     notion_sync_task,
