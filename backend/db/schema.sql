@@ -182,6 +182,7 @@ CREATE TABLE IF NOT EXISTS "public"."documents" (
     "notion_page_id" "text",
     "notion_last_edited_time" timestamp with time zone,
     "notion_parent_path" "text",
+    "chunk_index" integer,
     "fts" "tsvector" GENERATED ALWAYS AS ("to_tsvector"('"english"'::"regconfig", "content")) STORED,
     CONSTRAINT "documents_status_check" CHECK (("status" = ANY (ARRAY['processing'::"text", 'completed'::"text", 'failed'::"text"])))
 );
@@ -208,6 +209,28 @@ CREATE TABLE IF NOT EXISTS "public"."notion_sync_configs" (
     "last_error" "text",
     "created_at" timestamp with time zone DEFAULT "now"(),
     "updated_at" timestamp with time zone DEFAULT "now"()
+);
+
+CREATE TABLE IF NOT EXISTS "public"."ingestion_jobs" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "kind" "text" NOT NULL,
+    "source_ref" "text" NOT NULL,
+    "parent_job_id" "uuid",
+    "root_folder_id" "uuid",
+    "status" "text" DEFAULT 'queued'::"text" NOT NULL,
+    "current_step" "text",
+    "total_batches" integer DEFAULT 0 NOT NULL,
+    "processed_batches" integer DEFAULT 0 NOT NULL,
+    "total_pages" integer,
+    "processed_pages" integer,
+    "error" "text",
+    "started_at" timestamp with time zone,
+    "completed_at" timestamp with time zone,
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    "updated_at" timestamp with time zone DEFAULT "now"(),
+    CONSTRAINT "ingestion_jobs_kind_check" CHECK (("kind" = ANY (ARRAY['upload'::"text", 'drop'::"text", 'notion_sync'::"text", 'notion_page'::"text"]))),
+    CONSTRAINT "ingestion_jobs_status_check" CHECK (("status" = ANY (ARRAY['queued'::"text", 'running'::"text", 'completed'::"text", 'failed'::"text"])))
 );
 
 CREATE TABLE IF NOT EXISTS "public"."ingestion_status" (
@@ -280,6 +303,9 @@ ALTER TABLE ONLY "public"."documents"
 ALTER TABLE ONLY "public"."folders"
     ADD CONSTRAINT "folders_pkey" PRIMARY KEY ("id");
 
+ALTER TABLE ONLY "public"."ingestion_jobs"
+    ADD CONSTRAINT "ingestion_jobs_pkey" PRIMARY KEY ("id");
+
 ALTER TABLE ONLY "public"."ingestion_status"
     ADD CONSTRAINT "ingestion_status_pkey" PRIMARY KEY ("id");
 
@@ -315,6 +341,12 @@ CREATE INDEX "idx_documents_notion_page_id" ON "public"."documents" USING "btree
 
 CREATE UNIQUE INDEX "idx_documents_notion_identity" ON "public"."documents" USING "btree" ("user_id", "root_folder_id", "notion_page_id", "content") WHERE ("notion_page_id" IS NOT NULL);
 
+CREATE UNIQUE INDEX "idx_documents_ingest_chunk_identity" ON "public"."documents" USING "btree" ("user_id", "source_filename", "chunk_index") WHERE (("chunk_index" IS NOT NULL) AND ("notion_page_id" IS NULL));
+
+CREATE INDEX "idx_ingestion_jobs_user_status" ON "public"."ingestion_jobs" USING "btree" ("user_id", "status");
+
+CREATE UNIQUE INDEX "idx_ingestion_jobs_active_source" ON "public"."ingestion_jobs" USING "btree" ("kind", "source_ref") WHERE ("status" = ANY (ARRAY['queued'::"text", 'running'::"text"]));
+
 CREATE UNIQUE INDEX "idx_notes_dedup" ON "public"."notes" USING "btree" ("user_id", "root_folder_id", "content_hash");
 
 CREATE INDEX "idx_notes_user_scope" ON "public"."notes" USING "btree" ("user_id", "root_folder_id");
@@ -324,6 +356,8 @@ CREATE INDEX "idx_notion_sync_configs_user_id" ON "public"."notion_sync_configs"
 CREATE OR REPLACE TRIGGER "context_updated_at" BEFORE UPDATE ON "public"."context" FOR EACH ROW EXECUTE FUNCTION "public"."update_updated_at"();
 
 CREATE OR REPLACE TRIGGER "conversations_updated_at" BEFORE UPDATE ON "public"."conversations" FOR EACH ROW EXECUTE FUNCTION "public"."update_updated_at"();
+
+CREATE OR REPLACE TRIGGER "ingestion_jobs_updated_at" BEFORE UPDATE ON "public"."ingestion_jobs" FOR EACH ROW EXECUTE FUNCTION "public"."update_updated_at"();
 
 CREATE OR REPLACE TRIGGER "ingestion_status_updated_at" BEFORE UPDATE ON "public"."ingestion_status" FOR EACH ROW EXECUTE FUNCTION "public"."update_updated_at"();
 
@@ -360,6 +394,12 @@ ALTER TABLE ONLY "public"."folders"
 
 ALTER TABLE ONLY "public"."folders"
     ADD CONSTRAINT "folders_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
+
+ALTER TABLE ONLY "public"."ingestion_jobs"
+    ADD CONSTRAINT "ingestion_jobs_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
+
+ALTER TABLE ONLY "public"."ingestion_jobs"
+    ADD CONSTRAINT "ingestion_jobs_parent_job_id_fkey" FOREIGN KEY ("parent_job_id") REFERENCES "public"."ingestion_jobs"("id") ON DELETE CASCADE;
 
 ALTER TABLE ONLY "public"."ingestion_status"
     ADD CONSTRAINT "ingestion_status_folder_id_fkey" FOREIGN KEY ("folder_id") REFERENCES "public"."folders"("id") ON DELETE SET NULL;
@@ -399,6 +439,8 @@ CREATE POLICY "Users manage own notes" ON "public"."notes" USING (("user_id" = "
 
 CREATE POLICY "Users manage own notion sync configs" ON "public"."notion_sync_configs" USING (("auth"."uid"() = "user_id")) WITH CHECK (("auth"."uid"() = "user_id"));
 
+CREATE POLICY "Users manage own ingestion jobs" ON "public"."ingestion_jobs" USING (("auth"."uid"() = "user_id")) WITH CHECK (("auth"."uid"() = "user_id"));
+
 CREATE POLICY "Users see own ingestion status" ON "public"."ingestion_status" USING (("user_id" = ("auth"."uid"())::"text")) WITH CHECK (("user_id" = ("auth"."uid"())::"text"));
 
 ALTER TABLE "public"."api_keys" ENABLE ROW LEVEL SECURITY;
@@ -410,6 +452,8 @@ ALTER TABLE "public"."conversations" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."documents" ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE "public"."folders" ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE "public"."ingestion_jobs" ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE "public"."ingestion_status" ENABLE ROW LEVEL SECURITY;
 
