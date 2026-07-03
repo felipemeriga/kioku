@@ -1,183 +1,171 @@
-import { createTheme, alpha } from "@mui/material/styles";
+import { createTheme } from "@mui/material/styles";
+
+/**
+ * Agentic RAG brand tokens — adopted from Role Miner brand guide.
+ *
+ * Three font families (Space Grotesk for display, Inter for body,
+ * JetBrains Mono for code/overline). Five accent colors on ink-dark
+ * surfaces. Every surface should reach for `brand` tokens rather than
+ * inlining hex literals — keeps future recolouring trivial.
+ */
+export const brand = {
+  violet: "#7C3AED", // primary CTA + nav highlight
+  violet2: "#A855F7", // secondary, gradient stop
+  violetDeep: "#6D28D9", // deepest stop
+  cyan: "#22D3EE", // AI / scanning / active
+  amber: "#F59E0B", // highlights, warnings
+  amberLight: "#FBBF24",
+  green: "#10B981", // success
+  ink: "#0B1020", // page background
+  surface: "#151B2F", // cards, panels
+  surface2: "#0E1424", // sunken card stops
+  line: "#222B45", // borders, dividers
+  text: "#F8FAFC", // primary text
+  muted: "#9FB0C9", // secondary text
+};
+
+const FONT_DISPLAY = "'Space Grotesk', system-ui, -apple-system, sans-serif";
+const FONT_BODY = "'Inter', -apple-system, BlinkMacSystemFont, sans-serif";
+const FONT_MONO = "'JetBrains Mono', 'SFMono-Regular', Menlo, monospace";
 
 const theme = createTheme({
   palette: {
     mode: "dark",
-    primary: {
-      main: "#7c3aed",
-      light: "#a78bfa",
-      dark: "#5b21b6",
-    },
-    secondary: {
-      main: "#3b82f6",
-      light: "#93c5fd",
-      dark: "#2563eb",
-    },
-    success: {
-      main: "#10b981",
-    },
-    error: {
-      main: "#ef4444",
-    },
-    warning: {
-      main: "#f59e0b",
-    },
+    primary: { main: brand.violet, light: brand.violet2, dark: brand.violetDeep },
+    secondary: { main: brand.cyan },
+    warning: { main: brand.amber, light: brand.amberLight },
+    success: { main: brand.green },
+    info: { main: brand.cyan },
+    error: { main: "#ef4444" },
     background: {
-      default: "#0f0f14",
-      paper: "#171720",
+      default: brand.ink,
+      paper: brand.surface,
     },
-    divider: alpha("#ffffff", 0.06),
+    text: {
+      primary: brand.text,
+      secondary: brand.muted,
+    },
+    divider: brand.line,
   },
+  shape: { borderRadius: 14 },
   typography: {
-    fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
-    h1: { fontWeight: 700, letterSpacing: "-0.025em" },
-    h2: { fontWeight: 700, letterSpacing: "-0.025em" },
-    h3: { fontWeight: 600, letterSpacing: "-0.02em" },
-    h4: { fontWeight: 600, letterSpacing: "-0.02em" },
-    h5: { fontWeight: 600, letterSpacing: "-0.01em" },
-    h6: { fontWeight: 600 },
-    body1: { letterSpacing: "-0.01em", lineHeight: 1.6 },
-    body2: { letterSpacing: "-0.01em", lineHeight: 1.6 },
-    button: { fontWeight: 500 },
-  },
-  shape: {
-    borderRadius: 12,
+    fontFamily: FONT_BODY,
+    h1: { fontFamily: FONT_DISPLAY, fontWeight: 700, letterSpacing: -0.5 },
+    h2: { fontFamily: FONT_DISPLAY, fontWeight: 700, letterSpacing: -0.5 },
+    h3: { fontFamily: FONT_DISPLAY, fontWeight: 700, letterSpacing: -0.3 },
+    h4: { fontFamily: FONT_DISPLAY, fontWeight: 700 },
+    h5: { fontFamily: FONT_DISPLAY, fontWeight: 700 },
+    h6: { fontFamily: FONT_DISPLAY, fontWeight: 700 },
+    subtitle1: { fontFamily: FONT_DISPLAY, fontWeight: 600 },
+    subtitle2: { fontFamily: FONT_DISPLAY, fontWeight: 600 },
+    button: {
+      fontFamily: FONT_DISPLAY,
+      fontWeight: 600,
+      textTransform: "none",
+      letterSpacing: 0.1,
+    },
+    overline: { fontFamily: FONT_MONO, fontWeight: 500, letterSpacing: "0.18em" },
+    caption: { fontFamily: FONT_BODY },
+    body1: { fontFamily: FONT_BODY, lineHeight: 1.55 },
+    body2: { fontFamily: FONT_BODY, lineHeight: 1.55 },
   },
   components: {
     MuiCssBaseline: {
       styleOverrides: {
         body: {
-          background:
-            "linear-gradient(135deg, #0f0f14 0%, #13141f 50%, #0f0f14 100%)",
+          backgroundColor: brand.ink,
+          // Subtle violet+cyan ambient glow so every surface inherits the mood.
+          backgroundImage: `radial-gradient(circle at 12% -8%, ${brand.violet}22 0%, transparent 45%), radial-gradient(circle at 92% 110%, ${brand.cyan}10 0%, transparent 45%)`,
+          backgroundAttachment: "fixed",
           minHeight: "100vh",
         },
-      },
-    },
-    MuiButton: {
-      styleOverrides: {
-        root: {
-          textTransform: "none" as const,
-          borderRadius: 10,
-          fontWeight: 500,
-          transition: "all 0.2s ease-in-out",
-          "&:hover": {
-            transform: "translateY(-1px)",
-          },
+        "*::-webkit-scrollbar": { width: 10, height: 10 },
+        "*::-webkit-scrollbar-track": { background: brand.surface2 },
+        "*::-webkit-scrollbar-thumb": {
+          background: "#2B3550",
+          borderRadius: 6,
+          border: `2px solid ${brand.surface2}`,
         },
-        contained: {
-          background: "linear-gradient(135deg, #7c3aed, #6d28d9)",
-          boxShadow: "0 4px 14px 0 rgba(124, 58, 237, 0.3)",
-          "&:hover": {
-            background: "linear-gradient(135deg, #8b5cf6, #7c3aed)",
-            boxShadow: "0 6px 20px 0 rgba(124, 58, 237, 0.4)",
-          },
-        },
-        outlined: {
-          borderWidth: "1.5px",
-          borderColor: alpha("#7c3aed", 0.4),
-          color: "#a78bfa",
-          "&:hover": {
-            borderWidth: "1.5px",
-            backgroundColor: alpha("#7c3aed", 0.08),
-            borderColor: alpha("#7c3aed", 0.6),
-          },
-        },
-      },
-    },
-    MuiCard: {
-      styleOverrides: {
-        root: {
-          borderRadius: 16,
-          backgroundImage: "none",
-          backgroundColor: alpha("#1e1e2e", 0.65),
-          backdropFilter: "blur(10px)",
-          WebkitBackdropFilter: "blur(10px)",
-          border: `1px solid ${alpha("#ffffff", 0.08)}`,
-          boxShadow: "0 8px 32px rgba(0, 0, 0, 0.3)",
-          transition:
-            "transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out, border-color 0.2s ease-in-out",
-          "&:hover": {
-            boxShadow: "0 12px 40px rgba(0, 0, 0, 0.4)",
-            borderColor: alpha("#ffffff", 0.15),
-          },
-        },
+        "*::-webkit-scrollbar-thumb:hover": { background: brand.violet },
       },
     },
     MuiPaper: {
       styleOverrides: {
         root: {
           backgroundImage: "none",
-          backgroundColor: alpha("#1e1e2e", 0.6),
-          backdropFilter: "blur(10px)",
-          WebkitBackdropFilter: "blur(10px)",
-          border: `1px solid ${alpha("#ffffff", 0.06)}`,
+          backgroundColor: brand.surface,
+          border: `1px solid ${brand.line}`,
+          boxShadow:
+            "0 1px 0 rgba(255,255,255,0.03), 0 12px 32px rgba(0,0,0,0.45)",
         },
       },
     },
-    MuiTextField: {
+    MuiCard: {
       styleOverrides: {
         root: {
-          "& .MuiOutlinedInput-root": {
-            borderRadius: 10,
-            backgroundColor: alpha("#ffffff", 0.03),
-            transition: "background-color 0.2s ease, border-color 0.2s ease",
-            "&:hover": {
-              backgroundColor: alpha("#ffffff", 0.05),
-            },
-            "&.Mui-focused": {
-              backgroundColor: alpha("#7c3aed", 0.05),
-              "& .MuiOutlinedInput-notchedOutline": {
-                borderColor: "#7c3aed",
-                borderWidth: 2,
-              },
-            },
+          background: `linear-gradient(180deg, ${brand.surface} 0%, ${brand.surface2} 100%)`,
+        },
+      },
+    },
+    MuiButton: {
+      defaultProps: { disableElevation: true },
+      styleOverrides: {
+        root: { borderRadius: 10, fontWeight: 600 },
+        contained: {
+          backgroundImage: `linear-gradient(90deg, ${brand.violet} 0%, ${brand.violet2} 100%)`,
+          color: "#fff",
+          "&:hover": {
+            backgroundImage: `linear-gradient(90deg, ${brand.violetDeep} 0%, ${brand.violet} 100%)`,
+            boxShadow: `0 6px 20px ${brand.violet}55`,
           },
         },
+        outlined: {
+          borderColor: brand.line,
+          "&:hover": {
+            borderColor: brand.violet2,
+            backgroundColor: `${brand.violet}10`,
+          },
+        },
+        text: { "&:hover": { backgroundColor: `${brand.violet}14` } },
       },
     },
     MuiChip: {
       styleOverrides: {
+        root: { fontFamily: FONT_BODY, fontWeight: 500, borderRadius: 8 },
+        outlined: { borderColor: brand.line },
+      },
+    },
+    MuiTextField: {
+      defaultProps: { variant: "outlined" },
+    },
+    MuiOutlinedInput: {
+      styleOverrides: {
         root: {
-          borderRadius: 8,
-          fontWeight: 500,
-        },
-        filled: {
-          backgroundColor: alpha("#7c3aed", 0.15),
-          "&:hover": {
-            backgroundColor: alpha("#7c3aed", 0.25),
+          backgroundColor: brand.surface2,
+          "& .MuiOutlinedInput-notchedOutline": { borderColor: brand.line },
+          "&:hover .MuiOutlinedInput-notchedOutline": {
+            borderColor: brand.violet2,
+          },
+          "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
+            borderColor: brand.violet,
           },
         },
       },
     },
-    MuiIconButton: {
+    MuiDrawer: {
       styleOverrides: {
-        root: {
-          borderRadius: 10,
-          transition: "transform 0.2s ease, background-color 0.2s ease",
-          "&:hover": {
-            backgroundColor: alpha("#7c3aed", 0.1),
-            transform: "scale(1.05)",
-          },
+        paper: {
+          backgroundColor: brand.surface2,
+          backgroundImage: "none",
+          borderRight: `1px solid ${brand.line}`,
         },
       },
     },
-    MuiTooltip: {
-      styleOverrides: {
-        tooltip: {
-          backgroundColor: alpha("#1e1e2e", 0.95),
-          backdropFilter: "blur(8px)",
-          WebkitBackdropFilter: "blur(8px)",
-          borderRadius: 8,
-          fontSize: "0.75rem",
-          fontWeight: 500,
-          border: `1px solid ${alpha("#ffffff", 0.1)}`,
-        },
-      },
-    },
-    MuiDivider: {
+    MuiAppBar: {
       styleOverrides: {
         root: {
-          borderColor: alpha("#ffffff", 0.06),
+          backgroundImage: "none",
+          backgroundColor: `${brand.ink}cc`,
         },
       },
     },
@@ -186,20 +174,61 @@ const theme = createTheme({
         root: {
           borderRadius: 10,
           margin: "2px 8px",
-          transition: "background-color 0.15s ease",
           "&.Mui-selected": {
-            backgroundColor: alpha("#7c3aed", 0.15),
-            "&:hover": {
-              backgroundColor: alpha("#7c3aed", 0.2),
-            },
+            backgroundColor: `${brand.violet}22`,
+            color: brand.text,
+            "& .MuiListItemIcon-root": { color: brand.violet2 },
+            "&:hover": { backgroundColor: `${brand.violet}33` },
           },
-          "&:hover": {
-            backgroundColor: alpha("#7c3aed", 0.08),
-          },
+          "&:hover": { backgroundColor: `${brand.violet}12` },
+        },
+      },
+    },
+    MuiDivider: {
+      styleOverrides: { root: { borderColor: brand.line } },
+    },
+    MuiAvatar: {
+      styleOverrides: {
+        root: { fontFamily: FONT_DISPLAY, fontWeight: 700 },
+      },
+    },
+    MuiTab: {
+      styleOverrides: {
+        root: {
+          fontFamily: FONT_DISPLAY,
+          fontWeight: 600,
+          textTransform: "none",
+        },
+      },
+    },
+    MuiIconButton: {
+      styleOverrides: {
+        root: {
+          borderRadius: 10,
+          "&:hover": { backgroundColor: `${brand.violet}14` },
+        },
+      },
+    },
+    MuiTooltip: {
+      styleOverrides: {
+        tooltip: {
+          backgroundColor: brand.surface,
+          border: `1px solid ${brand.line}`,
+          borderRadius: 8,
+          fontSize: "0.75rem",
+          fontWeight: 500,
+          fontFamily: FONT_BODY,
         },
       },
     },
   },
 });
+
+// Fonts exported for components that want the literal stack (code blocks, etc.)
+export const fonts = {
+  display: FONT_DISPLAY,
+  body: FONT_BODY,
+  mono: FONT_MONO,
+};
 
 export default theme;
