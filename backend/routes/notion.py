@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
+from arq import create_pool
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from auth import get_current_user
 from db.client import get_supabase
-from services.crypto import decrypt_secret, encrypt_secret
+from services.crypto import encrypt_secret
 from services.notion_sync.client import NotionClient
-from services.notion_sync.sync_engine import fast_poll, full_reconciliation
+from services.queue.jobs import create_job, get_active_job
+from services.queue.settings import _redis_settings
 
 router = APIRouter(prefix="/api/notion", tags=["notion"])
 
@@ -129,14 +129,27 @@ async def sync_now(config_id: str, user_id: str = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Config not found")
     cfg = rows[0]
 
-    client = NotionClient(decrypt_secret(cfg["integration_token_encrypted"]))
-    fast_result = fast_poll(sb, client, cfg)
-    full_result = full_reconciliation(sb, client, cfg)
-    return {
-        "fast": fast_result,
-        "full": full_result,
-        "synced_at": datetime.now(timezone.utc).isoformat(),
-    }
+    existing = get_active_job(sb, kind="notion_sync", source_ref=config_id)
+    if existing:
+        return {"job_id": existing["id"], "already_running": True}
+
+    job_id = create_job(
+        sb,
+        user_id=user_id,
+        kind="notion_sync",
+        source_ref=config_id,
+        root_folder_id=cfg["root_folder_id"],
+    )
+    pool = await create_pool(_redis_settings())
+    try:
+        await pool.enqueue_job(
+            "notion_sync_task",
+            {"job_id": job_id, "config_id": config_id, "full_reconcile": False},
+        )
+    finally:
+        await pool.close()
+
+    return {"job_id": job_id, "already_running": False}
 
 
 @router.get("/pages", response_model=list[NotionPageOption])
