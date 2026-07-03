@@ -233,23 +233,6 @@ CREATE TABLE IF NOT EXISTS "public"."ingestion_jobs" (
     CONSTRAINT "ingestion_jobs_status_check" CHECK (("status" = ANY (ARRAY['queued'::"text", 'running'::"text", 'completed'::"text", 'failed'::"text"])))
 );
 
-CREATE TABLE IF NOT EXISTS "public"."ingestion_status" (
-    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
-    "user_id" "text" NOT NULL,
-    "filename" "text" NOT NULL,
-    "folder_id" "uuid",
-    "stage" "text" DEFAULT 'uploading'::"text" NOT NULL,
-    "stage_detail" "text",
-    "error_message" "text",
-    "chunks_total" integer,
-    "chunks_done" integer DEFAULT 0,
-    "duplicate" boolean DEFAULT false,
-    "document_ids" "jsonb" DEFAULT '[]'::"jsonb",
-    "created_at" timestamp with time zone DEFAULT "now"(),
-    "updated_at" timestamp with time zone DEFAULT "now"(),
-    CONSTRAINT "ingestion_status_stage_check" CHECK (("stage" = ANY (ARRAY['uploading'::"text", 'parsing'::"text", 'chunking'::"text", 'extracting_metadata'::"text", 'embedding'::"text", 'storing'::"text", 'completed'::"text", 'error'::"text", 'duplicate'::"text"])))
-);
-
 CREATE TABLE IF NOT EXISTS "public"."messages" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "conversation_id" "uuid" NOT NULL,
@@ -306,9 +289,6 @@ ALTER TABLE ONLY "public"."folders"
 ALTER TABLE ONLY "public"."ingestion_jobs"
     ADD CONSTRAINT "ingestion_jobs_pkey" PRIMARY KEY ("id");
 
-ALTER TABLE ONLY "public"."ingestion_status"
-    ADD CONSTRAINT "ingestion_status_pkey" PRIMARY KEY ("id");
-
 ALTER TABLE ONLY "public"."messages"
     ADD CONSTRAINT "messages_pkey" PRIMARY KEY ("id");
 
@@ -359,8 +339,6 @@ CREATE OR REPLACE TRIGGER "conversations_updated_at" BEFORE UPDATE ON "public"."
 
 CREATE OR REPLACE TRIGGER "ingestion_jobs_updated_at" BEFORE UPDATE ON "public"."ingestion_jobs" FOR EACH ROW EXECUTE FUNCTION "public"."update_updated_at"();
 
-CREATE OR REPLACE TRIGGER "ingestion_status_updated_at" BEFORE UPDATE ON "public"."ingestion_status" FOR EACH ROW EXECUTE FUNCTION "public"."update_updated_at"();
-
 CREATE OR REPLACE TRIGGER "notes_updated_at" BEFORE UPDATE ON "public"."notes" FOR EACH ROW EXECUTE FUNCTION "public"."update_updated_at"();
 
 CREATE OR REPLACE TRIGGER "notion_sync_configs_updated_at" BEFORE UPDATE ON "public"."notion_sync_configs" FOR EACH ROW EXECUTE FUNCTION "public"."update_updated_at"();
@@ -401,9 +379,6 @@ ALTER TABLE ONLY "public"."ingestion_jobs"
 ALTER TABLE ONLY "public"."ingestion_jobs"
     ADD CONSTRAINT "ingestion_jobs_parent_job_id_fkey" FOREIGN KEY ("parent_job_id") REFERENCES "public"."ingestion_jobs"("id") ON DELETE CASCADE;
 
-ALTER TABLE ONLY "public"."ingestion_status"
-    ADD CONSTRAINT "ingestion_status_folder_id_fkey" FOREIGN KEY ("folder_id") REFERENCES "public"."folders"("id") ON DELETE SET NULL;
-
 ALTER TABLE ONLY "public"."messages"
     ADD CONSTRAINT "messages_conversation_id_fkey" FOREIGN KEY ("conversation_id") REFERENCES "public"."conversations"("id") ON DELETE CASCADE;
 
@@ -441,8 +416,6 @@ CREATE POLICY "Users manage own notion sync configs" ON "public"."notion_sync_co
 
 CREATE POLICY "Users manage own ingestion jobs" ON "public"."ingestion_jobs" USING (("auth"."uid"() = "user_id")) WITH CHECK (("auth"."uid"() = "user_id"));
 
-CREATE POLICY "Users see own ingestion status" ON "public"."ingestion_status" USING (("user_id" = ("auth"."uid"())::"text")) WITH CHECK (("user_id" = ("auth"."uid"())::"text"));
-
 ALTER TABLE "public"."api_keys" ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE "public"."context" ENABLE ROW LEVEL SECURITY;
@@ -454,8 +427,6 @@ ALTER TABLE "public"."documents" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."folders" ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE "public"."ingestion_jobs" ENABLE ROW LEVEL SECURITY;
-
-ALTER TABLE "public"."ingestion_status" ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE "public"."messages" ENABLE ROW LEVEL SECURITY;
 
