@@ -397,6 +397,8 @@ CREATE POLICY "Users manage own messages" ON "public"."messages" USING (("conver
 
 CREATE POLICY "Users manage own notes" ON "public"."notes" USING (("user_id" = "auth"."uid"())) WITH CHECK (("user_id" = "auth"."uid"()));
 
+CREATE POLICY "Users manage own notion sync configs" ON "public"."notion_sync_configs" USING (("auth"."uid"() = "user_id")) WITH CHECK (("auth"."uid"() = "user_id"));
+
 CREATE POLICY "Users see own ingestion status" ON "public"."ingestion_status" USING (("user_id" = ("auth"."uid"())::"text")) WITH CHECK (("user_id" = ("auth"."uid"())::"text"));
 
 ALTER TABLE "public"."api_keys" ENABLE ROW LEVEL SECURITY;
@@ -414,5 +416,7 @@ ALTER TABLE "public"."ingestion_status" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."messages" ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE "public"."notes" ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE "public"."notion_sync_configs" ENABLE ROW LEVEL SECURITY;
 
 
