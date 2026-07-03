@@ -31,6 +31,7 @@ import {
   type ApiKeyInfo,
   type Folder,
 } from "../lib/api";
+import { NotionIntegrationSection } from "../components/NotionIntegrationSection";
 
 export default function SettingsPage() {
   const [keys, setKeys] = useState<ApiKeyInfo[]>([]);
@@ -263,6 +264,8 @@ export default function SettingsPage() {
             </Alert>
           )}
         </Box>
+
+        <NotionIntegrationSection />
 
         {/* Card 2: MCP Configuration */}
         <Box
