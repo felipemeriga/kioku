@@ -350,3 +350,77 @@ export async function revokeApiKey(keyId: string): Promise<void> {
 export async function fetchRootFolders(): Promise<Folder[]> {
   return fetchFolders(null);
 }
+
+// --- Notion Sync ---
+
+export interface NotionConfig {
+  id: string;
+  root_folder_id: string;
+  notion_page_id: string;
+  notion_page_title: string | null;
+  fast_poll_interval_min: number;
+  last_fast_sync_at: string | null;
+  last_full_sync_at: string | null;
+  last_error: string | null;
+}
+
+export interface NotionPageOption {
+  id: string;
+  title: string;
+}
+
+export interface NotionSyncResult {
+  fast: { processed: number; errors: number };
+  full: { reachable: number; tombstoned: number };
+  synced_at: string;
+}
+
+export async function fetchNotionConfigs(): Promise<NotionConfig[]> {
+  const res = await apiFetch("/api/notion/configs");
+  return res.json();
+}
+
+export async function connectNotion(input: {
+  root_folder_id: string;
+  notion_page_id: string;
+  notion_page_title: string;
+  integration_token: string;
+  fast_poll_interval_min?: number;
+}): Promise<NotionConfig> {
+  const res = await apiFetch("/api/notion/configs", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return res.json();
+}
+
+export async function disconnectNotion(
+  configId: string,
+  deleteDocs: boolean
+): Promise<void> {
+  await apiFetch(
+    `/api/notion/configs/${configId}?delete_docs=${deleteDocs}`,
+    { method: "DELETE" }
+  );
+}
+
+export async function syncNotionNow(
+  configId: string
+): Promise<NotionSyncResult> {
+  const res = await apiFetch(`/api/notion/configs/${configId}/sync`, {
+    method: "POST",
+  });
+  return res.json();
+}
+
+export async function listNotionPages(
+  integrationToken: string,
+  query: string
+): Promise<NotionPageOption[]> {
+  const params = new URLSearchParams({
+    integration_token: integrationToken,
+    query,
+  });
+  const res = await apiFetch(`/api/notion/pages?${params.toString()}`);
+  return res.json();
+}
