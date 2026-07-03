@@ -22,3 +22,17 @@ def embed_document(text: str) -> list[float]:
     client = get_voyage_client()
     result = client.embed([text], model="voyage-3", input_type="document")
     return result.embeddings[0]
+
+
+def embed_batch(texts: list[str]) -> list[list[float]]:
+    """Batch-embed up to 128 texts per Voyage API call. Returns one vector per input, in order."""
+    if not texts:
+        return []
+    client = get_voyage_client()
+    out: list[list[float]] = []
+    batch_size = 128
+    for i in range(0, len(texts), batch_size):
+        batch = texts[i : i + batch_size]
+        resp = client.embed(batch, model="voyage-3", input_type="document")
+        out.extend(resp.embeddings)
+    return out
