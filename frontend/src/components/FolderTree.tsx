@@ -13,12 +13,18 @@ import {
 import FolderIcon from "@mui/icons-material/Folder";
 import FolderOpenIcon from "@mui/icons-material/FolderOpen";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
-import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import DeleteIcon from "@mui/icons-material/Delete";
 import { fetchFolders } from "../lib/api";
 import type { Folder } from "../lib/api";
+import { brand, fonts } from "../theme";
 
-interface FolderTreeNodeProps {
+// Drop-onto-folder support in the tree — mirrors the card-grid drop behavior.
+interface FolderDropOps {
+  onFileDropped?: (folderId: string | null, filename: string) => void;
+  onOsFilesDropped?: (folderId: string | null, files: File[]) => void;
+}
+
+interface FolderTreeNodeProps extends FolderDropOps {
   folder: Folder;
   selectedId: string | null;
   onSelect: (id: string | null) => void;
@@ -32,20 +38,24 @@ function FolderTreeNode({
   onSelect,
   depth,
   onRequestDelete,
+  onFileDropped,
+  onOsFilesDropped,
 }: FolderTreeNodeProps) {
   const [open, setOpen] = useState(false);
   const [children, setChildren] = useState<Folder[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
   const isSelected = selectedId === folder.id;
 
-  const handleToggle = (e: React.MouseEvent) => {
+  const loadChildren = useCallback(async () => {
+    const data = await fetchFolders(folder.id);
+    setChildren(data);
+    setLoaded(true);
+  }, [folder.id]);
+
+  const handleToggle = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!loaded) {
-      fetchFolders(folder.id).then((data) => {
-        setChildren(data);
-        setLoaded(true);
-      });
-    }
+    if (!loaded) await loadChildren();
     setOpen(!open);
   };
 
@@ -57,10 +67,7 @@ function FolderTreeNode({
   const handleSelect = () => {
     onSelect(folder.id);
     if (!loaded) {
-      fetchFolders(folder.id).then((data) => {
-        setChildren(data);
-        setLoaded(true);
-      });
+      void loadChildren();
       setOpen(true);
     }
   };
@@ -70,19 +77,43 @@ function FolderTreeNode({
       <ListItemButton
         selected={isSelected}
         onClick={handleSelect}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setDragOver(true);
+        }}
+        onDragLeave={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setDragOver(false);
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setDragOver(false);
+          const inAppFile = e.dataTransfer.getData("application/x-document-filename");
+          if (inAppFile && onFileDropped) {
+            onFileDropped(folder.id, inAppFile);
+            return;
+          }
+          const files = Array.from(e.dataTransfer.files);
+          if (files.length && onOsFilesDropped) onOsFilesDropped(folder.id, files);
+        }}
         sx={{
-          pl: 1.5 + depth * 2,
-          py: 0.5,
-          minHeight: 36,
-          borderRadius: 1.5,
+          pl: 1.25 + depth * 1.75,
+          py: 0.4,
+          minHeight: 34,
+          borderRadius: 1.25,
           mx: 0.5,
           mb: 0.25,
+          bgcolor: dragOver ? alpha(brand.violet, 0.18) : undefined,
+          border: dragOver ? `1px dashed ${brand.violet2}` : "1px solid transparent",
           "&.Mui-selected": {
-            bgcolor: alpha("#7c3aed", 0.15),
-            "&:hover": { bgcolor: alpha("#7c3aed", 0.2) },
+            bgcolor: alpha(brand.violet, 0.18),
+            "&:hover": { bgcolor: alpha(brand.violet, 0.24) },
           },
           "&:hover": {
-            bgcolor: alpha("#ffffff", 0.04),
+            bgcolor: alpha(brand.violet, 0.08),
             "& .folder-actions": { opacity: 1 },
           },
         }}
@@ -90,33 +121,44 @@ function FolderTreeNode({
         <IconButton
           size="small"
           onClick={handleToggle}
-          sx={{ p: 0.25, mr: 0.5 }}
+          sx={{
+            p: 0.25,
+            mr: 0.5,
+            transition: "transform 0.15s ease",
+            transform: open ? "rotate(0deg)" : "rotate(-90deg)",
+          }}
         >
-          {open ? (
-            <ExpandMoreIcon sx={{ fontSize: 16, color: alpha("#ffffff", 0.4) }} />
-          ) : (
-            <ChevronRightIcon sx={{ fontSize: 16, color: alpha("#ffffff", 0.4) }} />
-          )}
+          <ExpandMoreIcon sx={{ fontSize: 16, color: brand.muted }} />
         </IconButton>
-        <ListItemIcon sx={{ minWidth: 28 }}>
+        <ListItemIcon sx={{ minWidth: 26 }}>
           {open ? (
-            <FolderOpenIcon sx={{ fontSize: 18, color: "#7c3aed" }} />
+            <FolderOpenIcon sx={{ fontSize: 17, color: brand.violet2 }} />
           ) : (
-            <FolderIcon sx={{ fontSize: 18, color: "#7c3aed" }} />
+            <FolderIcon sx={{ fontSize: 17, color: brand.violet2 }} />
           )}
         </ListItemIcon>
         <ListItemText
           primary={folder.name}
           primaryTypographyProps={{
-            variant: "body2",
             noWrap: true,
-            sx: { fontWeight: isSelected ? 600 : 400 },
+            sx: {
+              fontFamily: fonts.body,
+              fontSize: "0.83rem",
+              fontWeight: isSelected ? 600 : 400,
+              color: isSelected ? brand.text : brand.muted,
+            },
           }}
         />
         <IconButton
           className="folder-actions"
           size="small"
-          sx={{ opacity: 0, transition: "opacity 0.15s", p: 0.25 }}
+          sx={{
+            opacity: 0,
+            transition: "opacity 0.15s",
+            p: 0.25,
+            color: brand.muted,
+            "&:hover": { color: "#ef4444", bgcolor: alpha("#ef4444", 0.15) },
+          }}
           onClick={handleDelete}
         >
           <DeleteIcon sx={{ fontSize: 14 }} />
@@ -131,6 +173,8 @@ function FolderTreeNode({
             onSelect={onSelect}
             depth={depth + 1}
             onRequestDelete={onRequestDelete}
+            onFileDropped={onFileDropped}
+            onOsFilesDropped={onOsFilesDropped}
           />
         ))}
       </Collapse>
@@ -138,7 +182,7 @@ function FolderTreeNode({
   );
 }
 
-interface FolderTreeProps {
+interface FolderTreeProps extends FolderDropOps {
   selectedFolderId: string | null;
   onSelectFolder: (id: string | null) => void;
   onRequestDelete: (folderId: string, folderName: string) => void;
@@ -148,8 +192,11 @@ export default function FolderTree({
   selectedFolderId,
   onSelectFolder,
   onRequestDelete,
+  onFileDropped,
+  onOsFilesDropped,
 }: FolderTreeProps) {
   const [rootFolders, setRootFolders] = useState<Folder[]>([]);
+  const [rootDragOver, setRootDragOver] = useState(false);
 
   const loadRoot = useCallback(() => {
     fetchFolders(null).then(setRootFolders).catch(() => {});
@@ -167,47 +214,69 @@ export default function FolderTree({
       <ListItemButton
         selected={selectedFolderId === null}
         onClick={() => onSelectFolder(null)}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setRootDragOver(true);
+        }}
+        onDragLeave={() => setRootDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setRootDragOver(false);
+          const inAppFile = e.dataTransfer.getData("application/x-document-filename");
+          if (inAppFile && onFileDropped) {
+            onFileDropped(null, inAppFile);
+            return;
+          }
+          const files = Array.from(e.dataTransfer.files);
+          if (files.length && onOsFilesDropped) onOsFilesDropped(null, files);
+        }}
         sx={{
           py: 0.5,
           minHeight: 36,
-          borderRadius: 1.5,
+          borderRadius: 1.25,
           mx: 0.5,
           mb: 0.25,
           pl: 1.5,
+          bgcolor: rootDragOver ? alpha(brand.violet, 0.18) : undefined,
+          border: rootDragOver ? `1px dashed ${brand.violet2}` : "1px solid transparent",
           "&.Mui-selected": {
-            bgcolor: alpha("#7c3aed", 0.15),
-            "&:hover": { bgcolor: alpha("#7c3aed", 0.2) },
+            bgcolor: alpha(brand.violet, 0.18),
+            "&:hover": { bgcolor: alpha(brand.violet, 0.24) },
           },
-          "&:hover": { bgcolor: alpha("#ffffff", 0.04) },
+          "&:hover": { bgcolor: alpha(brand.violet, 0.08) },
         }}
       >
-        <ListItemIcon sx={{ minWidth: 28 }}>
-          <FolderIcon sx={{ fontSize: 18, color: alpha("#ffffff", 0.5) }} />
+        <ListItemIcon sx={{ minWidth: 26 }}>
+          <FolderIcon sx={{ fontSize: 17, color: brand.muted }} />
         </ListItemIcon>
         <ListItemText
           primary="All Documents"
           primaryTypographyProps={{
-            variant: "body2",
-            sx: { fontWeight: selectedFolderId === null ? 600 : 400 },
+            sx: {
+              fontFamily: fonts.body,
+              fontSize: "0.83rem",
+              fontWeight: selectedFolderId === null ? 600 : 400,
+              color: selectedFolderId === null ? brand.text : brand.muted,
+            },
           }}
         />
       </ListItemButton>
 
       {rootFolders.length > 0 && (
         <Typography
-          variant="caption"
+          variant="overline"
           sx={{
+            fontFamily: fonts.mono,
             px: 2,
             pt: 1.5,
             pb: 0.5,
             display: "block",
-            color: alpha("#ffffff", 0.3),
-            letterSpacing: 1,
-            textTransform: "uppercase",
-            fontSize: "0.65rem",
+            color: brand.muted,
+            letterSpacing: "0.24em",
+            fontSize: "0.6rem",
           }}
         >
-          Folders
+          FOLDERS
         </Typography>
       )}
 
@@ -220,6 +289,8 @@ export default function FolderTree({
             onSelect={onSelectFolder}
             depth={0}
             onRequestDelete={onRequestDelete}
+            onFileDropped={onFileDropped}
+            onOsFilesDropped={onOsFilesDropped}
           />
         ))}
       </List>
