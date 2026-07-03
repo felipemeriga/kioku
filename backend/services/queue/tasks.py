@@ -108,6 +108,19 @@ async def ingest_notion_page_task(ctx: dict, payload: dict) -> None:
         "integration_token": str,   # decrypted
     }
     """
+    job_id = payload["job_id"]
+    try:
+        await _ingest_notion_page_task_impl(ctx, payload)
+    except Exception as exc:
+        logger.exception("ingest_notion_page_task failed for job %s", job_id)
+        try:
+            mark_failed(get_supabase_thread_safe(), job_id=job_id, error=str(exc))
+        except Exception:
+            logger.exception("Failed to mark page job %s as failed", job_id)
+        raise
+
+
+async def _ingest_notion_page_task_impl(ctx: dict, payload: dict) -> None:
     supabase = get_supabase_thread_safe()
     notion = NotionClient(payload["integration_token"])
     page = notion.get_page(payload["page_id"])
@@ -171,6 +184,19 @@ async def notion_sync_task(ctx: dict, payload: dict) -> None:
         "full_reconcile": bool,
     }
     """
+    job_id = payload["job_id"]
+    try:
+        await _notion_sync_task_impl(ctx, payload)
+    except Exception as exc:
+        logger.exception("notion_sync_task failed for job %s", job_id)
+        try:
+            mark_failed(get_supabase_thread_safe(), job_id=job_id, error=str(exc))
+        except Exception:
+            logger.exception("Failed to mark sync job %s as failed", job_id)
+        raise
+
+
+async def _notion_sync_task_impl(ctx: dict, payload: dict) -> None:
     supabase = get_supabase_thread_safe()
     cfg_rows = (
         supabase.table("notion_sync_configs")
@@ -181,6 +207,7 @@ async def notion_sync_task(ctx: dict, payload: dict) -> None:
     )
     if not cfg_rows:
         logger.error("notion_sync_task: config %s not found", payload["config_id"])
+        mark_failed(supabase, job_id=payload["job_id"], error="config not found")
         return
     cfg = cfg_rows[0]
 
