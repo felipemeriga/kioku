@@ -184,7 +184,7 @@ CREATE TABLE IF NOT EXISTS "public"."documents" (
     "notion_parent_path" "text",
     "chunk_index" integer,
     "fts" "tsvector" GENERATED ALWAYS AS ("to_tsvector"('"english"'::"regconfig", "content")) STORED,
-    CONSTRAINT "documents_status_check" CHECK (("status" = ANY (ARRAY['processing'::"text", 'completed'::"text", 'failed'::"text"])))
+    CONSTRAINT "documents_status_check" CHECK (("status" = ANY (ARRAY['processing'::"text", 'completed'::"text", 'failed'::"text", 'deleted'::"text"])))
 );
 
 CREATE TABLE IF NOT EXISTS "public"."folders" (
