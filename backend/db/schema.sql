@@ -177,9 +177,12 @@ CREATE TABLE IF NOT EXISTS "public"."documents" (
     "content_hash" "text",
     "status" "text" DEFAULT 'completed'::"text" NOT NULL,
     "source_type" "text",
-    "fts" "tsvector" GENERATED ALWAYS AS ("to_tsvector"('"english"'::"regconfig", "content")) STORED,
     "folder_id" "uuid",
     "root_folder_id" "uuid",
+    "notion_page_id" "text",
+    "notion_last_edited_time" timestamp with time zone,
+    "notion_parent_path" "text",
+    "fts" "tsvector" GENERATED ALWAYS AS ("to_tsvector"('"english"'::"regconfig", "content")) STORED,
     CONSTRAINT "documents_status_check" CHECK (("status" = ANY (ARRAY['processing'::"text", 'completed'::"text", 'failed'::"text"])))
 );
 
@@ -189,6 +192,22 @@ CREATE TABLE IF NOT EXISTS "public"."folders" (
     "parent_id" "uuid",
     "user_id" "uuid" NOT NULL,
     "created_at" timestamp with time zone DEFAULT "now"()
+);
+
+CREATE TABLE IF NOT EXISTS "public"."notion_sync_configs" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "root_folder_id" "uuid" NOT NULL,
+    "notion_page_id" "text" NOT NULL,
+    "notion_page_title" "text",
+    "integration_token_encrypted" "text" NOT NULL,
+    "fast_poll_interval_min" integer DEFAULT 5 NOT NULL,
+    "full_reconciliation_interval_hours" integer DEFAULT 24 NOT NULL,
+    "last_fast_sync_at" timestamp with time zone,
+    "last_full_sync_at" timestamp with time zone,
+    "last_error" "text",
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    "updated_at" timestamp with time zone DEFAULT "now"()
 );
 
 CREATE TABLE IF NOT EXISTS "public"."ingestion_status" (
@@ -270,6 +289,12 @@ ALTER TABLE ONLY "public"."messages"
 ALTER TABLE ONLY "public"."notes"
     ADD CONSTRAINT "notes_pkey" PRIMARY KEY ("id");
 
+ALTER TABLE ONLY "public"."notion_sync_configs"
+    ADD CONSTRAINT "notion_sync_configs_pkey" PRIMARY KEY ("id");
+
+ALTER TABLE ONLY "public"."notion_sync_configs"
+    ADD CONSTRAINT "notion_sync_configs_user_page_unique" UNIQUE ("user_id", "notion_page_id");
+
 CREATE INDEX "api_keys_key_hash_idx" ON "public"."api_keys" USING "btree" ("key_hash");
 
 CREATE INDEX "checkpoint_blobs_thread_id_idx" ON "public"."checkpoint_blobs" USING "btree" ("thread_id");
@@ -286,9 +311,15 @@ CREATE INDEX "idx_context_expires" ON "public"."context" USING "btree" ("expires
 
 CREATE INDEX "idx_documents_root_folder_id" ON "public"."documents" USING "btree" ("root_folder_id");
 
+CREATE INDEX "idx_documents_notion_page_id" ON "public"."documents" USING "btree" ("notion_page_id") WHERE ("notion_page_id" IS NOT NULL);
+
+CREATE UNIQUE INDEX "idx_documents_notion_identity" ON "public"."documents" USING "btree" ("user_id", "root_folder_id", "notion_page_id", "content") WHERE ("notion_page_id" IS NOT NULL);
+
 CREATE UNIQUE INDEX "idx_notes_dedup" ON "public"."notes" USING "btree" ("user_id", "root_folder_id", "content_hash");
 
 CREATE INDEX "idx_notes_user_scope" ON "public"."notes" USING "btree" ("user_id", "root_folder_id");
+
+CREATE INDEX "idx_notion_sync_configs_user_id" ON "public"."notion_sync_configs" USING "btree" ("user_id");
 
 CREATE OR REPLACE TRIGGER "context_updated_at" BEFORE UPDATE ON "public"."context" FOR EACH ROW EXECUTE FUNCTION "public"."update_updated_at"();
 
@@ -297,6 +328,8 @@ CREATE OR REPLACE TRIGGER "conversations_updated_at" BEFORE UPDATE ON "public"."
 CREATE OR REPLACE TRIGGER "ingestion_status_updated_at" BEFORE UPDATE ON "public"."ingestion_status" FOR EACH ROW EXECUTE FUNCTION "public"."update_updated_at"();
 
 CREATE OR REPLACE TRIGGER "notes_updated_at" BEFORE UPDATE ON "public"."notes" FOR EACH ROW EXECUTE FUNCTION "public"."update_updated_at"();
+
+CREATE OR REPLACE TRIGGER "notion_sync_configs_updated_at" BEFORE UPDATE ON "public"."notion_sync_configs" FOR EACH ROW EXECUTE FUNCTION "public"."update_updated_at"();
 
 ALTER TABLE ONLY "public"."api_keys"
     ADD CONSTRAINT "api_keys_scope_folder_id_fkey" FOREIGN KEY ("scope_folder_id") REFERENCES "public"."folders"("id") ON DELETE CASCADE;
@@ -339,6 +372,12 @@ ALTER TABLE ONLY "public"."notes"
 
 ALTER TABLE ONLY "public"."notes"
     ADD CONSTRAINT "notes_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
+
+ALTER TABLE ONLY "public"."notion_sync_configs"
+    ADD CONSTRAINT "notion_sync_configs_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
+
+ALTER TABLE ONLY "public"."notion_sync_configs"
+    ADD CONSTRAINT "notion_sync_configs_root_folder_id_fkey" FOREIGN KEY ("root_folder_id") REFERENCES "public"."folders"("id") ON DELETE CASCADE;
 
 CREATE POLICY "Users manage own api keys" ON "public"."api_keys" USING (("auth"."uid"() = "user_id")) WITH CHECK (("auth"."uid"() = "user_id"));
 
