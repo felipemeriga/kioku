@@ -36,6 +36,7 @@ from services.queue.jobs import (
     create_job,
     increment_processed_batches,
     increment_processed_pages,
+    mark_completed,
     mark_failed,
     set_total_batches,
     set_total_pages,
@@ -196,6 +197,11 @@ async def notion_sync_task(ctx: dict, payload: dict) -> None:
                 page_ids.append(page.page_id)
 
     set_total_pages(supabase, job_id=payload["job_id"], total=len(page_ids))
+
+    # If no pages to process (e.g., fast poll with no recent edits), mark the
+    # sync job completed immediately — no child jobs will ever fire increment.
+    if not page_ids:
+        mark_completed(supabase, job_id=payload["job_id"])
 
     for pid in page_ids:
         page_job_id = create_job(

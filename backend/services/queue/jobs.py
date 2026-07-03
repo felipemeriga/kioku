@@ -91,16 +91,38 @@ def increment_processed_pages(supabase, *, job_id: str) -> dict:
         .data
     ) or {"processed_pages": 0, "total_pages": 0}
     new_processed = (row.get("processed_pages") or 0) + 1
+    total = row.get("total_pages") or 0
     (
         supabase.table("ingestion_jobs")
         .update({"processed_pages": new_processed})
         .eq("id", job_id)
         .execute()
     )
+    completed = total > 0 and new_processed >= total
+    if completed:
+        now = datetime.now(timezone.utc).isoformat()
+        (
+            supabase.table("ingestion_jobs")
+            .update({"status": "completed", "completed_at": now})
+            .eq("id", job_id)
+            .execute()
+        )
     return {
         "processed_pages": new_processed,
-        "total_pages": row.get("total_pages") or 0,
+        "total_pages": total,
+        "completed": completed,
     }
+
+
+def mark_completed(supabase, *, job_id: str) -> None:
+    """Mark a job as completed. Used by notion_sync_task when it enumerates 0 pages."""
+    now = datetime.now(timezone.utc).isoformat()
+    (
+        supabase.table("ingestion_jobs")
+        .update({"status": "completed", "completed_at": now})
+        .eq("id", job_id)
+        .execute()
+    )
 
 
 def increment_processed_batches(supabase, *, job_id: str) -> dict:
