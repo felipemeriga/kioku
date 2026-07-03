@@ -55,6 +55,24 @@ class TestBuildContextualHeader(unittest.TestCase):
         header = build_contextual_header({"chunk_index": 0, "total_chunks": 1})
         self.assertTrue(header.startswith("Source: unknown"))
 
+    def test_includes_notion_parent_path_when_present(self):
+        from services.chunker import build_contextual_header
+
+        header = build_contextual_header(
+            {
+                "source_filename": "Sprint planning",
+                "notion_parent_path": "Cosm / Sprints",
+            }
+        )
+        self.assertIn("Sprint planning", header)
+        self.assertIn("Cosm / Sprints", header)
+
+    def test_omits_notion_parent_path_when_absent(self):
+        from services.chunker import build_contextual_header
+
+        header = build_contextual_header({"source_filename": "x.md"})
+        self.assertNotIn("Section:", header)
+
 
 if __name__ == "__main__":
     unittest.main()

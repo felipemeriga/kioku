@@ -22,6 +22,9 @@ def build_contextual_header(metadata: dict) -> str:
     total_chunks = metadata.get("total_chunks")
     if chunk_index is not None and total_chunks is not None:
         parts.append(f"Chunk {chunk_index + 1} of {total_chunks}")
+    notion_parent_path = metadata.get("notion_parent_path")
+    if notion_parent_path:
+        parts.append(f"Section: {notion_parent_path}")
     return " | ".join(parts)
 
 
