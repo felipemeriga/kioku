@@ -263,7 +263,17 @@ def _parse_ts(value) -> datetime | None:
         return None
     if isinstance(value, datetime):
         return value
-    return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    s = str(value).replace("Z", "+00:00")
+    # Postgres timestamptz can emit fractional seconds with any digit count.
+    # Python 3.10 datetime.fromisoformat only accepts 0/3/6 — normalize to 6.
+    import re
+
+    m = re.match(r"^(.*T\d{2}:\d{2}:\d{2})\.(\d+)(.*)$", s)
+    if m:
+        prefix, frac, suffix = m.groups()
+        frac = (frac + "000000")[:6]
+        s = f"{prefix}.{frac}{suffix}"
+    return datetime.fromisoformat(s)
 
 
 async def _parallel_metadata(chunks: list[str]) -> list[dict]:
