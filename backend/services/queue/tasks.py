@@ -36,7 +36,6 @@ from services.queue.batching import into_batches
 from services.queue.jobs import (
     create_job,
     increment_processed_batches,
-    increment_processed_pages,
     mark_completed,
     mark_failed,
     set_total_batches,
@@ -172,8 +171,9 @@ async def _ingest_notion_page_task_impl(ctx: dict, payload: dict) -> None:
             },
         )
 
-    if payload.get("parent_job_id"):
-        increment_processed_pages(supabase, job_id=payload["parent_job_id"])
+    # NOTE: parent_job_id's processed_pages is bumped by the batch task via
+    # increment_processed_batches when the last batch completes. Bumping here
+    # would fire before the actual chunks are stored (giving false progress).
 
 
 async def notion_sync_task(ctx: dict, payload: dict) -> None:
@@ -285,11 +285,22 @@ async def _notion_sync_task_impl(ctx: dict, payload: dict) -> None:
             },
         )
 
-    now = datetime.now(timezone.utc).isoformat()
-    col = "last_full_sync_at" if payload.get("full_reconcile") else "last_fast_sync_at"
+    # Advance the sync timestamp with a 60s buffer for fast poll, to account for
+    # Notion search-index lag. Without the buffer, a page edited RIGHT before we
+    # queried search may not appear in this run's results, and the next fast poll
+    # would skip past its last_edited_time. Reconciliation catches missed pages
+    # eventually, but a slight buffer here makes fast poll more reliable.
+    from datetime import timedelta
+
+    if payload.get("full_reconcile"):
+        watermark = datetime.now(timezone.utc)
+        col = "last_full_sync_at"
+    else:
+        watermark = datetime.now(timezone.utc) - timedelta(seconds=60)
+        col = "last_fast_sync_at"
     (
         supabase.table("notion_sync_configs")
-        .update({col: now, "last_error": None})
+        .update({col: watermark.isoformat(), "last_error": None})
         .eq("id", cfg["id"])
         .execute()
     )

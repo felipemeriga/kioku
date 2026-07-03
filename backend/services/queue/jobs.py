@@ -126,15 +126,20 @@ def mark_completed(supabase, *, job_id: str) -> None:
 
 
 def increment_processed_batches(supabase, *, job_id: str) -> dict:
-    """Increment processed_batches; mark completed if we hit total_batches."""
+    """Increment processed_batches; mark completed if we hit total_batches.
+
+    When a job's batches all finish and it has a parent_job_id, bumps the parent's
+    processed_pages too. This is how notion_sync jobs learn their children are
+    really done (before this, processed_pages incremented before batches ran).
+    """
     row = (
         supabase.table("ingestion_jobs")
-        .select("processed_batches,total_batches")
+        .select("processed_batches,total_batches,parent_job_id")
         .eq("id", job_id)
         .single()
         .execute()
         .data
-    ) or {"processed_batches": 0, "total_batches": 0}
+    ) or {"processed_batches": 0, "total_batches": 0, "parent_job_id": None}
     new_processed = (row.get("processed_batches") or 0) + 1
     total = row.get("total_batches") or 0
     (
@@ -152,6 +157,10 @@ def increment_processed_batches(supabase, *, job_id: str) -> dict:
             .eq("id", job_id)
             .execute()
         )
+        # Cascade completion to the parent (e.g., notion_sync).
+        parent_id = row.get("parent_job_id")
+        if parent_id:
+            increment_processed_pages(supabase, job_id=parent_id)
     return {"processed_batches": new_processed, "completed": completed}
 
 

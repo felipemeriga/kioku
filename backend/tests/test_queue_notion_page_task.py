@@ -89,10 +89,6 @@ class TestIngestNotionPageTask(unittest.TestCase):
                 create=True,
             ),
             patch("services.queue.tasks.set_total_batches") as set_total_mock,
-            patch(
-                "services.queue.tasks.increment_processed_pages",
-                return_value={"processed_pages": 1, "total_pages": 5},
-            ),
         ):
             _run(ingest_notion_page_task({"redis": pool}, payload))
 
@@ -155,10 +151,6 @@ class TestIngestNotionPageTask(unittest.TestCase):
                 create=True,
             ),
             patch("services.queue.tasks.set_total_batches"),
-            patch(
-                "services.queue.tasks.increment_processed_pages",
-                return_value={"processed_pages": 1, "total_pages": 1},
-            ),
         ):
             _run(ingest_notion_page_task({"redis": pool}, payload))
 
