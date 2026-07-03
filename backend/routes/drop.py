@@ -2,6 +2,7 @@
 
 import hashlib
 
+from arq import create_pool
 from fastapi import APIRouter, Form, Header, HTTPException, UploadFile
 
 from db.client import get_supabase
@@ -10,8 +11,15 @@ from services.ingestion import (
     DOCUMENT_EXTENSIONS,
     EXTENSION_TO_TYPE,
     IMAGE_EXTENSIONS,
-    ingest_document,
+    check_duplicate,
+    compute_content_hash,
+    upload_audio_to_storage,
+    upload_document_to_storage,
+    upload_image_to_storage,
 )
+from services.queue.jobs import create_job
+from services.queue.settings import _redis_settings
+from services.scope import resolve_root_folder_id
 
 router = APIRouter(prefix="/api")
 
@@ -107,19 +115,56 @@ async def drop_document(
     if folder_name and folder_name.strip():
         folder_id = _find_or_create_folder(folder_name.strip(), user_id, scope_folder_id)
 
-    result = ingest_document(
-        file_bytes=file_bytes,
-        filename=file.filename,
-        user_id=user_id,
-        folder_id=folder_id,
-    )
-
-    if result["duplicate"]:
+    # Content-hash dedup at the front door.
+    content_hash = compute_content_hash(file_bytes)
+    if check_duplicate(content_hash, user_id):
         raise HTTPException(status_code=409, detail="Duplicate file — already ingested")
 
+    # Route by media kind, upload bytes to Storage.
+    if ext in IMAGE_EXTENSIONS:
+        storage_path = upload_image_to_storage(file_bytes, user_id, content_hash, file.filename)
+        media_kind, storage_bucket = "image", "images"
+    elif ext in AUDIO_EXTENSIONS:
+        storage_path = upload_audio_to_storage(file_bytes, user_id, content_hash, file.filename)
+        media_kind, storage_bucket = "audio", "audio"
+    else:
+        storage_path = upload_document_to_storage(file_bytes, user_id, content_hash, file.filename)
+        media_kind, storage_bucket = "document", "documents"
+
+    root_folder_id = resolve_root_folder_id(folder_id, user_id) if folder_id else None
+
+    sb = get_supabase()
+    job_id = create_job(
+        sb,
+        user_id=user_id,
+        kind="drop",
+        source_ref=file.filename,
+        root_folder_id=root_folder_id,
+    )
+    pool = await create_pool(_redis_settings())
+    try:
+        await pool.enqueue_job(
+            "ingest_document_task",
+            {
+                "job_id": job_id,
+                "user_id": user_id,
+                "folder_id": folder_id,
+                "root_folder_id": root_folder_id,
+                "storage_bucket": storage_bucket,
+                "storage_path": storage_path,
+                "filename": file.filename,
+                "source_type": EXTENSION_TO_TYPE.get(ext, "text"),
+                "media_kind": media_kind,
+                "media_url": storage_path,
+                "content_hash": content_hash,
+            },
+        )
+    finally:
+        await pool.close()
+
     return {
-        "status": "ok",
+        "status": "queued",
         "filename": file.filename,
         "folder_id": folder_id,
-        "chunks": result["chunks"],
+        "job_id": job_id,
     }
