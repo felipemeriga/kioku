@@ -861,6 +861,15 @@ export async function addFolderMemory(input: {
   return res.json();
 }
 
+export type ViewableAs =
+  | "markdown"
+  | "image"
+  | "pdf"
+  | "audio"
+  | "video"
+  | "code"
+  | "text";
+
 export interface DocumentContent {
   source_filename: string;
   source_type: string | null;
@@ -870,6 +879,10 @@ export interface DocumentContent {
   status: string | null;
   created_at: string | null;
   content: string;
+  viewable_as: ViewableAs;
+  /** Short-lived signed URL (15 min) to view the original file inline. */
+  file_url: string | null;
+  bucket: string | null;
 }
 
 export async function fetchDocumentContent(
