@@ -32,6 +32,8 @@ import {
   type Folder,
 } from "../lib/api";
 import { NotionIntegrationSection } from "../components/NotionIntegrationSection";
+import { Mem0IntegrationSection } from "../components/Mem0IntegrationSection";
+import { GitHubIntegrationSection } from "../components/GitHubIntegrationSection";
 import { messageFromError } from "../components/ToastProvider";
 
 export default function SettingsPage() {
@@ -302,6 +304,10 @@ export default function SettingsPage() {
         </Box>
 
         <NotionIntegrationSection />
+
+        <Mem0IntegrationSection />
+
+        <GitHubIntegrationSection />
 
         {/* Card 2: MCP Configuration */}
         <Box

@@ -752,3 +752,101 @@ export async function listNotionPages(
   const res = await apiFetch(`/api/notion/pages?${params.toString()}`);
   return res.json();
 }
+
+// --- Mem0 integration ---
+
+export interface Mem0Config {
+  id: string;
+  root_folder_id: string;
+  root_folder_name: string;
+  org_id: string | null;
+  project_id: string | null;
+  last_verified_at: string | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function fetchMem0Configs(): Promise<Mem0Config[]> {
+  const res = await apiFetch("/api/mem0/configs");
+  return res.json();
+}
+
+export async function connectMem0(input: {
+  root_folder_id: string;
+  api_key: string;
+  org_id?: string;
+  project_id?: string;
+}): Promise<Mem0Config> {
+  const res = await apiFetch("/api/mem0/connect", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return res.json();
+}
+
+export async function disconnectMem0(configId: string): Promise<void> {
+  await apiFetch(`/api/mem0/configs/${configId}`, { method: "DELETE" });
+}
+
+export async function verifyMem0(
+  configId: string
+): Promise<{ ok: boolean; error: string | null }> {
+  const res = await apiFetch(`/api/mem0/configs/${configId}/verify`, {
+    method: "POST",
+  });
+  return res.json();
+}
+
+// --- GitHub integration ---
+
+export interface GitHubConfig {
+  id: string;
+  root_folder_id: string;
+  root_folder_name: string;
+  repo_owner: string;
+  repo_name: string;
+  since_days: number;
+  has_token: boolean;
+  last_synced_at: string | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function fetchGitHubConfigs(): Promise<GitHubConfig[]> {
+  const res = await apiFetch("/api/github/configs");
+  return res.json();
+}
+
+export async function connectGitHub(input: {
+  root_folder_id: string;
+  repo_url: string;
+  token?: string;
+  since_days?: number;
+}): Promise<GitHubConfig> {
+  const res = await apiFetch("/api/github/connect", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return res.json();
+}
+
+export async function disconnectGitHub(
+  configId: string,
+  deleteDocs = false
+): Promise<void> {
+  await apiFetch(
+    `/api/github/configs/${configId}?delete_docs=${deleteDocs}`,
+    { method: "DELETE" }
+  );
+}
+
+export async function syncGitHubNow(
+  configId: string
+): Promise<{ ok: boolean; job_id: string | null }> {
+  const res = await apiFetch(`/api/github/configs/${configId}/sync`, {
+    method: "POST",
+  });
+  return res.json();
+}
