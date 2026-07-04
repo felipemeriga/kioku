@@ -112,9 +112,11 @@ class Mem0AppClient:
     ) -> dict:
         """Write a memory. Content is a single-line string carrying the fact.
 
-        Mem0 accepts messages as either a single string or a list of role
-        messages. For memory writes coming through us (agent-authored facts,
-        not conversation), the single-string shape is cleaner.
+        We pass infer=False so Mem0 stores the content verbatim rather than
+        running its LLM fact-extractor. That extractor is designed for raw
+        conversation transcripts — but our writes come from agents that have
+        ALREADY decided what to remember. Letting the extractor filter or
+        rephrase would break the contract with the caller.
         """
         metadata = build_metadata(
             folder_id=self.folder_id,
@@ -128,6 +130,7 @@ class Mem0AppClient:
                 messages=content,
                 user_id=self.user_id,
                 metadata=metadata,
+                infer=False,
             )
             return {"ok": True, "raw": result, "metadata": metadata}
         except Exception as e:

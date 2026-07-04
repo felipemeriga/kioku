@@ -27,10 +27,11 @@ router = APIRouter(prefix="/api/mem0")
 log = logging.getLogger(__name__)
 
 
-def _validate_root_folder(sb, folder_id: str, user_id: str) -> None:
+def _validate_folder(sb, folder_id: str, user_id: str) -> None:
+    """Only checks ownership. Both root and sub-folders can host Mem0 configs."""
     row = (
         sb.table("folders")
-        .select("id, parent_id")
+        .select("id")
         .eq("id", folder_id)
         .eq("user_id", user_id)
         .limit(1)
@@ -39,8 +40,6 @@ def _validate_root_folder(sb, folder_id: str, user_id: str) -> None:
     )
     if not row:
         raise HTTPException(status_code=404, detail="Folder not found")
-    if row[0]["parent_id"] is not None:
-        raise HTTPException(status_code=400, detail="Mem0 must connect to a root folder")
 
 
 def _load_client(sb, folder_id: str, user_id: str) -> Mem0AppClient:
@@ -86,7 +85,7 @@ async def list_configs(user_id: str = Depends(get_current_user)):
 @router.post("/connect")
 async def connect(body: ConnectMem0Request, user_id: str = Depends(get_current_user)):
     sb = get_supabase()
-    _validate_root_folder(sb, body.root_folder_id, user_id)
+    _validate_folder(sb, body.root_folder_id, user_id)
 
     # Verify the API key by pinging Mem0 before persisting.
     ping_config = {
