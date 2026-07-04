@@ -3,6 +3,8 @@ import { AuthProvider } from "./components/AuthProvider";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import ConversationsProvider from "./components/ConversationsProvider";
 import AppLayout from "./components/AppLayout";
+import ErrorBoundary from "./components/ErrorBoundary";
+import ToastProvider from "./components/ToastProvider";
 import LoginPage from "./pages/LoginPage";
 import ChatPage from "./pages/ChatPage";
 import DocumentsPage from "./pages/DocumentsPage";
@@ -10,10 +12,12 @@ import SettingsPage from "./pages/SettingsPage";
 
 function App() {
   return (
-    <BrowserRouter>
-      <AuthProvider>
-        <ConversationsProvider>
-          <Routes>
+    <ErrorBoundary>
+      <BrowserRouter>
+        <AuthProvider>
+          <ToastProvider>
+            <ConversationsProvider>
+              <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route
               path="/"
@@ -45,12 +49,14 @@ function App() {
                 </ProtectedRoute>
               }
             />
-            {/* Catch-all — redirect anything unknown to chat. */}
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </ConversationsProvider>
-      </AuthProvider>
-    </BrowserRouter>
+                {/* Catch-all — redirect anything unknown to chat. */}
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </ConversationsProvider>
+          </ToastProvider>
+        </AuthProvider>
+      </BrowserRouter>
+    </ErrorBoundary>
   );
 }
 
