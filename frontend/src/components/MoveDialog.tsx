@@ -18,6 +18,7 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import DriveFileMoveIcon from "@mui/icons-material/DriveFileMove";
 import { fetchFolders } from "../lib/api";
 import type { Folder } from "../lib/api";
+import { messageFromError } from "./ToastProvider";
 
 interface MoveDialogProps {
   open: boolean;
@@ -35,9 +36,16 @@ export default function MoveDialog({
   const [folders, setFolders] = useState<Folder[]>([]);
   const [currentParentId, setCurrentParentId] = useState<string | null>(null);
   const [parentStack, setParentStack] = useState<(string | null)[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadFolders = useCallback((parentId: string | null) => {
-    fetchFolders(parentId).then(setFolders).catch(() => setFolders([]));
+    setLoadError(null);
+    fetchFolders(parentId)
+      .then(setFolders)
+      .catch((err) => {
+        setFolders([]);
+        setLoadError(messageFromError(err));
+      });
   }, []);
 
   const handleOpen = useCallback(() => {
@@ -124,7 +132,16 @@ export default function MoveDialog({
             </ListItemButton>
           ))}
 
-          {folders.length === 0 && (
+          {loadError && (
+            <Typography
+              variant="body2"
+              sx={{ color: "#ef4444", textAlign: "center", py: 2, px: 2 }}
+            >
+              Couldn't load folders: {loadError}
+            </Typography>
+          )}
+
+          {!loadError && folders.length === 0 && (
             <Typography
               variant="body2"
               sx={{ color: alpha("#ffffff", 0.3), textAlign: "center", py: 2 }}
