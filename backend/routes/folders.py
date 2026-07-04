@@ -48,15 +48,59 @@ async def list_folders(
     return result.data
 
 
+def _validate_folder_name(name: str) -> str:
+    """Return a sanitized name or raise HTTPException(400).
+
+    Rejects:
+      - empty / whitespace-only
+      - purely '.' or '..' (would confuse breadcrumbs)
+      - control characters (would break the UI + the search index)
+      - > 120 chars (protect against absurd inputs, DB has room but the
+        sidebar tree ellipsis breaks earlier)
+    """
+    if not name or not name.strip():
+        raise HTTPException(status_code=400, detail="Folder name cannot be empty")
+    trimmed = name.strip()
+    if trimmed in (".", ".."):
+        raise HTTPException(status_code=400, detail="Folder name cannot be '.' or '..'")
+    if any(ord(ch) < 32 for ch in trimmed):
+        raise HTTPException(status_code=400, detail="Folder name contains control characters")
+    if len(trimmed) > 120:
+        raise HTTPException(status_code=400, detail="Folder name is too long (max 120 chars)")
+    return trimmed
+
+
+def _check_unique_sibling(
+    sb, *, name: str, parent_id: str | None, user_id: str, excluding_id: str | None = None
+) -> None:
+    """Raise 409 if a folder with the same name already exists under the same
+    parent (case-sensitive match, matching whatever the user typed)."""
+    q = (
+        sb.table("folders").select("id")
+        .eq("user_id", user_id).eq("name", name)
+    )
+    if parent_id is None:
+        q = q.is_("parent_id", "null")
+    else:
+        q = q.eq("parent_id", parent_id)
+    hits = q.execute().data or []
+    if excluding_id:
+        hits = [h for h in hits if h["id"] != excluding_id]
+    if hits:
+        scope = "root" if parent_id is None else "this parent"
+        raise HTTPException(
+            status_code=409,
+            detail=f"A folder named '{name}' already exists at {scope}.",
+        )
+
+
 @router.post("")
 async def create_folder(
     body: CreateFolderRequest,
     user_id: str = Depends(get_current_user),
 ):
     """Create a new folder."""
-    if not body.name.strip():
-        raise HTTPException(status_code=400, detail="Folder name cannot be empty")
-
+    name = _validate_folder_name(body.name)
     sb = get_supabase()
 
     # Verify parent folder belongs to user if specified
@@ -71,11 +115,15 @@ async def create_folder(
         if not parent.data:
             raise HTTPException(status_code=404, detail="Parent folder not found")
 
+    _check_unique_sibling(
+        sb, name=name, parent_id=body.parent_id, user_id=user_id
+    )
+
     result = (
         sb.table("folders")
         .insert(
             {
-                "name": body.name.strip(),
+                "name": name,
                 "parent_id": body.parent_id,
                 "user_id": user_id,
             }
@@ -92,13 +140,27 @@ async def rename_folder(
     user_id: str = Depends(get_current_user),
 ):
     """Rename a folder."""
-    if not body.name.strip():
-        raise HTTPException(status_code=400, detail="Folder name cannot be empty")
-
+    name = _validate_folder_name(body.name)
     sb = get_supabase()
+
+    # Look up current parent_id so we can enforce sibling uniqueness under
+    # the same scope (not against the whole tree).
+    existing = (
+        sb.table("folders").select("parent_id")
+        .eq("id", folder_id).eq("user_id", user_id)
+        .limit(1).execute().data
+    )
+    if not existing:
+        raise HTTPException(status_code=404, detail="Folder not found")
+
+    _check_unique_sibling(
+        sb, name=name, parent_id=existing[0].get("parent_id"),
+        user_id=user_id, excluding_id=folder_id,
+    )
+
     result = (
         sb.table("folders")
-        .update({"name": body.name.strip()})
+        .update({"name": name})
         .eq("id", folder_id)
         .eq("user_id", user_id)
         .execute()
