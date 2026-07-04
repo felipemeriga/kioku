@@ -175,6 +175,54 @@ class GitHubClient:
             )
         return out
 
+    @staticmethod
+    def list_user_repos(token: str, max_items: int = 100) -> list[dict]:
+        """List repos accessible to the token (paginated up to max_items).
+
+        Sorted by most recently pushed so the picker shows active repos first.
+        """
+        if not token:
+            return []
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": DEFAULT_UA,
+        }
+        out: list[dict] = []
+        page = 1
+        with httpx.Client(base_url=GITHUB_API_BASE, headers=headers, timeout=15.0) as c:
+            while len(out) < max_items:
+                r = c.get(
+                    "/user/repos",
+                    params={
+                        "sort": "pushed",
+                        "direction": "desc",
+                        "per_page": 100,
+                        "page": page,
+                    },
+                )
+                r.raise_for_status()
+                batch = r.json() or []
+                if not batch:
+                    break
+                for repo in batch:
+                    out.append({
+                        "owner": (repo.get("owner") or {}).get("login") or "?",
+                        "name": repo.get("name") or "?",
+                        "full_name": repo.get("full_name") or "?",
+                        "private": bool(repo.get("private")),
+                        "description": repo.get("description") or "",
+                        "pushed_at": repo.get("pushed_at"),
+                        "url": repo.get("html_url"),
+                    })
+                    if len(out) >= max_items:
+                        break
+                page += 1
+                if page > 5:
+                    break
+        return out
+
     def list_issues(self, days: int = 30, max_items: int = 50) -> list[Issue]:
         r = self._client.get(
             f"/repos/{self.owner}/{self.repo}/issues",

@@ -850,3 +850,23 @@ export async function syncGitHubNow(
   });
   return res.json();
 }
+
+export interface GitHubRepoOption {
+  owner: string;
+  name: string;
+  full_name: string;
+  private: boolean;
+  description: string;
+  pushed_at: string | null;
+  url: string | null;
+}
+
+export async function listGitHubRepos(
+  token: string
+): Promise<GitHubRepoOption[]> {
+  const res = await apiFetch("/api/github/repos", {
+    method: "POST",
+    body: JSON.stringify({ token }),
+  });
+  return res.json();
+}

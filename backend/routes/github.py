@@ -120,6 +120,24 @@ async def disconnect(
     return {"ok": True}
 
 
+class ListReposRequest(BaseModel):
+    token: str = Field(min_length=8)
+
+
+@router.post("/repos")
+async def list_repos(body: ListReposRequest, user_id: str = Depends(get_current_user)):
+    """Fetch the user's accessible repos (sorted by most recently pushed)
+    so the connect dialog can render them as a picker instead of asking the
+    user to paste a URL. Token is used only for this request and NOT persisted.
+    """
+    from services.github_sync import GitHubClient
+    try:
+        repos = GitHubClient.list_user_repos(body.token, max_items=200)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"GitHub rejected the token: {e}")
+    return repos
+
+
 @router.post("/configs/{config_id}/sync")
 async def sync_now(config_id: str, user_id: str = Depends(get_current_user)):
     """Enqueue a github_sync_task."""
