@@ -548,6 +548,8 @@ async def nightly_folder_summary_scan(ctx: dict) -> None:
     """arq cron entry point. Enumerates active folders and enqueues per-folder tasks.
 
     Weekly full pass on Sunday (UTC weekday 6); nightly delta pass otherwise.
+    Also enqueues a github_sync_task for every folder with a configured
+    GitHub integration so the orientation payload sees fresh commit activity.
     """
     from services.folder_summary import list_folder_ids_with_docs
 
@@ -575,3 +577,59 @@ async def nightly_folder_summary_scan(ctx: dict) -> None:
                 "trigger": trigger,
             },
         )
+
+    # GitHub sync: one task per configured integration. Independent of the
+    # summary — the summary itself doesn't need commits, but the orientation
+    # tool surfaces them, so keeping them fresh matters.
+    gh_configs = await asyncio.to_thread(
+        lambda: sb.table("github_sync_configs").select("id, user_id").execute().data or []
+    )
+    logger.info(
+        "nightly_folder_summary_scan: also enqueuing %d github syncs", len(gh_configs)
+    )
+    for cfg in gh_configs:
+        await redis.enqueue_job(
+            "github_sync_task",
+            {"config_id": cfg["id"], "user_id": cfg["user_id"]},
+        )
+
+
+async def github_sync_task(ctx: dict, payload: dict) -> None:
+    """Pull recent GitHub activity for one configured integration and upsert
+    it into the documents table.
+
+    payload = {
+        "config_id": str,
+        "user_id": str,
+    }
+    """
+    from services.github_sync import ingest_recent_activity
+
+    config_id = payload["config_id"]
+    user_id = payload["user_id"]
+    sb = get_supabase_thread_safe()
+
+    row = (
+        sb.table("github_sync_configs").select("*")
+        .eq("id", config_id).eq("user_id", user_id).limit(1).execute().data
+    )
+    if not row:
+        logger.warning("github_sync_task: config %s not found", config_id)
+        return
+    config = row[0]
+
+    try:
+        result = await asyncio.to_thread(
+            ingest_recent_activity, sb, config=config, user_id=user_id
+        )
+        sb.table("github_sync_configs").update({
+            "last_synced_at": datetime.now(timezone.utc).isoformat(),
+            "last_error": None,
+        }).eq("id", config_id).execute()
+        logger.info("github_sync_task: %s", result)
+    except Exception as exc:
+        logger.exception("github_sync_task failed for config %s", config_id)
+        sb.table("github_sync_configs").update({
+            "last_error": str(exc)[:500],
+        }).eq("id", config_id).execute()
+        raise
