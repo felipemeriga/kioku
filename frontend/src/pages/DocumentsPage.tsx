@@ -285,20 +285,27 @@ export default function DocumentsPage() {
     []
   );
 
-  // Load subfolders of current directory for the grid view
+  // Load subfolders of current directory for the grid view.
+  // Non-critical: page still renders. Logged so devs see repeated failures.
   const loadSubFolders = useCallback(() => {
     fetchFolders(currentFolderId)
       .then((data) =>
         setSubFolders(data.map((f) => ({ id: f.id, name: f.name })))
       )
-      .catch(() => {});
+      .catch((err) => {
+        // eslint-disable-next-line no-console
+        console.warn("[DocumentsPage] failed to load subfolders:", err);
+      });
   }, [currentFolderId]);
 
   useEffect(() => {
     loadSubFolders();
   }, [loadSubFolders]);
 
-  // Load breadcrumbs for the current folder
+  // Load breadcrumbs for the current folder. Non-critical — falling back to
+  // empty means the breadcrumb strip shows just Home. Surfaced only via toast
+  // if the failure is not a network transient (network is common while
+  // uploading, so we don't spam on those).
   useEffect(() => {
     if (!currentFolderId) {
       setBreadcrumbs([]);
@@ -306,7 +313,11 @@ export default function DocumentsPage() {
     }
     fetchBreadcrumbs(currentFolderId)
       .then(setBreadcrumbs)
-      .catch(() => setBreadcrumbs([]));
+      .catch((err) => {
+        setBreadcrumbs([]);
+        // eslint-disable-next-line no-console
+        console.warn("[DocumentsPage] failed to load breadcrumbs:", err);
+      });
   }, [currentFolderId]);
 
   // Global drag-and-drop from OS: dim entire content area whenever the user

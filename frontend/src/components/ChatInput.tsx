@@ -17,6 +17,7 @@ import FilterListIcon from "@mui/icons-material/FilterList";
 import BoltIcon from "@mui/icons-material/Bolt";
 import { uploadDocument, fetchDocumentFilters } from "../lib/api";
 import type { ChatFilters, DocumentFilters } from "../lib/api";
+import { useToast } from "./ToastProvider";
 
 interface ChatInputProps {
   onSend: (message: string, filters?: ChatFilters, fastMode?: boolean) => void;
@@ -24,6 +25,7 @@ interface ChatInputProps {
 }
 
 export default function ChatInput({ onSend, disabled }: ChatInputProps) {
+  const toast = useToast();
   const [input, setInput] = useState("");
   const [uploading, setUploading] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<string | null>(null);
@@ -37,7 +39,13 @@ export default function ChatInput({ onSend, disabled }: ChatInputProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    fetchDocumentFilters().then(setAvailableFilters).catch(() => {});
+    // Non-critical: filter dropdowns render empty on failure.
+    fetchDocumentFilters()
+      .then(setAvailableFilters)
+      .catch((err) => {
+        // eslint-disable-next-line no-console
+        console.warn("[ChatInput] failed to load document filters:", err);
+      });
   }, []);
 
   const handleSend = () => {
@@ -65,10 +73,15 @@ export default function ChatInput({ onSend, disabled }: ChatInputProps) {
     try {
       await uploadDocument(file);
       setUploadedFile(file.name);
-      // Refresh filters after upload
-      fetchDocumentFilters().then(setAvailableFilters).catch(() => {});
-    } catch {
-      // Error handled silently — user sees no chip appear
+      // Refresh filters after upload — non-critical.
+      fetchDocumentFilters()
+        .then(setAvailableFilters)
+        .catch((err) => {
+          // eslint-disable-next-line no-console
+          console.warn("[ChatInput] failed to refresh filters:", err);
+        });
+    } catch (err) {
+      toast.showError(err, `Upload failed for “${file.name}”.`);
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";

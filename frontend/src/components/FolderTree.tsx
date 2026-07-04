@@ -48,10 +48,16 @@ function FolderTreeNode({
   const isSelected = selectedId === folder.id;
 
   const loadChildren = useCallback(async () => {
-    const data = await fetchFolders(folder.id);
-    setChildren(data);
-    setLoaded(true);
-  }, [folder.id]);
+    try {
+      const data = await fetchFolders(folder.id);
+      setChildren(data);
+      setLoaded(true);
+    } catch (err) {
+      // Tree still opens — the node just shows no children.
+      // eslint-disable-next-line no-console
+      console.warn(`[FolderTree] failed to load children of ${folder.name}:`, err);
+    }
+  }, [folder.id, folder.name]);
 
   const handleToggle = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -199,7 +205,16 @@ export default function FolderTree({
   const [rootDragOver, setRootDragOver] = useState(false);
 
   const loadRoot = useCallback(() => {
-    fetchFolders(null).then(setRootFolders).catch(() => {});
+    // Non-critical: sidebar tree renders empty on failure. Not surfaced as a
+    // toast because it fires on every mount + on every `folders-changed`
+    // event — a persistent network problem would flood the user. It's
+    // logged so devtools still shows the failure.
+    fetchFolders(null)
+      .then(setRootFolders)
+      .catch((err) => {
+        // eslint-disable-next-line no-console
+        console.warn("[FolderTree] failed to load root folders:", err);
+      });
   }, []);
 
   useEffect(() => {
