@@ -32,6 +32,7 @@ import {
   type Folder,
 } from "../lib/api";
 import { NotionIntegrationSection } from "../components/NotionIntegrationSection";
+import { messageFromError } from "../components/ToastProvider";
 
 export default function SettingsPage() {
   const [keys, setKeys] = useState<ApiKeyInfo[]>([]);
@@ -53,8 +54,8 @@ export default function SettingsPage() {
       ]);
       setKeys(keysData);
       setScopes(scopesData);
-    } catch {
-      setError("Failed to load data.");
+    } catch (err) {
+      setError(`Couldn't load settings: ${messageFromError(err)}`);
     } finally {
       setLoading(false);
     }
@@ -74,16 +75,22 @@ export default function SettingsPage() {
       const result = await createApiKey(keyName || "Default", selectedScope);
       setNewKey(result.key);
       await loadData();
-    } catch {
-      setError("Failed to generate API key.");
+    } catch (err) {
+      setError(`Couldn't generate API key: ${messageFromError(err)}`);
     }
   };
 
   const handleCopy = async () => {
     if (newKey) {
-      await navigator.clipboard.writeText(newKey);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      try {
+        await navigator.clipboard.writeText(newKey);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch (err) {
+        setError(
+          `Couldn't copy — clipboard access denied. Copy the key manually: ${messageFromError(err)}`,
+        );
+      }
     }
   };
 
@@ -95,8 +102,8 @@ export default function SettingsPage() {
       setKeys((prev) => prev.filter((k) => k.id !== revokeTarget));
       setNewKey(null);
       setRevokeTarget(null);
-    } catch {
-      setError("Failed to revoke API key.");
+    } catch (err) {
+      setError(`Couldn't revoke API key: ${messageFromError(err)}`);
       setRevokeTarget(null);
     }
   };

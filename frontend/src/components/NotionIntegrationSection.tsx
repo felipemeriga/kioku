@@ -9,6 +9,7 @@ import {
   Dialog,
   DialogActions,
   DialogContent,
+  DialogContentText,
   DialogTitle,
   Divider,
   FormControl,
@@ -21,6 +22,7 @@ import {
 } from "@mui/material";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import DeleteIcon from "@mui/icons-material/Delete";
+import { messageFromError, useToast } from "./ToastProvider";
 
 import {
   connectNotion,
@@ -38,10 +40,15 @@ import {
 } from "../lib/api";
 
 export function NotionIntegrationSection() {
+  const toast = useToast();
   const [configs, setConfigs] = useState<NotionConfig[]>([]);
   const [folders, setFolders] = useState<{ id: string; name: string }[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [disconnectTarget, setDisconnectTarget] = useState<{
+    id: string;
+    title: string;
+  } | null>(null);
   const [activeJobsByConfig, setActiveJobsByConfig] = useState<Record<string, IngestionJob>>({});
   const pollTimers = useRef<Record<string, number>>({});
 
@@ -50,8 +57,8 @@ export function NotionIntegrationSection() {
       const [cfgs, fs] = await Promise.all([fetchNotionConfigs(), fetchFolders(null)]);
       setConfigs(cfgs);
       setFolders(fs.map((f) => ({ id: f.id, name: f.name })));
-    } catch (e) {
-      setError(String(e));
+    } catch (err) {
+      setError(`Couldn't load Notion configs: ${messageFromError(err)}`);
     }
   }, []);
 
@@ -83,15 +90,18 @@ export function NotionIntegrationSection() {
             });
             await refresh();
           }
-        } catch (e) {
+        } catch (err) {
           stopPolling(configId);
-          setError(String(e));
+          toast.show(
+            `Lost track of the Notion sync job: ${messageFromError(err)}`,
+            "warning",
+          );
         }
       };
       void tick();
       pollTimers.current[configId] = window.setInterval(tick, 2000);
     },
-    [refresh],
+    [refresh, toast],
   );
 
   useEffect(() => {
@@ -119,8 +129,9 @@ export function NotionIntegrationSection() {
     try {
       const { job_id } = await syncNotionNow(id);
       startPolling(id, job_id);
-    } catch (e) {
-      setError(String(e));
+      toast.showSuccess("Sync started.");
+    } catch (err) {
+      toast.showError(err, "Couldn't start the sync.");
     }
   };
 
@@ -128,20 +139,31 @@ export function NotionIntegrationSection() {
     try {
       const { job_id } = await reconcileNotionNow(id);
       startPolling(id, job_id);
-    } catch (e) {
-      setError(String(e));
+      toast.showSuccess("Full reconciliation started.");
+    } catch (err) {
+      toast.showError(err, "Couldn't start reconciliation.");
     }
   };
 
-  const handleDisconnect = async (id: string) => {
-    const deleteDocs = window.confirm(
-      "Delete all Notion-sourced documents from the mapped folder?\n\nOK = delete\nCancel = keep",
-    );
+  // Two-step disconnect: open confirm dialog, then execute on the second click.
+  // Replaces the previous window.confirm() which was blocking and un-styled.
+  const requestDisconnect = (id: string, title: string) =>
+    setDisconnectTarget({ id, title });
+
+  const handleConfirmDisconnect = async (deleteDocs: boolean) => {
+    if (!disconnectTarget) return;
+    const { id } = disconnectTarget;
+    setDisconnectTarget(null);
     try {
       await disconnectNotion(id, deleteDocs);
       await refresh();
-    } catch (e) {
-      setError(String(e));
+      toast.showSuccess(
+        deleteDocs
+          ? "Disconnected. Notion-sourced docs removed."
+          : "Disconnected. Docs kept in the folder.",
+      );
+    } catch (err) {
+      toast.showError(err, "Couldn't disconnect Notion.");
     }
   };
 
@@ -219,7 +241,12 @@ export function NotionIntegrationSection() {
                     <Button
                       color="error"
                       startIcon={<DeleteIcon />}
-                      onClick={() => handleDisconnect(cfg.id)}
+                      onClick={() =>
+                        requestDisconnect(
+                          cfg.id,
+                          cfg.notion_page_title ?? cfg.notion_page_id,
+                        )
+                      }
                     >
                       Disconnect
                     </Button>
@@ -246,6 +273,35 @@ export function NotionIntegrationSection() {
           await refresh();
         }}
       />
+
+      <Dialog
+        open={!!disconnectTarget}
+        onClose={() => setDisconnectTarget(null)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Disconnect Notion?</DialogTitle>
+        <DialogContent>
+          <DialogContentText sx={{ mb: 1 }}>
+            Disconnecting <strong>{disconnectTarget?.title}</strong> stops
+            future syncs. Choose whether to keep the documents already ingested
+            from this Notion source, or remove them from the mapped folder.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions sx={{ pb: 2, pr: 3 }}>
+          <Button onClick={() => setDisconnectTarget(null)}>Cancel</Button>
+          <Button onClick={() => handleConfirmDisconnect(false)}>
+            Keep documents
+          </Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={() => handleConfirmDisconnect(true)}
+          >
+            Delete documents
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Card>
   );
 }
