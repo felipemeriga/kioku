@@ -1,9 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 
 from auth import get_current_user
 from db.client import get_supabase
 
 router = APIRouter(prefix="/api/conversations")
+
+
+class RenameConversationRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
 
 
 @router.get("")
@@ -46,6 +51,29 @@ async def get_conversation(conversation_id: str, user_id: str = Depends(get_curr
         .execute()
     )
     return {**conv.data[0], "messages": messages.data}
+
+
+@router.patch("/{conversation_id}")
+async def rename_conversation(
+    conversation_id: str,
+    body: RenameConversationRequest,
+    user_id: str = Depends(get_current_user),
+):
+    """Rename a conversation. Trims whitespace; refuses an empty title."""
+    title = body.title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Title cannot be empty")
+    sb = get_supabase()
+    result = (
+        sb.table("conversations")
+        .update({"title": title})
+        .eq("id", conversation_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return result.data[0]
 
 
 @router.delete("/{conversation_id}")

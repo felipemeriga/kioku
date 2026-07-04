@@ -170,6 +170,17 @@ export async function deleteConversation(id: string): Promise<void> {
   await apiFetch(`/api/conversations/${id}`, { method: "DELETE" });
 }
 
+export async function renameConversation(
+  id: string,
+  title: string
+): Promise<Conversation> {
+  const res = await apiFetch(`/api/conversations/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ title }),
+  });
+  return res.json();
+}
+
 export interface Message {
   id: string;
   role: "user" | "assistant";
