@@ -131,6 +131,41 @@ async def disconnect(config_id: str, user_id: str = Depends(get_current_user)):
     return {"ok": True}
 
 
+@router.post("/configs/{config_id}/deduplicate")
+async def deduplicate(
+    config_id: str,
+    dry_run: bool = True,
+    semantic: bool = True,
+    similarity_threshold: float = 0.75,
+    user_id: str = Depends(get_current_user),
+):
+    """Reconcile pre-existing Mem0 duplicates in this folder.
+
+    Two-pass reconciliation:
+      - Exact: groups by (scope, category, normalized content).
+      - Semantic: for each survivor, uses Mem0 search to find
+        rephrases above `similarity_threshold` and merges them.
+
+    dry_run=true returns the plan. semantic=false skips pass 2 (faster,
+    stricter). similarity_threshold in [0, 1].
+    """
+    sb = get_supabase()
+    row = (
+        sb.table("mem0_sync_configs").select("*")
+        .eq("id", config_id).eq("user_id", user_id).limit(1).execute().data
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Config not found")
+    client = Mem0AppClient(
+        config=row[0], user_id=user_id, folder_id=row[0]["root_folder_id"]
+    )
+    return client.deduplicate(
+        dry_run=dry_run,
+        semantic=semantic,
+        similarity_threshold=similarity_threshold,
+    )
+
+
 @router.post("/configs/{config_id}/verify")
 async def verify_config(config_id: str, user_id: str = Depends(get_current_user)):
     sb = get_supabase()
