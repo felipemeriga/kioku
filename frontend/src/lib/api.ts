@@ -841,6 +841,26 @@ export async function deleteFolderMemory(
   });
 }
 
+export async function addFolderMemory(input: {
+  root_folder_id: string;
+  content: string;
+  category: MemoryCategory;
+  scope?: MemoryScope;
+  tags?: string[];
+  written_by?: string;
+}): Promise<{
+  ok: boolean;
+  duplicate?: boolean;
+  existing_id?: string;
+  metadata: Record<string, unknown>;
+}> {
+  const res = await apiFetch("/api/mem0/memories", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return res.json();
+}
+
 export interface DocumentContent {
   source_filename: string;
   source_type: string | null;
