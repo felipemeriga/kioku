@@ -286,9 +286,15 @@ def _infer_viewable_as(filename: str, source_type: str | None, metadata: dict) -
     return "text"
 
 
+_INLINE_URL_TTL_S = 300  # 5 min — long enough to render + interact, short
+                          # enough that a leaked screenshot expires fast.
+
+
 def _signed_view_url(sb, metadata: dict) -> tuple[str | None, str | None]:
     """(signed_url, bucket) for inline viewing. No `download` option so the
-    browser embeds instead of forcing a save."""
+    browser embeds instead of forcing a save. TTL kept short because the
+    URL is a bearer token — anyone with it can view until expiry.
+    """
     file_path = metadata.get("file_url") or metadata.get("image_url") or metadata.get("audio_url")
     if not file_path:
         return None, None
@@ -299,7 +305,7 @@ def _signed_view_url(sb, metadata: dict) -> tuple[str | None, str | None]:
     else:
         bucket = "documents"
     try:
-        signed = sb.storage.from_(bucket).create_signed_url(file_path, 900)
+        signed = sb.storage.from_(bucket).create_signed_url(file_path, _INLINE_URL_TTL_S)
         return signed.get("signedURL") or signed.get("signed_url"), bucket
     except Exception:  # noqa: BLE001
         return None, bucket
