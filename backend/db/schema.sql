@@ -269,6 +269,25 @@ CREATE TABLE IF NOT EXISTS "public"."folders" (
 ALTER TABLE "public"."folders" OWNER TO "postgres";
 
 
+CREATE TABLE IF NOT EXISTS "public"."github_sync_configs" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "root_folder_id" "uuid" NOT NULL,
+    "repo_owner" "text" NOT NULL,
+    "repo_name" "text" NOT NULL,
+    "token_encrypted" "text",
+    "since_days" integer DEFAULT 14 NOT NULL,
+    "last_synced_at" timestamp with time zone,
+    "last_error" "text",
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    "updated_at" timestamp with time zone DEFAULT "now"(),
+    CONSTRAINT "github_sync_configs_since_days_check" CHECK ((("since_days" >= 1) AND ("since_days" <= 365)))
+);
+
+
+ALTER TABLE "public"."github_sync_configs" OWNER TO "postgres";
+
+
 CREATE TABLE IF NOT EXISTS "public"."ingestion_jobs" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "user_id" "uuid" NOT NULL,
@@ -293,6 +312,23 @@ CREATE TABLE IF NOT EXISTS "public"."ingestion_jobs" (
 
 
 ALTER TABLE "public"."ingestion_jobs" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."mem0_sync_configs" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "root_folder_id" "uuid" NOT NULL,
+    "api_key_encrypted" "text" NOT NULL,
+    "org_id" "text",
+    "project_id" "text",
+    "last_verified_at" timestamp with time zone,
+    "last_error" "text",
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    "updated_at" timestamp with time zone DEFAULT "now"()
+);
+
+
+ALTER TABLE "public"."mem0_sync_configs" OWNER TO "postgres";
 
 
 CREATE TABLE IF NOT EXISTS "public"."messages" (
@@ -341,6 +377,24 @@ CREATE TABLE IF NOT EXISTS "public"."notion_sync_configs" (
 
 
 ALTER TABLE "public"."notion_sync_configs" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."retrieval_log" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "folder_id" "uuid",
+    "query" "text" NOT NULL,
+    "sources_hit" "jsonb" DEFAULT '[]'::"jsonb" NOT NULL,
+    "chunks_returned" integer DEFAULT 0 NOT NULL,
+    "chunk_ids" "jsonb" DEFAULT '[]'::"jsonb" NOT NULL,
+    "latency_ms" integer,
+    "channel" "text",
+    "conversation_id" "uuid",
+    "created_at" timestamp with time zone DEFAULT "now"()
+);
+
+
+ALTER TABLE "public"."retrieval_log" OWNER TO "postgres";
 
 
 ALTER TABLE ONLY "public"."api_keys"
@@ -403,8 +457,28 @@ ALTER TABLE ONLY "public"."folders"
 
 
 
+ALTER TABLE ONLY "public"."github_sync_configs"
+    ADD CONSTRAINT "github_sync_configs_folder_unique" UNIQUE ("user_id", "root_folder_id");
+
+
+
+ALTER TABLE ONLY "public"."github_sync_configs"
+    ADD CONSTRAINT "github_sync_configs_pkey" PRIMARY KEY ("id");
+
+
+
 ALTER TABLE ONLY "public"."ingestion_jobs"
     ADD CONSTRAINT "ingestion_jobs_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."mem0_sync_configs"
+    ADD CONSTRAINT "mem0_sync_configs_folder_unique" UNIQUE ("user_id", "root_folder_id");
+
+
+
+ALTER TABLE ONLY "public"."mem0_sync_configs"
+    ADD CONSTRAINT "mem0_sync_configs_pkey" PRIMARY KEY ("id");
 
 
 
@@ -425,6 +499,11 @@ ALTER TABLE ONLY "public"."notion_sync_configs"
 
 ALTER TABLE ONLY "public"."notion_sync_configs"
     ADD CONSTRAINT "notion_sync_configs_user_page_unique" UNIQUE ("user_id", "notion_page_id");
+
+
+
+ALTER TABLE ONLY "public"."retrieval_log"
+    ADD CONSTRAINT "retrieval_log_pkey" PRIMARY KEY ("id");
 
 
 
@@ -480,11 +559,19 @@ CREATE INDEX "idx_documents_root_folder_id" ON "public"."documents" USING "btree
 
 
 
+CREATE INDEX "idx_github_sync_configs_user_id" ON "public"."github_sync_configs" USING "btree" ("user_id");
+
+
+
 CREATE UNIQUE INDEX "idx_ingestion_jobs_active_source" ON "public"."ingestion_jobs" USING "btree" ("kind", "source_ref") WHERE ("status" = ANY (ARRAY['queued'::"text", 'running'::"text"]));
 
 
 
 CREATE INDEX "idx_ingestion_jobs_user_status" ON "public"."ingestion_jobs" USING "btree" ("user_id", "status");
+
+
+
+CREATE INDEX "idx_mem0_sync_configs_user_id" ON "public"."mem0_sync_configs" USING "btree" ("user_id");
 
 
 
@@ -500,6 +587,14 @@ CREATE INDEX "idx_notion_sync_configs_user_id" ON "public"."notion_sync_configs"
 
 
 
+CREATE INDEX "idx_retrieval_log_folder_id" ON "public"."retrieval_log" USING "btree" ("folder_id") WHERE ("folder_id" IS NOT NULL);
+
+
+
+CREATE INDEX "idx_retrieval_log_user_id_created_at" ON "public"."retrieval_log" USING "btree" ("user_id", "created_at" DESC);
+
+
+
 CREATE OR REPLACE TRIGGER "context_updated_at" BEFORE UPDATE ON "public"."context" FOR EACH ROW EXECUTE FUNCTION "public"."update_updated_at"();
 
 
@@ -508,7 +603,15 @@ CREATE OR REPLACE TRIGGER "conversations_updated_at" BEFORE UPDATE ON "public"."
 
 
 
+CREATE OR REPLACE TRIGGER "github_sync_configs_updated_at" BEFORE UPDATE ON "public"."github_sync_configs" FOR EACH ROW EXECUTE FUNCTION "public"."update_updated_at"();
+
+
+
 CREATE OR REPLACE TRIGGER "ingestion_jobs_updated_at" BEFORE UPDATE ON "public"."ingestion_jobs" FOR EACH ROW EXECUTE FUNCTION "public"."update_updated_at"();
+
+
+
+CREATE OR REPLACE TRIGGER "mem0_sync_configs_updated_at" BEFORE UPDATE ON "public"."mem0_sync_configs" FOR EACH ROW EXECUTE FUNCTION "public"."update_updated_at"();
 
 
 
@@ -580,6 +683,16 @@ ALTER TABLE ONLY "public"."folders"
 
 
 
+ALTER TABLE ONLY "public"."github_sync_configs"
+    ADD CONSTRAINT "github_sync_configs_folder_fk" FOREIGN KEY ("root_folder_id") REFERENCES "public"."folders"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."github_sync_configs"
+    ADD CONSTRAINT "github_sync_configs_user_fk" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
+
+
+
 ALTER TABLE ONLY "public"."ingestion_jobs"
     ADD CONSTRAINT "ingestion_jobs_parent_job_id_fkey" FOREIGN KEY ("parent_job_id") REFERENCES "public"."ingestion_jobs"("id") ON DELETE CASCADE;
 
@@ -587,6 +700,16 @@ ALTER TABLE ONLY "public"."ingestion_jobs"
 
 ALTER TABLE ONLY "public"."ingestion_jobs"
     ADD CONSTRAINT "ingestion_jobs_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."mem0_sync_configs"
+    ADD CONSTRAINT "mem0_sync_configs_folder_fk" FOREIGN KEY ("root_folder_id") REFERENCES "public"."folders"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."mem0_sync_configs"
+    ADD CONSTRAINT "mem0_sync_configs_user_fk" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
 
 
 
@@ -615,6 +738,20 @@ ALTER TABLE ONLY "public"."notion_sync_configs"
 
 
 
+ALTER TABLE ONLY "public"."retrieval_log"
+    ADD CONSTRAINT "retrieval_log_folder_fk" FOREIGN KEY ("folder_id") REFERENCES "public"."folders"("id") ON DELETE SET NULL;
+
+
+
+ALTER TABLE ONLY "public"."retrieval_log"
+    ADD CONSTRAINT "retrieval_log_user_fk" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
+
+
+
+CREATE POLICY "Users insert own retrieval log" ON "public"."retrieval_log" FOR INSERT WITH CHECK (("auth"."uid"() = "user_id"));
+
+
+
 CREATE POLICY "Users manage own api keys" ON "public"."api_keys" USING (("auth"."uid"() = "user_id")) WITH CHECK (("auth"."uid"() = "user_id"));
 
 
@@ -639,7 +776,15 @@ CREATE POLICY "Users manage own folders" ON "public"."folders" USING (("auth"."u
 
 
 
+CREATE POLICY "Users manage own github configs" ON "public"."github_sync_configs" USING (("auth"."uid"() = "user_id")) WITH CHECK (("auth"."uid"() = "user_id"));
+
+
+
 CREATE POLICY "Users manage own ingestion jobs" ON "public"."ingestion_jobs" USING (("auth"."uid"() = "user_id")) WITH CHECK (("auth"."uid"() = "user_id"));
+
+
+
+CREATE POLICY "Users manage own mem0 configs" ON "public"."mem0_sync_configs" USING (("auth"."uid"() = "user_id")) WITH CHECK (("auth"."uid"() = "user_id"));
 
 
 
@@ -656,6 +801,10 @@ CREATE POLICY "Users manage own notes" ON "public"."notes" USING (("user_id" = "
 
 
 CREATE POLICY "Users manage own notion sync configs" ON "public"."notion_sync_configs" USING (("auth"."uid"() = "user_id")) WITH CHECK (("auth"."uid"() = "user_id"));
+
+
+
+CREATE POLICY "Users read own retrieval log" ON "public"."retrieval_log" FOR SELECT USING (("auth"."uid"() = "user_id"));
 
 
 
@@ -677,7 +826,13 @@ ALTER TABLE "public"."folder_summaries" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."folders" ENABLE ROW LEVEL SECURITY;
 
 
+ALTER TABLE "public"."github_sync_configs" ENABLE ROW LEVEL SECURITY;
+
+
 ALTER TABLE "public"."ingestion_jobs" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."mem0_sync_configs" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."messages" ENABLE ROW LEVEL SECURITY;
@@ -687,6 +842,9 @@ ALTER TABLE "public"."notes" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."notion_sync_configs" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."retrieval_log" ENABLE ROW LEVEL SECURITY;
 
 
 GRANT USAGE ON SCHEMA "public" TO "postgres";
@@ -786,9 +944,21 @@ GRANT ALL ON TABLE "public"."folders" TO "service_role";
 
 
 
+GRANT ALL ON TABLE "public"."github_sync_configs" TO "anon";
+GRANT ALL ON TABLE "public"."github_sync_configs" TO "authenticated";
+GRANT ALL ON TABLE "public"."github_sync_configs" TO "service_role";
+
+
+
 GRANT ALL ON TABLE "public"."ingestion_jobs" TO "anon";
 GRANT ALL ON TABLE "public"."ingestion_jobs" TO "authenticated";
 GRANT ALL ON TABLE "public"."ingestion_jobs" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."mem0_sync_configs" TO "anon";
+GRANT ALL ON TABLE "public"."mem0_sync_configs" TO "authenticated";
+GRANT ALL ON TABLE "public"."mem0_sync_configs" TO "service_role";
 
 
 
@@ -807,6 +977,12 @@ GRANT ALL ON TABLE "public"."notes" TO "service_role";
 GRANT ALL ON TABLE "public"."notion_sync_configs" TO "anon";
 GRANT ALL ON TABLE "public"."notion_sync_configs" TO "authenticated";
 GRANT ALL ON TABLE "public"."notion_sync_configs" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."retrieval_log" TO "anon";
+GRANT ALL ON TABLE "public"."retrieval_log" TO "authenticated";
+GRANT ALL ON TABLE "public"."retrieval_log" TO "service_role";
 
 
 
