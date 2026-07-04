@@ -15,8 +15,11 @@ from routes.drop import router as drop_router
 from routes.evaluation import router as evaluation_router
 from routes.folders import router as folders_router
 from routes.ingestion_jobs import router as ingestion_jobs_router
+from routes.github import router as github_router
+from routes.mem0 import router as mem0_router
 from routes.notes import router as notes_router
 from routes.notion import router as notion_router
+from routes.retrieval_log import router as retrieval_log_router
 from services.notion_sync.sync_engine import sync_loop
 
 load_dotenv()
@@ -56,6 +59,9 @@ app.include_router(notes_router)
 app.include_router(context_router)
 app.include_router(notion_router)
 app.include_router(ingestion_jobs_router)
+app.include_router(mem0_router)
+app.include_router(github_router)
+app.include_router(retrieval_log_router)
 
 
 @app.get("/api/health")
