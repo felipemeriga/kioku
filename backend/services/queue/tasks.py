@@ -508,3 +508,70 @@ async def _parallel_metadata(chunks: list[str]) -> list[dict]:
             return (await asyncio.to_thread(extract_metadata, text)) or {}
 
     return await asyncio.gather(*(_one(c) for c in chunks))
+
+
+async def summarize_folder_task(ctx: dict, payload: dict) -> None:
+    """Generate or update a folder_summaries row for one folder.
+
+    payload = {
+        "folder_id": str,
+        "user_id": str,
+        "mode": "auto" | "full" | "delta",   # default "auto"
+        "trigger": str,                       # "manual" | "cron_nightly" | "cron_weekly"
+    }
+    """
+    from services.folder_summary import generate_folder_summary
+
+    folder_id = payload["folder_id"]
+    user_id = payload["user_id"]
+    mode = payload.get("mode", "auto")
+    trigger = payload.get("trigger", "manual")
+
+    sb = get_supabase_thread_safe()
+    try:
+        outcome = await generate_folder_summary(
+            sb, folder_id=folder_id, user_id=user_id, mode=mode, trigger=trigger
+        )
+        logger.info(
+            "summarize_folder_task: folder=%s user=%s kind=%s skipped_reason=%s",
+            folder_id,
+            user_id,
+            outcome.kind,
+            outcome.skipped_reason,
+        )
+    except Exception:
+        logger.exception("summarize_folder_task failed for folder=%s user=%s", folder_id, user_id)
+        raise
+
+
+async def nightly_folder_summary_scan(ctx: dict) -> None:
+    """arq cron entry point. Enumerates active folders and enqueues per-folder tasks.
+
+    Weekly full pass on Sunday (UTC weekday 6); nightly delta pass otherwise.
+    """
+    from services.folder_summary import list_folder_ids_with_docs
+
+    sb = get_supabase_thread_safe()
+    pairs = await asyncio.to_thread(list_folder_ids_with_docs, sb)
+    now = datetime.now(timezone.utc)
+    is_weekly = now.weekday() == 6
+    mode = "full" if is_weekly else "auto"
+    trigger = "cron_weekly" if is_weekly else "cron_nightly"
+
+    logger.info(
+        "nightly_folder_summary_scan: enqueuing %d folders, mode=%s trigger=%s",
+        len(pairs),
+        mode,
+        trigger,
+    )
+    redis = ctx["redis"]
+    for pair in pairs:
+        await redis.enqueue_job(
+            "summarize_folder_task",
+            {
+                "folder_id": pair["folder_id"],
+                "user_id": pair["user_id"],
+                "mode": mode,
+                "trigger": trigger,
+            },
+        )
