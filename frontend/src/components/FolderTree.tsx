@@ -7,6 +7,7 @@ import {
   ListItemText,
   IconButton,
   Collapse,
+  Tooltip,
   Typography,
   alpha,
 } from "@mui/material";
@@ -14,6 +15,10 @@ import FolderIcon from "@mui/icons-material/Folder";
 import FolderOpenIcon from "@mui/icons-material/FolderOpen";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import DeleteIcon from "@mui/icons-material/Delete";
+import HubIcon from "@mui/icons-material/Hub";
+import PsychologyIcon from "@mui/icons-material/Psychology";
+import GitHubIcon from "@mui/icons-material/GitHub";
+import NotesIcon from "@mui/icons-material/Notes";
 import { fetchFolders } from "../lib/api";
 import type { Folder } from "../lib/api";
 import { brand, fonts } from "../theme";
@@ -164,20 +169,48 @@ function FolderTreeNode({
             },
           }}
         />
-        <IconButton
+        <Box
           className="folder-actions"
-          size="small"
           sx={{
+            display: "flex",
+            alignItems: "center",
             opacity: 0,
             transition: "opacity 0.15s",
-            p: 0.25,
-            color: brand.muted,
-            "&:hover": { color: "#ef4444", bgcolor: alpha("#ef4444", 0.15) },
+            gap: 0.25,
           }}
-          onClick={handleDelete}
         >
-          <DeleteIcon sx={{ fontSize: 14 }} />
-        </IconButton>
+          <Tooltip title="Manage integrations">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRequestIntegrations(folder.id, folder.name);
+              }}
+              aria-label={`Manage integrations for ${folder.name}`}
+              sx={{
+                p: 0.25,
+                color: brand.muted,
+                "&:hover": { color: brand.violet2, bgcolor: alpha(brand.violet, 0.15) },
+              }}
+            >
+              <HubIcon sx={{ fontSize: 14 }} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Delete folder">
+            <IconButton
+              size="small"
+              onClick={handleDelete}
+              aria-label={`Delete ${folder.name}`}
+              sx={{
+                p: 0.25,
+                color: brand.muted,
+                "&:hover": { color: "#ef4444", bgcolor: alpha("#ef4444", 0.15) },
+              }}
+            >
+              <DeleteIcon sx={{ fontSize: 14 }} />
+            </IconButton>
+          </Tooltip>
+        </Box>
       </ListItemButton>
       <Collapse in={open} timeout="auto">
         {children.map((child) => (
