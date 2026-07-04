@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "./components/AuthProvider";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import ConversationsProvider from "./components/ConversationsProvider";
@@ -45,6 +45,8 @@ function App() {
                 </ProtectedRoute>
               }
             />
+            {/* Catch-all — redirect anything unknown to chat. */}
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </ConversationsProvider>
       </AuthProvider>
