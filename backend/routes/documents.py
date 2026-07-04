@@ -261,6 +261,43 @@ async def list_documents(
     return list(files.values())
 
 
+@router.get("/{filename}/content")
+async def get_document_content(
+    filename: str,
+    folder_id: str | None = None,
+    user_id: str = Depends(get_current_user),
+):
+    """Concatenate chunks by chunk_index and return the full text of a
+    document for in-app viewing. Filter by folder_id when the same
+    source_filename exists in multiple folders (e.g. gh_pr_1.md in two repos)."""
+    sb = get_supabase()
+    q = (
+        sb.table("documents")
+        .select("content, chunk_index, source_type, metadata, folder_id, status, created_at")
+        .eq("source_filename", filename)
+        .eq("user_id", user_id)
+    )
+    if folder_id:
+        q = q.eq("folder_id", folder_id)
+    r = q.order("chunk_index").execute()
+    if not r.data:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    rows = r.data
+    content = "\n\n".join((c.get("content") or "") for c in rows)
+    first = rows[0]
+    return {
+        "source_filename": filename,
+        "source_type": first.get("source_type"),
+        "metadata": first.get("metadata") or {},
+        "chunk_count": len(rows),
+        "folder_id": first.get("folder_id"),
+        "status": first.get("status"),
+        "created_at": first.get("created_at"),
+        "content": content,
+    }
+
+
 @router.get("/{filename}/download")
 async def download_document(filename: str, user_id: str = Depends(get_current_user)):
     """Generate a signed download URL for the original uploaded file."""

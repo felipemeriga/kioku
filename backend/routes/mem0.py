@@ -190,14 +190,22 @@ async def verify_config(config_id: str, user_id: str = Depends(get_current_user)
 class AddMemoryRequest(BaseModel):
     root_folder_id: str
     content: str = Field(min_length=1)
+    category: str
     scope: str = "episodic"
-    category: str = MemoryCategory.NOTE
     tags: list[str] | None = None
     written_by: str = "claude-code"
 
 
 @router.post("/memories")
 async def add_memory(body: AddMemoryRequest, user_id: str = Depends(get_current_user)):
+    if body.category not in MemoryCategory.all():
+        raise HTTPException(
+            status_code=422,
+            detail=f"category must be one of {list(MemoryCategory.all())}",
+        )
+    if body.scope not in ("eternal", "episodic"):
+        raise HTTPException(status_code=422, detail="scope must be 'eternal' or 'episodic'")
+
     sb = get_supabase()
     client = _load_client(sb, body.root_folder_id, user_id)
     result = client.add(
@@ -234,6 +242,70 @@ async def list_rules(root_folder_id: str, user_id: str = Depends(get_current_use
     sb = get_supabase()
     client = _load_client(sb, root_folder_id, user_id)
     return {"rules": client.list_eternal(limit=100)}
+
+
+@router.get("/configs/{config_id}/memories")
+async def list_folder_memories(
+    config_id: str,
+    scope: str = "any",
+    limit: int = 200,
+    user_id: str = Depends(get_current_user),
+):
+    """All memories in this Mem0-connected folder, ready for the UI to render.
+
+    scope=any (default) returns both eternal and episodic; filter to one
+    if you need. Response includes memory content, metadata, and Mem0's
+    own timestamps so the UI can group / sort.
+    """
+    sb = get_supabase()
+    row = (
+        sb.table("mem0_sync_configs").select("*")
+        .eq("id", config_id).eq("user_id", user_id).limit(1).execute().data
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Config not found")
+    client = Mem0AppClient(
+        config=row[0], user_id=user_id, folder_id=row[0]["root_folder_id"]
+    )
+    scope_arg = scope if scope in ("eternal", "episodic") else "any"
+    mems = client.get_all(scope=scope_arg, limit=min(max(limit, 1), 500))
+    # Normalize the shape for the UI so client code isn't Mem0-version-sensitive.
+    normalized = []
+    for m in mems:
+        md = m.get("metadata") or {}
+        normalized.append({
+            "id": m.get("id"),
+            "content": m.get("memory") or "",
+            "scope": md.get("scope"),
+            "category": md.get("category"),
+            "tags": md.get("tags") or [],
+            "written_by": md.get("written_by"),
+            "created_at": m.get("created_at"),
+            "updated_at": m.get("updated_at"),
+        })
+    return {"folder_id": row[0]["root_folder_id"], "memories": normalized}
+
+
+@router.delete("/configs/{config_id}/memories/{memory_id}")
+async def delete_memory(
+    config_id: str,
+    memory_id: str,
+    user_id: str = Depends(get_current_user),
+):
+    sb = get_supabase()
+    row = (
+        sb.table("mem0_sync_configs").select("*")
+        .eq("id", config_id).eq("user_id", user_id).limit(1).execute().data
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Config not found")
+    client = Mem0AppClient(
+        config=row[0], user_id=user_id, folder_id=row[0]["root_folder_id"]
+    )
+    result = client.delete(memory_id)
+    if not result.get("ok"):
+        raise HTTPException(status_code=502, detail=result.get("error") or "Mem0 delete failed")
+    return {"ok": True}
 
 
 @router.get("/memories/recent")

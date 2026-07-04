@@ -96,56 +96,88 @@ def knowledge_base_search(query: str) -> str:
 @mcp.tool()
 def save_memory(
     content: str,
+    category: str,
     scope: str = "episodic",
-    category: str = "note",
     tags: str = "",
 ) -> str:
-    """Save a memory to Mem0 through this MCP.
+    """Save a memory to Mem0. Every write carries user_id + agent_id + category.
 
-    Use this to remember decisions, findings, issues, sessions, or user
-    preferences that should carry forward to future sessions. Prefer this
-    over save_note when the fact is agent-oriented / session-oriented; save_note
-    is for user-facing notes in the knowledge base.
-
-    Scopes:
-      - "eternal"   → always inlined at session start (e.g. "no coauthored commits")
-      - "episodic"  → recorded, retrievable via semantic search (default)
+    Three fields are ALWAYS enforced by our proxy:
+      • user_id  — resolved from your API key.
+      • agent_id — set to the API key's scope folder id (memory namespace).
+                   API keys with no scope folder cannot save memories.
+      • category — you MUST provide one of the six values below. There is
+                   no default; picking the right category is how we
+                   distinguish policy from history, decisions from notes.
 
     Categories:
-      - "decision", "finding", "issue", "preference", "session", "note"
+      • "decision"   — an architectural or design choice you made
+      • "finding"    — an empirical fact discovered by investigation
+      • "issue"      — a known bug, limitation, or workaround
+      • "preference" — how the user wants to work (usually eternal)
+      • "session"    — summary of what was done in a session
+      • "note"       — freeform (use sparingly; prefer a specific category)
+
+    Scopes:
+      • "eternal"  — always inlined at session start (typically preferences)
+      • "episodic" — recorded, retrievable via semantic search (default)
 
     Args:
         content: The memory to save. One sentence is ideal; two is fine.
+        category: REQUIRED. One of decision/finding/issue/preference/session/note.
         scope: "eternal" for policies, "episodic" for history (default).
-        category: One of decision/finding/issue/preference/session/note.
         tags: Comma-separated tags for filtering (e.g. "auth,security").
 
     Returns:
-        Status + the memory id assigned by Mem0.
+        JSON with {ok, memory_id, duplicate, scope, category, tags}.
     """
     if not _current_user_id.get():
-        return "Error: Not authenticated."
+        return json.dumps({"ok": False, "error": "Not authenticated. Provide a valid API key."})
     folder_id = _current_scope_folder_id.get()
     if not folder_id:
-        return "Error: This API key has no scope folder; can't save a memory."
+        return json.dumps({
+            "ok": False,
+            "error": "This API key has no scope folder; cannot infer agent_id.",
+            "fix": "Mint an API key scoped to a folder in Settings.",
+        })
+    # Explicit category check — refuse (don't silently substitute 'note').
+    if not category or category not in MemoryCategory.all():
+        return json.dumps({
+            "ok": False,
+            "error": f"category is required and must be one of {list(MemoryCategory.all())}.",
+            "got": category,
+        })
+    if scope not in (MemoryScope.ETERNAL, MemoryScope.EPISODIC):
+        return json.dumps({
+            "ok": False,
+            "error": "scope must be 'eternal' or 'episodic'.",
+            "got": scope,
+        })
+    if not content or not content.strip():
+        return json.dumps({"ok": False, "error": "content is required."})
+
     client = get_client_for_folder(get_supabase(), folder_id, _current_user_id.get())
     if client is None:
-        return "No Mem0 integration configured for this folder. Connect Mem0 in Settings."
+        return json.dumps({
+            "ok": False,
+            "error": "No Mem0 integration configured for this folder.",
+            "fix": "Connect Mem0 for this folder in the app's Settings page.",
+        })
     tag_list = [t.strip() for t in (tags or "").split(",") if t.strip()]
-    if category not in MemoryCategory.all():
-        category = "note"
-    if scope not in (MemoryScope.ETERNAL, MemoryScope.EPISODIC):
-        scope = MemoryScope.EPISODIC
     result = client.add(
         content, scope=scope, category=category, tags=tag_list, written_by="claude-code"
     )
     if not result.get("ok"):
-        return f"Save failed: {result.get('error')}"
+        return json.dumps({"ok": False, "error": result.get("error") or "Mem0 write failed."})
     return json.dumps({
         "ok": True,
+        "duplicate": result.get("duplicate", False),
+        "existing_id": result.get("existing_id"),
         "scope": scope,
         "category": category,
         "tags": tag_list,
+        "user_id": _current_user_id.get(),
+        "agent_id": folder_id,
         "mem0_result": result.get("raw"),
     }, default=str)
 
