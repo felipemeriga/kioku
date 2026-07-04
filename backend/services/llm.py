@@ -18,6 +18,8 @@ class Task(str, Enum):
     TEXT_TO_SQL = "text_to_sql"
     EVAL_JUDGE = "eval_judge"
     RAG_AGENT = "rag_agent"
+    FOLDER_SUMMARY_DOC = "folder_summary_doc"
+    FOLDER_SUMMARY_ROLLUP = "folder_summary_rollup"
 
 
 MODEL_FOR_TASK: dict[Task, str] = {
@@ -28,6 +30,8 @@ MODEL_FOR_TASK: dict[Task, str] = {
     Task.TEXT_TO_SQL: "claude-haiku-4-5-20251001",
     Task.EVAL_JUDGE: "claude-haiku-4-5-20251001",
     Task.RAG_AGENT: "claude-haiku-4-5-20251001",
+    Task.FOLDER_SUMMARY_DOC: "claude-haiku-4-5-20251001",
+    Task.FOLDER_SUMMARY_ROLLUP: "claude-haiku-4-5-20251001",
 }
 
 
