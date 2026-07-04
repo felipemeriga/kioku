@@ -48,6 +48,8 @@ function relativeTime(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
+// KIND — solid state badge. Signals "this row is a full/delta/seed summary."
+// Uses opaque brand color at low intensity so it reads as a status marker.
 function KindChip({ kind }: { kind: FolderSummaryRow["kind"] }) {
   const color =
     kind === "full" ? brand.violet2 : kind === "delta" ? brand.cyan : brand.muted;
@@ -57,17 +59,21 @@ function KindChip({ kind }: { kind: FolderSummaryRow["kind"] }) {
       size="small"
       sx={{
         fontFamily: fonts.mono,
-        fontSize: "0.65rem",
-        letterSpacing: "0.12em",
-        color,
-        bgcolor: alpha(color, 0.12),
-        border: `1px solid ${alpha(color, 0.35)}`,
+        fontSize: "0.62rem",
+        fontWeight: 600,
+        letterSpacing: "0.14em",
+        color: brand.ink,
+        bgcolor: color,
         height: 20,
+        borderRadius: 0.75,
+        px: 0.25,
+        "& .MuiChip-label": { px: 1 },
       }}
     />
   );
 }
 
+// CHANGES — softer data chip. Signals "here's what changed" — read like a stat.
 function ChangesChip({ row }: { row: FolderSummaryRow }) {
   const { added = [], removed = [], modified = [] } = row.changed_files || {
     added: [],
@@ -79,24 +85,36 @@ function ChangesChip({ row }: { row: FolderSummaryRow }) {
   return (
     <Tooltip
       title={
-        <Box sx={{ fontFamily: fonts.mono, fontSize: "0.7rem" }}>
-          {added.length > 0 && <div>+{added.join(", +")}</div>}
-          {modified.length > 0 && <div>~{modified.join(", ~")}</div>}
-          {removed.length > 0 && <div>-{removed.join(", -")}</div>}
+        <Box sx={{ fontFamily: fonts.mono, fontSize: "0.72rem", lineHeight: 1.6 }}>
+          {added.map((f) => (
+            <div key={"a-" + f} style={{ color: "#7ee787" }}>+ {f}</div>
+          ))}
+          {modified.map((f) => (
+            <div key={"m-" + f} style={{ color: "#79c0ff" }}>~ {f}</div>
+          ))}
+          {removed.map((f) => (
+            <div key={"r-" + f} style={{ color: "#ffa198" }}>− {f}</div>
+          ))}
         </Box>
       }
     >
       <Chip
-        icon={<CompareArrowsIcon sx={{ fontSize: 14 }} />}
+        icon={<CompareArrowsIcon sx={{ fontSize: 13, ml: "6px !important" }} />}
         label={`${total} file${total > 1 ? "s" : ""} changed`}
         size="small"
         sx={{
           fontFamily: fonts.mono,
           fontSize: "0.65rem",
-          color: brand.cyan,
-          bgcolor: alpha(brand.cyan, 0.1),
-          border: `1px solid ${alpha(brand.cyan, 0.3)}`,
+          color: brand.muted,
+          bgcolor: "transparent",
+          border: `1px solid ${brand.line}`,
           height: 22,
+          borderRadius: 0.75,
+          "&:hover": {
+            bgcolor: alpha(brand.cyan, 0.06),
+            color: brand.cyan,
+            borderColor: alpha(brand.cyan, 0.4),
+          },
         }}
       />
     </Tooltip>
@@ -215,9 +233,41 @@ export default function FolderSummaryPanel({ folderId, folderName }: Props) {
     }
   };
 
-  const content: FolderSummaryContent | null = row?.content || null;
-  const previousContent: FolderSummaryContent | null =
-    row?.previous_content || null;
+  // Defensive: legacy or malformed rows might store array fields as strings
+  // or nulls (Anthropic tool-use isn't strict-schema). Normalize before render
+  // so the panel never crashes on wrong shape.
+  const asArray = <T,>(v: unknown): T[] =>
+    Array.isArray(v) ? (v as T[]) : [];
+  const rawContent = row?.content || null;
+  const content: FolderSummaryContent | null = rawContent
+    ? ({
+        title: rawContent.title || "",
+        purpose: rawContent.purpose || "",
+        overview: rawContent.overview || "",
+        themes: asArray<{ name: string; description: string }>(rawContent.themes),
+        key_documents: asArray<{ filename: string; role: string }>(
+          rawContent.key_documents
+        ),
+        key_facts: asArray<string>(rawContent.key_facts),
+        entities: asArray<string>(rawContent.entities),
+        gotchas: asArray<string>(rawContent.gotchas),
+      } as FolderSummaryContent)
+    : null;
+  const rawPrev = row?.previous_content || null;
+  const previousContent: FolderSummaryContent | null = rawPrev
+    ? ({
+        title: rawPrev.title || "",
+        purpose: rawPrev.purpose || "",
+        overview: rawPrev.overview || "",
+        themes: asArray<{ name: string; description: string }>(rawPrev.themes),
+        key_documents: asArray<{ filename: string; role: string }>(
+          rawPrev.key_documents
+        ),
+        key_facts: asArray<string>(rawPrev.key_facts),
+        entities: asArray<string>(rawPrev.entities),
+        gotchas: asArray<string>(rawPrev.gotchas),
+      } as FolderSummaryContent)
+    : null;
 
   const generatedRel = row ? relativeTime(row.generated_at) : null;
 
@@ -239,8 +289,21 @@ export default function FolderSummaryPanel({ folderId, folderName }: Props) {
         mb: 2,
         borderRadius: 2,
         border: `1px solid ${brand.line}`,
-        bgcolor: alpha(brand.surface, 0.6),
+        bgcolor: brand.surface,
         overflow: "hidden",
+        position: "relative",
+        boxShadow: `0 1px 0 0 ${alpha("#000", 0.4)}, 0 8px 24px -12px ${alpha(brand.violet, 0.2)}`,
+        // Thin gradient accent bar down the left edge, matching brand.
+        "&::before": {
+          content: '""',
+          position: "absolute",
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: 3,
+          background: `linear-gradient(180deg, ${brand.violet2}, ${brand.cyan})`,
+          opacity: 0.7,
+        },
       }}
     >
       {/* Header — always visible */}
@@ -249,18 +312,19 @@ export default function FolderSummaryPanel({ folderId, folderName }: Props) {
           display: "flex",
           alignItems: "center",
           gap: 1.5,
-          px: 2,
-          py: 1.25,
+          px: 2.25,
+          py: 1.4,
           cursor: "pointer",
           borderBottom: expanded ? `1px solid ${brand.line}` : "none",
           background: expanded
-            ? `linear-gradient(90deg, ${alpha(brand.violet, 0.08)}, transparent)`
+            ? `linear-gradient(90deg, ${alpha(brand.violet, 0.1)} 0%, ${alpha(brand.violet, 0.02)} 40%, transparent 100%)`
             : "transparent",
-          "&:hover": { bgcolor: alpha(brand.violet, 0.05) },
+          transition: "background 0.15s",
+          "&:hover": { bgcolor: alpha(brand.violet, 0.06) },
         }}
         onClick={() => setExpanded(!expanded)}
       >
-        <AutoAwesomeIcon sx={{ fontSize: 18, color: brand.violet2 }} />
+        <AutoAwesomeIcon sx={{ fontSize: 20, color: brand.violet2 }} />
         <Typography
           sx={{
             fontFamily: fonts.display,
@@ -322,16 +386,49 @@ export default function FolderSummaryPanel({ folderId, folderName }: Props) {
             anchorEl={modeMenuAnchor}
             open={Boolean(modeMenuAnchor)}
             onClose={() => setModeMenuAnchor(null)}
+            slotProps={{
+              paper: {
+                sx: {
+                  bgcolor: brand.surface,
+                  border: `1px solid ${brand.line}`,
+                  minWidth: 240,
+                },
+              },
+            }}
           >
-            <MenuItem onClick={() => handleRegenerate("auto")}>
-              Auto (skip / delta / full)
-            </MenuItem>
-            <MenuItem onClick={() => handleRegenerate("delta")}>
-              Delta (only changed docs)
-            </MenuItem>
-            <MenuItem onClick={() => handleRegenerate("full")}>
-              Full rebuild
-            </MenuItem>
+            {[
+              { mode: "auto", label: "Auto", hint: "Skip if nothing changed, else delta" },
+              { mode: "delta", label: "Delta", hint: "Patch only the docs that changed" },
+              { mode: "full", label: "Full rebuild", hint: "Resummarize every doc" },
+            ].map((opt) => (
+              <MenuItem
+                key={opt.mode}
+                onClick={() => handleRegenerate(opt.mode as "auto" | "full" | "delta")}
+                sx={{ display: "block", py: 1 }}
+              >
+                <Typography
+                  sx={{
+                    fontFamily: fonts.body,
+                    fontSize: "0.86rem",
+                    fontWeight: 600,
+                    color: brand.text,
+                    lineHeight: 1.25,
+                  }}
+                >
+                  {opt.label}
+                </Typography>
+                <Typography
+                  sx={{
+                    fontFamily: fonts.body,
+                    fontSize: "0.72rem",
+                    color: brand.muted,
+                    lineHeight: 1.3,
+                  }}
+                >
+                  {opt.hint}
+                </Typography>
+              </MenuItem>
+            ))}
           </Menu>
         </Box>
 
@@ -451,15 +548,23 @@ export default function FolderSummaryPanel({ folderId, folderName }: Props) {
                   <Divider sx={{ borderColor: brand.line }} />
                   <Box>
                     <SectionHeading>Themes</SectionHeading>
-                    <Stack spacing={1}>
+                    <Stack spacing={1.25}>
                       {content.themes.map((t, i) => (
-                        <Box key={i}>
+                        <Box
+                          key={i}
+                          sx={{
+                            pl: 1.5,
+                            borderLeft: `2px solid ${alpha(brand.violet2, 0.5)}`,
+                            py: 0.25,
+                          }}
+                        >
                           <Typography
                             sx={{
                               fontFamily: fonts.body,
-                              fontSize: "0.85rem",
+                              fontSize: "0.86rem",
                               fontWeight: 600,
                               color: brand.violet2,
+                              mb: 0.25,
                             }}
                           >
                             {t.name}
@@ -467,9 +572,9 @@ export default function FolderSummaryPanel({ folderId, folderName }: Props) {
                           <Typography
                             sx={{
                               fontFamily: fonts.body,
-                              fontSize: "0.83rem",
+                              fontSize: "0.84rem",
                               color: brand.text,
-                              lineHeight: 1.5,
+                              lineHeight: 1.55,
                             }}
                           >
                             {t.description}
@@ -486,18 +591,31 @@ export default function FolderSummaryPanel({ folderId, folderName }: Props) {
                   <Divider sx={{ borderColor: brand.line }} />
                   <Box>
                     <SectionHeading>Key documents</SectionHeading>
-                    <Stack spacing={0.75}>
+                    <Stack spacing={0.25} sx={{ mt: 0.5 }}>
                       {content.key_documents.map((d, i) => (
                         <Box
                           key={i}
-                          sx={{ display: "flex", gap: 1, alignItems: "baseline" }}
+                          sx={{
+                            display: "grid",
+                            gridTemplateColumns: {
+                              xs: "1fr",
+                              sm: "minmax(160px, 22ch) 1fr",
+                            },
+                            gap: { xs: 0.25, sm: 1.5 },
+                            py: 0.6,
+                            px: 1,
+                            borderRadius: 1,
+                            transition: "background 0.15s",
+                            "&:hover": { bgcolor: alpha(brand.violet, 0.05) },
+                          }}
                         >
                           <Typography
                             sx={{
                               fontFamily: fonts.mono,
                               fontSize: "0.78rem",
                               color: brand.cyan,
-                              flexShrink: 0,
+                              lineHeight: 1.5,
+                              wordBreak: "break-all",
                             }}
                           >
                             {d.filename}
@@ -505,11 +623,12 @@ export default function FolderSummaryPanel({ folderId, folderName }: Props) {
                           <Typography
                             sx={{
                               fontFamily: fonts.body,
-                              fontSize: "0.82rem",
+                              fontSize: "0.83rem",
                               color: brand.muted,
+                              lineHeight: 1.5,
                             }}
                           >
-                            — {d.role}
+                            {d.role}
                           </Typography>
                         </Box>
                       ))}
