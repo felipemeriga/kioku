@@ -220,14 +220,18 @@ export default function FolderSummaryPanel({ folderId, folderName }: Props) {
     row?.previous_content || null;
 
   const generatedRel = row ? relativeTime(row.generated_at) : null;
-  const diff = useMemo(() => {
-    if (!content || !previousContent) return null;
-    const currFacts = content.key_facts || [];
-    const prevFacts = previousContent.key_facts || [];
-    const added = currFacts.filter((f) => !prevFacts.includes(f));
-    const removed = prevFacts.filter((f) => !currFacts.includes(f));
-    return { added, removed };
-  }, [content, previousContent]);
+
+  // The diff surface shows the FILE-level changes that triggered this summary,
+  // not string-diffing the two summary contents (which is subjective — the LLM
+  // often paraphrases so line-level diffing is noisy). changed_files is the
+  // ground truth from the diff logic in services/folder_summary/diff.py.
+  const fileDiff = useMemo(() => {
+    if (!row) return null;
+    const cf = row.changed_files || { added: [], removed: [], modified: [] };
+    const total = cf.added.length + cf.removed.length + cf.modified.length;
+    if (total === 0) return null;
+    return cf;
+  }, [row]);
 
   return (
     <Box
@@ -367,7 +371,7 @@ export default function FolderSummaryPanel({ folderId, folderName }: Props) {
             </Alert>
           )}
 
-          {!loading && !row && (
+          {!loading && !row && !error && (
             <Stack spacing={1.5}>
               <Typography
                 sx={{
@@ -405,7 +409,7 @@ export default function FolderSummaryPanel({ folderId, folderName }: Props) {
           )}
 
           {content && (
-            <Stack spacing={2.5}>
+            <Stack spacing={2.5} sx={{ maxWidth: "78ch" }}>
               {/* Purpose + overview */}
               <Box>
                 <Typography
@@ -583,7 +587,7 @@ export default function FolderSummaryPanel({ folderId, folderName }: Props) {
                 </>
               )}
 
-              {previousContent && diff && (diff.added.length || diff.removed.length) ? (
+              {fileDiff && previousContent ? (
                 <>
                   <Divider sx={{ borderColor: brand.line }} />
                   <Box>
@@ -594,6 +598,7 @@ export default function FolderSummaryPanel({ folderId, folderName }: Props) {
                         gap: 0.75,
                         cursor: "pointer",
                         color: brand.cyan,
+                        "&:hover": { color: brand.violet2 },
                       }}
                       onClick={() => setShowDiff(!showDiff)}
                     >
@@ -606,12 +611,13 @@ export default function FolderSummaryPanel({ folderId, folderName }: Props) {
                           textTransform: "uppercase",
                         }}
                       >
-                        Diff vs previous version
+                        {showDiff ? "Hide" : "Show"} files that changed since
+                        previous summary
                       </Typography>
                     </Box>
                     <Collapse in={showDiff}>
                       <Box sx={{ mt: 1.5, pl: 2 }}>
-                        {diff.added.map((f, i) => (
+                        {fileDiff.added.map((f, i) => (
                           <Typography
                             key={"a" + i}
                             sx={{
@@ -620,10 +626,22 @@ export default function FolderSummaryPanel({ folderId, folderName }: Props) {
                               color: brand.green,
                             }}
                           >
-                            + {f}
+                            + added &nbsp;&nbsp;{f}
                           </Typography>
                         ))}
-                        {diff.removed.map((f, i) => (
+                        {fileDiff.modified.map((f, i) => (
+                          <Typography
+                            key={"m" + i}
+                            sx={{
+                              fontFamily: fonts.mono,
+                              fontSize: "0.78rem",
+                              color: brand.cyan,
+                            }}
+                          >
+                            ~ changed {f}
+                          </Typography>
+                        ))}
+                        {fileDiff.removed.map((f, i) => (
                           <Typography
                             key={"r" + i}
                             sx={{
@@ -632,7 +650,10 @@ export default function FolderSummaryPanel({ folderId, folderName }: Props) {
                               color: brand.amber,
                             }}
                           >
-                            − {f}
+                            − removed{" "}
+                            <span style={{ textDecoration: "line-through" }}>
+                              {f}
+                            </span>
                           </Typography>
                         ))}
                       </Box>
