@@ -3,8 +3,10 @@ import ChatArea from "../components/ChatArea";
 import type { Message, ChatFilters, StageEvent } from "../lib/api";
 import { streamChat } from "../lib/api";
 import { useConversationsContext } from "../hooks/useConversationsContext";
+import { useToast, messageFromError } from "../components/ToastProvider";
 
 export default function ChatPage() {
+  const toast = useToast();
   const { selectedId, messages, setMessages, loadConversations } =
     useConversationsContext();
 
@@ -59,7 +61,25 @@ export default function ChatPage() {
         (stage) => setCurrentStage(stage),
         fastMode
       );
-    } catch {
+    } catch (err) {
+      // Preserve any partial content the assistant already streamed by
+      // committing it as a real assistant message with a warning suffix,
+      // instead of dropping it silently.
+      const partial = streamingRef.current;
+      if (partial.length > 0) {
+        const truncatedMsg: Message = {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content:
+            partial +
+            "\n\n*(response was truncated: " +
+            messageFromError(err, "connection dropped") +
+            ")*",
+          created_at: new Date().toISOString(),
+        };
+        setMessages((msgs) => [...msgs, truncatedMsg]);
+      }
+      toast.showError(err, "Chat failed.");
       setIsStreaming(false);
       setStreamingContent("");
       setCurrentStage(null);
