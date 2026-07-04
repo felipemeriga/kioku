@@ -173,8 +173,13 @@ export function NotionIntegrationSection() {
             const syncing = !!activeJob;
             return (
               <Box key={cfg.id}>
-                <Stack direction="row" justifyContent="space-between" alignItems="center">
-                  <Box>
+                <Stack
+                  direction="row"
+                  justifyContent="space-between"
+                  alignItems="center"
+                  spacing={2}
+                >
+                  <Box sx={{ minWidth: 0, flex: 1 }}>
                     <Typography fontWeight="bold">
                       {cfg.notion_page_title ?? cfg.notion_page_id}
                     </Typography>
@@ -192,7 +197,11 @@ export function NotionIntegrationSection() {
                       </Alert>
                     )}
                   </Box>
-                  <Stack direction="row" spacing={1}>
+                  <Stack
+                    direction="row"
+                    spacing={1}
+                    sx={{ flexShrink: 0, "& .MuiButton-root": { whiteSpace: "nowrap" } }}
+                  >
                     <Button
                       startIcon={<RefreshIcon />}
                       onClick={() => handleSync(cfg.id)}
