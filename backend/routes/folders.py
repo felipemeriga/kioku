@@ -1,12 +1,24 @@
-"""Folder CRUD endpoints for organizing documents."""
+"""Folder CRUD + summary endpoints for organizing documents."""
 
+import os
+
+from arq.connections import RedisSettings, create_pool
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from auth import get_current_user
 from db.client import get_supabase
+from services.folder_summary.repo import (
+    get_folder,
+    get_latest_summary,
+    get_summary_history,
+)
 
 router = APIRouter(prefix="/api/folders")
+
+
+def _redis_settings() -> RedisSettings:
+    return RedisSettings.from_dsn(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
 
 
 class CreateFolderRequest(BaseModel):
@@ -105,6 +117,73 @@ async def delete_folder(
     sb = get_supabase()
     sb.table("folders").delete().eq("id", folder_id).eq("user_id", user_id).execute()
     return {"ok": True}
+
+
+class RegenerateSummaryRequest(BaseModel):
+    mode: str = "auto"  # auto | full | delta
+
+
+@router.get("/{folder_id}/summary")
+async def get_folder_summary(
+    folder_id: str,
+    user_id: str = Depends(get_current_user),
+):
+    """Latest folder summary + minimal metadata for the panel."""
+    sb = get_supabase()
+    folder = get_folder(sb, folder_id, user_id)
+    if not folder:
+        raise HTTPException(status_code=404, detail="Folder not found")
+
+    latest = get_latest_summary(sb, folder_id, user_id)
+    return {
+        "folder": folder,
+        "summary": latest,
+    }
+
+
+@router.get("/{folder_id}/summary/history")
+async def get_folder_summary_history(
+    folder_id: str,
+    limit: int = 10,
+    user_id: str = Depends(get_current_user),
+):
+    sb = get_supabase()
+    folder = get_folder(sb, folder_id, user_id)
+    if not folder:
+        raise HTTPException(status_code=404, detail="Folder not found")
+    return get_summary_history(sb, folder_id, user_id, limit=limit)
+
+
+@router.post("/{folder_id}/summary/regenerate")
+async def regenerate_folder_summary(
+    folder_id: str,
+    body: RegenerateSummaryRequest,
+    user_id: str = Depends(get_current_user),
+):
+    """Enqueue a summarize_folder_task and return the arq job id."""
+    if body.mode not in {"auto", "full", "delta"}:
+        raise HTTPException(status_code=400, detail="mode must be auto|full|delta")
+
+    sb = get_supabase()
+    folder = get_folder(sb, folder_id, user_id)
+    if not folder:
+        raise HTTPException(status_code=404, detail="Folder not found")
+
+    pool = await create_pool(_redis_settings())
+    try:
+        job = await pool.enqueue_job(
+            "summarize_folder_task",
+            {
+                "folder_id": folder_id,
+                "user_id": user_id,
+                "mode": body.mode,
+                "trigger": "manual",
+            },
+        )
+    finally:
+        await pool.close()
+
+    return {"ok": True, "job_id": job.job_id if job else None, "mode": body.mode}
 
 
 @router.get("/{folder_id}/breadcrumbs")
