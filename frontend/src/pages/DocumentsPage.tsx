@@ -51,6 +51,7 @@ import DocumentCard from "../components/DocumentCard";
 import MoveDialog from "../components/MoveDialog";
 import IngestionDrawer from "../components/IngestionDrawer";
 import FolderSummaryPanel from "../components/FolderSummaryPanel";
+import FolderIntegrationsDialog from "../components/FolderIntegrationsDialog";
 import { useToast, messageFromError } from "../components/ToastProvider";
 import { brand, fonts } from "../theme";
 
@@ -66,6 +67,9 @@ export default function DocumentsPage() {
   const toast = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [, setDragOver] = useState(false);
+  const [integrationsTarget, setIntegrationsTarget] = useState<
+    { id: string; name: string } | null
+  >(null);
   const [globalDropActive, setGlobalDropActive] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
@@ -743,6 +747,10 @@ export default function DocumentsPage() {
                 {filteredFolders.map((folder) => (
                   <Paper
                     key={folder.id}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setIntegrationsTarget({ id: folder.id, name: folder.name });
+                    }}
                     onDragOver={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
@@ -1119,6 +1127,12 @@ export default function DocumentsPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <FolderIntegrationsDialog
+        open={!!integrationsTarget}
+        folder={integrationsTarget}
+        onClose={() => setIntegrationsTarget(null)}
+      />
     </Box>
   );
 }

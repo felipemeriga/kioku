@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import {
   Box,
   List,
@@ -14,6 +14,7 @@ import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
 import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
 import FolderTree from "./FolderTree";
+import FolderIntegrationsDialog from "./FolderIntegrationsDialog";
 import type { AppPage } from "./IconRail";
 import type { Conversation } from "../lib/api";
 
@@ -56,6 +57,16 @@ export default function ContextPanel({
       onRequestDeleteFolder?.(folderId, folderName);
     },
     [onRequestDeleteFolder]
+  );
+
+  const [integrationsTarget, setIntegrationsTarget] = useState<
+    { id: string; name: string } | null
+  >(null);
+  const handleRequestIntegrations = useCallback(
+    (folderId: string, folderName: string) => {
+      setIntegrationsTarget({ id: folderId, name: folderName });
+    },
+    []
   );
 
   if (!open) return null;
@@ -131,8 +142,14 @@ export default function ContextPanel({
               selectedFolderId={selectedFolderId}
               onSelectFolder={handleSelectFolder}
               onRequestDelete={handleDeleteFolder}
+              onRequestIntegrations={handleRequestIntegrations}
             />
           </Box>
+          <FolderIntegrationsDialog
+            open={!!integrationsTarget}
+            folder={integrationsTarget}
+            onClose={() => setIntegrationsTarget(null)}
+          />
         </>
       )}
     </Box>

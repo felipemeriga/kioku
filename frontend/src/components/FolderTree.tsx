@@ -30,6 +30,7 @@ interface FolderTreeNodeProps extends FolderDropOps {
   onSelect: (id: string | null) => void;
   depth: number;
   onRequestDelete: (folderId: string, folderName: string) => void;
+  onRequestIntegrations: (folderId: string, folderName: string) => void;
 }
 
 function FolderTreeNode({
@@ -38,6 +39,7 @@ function FolderTreeNode({
   onSelect,
   depth,
   onRequestDelete,
+  onRequestIntegrations,
   onFileDropped,
   onOsFilesDropped,
 }: FolderTreeNodeProps) {
@@ -78,11 +80,18 @@ function FolderTreeNode({
     }
   };
 
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onRequestIntegrations(folder.id, folder.name);
+  };
+
   return (
     <>
       <ListItemButton
         selected={isSelected}
         onClick={handleSelect}
+        onContextMenu={handleContextMenu}
         onDragOver={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -179,6 +188,7 @@ function FolderTreeNode({
             onSelect={onSelect}
             depth={depth + 1}
             onRequestDelete={onRequestDelete}
+            onRequestIntegrations={onRequestIntegrations}
             onFileDropped={onFileDropped}
             onOsFilesDropped={onOsFilesDropped}
           />
@@ -192,12 +202,14 @@ interface FolderTreeProps extends FolderDropOps {
   selectedFolderId: string | null;
   onSelectFolder: (id: string | null) => void;
   onRequestDelete: (folderId: string, folderName: string) => void;
+  onRequestIntegrations: (folderId: string, folderName: string) => void;
 }
 
 export default function FolderTree({
   selectedFolderId,
   onSelectFolder,
   onRequestDelete,
+  onRequestIntegrations,
   onFileDropped,
   onOsFilesDropped,
 }: FolderTreeProps) {
@@ -304,6 +316,7 @@ export default function FolderTree({
             onSelect={onSelectFolder}
             depth={0}
             onRequestDelete={onRequestDelete}
+            onRequestIntegrations={onRequestIntegrations}
             onFileDropped={onFileDropped}
             onOsFilesDropped={onOsFilesDropped}
           />
