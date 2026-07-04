@@ -210,18 +210,20 @@ export function Mem0IntegrationSection() {
   );
 }
 
-function Mem0ConnectDialog({
+export function Mem0ConnectDialog({
   open,
   rootFolders,
+  fixedFolderId,
   onClose,
   onConnected,
 }: {
   open: boolean;
   rootFolders: Folder[];
+  fixedFolderId?: string;
   onClose: () => void;
   onConnected: () => void;
 }) {
-  const [rootFolderId, setRootFolderId] = useState("");
+  const [rootFolderId, setRootFolderId] = useState(fixedFolderId ?? "");
   const [apiKey, setApiKey] = useState("");
   const [orgId, setOrgId] = useState("");
   const [projectId, setProjectId] = useState("");
@@ -266,20 +268,22 @@ function Mem0ConnectDialog({
             type="password"
             fullWidth
           />
-          <FormControl fullWidth>
-            <InputLabel>Root folder</InputLabel>
-            <Select
-              value={rootFolderId}
-              label="Root folder"
-              onChange={(e) => setRootFolderId(e.target.value)}
-            >
-              {rootFolders.map((f) => (
-                <MenuItem key={f.id} value={f.id}>
-                  {f.name}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+          {!fixedFolderId && (
+            <FormControl fullWidth>
+              <InputLabel>Root folder</InputLabel>
+              <Select
+                value={rootFolderId}
+                label="Root folder"
+                onChange={(e) => setRootFolderId(e.target.value)}
+              >
+                {rootFolders.map((f) => (
+                  <MenuItem key={f.id} value={f.id}>
+                    {f.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
           <Stack direction="row" spacing={2}>
             <TextField
               label="Org id (optional)"
