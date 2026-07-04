@@ -125,8 +125,13 @@ FULL_ROLLUP_SYSTEM = (
     "- key_documents should surface 3-8 files an agent would want to open first.\n"
     "- gotchas should list non-obvious things that would trip up a fresh agent — "
     "not generic warnings.\n"
-    "- Do not hallucinate content not present in the per-document summaries.\n"
-    "- Call the emit_folder_summary tool exactly once."
+    "- Do not hallucinate content not present in the per-document summaries.\n\n"
+    "FORMATTING RULES:\n"
+    "- key_facts, entities, gotchas are ARRAYS of strings. Emit them as JSON "
+    "arrays, NOT as one long string with <item> tags or newlines.\n"
+    "- themes is an ARRAY of {name, description} objects.\n"
+    "- key_documents is an ARRAY of {filename, role} objects.\n\n"
+    "Call the emit_folder_summary tool exactly once."
 )
 
 
@@ -140,6 +145,12 @@ DELTA_ROLLUP_SYSTEM = (
     "3. Preserves everything from the previous summary that is still accurate.\n"
     "4. Does not invent content that isn't in the previous summary or the change "
     "lists.\n\n"
+    "FORMATTING RULES — these are strict:\n"
+    "- key_facts, entities, gotchas are ARRAYS of strings. Emit them as JSON "
+    "arrays, NOT as one long string with <item> tags or newlines inside.\n"
+    "- themes is an ARRAY of {name, description} objects.\n"
+    "- key_documents is an ARRAY of {filename, role} objects.\n"
+    "- Never emit `<item>...</item>` XML — use real JSON arrays.\n\n"
     "Call the emit_folder_summary tool exactly once."
 )
 

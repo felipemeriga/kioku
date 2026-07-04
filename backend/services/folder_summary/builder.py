@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from typing import Any
 
@@ -73,6 +74,58 @@ def _extract_tool_input(msg, tool_name: str) -> dict:
     raise RuntimeError(f"Model did not call tool {tool_name!r}. Content: {msg.content}")
 
 
+# Anthropic tool-use JSON schema is advisory, not strict — Haiku can occasionally
+# collapse an array into a single string with `<item>...</item>` XML-ish tags,
+# especially on the delta path where it echoes the previous summary's shape.
+# We coerce those rows before persisting so the UI (and downstream MCP consumers)
+# always sees the declared shape.
+
+_ITEM_RE = re.compile(r"<item[^>]*>(.*?)</item>", re.DOTALL | re.IGNORECASE)
+
+
+def _coerce_string_to_list(value: str) -> list[str]:
+    """Convert an XML-tagged or newline-separated string into a list of strings."""
+    matches = _ITEM_RE.findall(value)
+    if matches:
+        return [m.strip() for m in matches if m.strip()]
+    # Fall back to bullet/newline splitting.
+    lines = [line.strip(" -*•\t") for line in value.splitlines() if line.strip()]
+    return [line for line in lines if line]
+
+
+def _normalize_folder_summary(payload: dict) -> dict:
+    """Coerce every declared-array field into a real array.
+
+    Guarantees the persisted summary matches the FolderSummary contract even
+    when the model returns a stringified list. Any unrecoverable field becomes
+    an empty list rather than a crash-inducing wrong type.
+    """
+    array_fields = ("themes", "key_documents", "key_facts", "entities", "gotchas")
+    for field in array_fields:
+        v = payload.get(field)
+        if v is None:
+            payload[field] = []
+            continue
+        if isinstance(v, list):
+            continue
+        if isinstance(v, str):
+            payload[field] = _coerce_string_to_list(v)
+            continue
+        # dict or anything else — wrap so downstream never explodes
+        payload[field] = []
+
+    # themes/key_documents items must be objects, not bare strings
+    payload["themes"] = [
+        t if isinstance(t, dict) else {"name": str(t), "description": ""}
+        for t in payload["themes"]
+    ]
+    payload["key_documents"] = [
+        d if isinstance(d, dict) else {"filename": str(d), "role": ""}
+        for d in payload["key_documents"]
+    ]
+    return payload
+
+
 def _tokens(msg) -> tuple[int, int]:
     u = getattr(msg, "usage", None)
     if not u:
@@ -129,7 +182,7 @@ def _run_full_rollup_sync(
         tools=[FULL_ROLLUP_TOOL],
         max_tokens=ROLLUP_MAX_TOKENS,
     )
-    payload = _extract_tool_input(msg, "emit_folder_summary")
+    payload = _normalize_folder_summary(_extract_tool_input(msg, "emit_folder_summary"))
     it, ot = _tokens(msg)
     return payload, it, ot
 
@@ -156,7 +209,7 @@ def _run_delta_rollup_sync(
         tools=[DELTA_ROLLUP_TOOL],
         max_tokens=ROLLUP_MAX_TOKENS,
     )
-    payload = _extract_tool_input(msg, "emit_folder_summary")
+    payload = _normalize_folder_summary(_extract_tool_input(msg, "emit_folder_summary"))
     it, ot = _tokens(msg)
     return payload, it, ot
 
