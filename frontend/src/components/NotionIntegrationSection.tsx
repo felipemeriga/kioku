@@ -114,8 +114,11 @@ export function NotionIntegrationSection() {
         for (const job of notionSyncJobs) {
           startPolling(job.source_ref, job.id);
         }
-      } catch {
-        // non-fatal
+      } catch (err) {
+        // Non-fatal: user just won't see the resumed progress bar for in-flight
+        // syncs that started before the page loaded.
+        // eslint-disable-next-line no-console
+        console.warn("[Notion] failed to resume active-job polling:", err);
       }
     })();
     return () => {
@@ -331,8 +334,8 @@ function ConnectDialog({
     try {
       const opts = await listNotionPages(token, "");
       setPageOptions(opts);
-    } catch (e) {
-      setError(`Could not load Notion pages: ${e}`);
+    } catch (err) {
+      setError(`Could not load Notion pages: ${messageFromError(err)}`);
     } finally {
       setLoadingPages(false);
     }
@@ -345,6 +348,7 @@ function ConnectDialog({
 
   const submit = async () => {
     if (!selectedPage) return;
+    setError(null);
     try {
       await connectNotion({
         root_folder_id: rootFolderId,
@@ -353,8 +357,8 @@ function ConnectDialog({
         integration_token: token,
       });
       onConnected();
-    } catch (e) {
-      setError(String(e));
+    } catch (err) {
+      setError(`Couldn't connect: ${messageFromError(err)}`);
     }
   };
 
