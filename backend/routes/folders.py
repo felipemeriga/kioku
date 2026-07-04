@@ -111,12 +111,84 @@ async def rename_folder(
 @router.delete("/{folder_id}")
 async def delete_folder(
     folder_id: str,
+    delete_docs: bool = False,
     user_id: str = Depends(get_current_user),
 ):
-    """Delete a folder and all subfolders (cascade). Documents get folder_id set to null."""
+    """Delete a folder + all subfolders.
+
+    By default documents are DETACHED (folder_id set to null) so uploaded
+    files aren't lost — they resurface at "All Documents". Pass
+    `delete_docs=true` to also physically delete the docs and their
+    original files from Supabase Storage.
+    """
     sb = get_supabase()
+    # Fetch first so we know what to clean up + can return proper 404.
+    row = (
+        sb.table("folders").select("id, name")
+        .eq("id", folder_id).eq("user_id", user_id).limit(1).execute().data
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Folder not found")
+
+    docs_deleted = 0
+    files_removed = 0
+    if delete_docs:
+        # Gather ALL docs under this folder subtree BEFORE the cascade sets
+        # their folder_id to null (once null we can't identify them by folder).
+        descendant_ids = _descendant_folder_ids(sb, folder_id, user_id)
+        docs = (
+            sb.table("documents").select("id, source_filename, source_type, metadata")
+            .eq("user_id", user_id).in_("folder_id", descendant_ids)
+            .execute().data
+            or []
+        )
+        docs_deleted = len(docs)
+        # Remove originals from storage where applicable.
+        by_bucket: dict[str, list[str]] = {}
+        for d in docs:
+            meta = d.get("metadata") or {}
+            path = meta.get("file_url") or meta.get("image_url") or meta.get("audio_url")
+            if not path:
+                continue
+            if meta.get("image_url"):
+                bucket = "images"
+            elif meta.get("audio_url"):
+                bucket = "audio"
+            else:
+                bucket = "documents"
+            by_bucket.setdefault(bucket, []).append(path)
+        for bucket, paths in by_bucket.items():
+            try:
+                sb.storage.from_(bucket).remove(paths)
+                files_removed += len(paths)
+            except Exception:  # noqa: BLE001 — non-fatal, DB rows still get deleted
+                pass
+        # Delete doc rows explicitly so the folder cascade doesn't just null
+        # them out and leave a bunch of homeless docs at the root.
+        if docs:
+            ids = [d["id"] for d in docs]
+            for i in range(0, len(ids), 100):
+                sb.table("documents").delete().in_("id", ids[i:i+100]).execute()
+
     sb.table("folders").delete().eq("id", folder_id).eq("user_id", user_id).execute()
-    return {"ok": True}
+    return {"ok": True, "docs_deleted": docs_deleted, "files_removed": files_removed}
+
+
+def _descendant_folder_ids(sb, folder_id: str, user_id: str) -> list[str]:
+    """BFS the folder tree — folder + every subfolder id, inclusive."""
+    result = [folder_id]
+    frontier = [folder_id]
+    while frontier:
+        r = (
+            sb.table("folders").select("id")
+            .in_("parent_id", frontier).eq("user_id", user_id).execute().data
+        )
+        next_ids = [row["id"] for row in (r or [])]
+        if not next_ids:
+            break
+        result.extend(next_ids)
+        frontier = next_ids
+    return result
 
 
 class RegenerateSummaryRequest(BaseModel):
@@ -171,6 +243,10 @@ async def regenerate_folder_summary(
 
     pool = await create_pool(_redis_settings())
     try:
+        # Deterministic job_id per (folder, mode) so multiple concurrent
+        # regenerate clicks collapse to a single in-flight job. Without this,
+        # two clients hitting Regenerate at once produce two summary rows
+        # with identical included_hashes but differently-worded content.
         job = await pool.enqueue_job(
             "summarize_folder_task",
             {
@@ -179,6 +255,7 @@ async def regenerate_folder_summary(
                 "mode": body.mode,
                 "trigger": "manual",
             },
+            _job_id=f"summarize:{folder_id}:{body.mode}",
         )
     finally:
         await pool.close()
