@@ -28,6 +28,8 @@ import RefreshIcon from "@mui/icons-material/Refresh";
 import DeleteIcon from "@mui/icons-material/Delete";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import LinkOffIcon from "@mui/icons-material/LinkOff";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import { useNavigate } from "react-router-dom";
 import {
   disconnectGitHub,
   disconnectMem0,
@@ -60,6 +62,7 @@ export default function FolderIntegrationsDialog({
   onClose,
 }: Props) {
   const toast = useToast();
+  const navigate = useNavigate();
   const [mem0, setMem0] = useState<Mem0Config | null>(null);
   const [notion, setNotion] = useState<NotionConfig | null>(null);
   const [github, setGithub] = useState<GitHubConfig | null>(null);
@@ -215,7 +218,19 @@ export default function FolderIntegrationsDialog({
             />
           </Stack>
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={{ justifyContent: "space-between", px: 3, pb: 2 }}>
+          <Button
+            onClick={() => {
+              if (folder) {
+                onClose();
+                navigate(`/folder/${folder.id}`);
+              }
+            }}
+            startIcon={<OpenInNewIcon fontSize="small" />}
+            sx={{ textTransform: "none" }}
+          >
+            Open folder detail
+          </Button>
           <Button onClick={onClose}>Close</Button>
         </DialogActions>
       </Dialog>

@@ -798,6 +798,71 @@ export async function verifyMem0(
   return res.json();
 }
 
+export type MemoryScope = "eternal" | "episodic";
+export type MemoryCategory =
+  | "decision"
+  | "finding"
+  | "issue"
+  | "preference"
+  | "session"
+  | "note";
+
+export interface MemoryRecord {
+  id: string;
+  content: string;
+  scope: MemoryScope | null;
+  category: MemoryCategory | null;
+  tags: string[];
+  written_by: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export async function listFolderMemories(
+  configId: string,
+  opts: { scope?: "any" | MemoryScope; limit?: number } = {}
+): Promise<{ folder_id: string; memories: MemoryRecord[] }> {
+  const params = new URLSearchParams({
+    scope: opts.scope ?? "any",
+    limit: String(opts.limit ?? 200),
+  });
+  const res = await apiFetch(
+    `/api/mem0/configs/${configId}/memories?${params.toString()}`
+  );
+  return res.json();
+}
+
+export async function deleteFolderMemory(
+  configId: string,
+  memoryId: string
+): Promise<void> {
+  await apiFetch(`/api/mem0/configs/${configId}/memories/${memoryId}`, {
+    method: "DELETE",
+  });
+}
+
+export interface DocumentContent {
+  source_filename: string;
+  source_type: string | null;
+  metadata: Record<string, unknown>;
+  chunk_count: number;
+  folder_id: string | null;
+  status: string | null;
+  created_at: string | null;
+  content: string;
+}
+
+export async function fetchDocumentContent(
+  filename: string,
+  folderId?: string
+): Promise<DocumentContent> {
+  const params = folderId ? `?folder_id=${folderId}` : "";
+  const res = await apiFetch(
+    `/api/documents/${encodeURIComponent(filename)}/content${params}`
+  );
+  return res.json();
+}
+
 // --- GitHub integration ---
 
 export interface GitHubConfig {

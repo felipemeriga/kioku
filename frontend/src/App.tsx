@@ -8,6 +8,7 @@ import ToastProvider from "./components/ToastProvider";
 import LoginPage from "./pages/LoginPage";
 import ChatPage from "./pages/ChatPage";
 import DocumentsPage from "./pages/DocumentsPage";
+import FolderDetailPage from "./pages/FolderDetailPage";
 import SettingsPage from "./pages/SettingsPage";
 
 function App() {
@@ -49,6 +50,16 @@ function App() {
                 </ProtectedRoute>
               }
             />
+                <Route
+                  path="/folder/:folderId"
+                  element={
+                    <ProtectedRoute>
+                      <AppLayout>
+                        <FolderDetailPage />
+                      </AppLayout>
+                    </ProtectedRoute>
+                  }
+                />
                 {/* Catch-all — redirect anything unknown to chat. */}
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
