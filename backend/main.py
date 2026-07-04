@@ -1,9 +1,12 @@
 import asyncio
+import logging
+import traceback
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from db.client import get_supabase
 from routes.api_keys import router as api_keys_router
@@ -62,6 +65,34 @@ app.include_router(ingestion_jobs_router)
 app.include_router(mem0_router)
 app.include_router(github_router)
 app.include_router(retrieval_log_router)
+
+
+log = logging.getLogger("agentic-rag")
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """Return JSON with {detail} on unhandled exceptions so the frontend's
+    ApiError.userMessage extraction has something to work with. Without
+    this, Starlette responds with an HTML error page + a Content-Type of
+    text/html — the frontend then shows a generic 'server hit an error'
+    instead of the real cause.
+
+    Logs the full traceback server-side so operators can still debug.
+    """
+    log.error(
+        "unhandled exception on %s %s: %s\n%s",
+        request.method,
+        request.url.path,
+        exc,
+        traceback.format_exc(),
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": f"{type(exc).__name__}: {exc}",
+        },
+    )
 
 
 @app.get("/api/health")
