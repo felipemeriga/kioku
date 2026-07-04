@@ -49,7 +49,7 @@ def _verify_api_key(key: str) -> tuple[str, str] | None:
 
 
 @mcp.tool()
-def knowledge_base_search(query: str) -> str:
+async def knowledge_base_search(query: str) -> str:
     """Search across all knowledge for this scope: documents AND any connected
     memory (Mem0) — fanned out in parallel, merged, and audited.
 
@@ -61,12 +61,12 @@ def knowledge_base_search(query: str) -> str:
     Args:
         query: The search query.
     """
-    import asyncio as _asyncio  # local to avoid changing module top-level shape
-
     if not _current_user_id.get():
         return "Error: Not authenticated. Provide a valid API key."
+    # Tool is async so FastMCP's own event loop drives fanout_search directly
+    # (previously we tried asyncio.run which nested loops and crashed).
     embedding = embed_query(query)
-    result = _asyncio.run(fanout_search(
+    result = await fanout_search(
         get_supabase(),
         embedding=embedding,
         query_text=query,
@@ -74,7 +74,7 @@ def knowledge_base_search(query: str) -> str:
         folder_id=_current_scope_folder_id.get(),
         limit=10,
         channel="mcp",
-    ))
+    )
     if not result.hits:
         return "No relevant content found in documents or memory."
 
@@ -634,7 +634,13 @@ def get_folder_orientation(folder_name: str | None = None) -> str:
             "doc_count": row.get("doc_count"),
             "trigger": row.get("trigger"),
             "mem0_connected": mem0_client is not None,
-            "github_connected": len(recent_commits) > 0,
+            # Read actual config presence, not doc count — a folder can be
+            # connected but have no fresh commits (static repos).
+            "github_connected": bool(
+                sb.table("github_sync_configs").select("id")
+                .eq("root_folder_id", folder_id).eq("user_id", user_id)
+                .limit(1).execute().data
+            ),
         },
     }
     return json.dumps(payload, ensure_ascii=False, indent=2)
