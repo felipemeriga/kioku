@@ -306,6 +306,79 @@ export async function fetchBreadcrumbs(
   return res.json();
 }
 
+// --- Folder Summaries ---
+
+export interface FolderSummaryContent {
+  title: string;
+  purpose: string;
+  overview: string;
+  themes: { name: string; description: string }[];
+  key_documents: { filename: string; role: string }[];
+  key_facts: string[];
+  entities: string[];
+  gotchas: string[];
+}
+
+export interface FolderSummaryRow {
+  id: string;
+  folder_id: string;
+  generated_at: string;
+  kind: "full" | "delta" | "seed";
+  trigger: string | null;
+  content: FolderSummaryContent;
+  previous_content: FolderSummaryContent | null;
+  changed_files: { added: string[]; removed: string[]; modified: string[] };
+  doc_count: number;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  duration_ms: number | null;
+}
+
+export interface FolderSummaryResponse {
+  folder: { id: string; name: string; parent_id: string | null };
+  summary: FolderSummaryRow | null;
+}
+
+export interface FolderSummaryHistoryRow {
+  id: string;
+  generated_at: string;
+  kind: "full" | "delta" | "seed";
+  trigger: string | null;
+  doc_count: number;
+  changed_files: { added: string[]; removed: string[]; modified: string[] };
+  input_tokens: number | null;
+  output_tokens: number | null;
+  duration_ms: number | null;
+}
+
+export async function fetchFolderSummary(
+  folderId: string
+): Promise<FolderSummaryResponse> {
+  const res = await apiFetch(`/api/folders/${folderId}/summary`);
+  return res.json();
+}
+
+export async function fetchFolderSummaryHistory(
+  folderId: string,
+  limit = 10
+): Promise<FolderSummaryHistoryRow[]> {
+  const res = await apiFetch(
+    `/api/folders/${folderId}/summary/history?limit=${limit}`
+  );
+  return res.json();
+}
+
+export async function regenerateFolderSummary(
+  folderId: string,
+  mode: "auto" | "full" | "delta" = "auto"
+): Promise<{ ok: boolean; job_id: string | null; mode: string }> {
+  const res = await apiFetch(`/api/folders/${folderId}/summary/regenerate`, {
+    method: "POST",
+    body: JSON.stringify({ mode }),
+  });
+  return res.json();
+}
+
 // --- API Keys ---
 
 export interface ApiKeyInfo {

@@ -50,6 +50,7 @@ import type { Breadcrumb } from "../lib/api";
 import DocumentCard from "../components/DocumentCard";
 import MoveDialog from "../components/MoveDialog";
 import IngestionDrawer from "../components/IngestionDrawer";
+import FolderSummaryPanel from "../components/FolderSummaryPanel";
 import { brand, fonts } from "../theme";
 
 const ACCEPTED_TYPES =
@@ -641,6 +642,17 @@ export default function DocumentsPage() {
               </Typography>
             )}
           </Stack>
+
+          {currentFolderId && (
+            <FolderSummaryPanel
+              folderId={currentFolderId}
+              folderName={
+                breadcrumbs.length > 0
+                  ? breadcrumbs[breadcrumbs.length - 1].name
+                  : "This folder"
+              }
+            />
+          )}
 
           {error && (
             <Alert severity="error" sx={{ mb: 2 }}>
