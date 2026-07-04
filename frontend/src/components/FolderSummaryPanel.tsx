@@ -21,6 +21,7 @@ import RefreshIcon from "@mui/icons-material/Refresh";
 import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
 import CompareArrowsIcon from "@mui/icons-material/CompareArrows";
 import HistoryIcon from "@mui/icons-material/History";
+import { messageFromError, useToast } from "./ToastProvider";
 import {
   fetchFolderSummary,
   regenerateFolderSummary,
@@ -172,6 +173,7 @@ function BulletList({ items }: { items: string[] }) {
 }
 
 export default function FolderSummaryPanel({ folderId, folderName }: Props) {
+  const toast = useToast();
   const [row, setRow] = useState<FolderSummaryRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [regenerating, setRegenerating] = useState(false);
@@ -187,8 +189,8 @@ export default function FolderSummaryPanel({ folderId, folderName }: Props) {
       const res = await fetchFolderSummary(folderId);
       setRow(res.summary);
       setError(null);
-    } catch (e) {
-      setError(String(e));
+    } catch (err) {
+      setError(`Couldn't load orientation: ${messageFromError(err)}`);
     } finally {
       setLoading(false);
     }
@@ -200,24 +202,41 @@ export default function FolderSummaryPanel({ folderId, folderName }: Props) {
     load();
   }, [load]);
 
-  // While a regeneration is running, poll for the new row.
+  // While a regeneration is running, poll for the new row. Poll errors are
+  // deliberately non-fatal — the poll retries on the next interval — but we
+  // still surface a persistent failure via console for debugging.
   useEffect(() => {
     if (!pollUntil) return;
+    let consecutiveFailures = 0;
     const interval = setInterval(async () => {
       if (Date.now() > pollUntil) {
         setPollUntil(null);
         setRegenerating(false);
+        toast.show(
+          "Regeneration is taking longer than expected — refresh to check status.",
+          "warning",
+        );
         return;
       }
-      const res = await fetchFolderSummary(folderId).catch(() => null);
-      if (res?.summary && (!row || res.summary.id !== row.id)) {
-        setRow(res.summary);
-        setPollUntil(null);
-        setRegenerating(false);
+      try {
+        const res = await fetchFolderSummary(folderId);
+        consecutiveFailures = 0;
+        if (res.summary && (!row || res.summary.id !== row.id)) {
+          setRow(res.summary);
+          setPollUntil(null);
+          setRegenerating(false);
+        }
+      } catch (err) {
+        consecutiveFailures += 1;
+        if (consecutiveFailures >= 3) {
+          setPollUntil(null);
+          setRegenerating(false);
+          toast.showError(err, "Lost track of the regeneration.");
+        }
       }
     }, 2000);
     return () => clearInterval(interval);
-  }, [pollUntil, folderId, row]);
+  }, [pollUntil, folderId, row, toast]);
 
   const handleRegenerate = async (mode: "auto" | "full" | "delta") => {
     setModeMenuAnchor(null);
@@ -227,8 +246,9 @@ export default function FolderSummaryPanel({ folderId, folderName }: Props) {
     try {
       await regenerateFolderSummary(folderId, mode);
       setPollUntil(Date.now() + 5 * 60 * 1000);
-    } catch (e) {
-      setError(String(e));
+    } catch (err) {
+      toast.showError(err, "Couldn't start regeneration.");
+      setError(messageFromError(err));
       setRegenerating(false);
     }
   };
