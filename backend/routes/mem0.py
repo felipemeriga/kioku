@@ -68,12 +68,15 @@ async def list_configs(user_id: str = Depends(get_current_user)):
         .execute()
         .data
     )
-    # Attach folder names for the UI.
+    # Attach folder names for the UI (defensive user_id filter — folder_ids
+    # already came from a user-scoped query, but pinning here makes the
+    # isolation self-evident).
     folder_ids = [r["root_folder_id"] for r in rows]
     folder_name_by_id = {}
     if folder_ids:
         fr = (
-            sb.table("folders").select("id, name").in_("id", folder_ids)
+            sb.table("folders").select("id, name")
+            .in_("id", folder_ids).eq("user_id", user_id)
             .execute().data
         )
         folder_name_by_id = {f["id"]: f["name"] for f in fr}

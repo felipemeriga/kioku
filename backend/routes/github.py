@@ -54,7 +54,13 @@ async def list_configs(user_id: str = Depends(get_current_user)):
     folder_ids = [r["root_folder_id"] for r in rows]
     name_by_id = {}
     if folder_ids:
-        fr = sb.table("folders").select("id, name").in_("id", folder_ids).execute().data
+        # Defensive user_id filter — folder_ids came from a user-scoped query
+        # but adding this makes the isolation self-evident and refactor-safe.
+        fr = (
+            sb.table("folders").select("id, name")
+            .in_("id", folder_ids).eq("user_id", user_id)
+            .execute().data
+        )
         name_by_id = {f["id"]: f["name"] for f in fr}
     for r in rows:
         r["root_folder_name"] = name_by_id.get(r["root_folder_id"], "?")
@@ -149,9 +155,14 @@ async def sync_now(config_id: str, user_id: str = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Config not found")
     pool = await create_pool(_redis_settings())
     try:
+        # Deterministic job_id per config so multiple concurrent 'Sync now'
+        # clicks collapse to a single in-flight job. Prevents the
+        # delete-then-insert race in ingest_recent_activity where two
+        # concurrent syncs on the same repo can erase each other's writes.
         job = await pool.enqueue_job(
             "github_sync_task",
             {"config_id": config_id, "user_id": user_id},
+            _job_id=f"github_sync:{config_id}",
         )
     finally:
         await pool.close()
