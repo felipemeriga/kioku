@@ -32,11 +32,25 @@ export default function LoginPage() {
     e.preventDefault();
     setError("");
     setLoading(true);
-    const { error: authError } = isSignUp
-      ? await supabase.auth.signUp({ email, password })
-      : await supabase.auth.signInWithPassword({ email, password });
-    setLoading(false);
-    if (authError) setError(authError.message);
+    try {
+      const { error: authError } = isSignUp
+        ? await supabase.auth.signUp({ email, password })
+        : await supabase.auth.signInWithPassword({ email, password });
+      if (authError) {
+        // Common cases: 400 Invalid login credentials, 422 email format, 429 rate limit
+        setError(authError.message);
+      }
+    } catch (err) {
+      // TypeError from fetch: DNS/CORS/network — Supabase throws bare Errors here,
+      // so we catch and translate to something the user can act on.
+      setError(
+        err instanceof Error && err.message
+          ? `${err.message} — check your internet connection.`
+          : "Couldn't reach the sign-in service. Check your internet connection.",
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
