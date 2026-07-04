@@ -51,6 +51,7 @@ import DocumentCard from "../components/DocumentCard";
 import MoveDialog from "../components/MoveDialog";
 import IngestionDrawer from "../components/IngestionDrawer";
 import FolderSummaryPanel from "../components/FolderSummaryPanel";
+import { useToast, messageFromError } from "../components/ToastProvider";
 import { brand, fonts } from "../theme";
 
 const ACCEPTED_TYPES =
@@ -62,6 +63,7 @@ const pulse = keyframes`
   100% { opacity: 1; transform: scale(1); }
 `;
 export default function DocumentsPage() {
+  const toast = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [, setDragOver] = useState(false);
   const [globalDropActive, setGlobalDropActive] = useState(false);
@@ -195,7 +197,7 @@ export default function DocumentsPage() {
         const file = new File([blob], `recording-${Date.now()}.${ext}`, {
           type: blob.type,
         });
-        upload(file, currentFolderId);
+        void uploadOne(file);
         stream.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
         mediaRecorderRef.current = null;
@@ -204,7 +206,10 @@ export default function DocumentsPage() {
       setRecordingTime(0);
       setIsRecording(true);
     } catch {
-      alert("Microphone access denied. Please allow microphone permissions.");
+      toast.show(
+        "Microphone access denied — please allow microphone permissions in your browser.",
+        "warning",
+      );
     }
   };
 
@@ -230,11 +235,27 @@ export default function DocumentsPage() {
     return `${m}:${s}`;
   };
 
+  // Upload one file, toast on failure. Kept as a helper so the input picker
+  // and drop handler both get identical error surfacing.
+  const uploadOne = useCallback(
+    async (file: File) => {
+      try {
+        await upload(file, currentFolderId);
+      } catch (err) {
+        toast.show(
+          `Upload failed for “${file.name}”: ${messageFromError(err)}`,
+          "error",
+        );
+      }
+    },
+    [upload, currentFolderId, toast],
+  );
+
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
     for (const file of Array.from(files)) {
-      upload(file, currentFolderId);
+      void uploadOne(file);
     }
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
@@ -245,10 +266,10 @@ export default function DocumentsPage() {
       setDragOver(false);
       const files = Array.from(e.dataTransfer.files);
       for (const file of files) {
-        upload(file, currentFolderId);
+        void uploadOne(file);
       }
     },
-    [upload, currentFolderId]
+    [uploadOne],
   );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -336,12 +357,15 @@ export default function DocumentsPage() {
 
   const handleCreateFolder = async () => {
     if (!newFolderName.trim()) return;
-    await createFolder(newFolderName.trim(), currentFolderId);
-    setNewFolderName("");
-    setNewFolderOpen(false);
-    loadSubFolders();
-    // Notify sidebar FolderTree to refresh
-    window.dispatchEvent(new CustomEvent("folders-changed"));
+    try {
+      await createFolder(newFolderName.trim(), currentFolderId);
+      setNewFolderName("");
+      setNewFolderOpen(false);
+      loadSubFolders();
+      window.dispatchEvent(new CustomEvent("folders-changed"));
+    } catch (err) {
+      toast.show(`Couldn't create folder: ${messageFromError(err)}`, "error");
+    }
   };
 
   const handleRequestDeleteFolder = useCallback(
@@ -353,31 +377,50 @@ export default function DocumentsPage() {
 
   const handleConfirmDelete = async () => {
     if (!deleteConfirm) return;
-    if (deleteConfirm.type === "folder") {
-      await deleteFolder(deleteConfirm.id);
-      if (currentFolderId === deleteConfirm.id) {
-        setCurrentFolderId(null);
+    try {
+      if (deleteConfirm.type === "folder") {
+        await deleteFolder(deleteConfirm.id);
+        if (currentFolderId === deleteConfirm.id) {
+          setCurrentFolderId(null);
+        }
+        loadSubFolders();
+        window.dispatchEvent(new CustomEvent("folders-changed"));
+      } else if (deleteConfirm.id.includes(",")) {
+        const filenames = deleteConfirm.id.split(",");
+        const failed: string[] = [];
+        for (const filename of filenames) {
+          try {
+            await remove(filename);
+          } catch (err) {
+            failed.push(`${filename}: ${messageFromError(err)}`);
+          }
+        }
+        if (failed.length > 0) {
+          toast.show(
+            `Couldn't delete ${failed.length} of ${filenames.length} files (${failed[0]})`,
+            "error",
+          );
+        }
+        clearSelection();
+      } else {
+        await remove(deleteConfirm.name);
       }
-      loadSubFolders();
-    } else if (deleteConfirm.id.includes(",")) {
-      // Bulk delete — id is comma-separated filenames
-      const filenames = deleteConfirm.id.split(",");
-      for (const filename of filenames) {
-        await remove(filename);
-      }
-      clearSelection();
-    } else {
-      await remove(deleteConfirm.name);
+    } catch (err) {
+      toast.show(`Delete failed: ${messageFromError(err)}`, "error");
+    } finally {
+      setDeleteConfirm(null);
     }
-    setDeleteConfirm(null);
   };
 
   const handleDownload = async (filename: string) => {
     try {
       const url = await downloadDocument(filename);
       window.open(url, "_blank");
-    } catch {
-      // Silently fail — button is only shown when has_file is true
+    } catch (err) {
+      toast.show(
+        `Couldn't download “${filename}”: ${messageFromError(err)}`,
+        "error",
+      );
     }
   };
 

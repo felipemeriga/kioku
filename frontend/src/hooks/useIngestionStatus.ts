@@ -68,10 +68,12 @@ export function useIngestionStatus() {
     }
   }, []);
 
+  // Upload throws on failure so the caller can toast; on success, inserts the
+  // placeholder task and opens the drawer. Previously an unhandled promise
+  // rejection would leave the user with no signal that the upload failed.
   const upload = useCallback(
     async (file: File, folderId?: string | null) => {
       const result = await uploadDocument(file, folderId);
-      // Add a placeholder task immediately
       const placeholder: IngestionTask = {
         id: result.task_id,
         user_id: "",
@@ -89,14 +91,12 @@ export function useIngestionStatus() {
       };
       setTasks((prev) => [...prev, placeholder]);
       setDrawerOpen(true);
-      // Cancel any auto-close from previous batch
       cancelAutoClose();
-      // Immediately poll for fresh data
       try {
         const updated = await fetchIngestionStatus();
         setTasks(updated);
       } catch {
-        // Keep placeholder if poll fails
+        // Non-fatal: placeholder stands in until the next poll.
       }
     },
     [cancelAutoClose]
