@@ -358,6 +358,87 @@ def evaluate_retrieval(questions: str) -> str:
     return "\n".join(lines)
 
 
+@mcp.tool()
+def get_folder_orientation(folder_name: str | None = None) -> str:
+    """Load a compact orientation summary of a folder for session start.
+
+    Call this at the beginning of a session to get the big picture of what a
+    folder contains before drilling into specific documents. The summary is
+    regenerated nightly (delta) with a weekly full rebuild, so it stays fresh
+    without burning tokens on every query.
+
+    Args:
+        folder_name: Optional folder name to look up. If omitted, uses the
+            folder scoped to this API key. Case-insensitive prefix match.
+
+    Returns:
+        A JSON string containing:
+        - purpose, overview, themes, key_documents, key_facts, entities, gotchas
+        - metadata: last_generated_at, kind (full|delta|seed), doc_count
+        - recent_changes: files added/removed/modified since the previous summary
+    """
+    if not _current_user_id.get():
+        return "Error: Not authenticated. Provide a valid API key."
+
+    user_id = _current_user_id.get()
+    sb = get_supabase()
+
+    # Resolve the target folder id.
+    if folder_name:
+        r = (
+            sb.table("folders")
+            .select("id, name")
+            .eq("user_id", user_id)
+            .ilike("name", f"{folder_name}%")
+            .order("name")
+            .limit(1)
+            .execute()
+        )
+        if not r.data:
+            return f"No folder found matching '{folder_name}'."
+        folder_id = r.data[0]["id"]
+        folder_name_resolved = r.data[0]["name"]
+    else:
+        folder_id = _current_scope_folder_id.get()
+        if not folder_id:
+            return (
+                "This API key has no scope folder and no folder_name was given. "
+                "Pass folder_name to select one."
+            )
+        r = sb.table("folders").select("name").eq("id", folder_id).limit(1).execute()
+        folder_name_resolved = r.data[0]["name"] if r.data else "(scope folder)"
+
+    # Fetch latest summary.
+    latest = (
+        sb.table("folder_summaries")
+        .select("*")
+        .eq("folder_id", folder_id)
+        .eq("user_id", user_id)
+        .order("generated_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    if not latest.data:
+        return (
+            f"No orientation summary exists yet for '{folder_name_resolved}'. "
+            "The nightly cron will build one, or trigger a manual regenerate via the app."
+        )
+
+    row = latest.data[0]
+    payload = {
+        "folder": folder_name_resolved,
+        "summary": row.get("content") or {},
+        "metadata": {
+            "last_generated_at": row.get("generated_at"),
+            "kind": row.get("kind"),
+            "doc_count": row.get("doc_count"),
+            "trigger": row.get("trigger"),
+        },
+        "recent_changes": row.get("changed_files") or {},
+    }
+    return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
 class ApiKeyAuthMiddleware:
     """Pure ASGI middleware for API key auth (SSE-compatible, no buffering)."""
 
