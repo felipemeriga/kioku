@@ -261,15 +261,60 @@ async def list_documents(
     return list(files.values())
 
 
+def _infer_viewable_as(filename: str, source_type: str | None, metadata: dict) -> str:
+    """Renderer hint for the frontend: 'markdown' | 'image' | 'pdf' |
+    'audio' | 'video' | 'code' | 'text'."""
+    name = filename.lower()
+    if source_type in ("github_commit", "github_pr", "github_issue"):
+        return "markdown"
+    if name.endswith((".md", ".markdown")):
+        return "markdown"
+    if name.endswith((".htm", ".html")):
+        return "markdown"
+    if name.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg")):
+        return "image"
+    if name.endswith(".pdf"):
+        return "pdf"
+    if name.endswith((".mp3", ".m4a", ".wav", ".ogg", ".flac")):
+        return "audio"
+    if name.endswith((".mp4", ".webm", ".mov")):
+        return "video"
+    if name.endswith((".json", ".yaml", ".yml", ".toml")):
+        return "code"
+    if name.endswith((".py", ".ts", ".tsx", ".js", ".jsx", ".rs", ".go", ".java", ".c", ".cpp", ".sh", ".sql")):
+        return "code"
+    return "text"
+
+
+def _signed_view_url(sb, metadata: dict) -> tuple[str | None, str | None]:
+    """(signed_url, bucket) for inline viewing. No `download` option so the
+    browser embeds instead of forcing a save."""
+    file_path = metadata.get("file_url") or metadata.get("image_url") or metadata.get("audio_url")
+    if not file_path:
+        return None, None
+    if metadata.get("image_url"):
+        bucket = "images"
+    elif metadata.get("audio_url"):
+        bucket = "audio"
+    else:
+        bucket = "documents"
+    try:
+        signed = sb.storage.from_(bucket).create_signed_url(file_path, 900)
+        return signed.get("signedURL") or signed.get("signed_url"), bucket
+    except Exception:  # noqa: BLE001
+        return None, bucket
+
+
 @router.get("/{filename}/content")
 async def get_document_content(
     filename: str,
     folder_id: str | None = None,
     user_id: str = Depends(get_current_user),
 ):
-    """Concatenate chunks by chunk_index and return the full text of a
-    document for in-app viewing. Filter by folder_id when the same
-    source_filename exists in multiple folders (e.g. gh_pr_1.md in two repos)."""
+    """Full text plus a viewable_as hint and, when the original binary is
+    stored (image, PDF, audio…), a short-lived signed URL the browser can
+    embed in an <img> / <iframe> / <audio> tag inline.
+    """
     sb = get_supabase()
     q = (
         sb.table("documents")
@@ -286,15 +331,21 @@ async def get_document_content(
     rows = r.data
     content = "\n\n".join((c.get("content") or "") for c in rows)
     first = rows[0]
+    metadata = first.get("metadata") or {}
+    view_url, bucket = _signed_view_url(sb, metadata)
+    viewable_as = _infer_viewable_as(filename, first.get("source_type"), metadata)
     return {
         "source_filename": filename,
         "source_type": first.get("source_type"),
-        "metadata": first.get("metadata") or {},
+        "metadata": metadata,
         "chunk_count": len(rows),
         "folder_id": first.get("folder_id"),
         "status": first.get("status"),
         "created_at": first.get("created_at"),
         "content": content,
+        "viewable_as": viewable_as,
+        "file_url": view_url,
+        "bucket": bucket,
     }
 
 

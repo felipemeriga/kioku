@@ -40,7 +40,9 @@ triton = { index = "pytorch-cpu" }
 
 [dependency-groups]
 dev = [
+    "pillow>=12.1.1",
     "pytest>=9.0.3",
+    "reportlab>=5.0.0",
     "ruff>=0.15.5",
 ]
 
