@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import kleur from "kleur";
+import { capture } from "./commands/capture.js";
 import { login } from "./commands/login.js";
 import { init } from "./commands/init.js";
 import { sessionStart } from "./commands/session-start.js";
@@ -53,6 +54,20 @@ program
       await sessionStart();
     } catch (err) {
       // never fail a hook — just be quiet
+      if (process.env.AGENTIC_RAG_DEBUG) console.error(err);
+    }
+  });
+
+program
+  .command("capture")
+  .description(
+    "Distill session learnings and save to Mem0 (used by the Stop hook)",
+  )
+  .action(async () => {
+    try {
+      await capture();
+    } catch (err) {
+      // never fail a hook
       if (process.env.AGENTIC_RAG_DEBUG) console.error(err);
     }
   });

@@ -62,7 +62,37 @@ interface ClaudeSettings {
   [k: string]: unknown;
 }
 
-const HOOK_COMMAND = "agentic-rag session-start";
+const SESSION_START_COMMAND = "agentic-rag session-start";
+const STOP_COMMAND = "agentic-rag capture";
+
+interface ClaudeHooksBucket {
+  [event: string]: Array<{ type: "command"; command: string; matcher?: string }> | undefined;
+}
+
+function loadSettings(path: string): ClaudeSettings {
+  if (!existsSync(path)) return {};
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as ClaudeSettings;
+  } catch {
+    writeFileSync(`${path}.backup`, readFileSync(path));
+    return {};
+  }
+}
+
+function ensureHook(
+  settings: ClaudeSettings,
+  event: string,
+  command: string,
+  matcher: string = "*",
+): boolean {
+  if (!settings.hooks) settings.hooks = {};
+  const bucket = settings.hooks as ClaudeHooksBucket;
+  if (!bucket[event]) bucket[event] = [];
+  const hooks = bucket[event]!;
+  const already = hooks.some((h) => h.command === command);
+  if (!already) hooks.push({ type: "command", command, matcher });
+  return !already;
+}
 
 export function installSessionStartHook(repoRoot: string): {
   path: string;
@@ -71,24 +101,51 @@ export function installSessionStartHook(repoRoot: string): {
   const dir = join(repoRoot, ".claude");
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   const path = join(dir, "settings.json");
-  let settings: ClaudeSettings = {};
+  const settings = loadSettings(path);
+  const added = ensureHook(settings, "SessionStart", SESSION_START_COMMAND);
+  writeFileSync(path, JSON.stringify(settings, null, 2) + "\n");
+  return { path, addedHook: added };
+}
+
+export function installStopHook(repoRoot: string): {
+  path: string;
+  addedHook: boolean;
+} {
+  const dir = join(repoRoot, ".claude");
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  const path = join(dir, "settings.json");
+  const settings = loadSettings(path);
+  const added = ensureHook(settings, "Stop", STOP_COMMAND);
+  writeFileSync(path, JSON.stringify(settings, null, 2) + "\n");
+  return { path, addedHook: added };
+}
+
+/** Write the per-repo state file. Contains the folder_id the CLI bound
+ *  this repo to plus capture watermarks. Not a secret — the api key is
+ *  in .mcp.json — but still gitignored to avoid state churn in git. */
+export function writeCaptureState(
+  repoRoot: string,
+  state: {
+    folder_id: string;
+    folder_name: string;
+    scope_root_name: string;
+  },
+): { path: string } {
+  const dir = join(repoRoot, ".claude");
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  const path = join(dir, "agentic-rag-state.json");
+  // Preserve any watermarks from prior sessions.
+  let existing: Record<string, unknown> = {};
   if (existsSync(path)) {
     try {
-      settings = JSON.parse(readFileSync(path, "utf8")) as ClaudeSettings;
+      existing = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
     } catch {
-      writeFileSync(`${path}.backup`, readFileSync(path));
-      settings = {};
+      existing = {};
     }
   }
-  if (!settings.hooks) settings.hooks = {};
-  if (!settings.hooks.SessionStart) settings.hooks.SessionStart = [];
-  const hooks = settings.hooks.SessionStart;
-  const already = hooks.some((h) => h.command === HOOK_COMMAND);
-  if (!already) {
-    hooks.push({ type: "command", command: HOOK_COMMAND, matcher: "*" });
-  }
-  writeFileSync(path, JSON.stringify(settings, null, 2) + "\n");
-  return { path, addedHook: !already };
+  const merged = { ...existing, ...state };
+  writeFileSync(path, JSON.stringify(merged, null, 2) + "\n");
+  return { path };
 }
 
 // ── CLAUDE.md snippet ────────────────────────────────────────────
@@ -102,8 +159,12 @@ persistent memory across sessions and PC switches.
 
 ### At session start
 
-The SessionStart hook fetches your briefing automatically. If you want
-to reload it manually:
+The SessionStart hook fetches your briefing automatically. Every 10
+minutes or every 5 assistant turns (whichever comes first), the Stop
+hook automatically distills recent turns into Mem0 — preferences,
+findings, decisions, issues, and session summaries.
+
+If you want to reload the briefing manually:
 
 - \`get_folder_briefing()\` — 8-section briefing for this repo
   (overview, architecture, preferences, important_files, how_it_runs,
@@ -171,7 +232,12 @@ export function updateClaudeMd(repoRoot: string): {
 
 export function updateGitignore(repoRoot: string): { path: string; changed: boolean } {
   const path = join(repoRoot, ".gitignore");
-  const entries = [".mcp.json", ".claude/settings.local.json"];
+  const entries = [
+    ".mcp.json",
+    ".claude/settings.local.json",
+    ".claude/agentic-rag-state.json",
+    ".claude/agentic-rag-capture.log",
+  ];
   const existing = existsSync(path) ? readFileSync(path, "utf8") : "";
   const missing = entries.filter((e) => !existing.split("\n").some((line) => line.trim() === e));
   if (missing.length === 0) return { path, changed: false };

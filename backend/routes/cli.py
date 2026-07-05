@@ -151,6 +151,188 @@ async def whoami(user_id: str = Depends(get_current_user)):
     return {"user_id": user_id, "root_folders": folders}
 
 
+class TranscriptTurn(BaseModel):
+    role: str  # 'user' | 'assistant'
+    content: str
+    ts: str | None = None  # optional ISO timestamp
+
+
+class SessionCaptureRequest(BaseModel):
+    folder_id: str
+    session_id: str
+    transcript_delta: list[TranscriptTurn] = Field(..., min_length=1, max_length=200)
+    cwd: str | None = None
+
+
+@router.post("/session-capture")
+async def session_capture(body: SessionCaptureRequest, request: Request):
+    """Called by the CLI's `capture` subcommand (which runs as a
+    Claude Code Stop hook every N turns / 10 minutes).
+
+    Authenticated by api key (not user session) — the CLI uses the same
+    scoped api key that .mcp.json holds. The folder_id must be inside
+    the api key's scope subtree.
+
+    Behavior:
+        1. Verify api key + scope containment.
+        2. Ensure the target folder has Mem0 wired (repo folders only).
+           If not, return a 200 with skipped=true so the hook doesn't
+           annoy the user.
+        3. Ask Haiku to distill the transcript delta into 1-3 memory
+           entries with the right category (preference / finding /
+           decision / session).
+        4. Save each via the existing Mem0 add path with hard dedup.
+    """
+    import hashlib
+    import json as _json
+    from fastapi import HTTPException as HE
+
+    auth = request.headers.get("Authorization") or ""
+    if not auth.startswith("Bearer rag_"):
+        raise HE(status_code=401, detail="Bearer api key required")
+    key = auth[len("Bearer "):]
+    key_hash = hashlib.sha256(key.encode()).hexdigest()
+
+    sb = get_supabase()
+    row = (
+        sb.table("api_keys").select("user_id, scope_folder_id")
+        .eq("key_hash", key_hash).limit(1).execute().data
+    )
+    if not row or not row[0].get("scope_folder_id"):
+        raise HE(status_code=401, detail="Invalid or unscoped api key")
+    user_id = row[0]["user_id"]
+    scope_id = row[0]["scope_folder_id"]
+
+    # Verify folder is inside scope
+    from mcp_server import _descendant_folder_ids  # existing helper
+    subtree = _descendant_folder_ids(sb, scope_id, user_id)
+    if body.folder_id not in subtree:
+        raise HE(status_code=403, detail="folder_id not in api key scope")
+
+    # Mem0 wired?
+    from services.mem0_sync import MemoryCategory, get_client_for_folder
+    from services.mem0_sync.client import MemoryScope
+    mem0 = get_client_for_folder(sb, body.folder_id, user_id)
+    if mem0 is None:
+        return {"ok": True, "skipped": True, "reason": "Mem0 not wired for this folder"}
+
+    # Distill via Haiku with a focused tool schema
+    from services.llm import Task, complete
+
+    transcript_text = "\n\n".join(
+        f"[{t.role}]{' ' + t.ts if t.ts else ''}\n{t.content[:2000]}"
+        for t in body.transcript_delta
+    )
+    if len(transcript_text) > 30_000:
+        transcript_text = transcript_text[:30_000] + "\n\n… (truncated)"
+
+    DISTILL_TOOL = {
+        "name": "emit_memories",
+        "description": "Emit 0-3 memory entries worth persisting from this transcript slice.",
+        "input_schema": {
+            "type": "object",
+            "required": ["memories"],
+            "properties": {
+                "memories": {
+                    "type": "array",
+                    "maxItems": 3,
+                    "items": {
+                        "type": "object",
+                        "required": ["category", "content"],
+                        "properties": {
+                            "category": {
+                                "type": "string",
+                                "enum": ["preference", "finding", "decision", "issue", "session"],
+                                "description": (
+                                    "preference: an eternal rule the user stated. "
+                                    "finding: a concrete fact discovered during work. "
+                                    "decision: an architectural or design choice made. "
+                                    "issue: a bug or gotcha surfaced. "
+                                    "session: a compact summary of what was done."
+                                ),
+                            },
+                            "content": {
+                                "type": "string",
+                                "description": (
+                                    "Concise standalone statement. Third-person is fine. "
+                                    "Prefer specifics over generalities. Skip if nothing "
+                                    "worth saving — an empty array is a valid answer."
+                                ),
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    }
+    DISTILL_SYSTEM = (
+        "You are watching a coding session in Claude Code and deciding what "
+        "is worth persisting to a long-term memory system.\n\n"
+        "Rules:\n"
+        "- Emit ONLY memories that will be useful in FUTURE sessions or on "
+        "different PCs. A one-off debugging step is NOT worth saving.\n"
+        "- If the user stated a preference (\"always X\", \"never Y\"), "
+        "emit category='preference'.\n"
+        "- If a concrete fact about the codebase was discovered or "
+        "confirmed, emit category='finding'.\n"
+        "- If an architectural decision was reached, emit category='decision'.\n"
+        "- If a bug/gotcha was surfaced, emit category='issue'.\n"
+        "- If the session did substantive shipped work, emit ONE "
+        "category='session' summary (\"date: what was built + outcome\").\n"
+        "- Emit 0 memories if there is nothing worth saving. Don't pad.\n"
+        "- Max 3 memories per capture. Pick the most valuable ones.\n"
+        "- Never emit code snippets — reference paths and describe the "
+        "change instead."
+    )
+    msg = complete(
+        task=Task.RAG_AGENT,
+        system=DISTILL_SYSTEM,
+        messages=[{
+            "role": "user",
+            "content": (
+                f"Session id: {body.session_id}\n"
+                f"cwd: {body.cwd or '(unknown)'}\n"
+                f"Turns since last capture: {len(body.transcript_delta)}\n\n"
+                f"Transcript delta:\n\n{transcript_text}"
+            ),
+        }],
+        tools=[DISTILL_TOOL],
+        max_tokens=800,
+    )
+    memories: list[dict] = []
+    for block in msg.content:
+        if block.type == "tool_use" and block.name == "emit_memories":
+            memories = list(block.input.get("memories") or [])
+            break
+
+    if not memories:
+        return {"ok": True, "skipped": True, "reason": "Nothing worth saving in this delta."}
+
+    # Save each via existing Mem0 add path
+    saved: list[dict] = []
+    for m in memories:
+        cat = m.get("category")
+        content = (m.get("content") or "").strip()
+        if not content:
+            continue
+        try:
+            result = mem0.add(
+                content=content,
+                category=cat,
+                scope=(MemoryScope.ETERNAL if cat == "preference" else MemoryScope.EPISODIC),
+                tags=[f"session:{body.session_id[:8]}", "source:cli_capture"],
+            )
+            saved.append({"category": cat, "content": content, "raw": result})
+        except Exception as exc:  # noqa: BLE001
+            saved.append({
+                "category": cat,
+                "content": content,
+                "error": str(exc)[:200],
+            })
+
+    return {"ok": True, "count": len(saved), "memories": saved}
+
+
 @router.get("/scope-info")
 async def scope_info(request: Request):
     """Compact scope summary for the SessionStart hook — auth via the

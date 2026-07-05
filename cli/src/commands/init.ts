@@ -14,8 +14,10 @@ import { isLoggedIn } from "../lib/config.js";
 import { detectGit } from "../lib/git.js";
 import {
   installSessionStartHook,
+  installStopHook,
   updateClaudeMd,
   updateGitignore,
+  writeCaptureState,
   writeMcpConfig,
 } from "../lib/claude.js";
 import { bad, box, info, ok, section, warn } from "../lib/banner.js";
@@ -210,13 +212,31 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
   const mcp = writeMcpConfig(repoRoot, mcpEntry);
   ok(`.mcp.json ${mcp.existed ? "updated" : "written"}`);
 
-  // Step 6: SessionStart hook
+  // Step 6a: SessionStart hook — fetches briefing at session start
   const hook = installSessionStartHook(repoRoot);
   ok(
     hook.addedHook
       ? "SessionStart hook installed"
       : "SessionStart hook already present",
   );
+
+  // Step 6b: Stop hook — captures session learnings to Mem0 every 10 min
+  //          or every 5 assistant turns.
+  const stop = installStopHook(repoRoot);
+  ok(
+    stop.addedHook
+      ? "Stop hook installed  " + kleur.dim("(captures learnings to Mem0)")
+      : "Stop hook already present",
+  );
+
+  // Step 6c: state file the Stop hook uses to know which folder to save to
+  //          and how much of the transcript has been captured already.
+  const rootName = w.root_folders.find((f) => f.id === rootId)?.name ?? "(root)";
+  writeCaptureState(repoRoot, {
+    folder_id: repoFolder.id,
+    folder_name: repoFolder.name,
+    scope_root_name: rootName,
+  });
 
   // Step 7: CLAUDE.md
   const md = updateClaudeMd(repoRoot);
