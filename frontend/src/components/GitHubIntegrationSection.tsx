@@ -22,7 +22,7 @@ import {
 } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
 import RefreshIcon from "@mui/icons-material/Refresh";
-import GitHubIcon from "@mui/icons-material/GitHub";
+import { GitHubBrandIcon } from "./BrandIcons";
 import {
   connectGitHub,
   disconnectGitHub,
@@ -103,7 +103,7 @@ export function GitHubIntegrationSection() {
           mb={2}
         >
           <Stack direction="row" alignItems="center" spacing={1}>
-            <GitHubIcon fontSize="small" />
+            <GitHubBrandIcon fontSize="small" />
             <Typography variant="h6">GitHub Activity</Typography>
           </Stack>
           <Button variant="contained" onClick={() => setDialogOpen(true)}>

@@ -22,9 +22,11 @@ import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
 import CompareArrowsIcon from "@mui/icons-material/CompareArrows";
 import HistoryIcon from "@mui/icons-material/History";
 import FolderIcon from "@mui/icons-material/Folder";
-import PsychologyIcon from "@mui/icons-material/Psychology";
-import GitHubIcon from "@mui/icons-material/GitHub";
-import NotesIcon from "@mui/icons-material/Notes";
+import {
+  GitHubBrandIcon,
+  Mem0BrandIcon,
+  NotionBrandIcon,
+} from "./BrandIcons";
 import { useNavigate } from "react-router-dom";
 import { messageFromError, useToast } from "./ToastProvider";
 import {
@@ -293,9 +295,9 @@ function IntegrationDots({
   notion: boolean;
 }) {
   const items = [
-    { active: mem0, icon: <PsychologyIcon sx={{ fontSize: 12 }} />, label: "Mem0" },
-    { active: github, icon: <GitHubIcon sx={{ fontSize: 12 }} />, label: "GitHub" },
-    { active: notion, icon: <NotesIcon sx={{ fontSize: 12 }} />, label: "Notion" },
+    { active: mem0, icon: <Mem0BrandIcon sx={{ fontSize: 12 }} />, label: "Mem0" },
+    { active: github, icon: <GitHubBrandIcon sx={{ fontSize: 12 }} />, label: "GitHub" },
+    { active: notion, icon: <NotionBrandIcon sx={{ fontSize: 12 }} />, label: "Notion" },
   ];
   return (
     <Stack direction="row" spacing={0.4}>

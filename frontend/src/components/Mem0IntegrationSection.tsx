@@ -20,7 +20,7 @@ import {
 } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
 import BoltIcon from "@mui/icons-material/Bolt";
-import PsychologyIcon from "@mui/icons-material/Psychology";
+import { Mem0BrandIcon } from "./BrandIcons";
 import {
   connectMem0,
   disconnectMem0,
@@ -94,7 +94,7 @@ export function Mem0IntegrationSection() {
           mb={2}
         >
           <Stack direction="row" alignItems="center" spacing={1}>
-            <PsychologyIcon fontSize="small" sx={{ color: "primary.main" }} />
+            <Mem0BrandIcon fontSize="small" sx={{ color: "primary.main" }} />
             <Typography variant="h6">Mem0 Memory</Typography>
           </Stack>
           <Button variant="contained" onClick={() => setDialogOpen(true)}>

@@ -39,7 +39,7 @@ import {
 import CloseIcon from "@mui/icons-material/Close";
 import DeleteIcon from "@mui/icons-material/Delete";
 import DescriptionIcon from "@mui/icons-material/Description";
-import PsychologyIcon from "@mui/icons-material/Psychology";
+import { Mem0BrandIcon } from "../components/BrandIcons";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import AddIcon from "@mui/icons-material/Add";
@@ -343,7 +343,7 @@ export default function FolderDetailPage() {
           <Tab value="briefing" label="Briefing" icon={<AccountTreeIcon fontSize="small" />} iconPosition="start" />
         )}
         <Tab value="documents" label={`Documents (${documents.length})`} icon={<DescriptionIcon fontSize="small" />} iconPosition="start" />
-        <Tab value="memory" label={`Memory (${memories.length})`} icon={<PsychologyIcon fontSize="small" />} iconPosition="start" />
+        <Tab value="memory" label={`Memory (${memories.length})`} icon={<Mem0BrandIcon fontSize="small" />} iconPosition="start" />
       </Tabs>
 
       <Box sx={{ p: 3, maxWidth: 960, mx: "auto", width: "100%", flex: 1 }}>

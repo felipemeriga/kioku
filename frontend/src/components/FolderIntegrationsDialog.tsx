@@ -21,9 +21,11 @@ import {
   Stack,
   Typography,
 } from "@mui/material";
-import PsychologyIcon from "@mui/icons-material/Psychology";
-import GitHubIcon from "@mui/icons-material/GitHub";
-import NotesIcon from "@mui/icons-material/Notes";
+import {
+  GitHubBrandIcon,
+  Mem0BrandIcon,
+  NotionBrandIcon,
+} from "./BrandIcons";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import DeleteIcon from "@mui/icons-material/Delete";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
@@ -157,7 +159,7 @@ export default function FolderIntegrationsDialog({
             {/* Mem0 is repo-only. On a plain folder we still show the card
                 but disable Connect and add a hint explaining why. */}
             <IntegrationCard
-              icon={<PsychologyIcon fontSize="small" />}
+              icon={<Mem0BrandIcon fontSize="small" />}
               title="Mem0 memory"
               description="Episodic and eternal memory (agent-authored) scoped to this repo."
               connected={!!mem0}
@@ -184,7 +186,7 @@ export default function FolderIntegrationsDialog({
             />
 
             <IntegrationCard
-              icon={<NotesIcon fontSize="small" />}
+              icon={<NotionBrandIcon fontSize="small" />}
               title="Notion sync"
               description="Ingest a Notion root page as documents. Fast poll + full reconciliation."
               connected={!!notion}
@@ -205,7 +207,7 @@ export default function FolderIntegrationsDialog({
             />
 
             <IntegrationCard
-              icon={<GitHubIcon fontSize="small" />}
+              icon={<GitHubBrandIcon fontSize="small" />}
               title="GitHub activity"
               description="Recent commits, PRs, and issues from a GitHub repo — metadata only."
               connected={!!github}
