@@ -267,9 +267,9 @@ export function NotionIntegrationSection() {
         </Stack>
       </CardContent>
 
-      <ConnectDialog
+      <NotionConnectDialog
         open={dialogOpen}
-        folders={folders}
+        rootFolders={folders}
         onClose={() => setDialogOpen(false)}
         onConnected={async () => {
           setDialogOpen(false);
@@ -309,23 +309,35 @@ export function NotionIntegrationSection() {
   );
 }
 
-function ConnectDialog({
+export function NotionConnectDialog({
   open,
-  folders,
+  rootFolders,
+  fixedFolderId,
   onClose,
   onConnected,
 }: {
   open: boolean;
-  folders: { id: string; name: string }[];
+  rootFolders: { id: string; name: string }[];
+  /** If set, the folder picker is hidden and this folder is used. Matches the
+   *  Mem0ConnectDialog / GitHubConnectDialog signature so the per-folder
+   *  FolderIntegrationsDialog can reuse the same dialog. */
+  fixedFolderId?: string;
   onClose: () => void;
   onConnected: () => void;
 }) {
   const [token, setToken] = useState("");
-  const [rootFolderId, setRootFolderId] = useState("");
+  const [rootFolderId, setRootFolderId] = useState(fixedFolderId ?? "");
   const [pageOptions, setPageOptions] = useState<NotionPageOption[]>([]);
   const [selectedPage, setSelectedPage] = useState<NotionPageOption | null>(null);
   const [loadingPages, setLoadingPages] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  // Keep the internal folder id in sync when the caller changes fixedFolderId
+  // (dialog reused for a different folder without unmounting).
+  useEffect(() => {
+    if (fixedFolderId) setRootFolderId(fixedFolderId);
+  }, [fixedFolderId]);
 
   const loadPages = useCallback(async () => {
     if (!token) return;
@@ -342,13 +354,14 @@ function ConnectDialog({
   }, [token]);
 
   const canSubmit = useMemo(
-    () => !!token && !!rootFolderId && !!selectedPage,
-    [token, rootFolderId, selectedPage],
+    () => !!token && !!rootFolderId && !!selectedPage && !busy,
+    [token, rootFolderId, selectedPage, busy],
   );
 
   const submit = async () => {
     if (!selectedPage) return;
     setError(null);
+    setBusy(true);
     try {
       await connectNotion({
         root_folder_id: rootFolderId,
@@ -356,9 +369,17 @@ function ConnectDialog({
         notion_page_title: selectedPage.title,
         integration_token: token,
       });
+      // Reset on success so a reopen starts clean (but keep folder for the
+      // fixed variant since the caller is scoping to one folder anyway).
+      setToken("");
+      setPageOptions([]);
+      setSelectedPage(null);
+      if (!fixedFolderId) setRootFolderId("");
       onConnected();
     } catch (err) {
       setError(`Couldn't connect: ${messageFromError(err)}`);
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -389,27 +410,29 @@ function ConnectDialog({
             renderInput={(params) => <TextField {...params} label="Notion root page" />}
             disabled={pageOptions.length === 0}
           />
-          <FormControl fullWidth>
-            <InputLabel>Rag root folder</InputLabel>
-            <Select
-              value={rootFolderId}
-              label="Rag root folder"
-              onChange={(e) => setRootFolderId(e.target.value)}
-            >
-              {folders.map((f) => (
-                <MenuItem key={f.id} value={f.id}>
-                  {f.name}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+          {!fixedFolderId && (
+            <FormControl fullWidth>
+              <InputLabel>Rag root folder</InputLabel>
+              <Select
+                value={rootFolderId}
+                label="Rag root folder"
+                onChange={(e) => setRootFolderId(e.target.value)}
+              >
+                {rootFolders.map((f) => (
+                  <MenuItem key={f.id} value={f.id}>
+                    {f.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
           {error && <Alert severity="error">{error}</Alert>}
         </Stack>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
+        <Button onClick={onClose} disabled={busy}>Cancel</Button>
         <Button onClick={submit} disabled={!canSubmit} variant="contained">
-          Connect
+          {busy ? "Connecting…" : "Connect"}
         </Button>
       </DialogActions>
     </Dialog>

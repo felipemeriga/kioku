@@ -47,6 +47,7 @@ import {
 import { messageFromError, useToast } from "./ToastProvider";
 import { Mem0ConnectDialog } from "./Mem0IntegrationSection";
 import { GitHubConnectDialog } from "./GitHubIntegrationSection";
+import { NotionConnectDialog } from "./NotionIntegrationSection";
 
 interface Props {
   open: boolean;
@@ -188,11 +189,10 @@ export default function FolderIntegrationsDialog({
                   : null
               }
               errorDetail={notion?.last_error ?? null}
-              onConnect={undefined /* Notion connect UI stays on Settings */}
+              onConnect={() => setConnectOpen("notion")}
               onSync={notion ? () => handleSync("notion") : undefined}
               onDisconnect={() => handleDisconnect("notion")}
               loading={loading}
-              connectHint="Use Settings → Notion Integration to connect."
             />
 
             <IntegrationCard
@@ -258,6 +258,17 @@ export default function FolderIntegrationsDialog({
               setConnectOpen(null);
               await refresh();
               toast.showSuccess("GitHub connected.");
+            }}
+          />
+          <NotionConnectDialog
+            open={connectOpen === "notion"}
+            rootFolders={[{ id: folder.id, name: folder.name }]}
+            fixedFolderId={folder.id}
+            onClose={() => setConnectOpen(null)}
+            onConnected={async () => {
+              setConnectOpen(null);
+              await refresh();
+              toast.showSuccess("Notion connected.");
             }}
           />
         </>
