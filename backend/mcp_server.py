@@ -493,6 +493,181 @@ def evaluate_retrieval(questions: str) -> str:
 
 
 @mcp.tool()
+def get_folder_briefing_schema() -> str:
+    """Return the canonical shape of a folder briefing.
+
+    Call once at session start (or when you need to write to a section)
+    to learn every section name, its expected content shape, and short
+    notes on how to author it. Use with update_folder_briefing_section
+    when you learn something the user hasn't captured yet.
+    """
+    from services.folder_summary.briefing import (
+        BRIEFING_SCHEMA_VERSION, SECTION_KEYS,
+    )
+    schema = {
+        "version": BRIEFING_SCHEMA_VERSION,
+        "sections": SECTION_KEYS,
+        "notes": {
+            "overview": "One sentence purpose + 2-4 sentence description.",
+            "architecture": (
+                "How the system fits together. summary (str), components "
+                "(list of {name, role, path}), data_flow (str)."
+            ),
+            "preferences": "Verbatim rules. Prefer using save_memory + regen over editing directly.",
+            "important_files": "3-8 files an agent would open first. list of {path, role, why}.",
+            "how_it_runs": "Requirements list + local_dev setup string.",
+            "deployment": "Environments list, how_to_deploy, ci_cd_notes.",
+            "dependencies": "Auto-populated from manifests. Prefer regen over editing.",
+            "activity": "Auto-populated from GitHub sync + Mem0. Do NOT pin — it goes stale.",
+        },
+    }
+    return json.dumps(schema, indent=2, ensure_ascii=False)
+
+
+@mcp.tool()
+def get_folder_briefing() -> str:
+    """Read the current folder briefing (repo folders only).
+
+    Returns the full 8-section briefing with each section's content,
+    status (auto|pinned|hybrid), provenance (auto|user_ui|agent_mcp),
+    and last-edit timestamp. Use to decide whether to add/update a
+    section via update_folder_briefing_section.
+
+    Returns an error string if this scope isn't a repo folder.
+    """
+    if not _current_user_id.get():
+        return "Error: Not authenticated. Provide a valid API key."
+    if not _current_scope_folder_id.get():
+        return "Error: No folder scope on this API key."
+    from services.folder_summary.briefing import empty_briefing
+    from services.folder_summary.repo import (
+        get_folder, get_latest_summary,
+    )
+    sb = get_supabase()
+    user_id = _current_user_id.get()
+    folder_id = _current_scope_folder_id.get()
+    folder = get_folder(sb, folder_id, user_id)
+    if not folder:
+        return "Error: Folder not found."
+    if (folder.get("kind") or "folder") != "repo":
+        return (
+            "This folder is not a repo. Briefings are only available for "
+            "GitHub-synced folders. Use get_folder_orientation for a "
+            "generic summary instead."
+        )
+    latest = get_latest_summary(sb, folder_id, user_id)
+    sections = None
+    if latest:
+        sections = latest.get("sections") or (
+            (latest.get("content") or {}).get("sections")
+        )
+    payload = {
+        "folder": folder.get("name"),
+        "sections": sections or empty_briefing(),
+        "last_generated_at": (latest or {}).get("generated_at"),
+        "hint": (
+            "This briefing is your session-start context. If you learn "
+            "something the user hasn't captured (a deployment gotcha, a "
+            "'why this file matters' fact, a run-command they use), call "
+            "update_folder_briefing_section(section, content, pin=True) to "
+            "save it. It survives across sessions and PC switches."
+        ),
+    }
+    return json.dumps(payload, indent=2, ensure_ascii=False)
+
+
+@mcp.tool()
+def update_folder_briefing_section(
+    section: str,
+    content: str,
+    pin: bool = True,
+) -> str:
+    """Patch one section of the current folder's briefing.
+
+    Args:
+        section: One of 'overview', 'architecture', 'preferences',
+            'important_files', 'how_it_runs', 'deployment',
+            'dependencies', 'activity'.
+        content: JSON string matching the section's shape (see
+            get_folder_briefing_schema). String content is also accepted
+            and stored verbatim for prose sections.
+        pin: If True (default), the section is marked pinned — auto-regen
+            will NOT overwrite it. Set False for 'suggestion' behavior
+            where the next regen re-drafts the section.
+
+    Records provenance='agent_mcp' + updated_by=<api_key_id> so the UI
+    can attribute the edit.
+    """
+    if not _current_user_id.get():
+        return "Error: Not authenticated."
+    from services.folder_summary.briefing import (
+        BRIEFING_SCHEMA_VERSION, SECTION_KEYS, new_section, empty_briefing,
+    )
+    from services.folder_summary.repo import (
+        get_folder, get_latest_summary,
+    )
+    if section not in SECTION_KEYS:
+        return f"Error: Unknown section '{section}'. Valid: {SECTION_KEYS}"
+    sb = get_supabase()
+    user_id = _current_user_id.get()
+    folder_id = _current_scope_folder_id.get()
+    folder = get_folder(sb, folder_id, user_id)
+    if not folder or (folder.get("kind") or "folder") != "repo":
+        return "Error: Not a repo folder."
+    # Content may be JSON or a plain string — try JSON first, fall back
+    # to raw string.
+    try:
+        parsed_content = json.loads(content)
+    except Exception:  # noqa: BLE001
+        parsed_content = content
+
+    latest = get_latest_summary(sb, folder_id, user_id)
+    sections = (
+        (latest or {}).get("sections")
+        or ((latest or {}).get("content") or {}).get("sections")
+        or empty_briefing()
+    )
+    sections[section] = new_section(
+        parsed_content,
+        status="pinned" if pin else "auto",
+        provenance="agent_mcp",
+        updated_by=f"api_key_id_placeholder",  # TODO: thread real id through the middleware
+    )
+    payload = {
+        "folder_id": folder_id,
+        "user_id": user_id,
+        "kind": "briefing",
+        "trigger": "mcp_edit",
+        "content": {"__briefing_v": BRIEFING_SCHEMA_VERSION, "sections": sections},
+        "previous_content": None,
+        "included_hashes": [],
+        "doc_count": 0,
+        "changed_files": {},
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "duration_ms": 0,
+        "briefing_schema_version": BRIEFING_SCHEMA_VERSION,
+        "sections": sections,
+    }
+    try:
+        sb.table("folder_summaries").insert(payload).execute()
+    except Exception as exc:  # noqa: BLE001
+        msg = str(exc)
+        if "kind_check" not in msg and "briefing_schema_version" not in msg \
+                and "sections" not in msg:
+            return f"Error persisting briefing: {msg[:200]}"
+        # Migration-safe fallback.
+        payload.pop("briefing_schema_version", None)
+        payload.pop("sections", None)
+        payload["kind"] = "full"
+        try:
+            sb.table("folder_summaries").insert(payload).execute()
+        except Exception as exc2:  # noqa: BLE001
+            return f"Error persisting briefing: {str(exc2)[:200]}"
+    return f"Updated section '{section}' (status={'pinned' if pin else 'auto'})."
+
+
+@mcp.tool()
 def get_folder_orientation(folder_name: str | None = None) -> str:
     """Load a compact orientation summary of a folder for session start.
 
@@ -659,6 +834,23 @@ def get_folder_orientation(folder_name: str | None = None) -> str:
             payload["subfolders"] = extra["subfolders"]
         except Exception:  # noqa: BLE001
             pass  # Don't fail orientation on rollup-index assembly errors.
+
+    # For repo folders, add the strict 8-section briefing so a coding
+    # agent has structured facts to work with immediately + can update
+    # any section via update_folder_briefing_section.
+    sections = row.get("sections") or (row.get("content") or {}).get("sections")
+    if row.get("kind") == "briefing" and sections:
+        payload["briefing"] = {
+            "schema_version": row.get("briefing_schema_version") or 1,
+            "sections": sections,
+            "hint": (
+                "You have write access to this briefing. If you learn "
+                "something the user hasn't captured yet, call "
+                "update_folder_briefing_section(section, content, pin=True) "
+                "to save it. Sections persist across sessions and PC switches."
+            ),
+        }
+
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
