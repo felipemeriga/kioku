@@ -21,12 +21,18 @@ import RefreshIcon from "@mui/icons-material/Refresh";
 import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
 import CompareArrowsIcon from "@mui/icons-material/CompareArrows";
 import HistoryIcon from "@mui/icons-material/History";
+import FolderIcon from "@mui/icons-material/Folder";
+import PsychologyIcon from "@mui/icons-material/Psychology";
+import GitHubIcon from "@mui/icons-material/GitHub";
+import NotesIcon from "@mui/icons-material/Notes";
+import { useNavigate } from "react-router-dom";
 import { messageFromError, useToast } from "./ToastProvider";
 import {
   fetchFolderSummary,
   regenerateFolderSummary,
   type FolderSummaryContent,
   type FolderSummaryRow,
+  type WorkspaceSubfolderCard,
 } from "../lib/api";
 import { brand, fonts } from "../theme";
 
@@ -53,10 +59,17 @@ function relativeTime(iso: string): string {
 // Uses opaque brand color at low intensity so it reads as a status marker.
 function KindChip({ kind }: { kind: FolderSummaryRow["kind"] }) {
   const color =
-    kind === "full" ? brand.violet2 : kind === "delta" ? brand.cyan : brand.muted;
+    kind === "full"
+      ? brand.violet2
+      : kind === "delta"
+      ? brand.cyan
+      : kind === "workspace_rollup"
+      ? brand.violet
+      : brand.muted;
+  const label = kind === "workspace_rollup" ? "WORKSPACE" : kind.toUpperCase();
   return (
     <Chip
-      label={kind.toUpperCase()}
+      label={label}
       size="small"
       sx={{
         fontFamily: fonts.mono,
@@ -172,9 +185,151 @@ function BulletList({ items }: { items: string[] }) {
   );
 }
 
+function SubfolderCard({
+  sub,
+  onOpen,
+}: {
+  sub: WorkspaceSubfolderCard;
+  onOpen: () => void;
+}) {
+  return (
+    <Box
+      onClick={onOpen}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
+      sx={{
+        cursor: "pointer",
+        border: `1px solid ${brand.line}`,
+        borderRadius: 1.25,
+        p: 1.25,
+        transition: "border-color 120ms, background-color 120ms",
+        "&:hover": {
+          borderColor: alpha(brand.violet2, 0.6),
+          bgcolor: alpha(brand.violet, 0.05),
+        },
+      }}
+    >
+      <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mb: 0.75 }}>
+        <FolderIcon sx={{ fontSize: 15, color: brand.violet2 }} />
+        <Typography
+          sx={{
+            fontFamily: fonts.body,
+            fontSize: "0.86rem",
+            fontWeight: 600,
+            color: brand.text,
+            flex: 1,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {sub.name}
+        </Typography>
+        <IntegrationDots
+          mem0={sub.has_mem0}
+          github={sub.has_github}
+          notion={sub.has_notion}
+        />
+      </Stack>
+      {sub.purpose && (
+        <Typography
+          sx={{
+            fontFamily: fonts.body,
+            fontSize: "0.78rem",
+            color: brand.cyan,
+            fontStyle: "italic",
+            mb: 0.5,
+            lineHeight: 1.4,
+          }}
+        >
+          {sub.purpose}
+        </Typography>
+      )}
+      {sub.overview && (
+        <Typography
+          sx={{
+            fontFamily: fonts.body,
+            fontSize: "0.78rem",
+            color: brand.muted,
+            lineHeight: 1.45,
+            display: "-webkit-box",
+            WebkitLineClamp: 3,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+          }}
+        >
+          {sub.overview}
+        </Typography>
+      )}
+      <Typography
+        sx={{
+          fontFamily: fonts.mono,
+          fontSize: "0.66rem",
+          color: brand.muted,
+          mt: 0.75,
+          letterSpacing: "0.05em",
+        }}
+      >
+        {sub.doc_count} {sub.doc_count === 1 ? "doc" : "docs"}
+        {!sub.has_summary && " · not yet summarized"}
+      </Typography>
+    </Box>
+  );
+}
+
+function IntegrationDots({
+  mem0,
+  github,
+  notion,
+}: {
+  mem0: boolean;
+  github: boolean;
+  notion: boolean;
+}) {
+  const items = [
+    { active: mem0, icon: <PsychologyIcon sx={{ fontSize: 12 }} />, label: "Mem0" },
+    { active: github, icon: <GitHubIcon sx={{ fontSize: 12 }} />, label: "GitHub" },
+    { active: notion, icon: <NotesIcon sx={{ fontSize: 12 }} />, label: "Notion" },
+  ];
+  return (
+    <Stack direction="row" spacing={0.4}>
+      {items.map((it) =>
+        it.active ? (
+          <Tooltip key={it.label} title={`${it.label} connected`}>
+            <Box
+              sx={{
+                width: 16,
+                height: 16,
+                borderRadius: "50%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                bgcolor: alpha(brand.violet2, 0.2),
+                color: brand.violet2,
+              }}
+            >
+              {it.icon}
+            </Box>
+          </Tooltip>
+        ) : null,
+      )}
+    </Stack>
+  );
+}
+
 export default function FolderSummaryPanel({ folderId, folderName }: Props) {
   const toast = useToast();
+  const navigate = useNavigate();
   const [row, setRow] = useState<FolderSummaryRow | null>(null);
+  const [subfolders, setSubfolders] = useState<WorkspaceSubfolderCard[] | null>(
+    null,
+  );
   const [loading, setLoading] = useState(true);
   const [regenerating, setRegenerating] = useState(false);
   const [regenMode, setRegenMode] = useState<"auto" | "full" | "delta">("auto");
@@ -188,6 +343,7 @@ export default function FolderSummaryPanel({ folderId, folderName }: Props) {
     try {
       const res = await fetchFolderSummary(folderId);
       setRow(res.summary);
+      setSubfolders(res.subfolders);
       setError(null);
     } catch (err) {
       setError(`Couldn't load orientation: ${messageFromError(err)}`);
@@ -223,6 +379,7 @@ export default function FolderSummaryPanel({ folderId, folderName }: Props) {
         consecutiveFailures = 0;
         if (res.summary && (!row || res.summary.id !== row.id)) {
           setRow(res.summary);
+          setSubfolders(res.subfolders);
           setPollUntil(null);
           setRegenerating(false);
         }
@@ -562,6 +719,35 @@ export default function FolderSummaryPanel({ folderId, folderName }: Props) {
                   {content.overview}
                 </Typography>
               </Box>
+
+              {row?.kind === "workspace_rollup" &&
+                subfolders &&
+                subfolders.length > 0 && (
+                  <>
+                    <Divider sx={{ borderColor: brand.line }} />
+                    <Box>
+                      <SectionHeading>
+                        Subfolders · {subfolders.length}
+                      </SectionHeading>
+                      <Box
+                        sx={{
+                          display: "grid",
+                          gridTemplateColumns:
+                            "repeat(auto-fill, minmax(240px, 1fr))",
+                          gap: 1.25,
+                        }}
+                      >
+                        {subfolders.map((sub) => (
+                          <SubfolderCard
+                            key={sub.id}
+                            sub={sub}
+                            onOpen={() => navigate(`/folder/${sub.id}`)}
+                          />
+                        ))}
+                      </Box>
+                    </Box>
+                  </>
+                )}
 
               {content.themes && content.themes.length > 0 && (
                 <>

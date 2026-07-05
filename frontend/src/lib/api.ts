@@ -557,26 +557,50 @@ export interface FolderSummaryRow {
   id: string;
   folder_id: string;
   generated_at: string;
-  kind: "full" | "delta" | "seed";
+  /** 'workspace_rollup' is used for container folders whose summary is
+   *  synthesized from direct-child summaries rather than doc summaries. */
+  kind: "full" | "delta" | "seed" | "workspace_rollup";
   trigger: string | null;
   content: FolderSummaryContent;
   previous_content: FolderSummaryContent | null;
-  changed_files: { added: string[]; removed: string[]; modified: string[] };
+  changed_files: {
+    added?: string[];
+    removed?: string[];
+    modified?: string[];
+    subfolder_count?: number;
+    subfolder_snapshots?: Record<string, string>;
+  };
   doc_count: number;
   input_tokens: number | null;
   output_tokens: number | null;
   duration_ms: number | null;
 }
 
+export interface WorkspaceSubfolderCard {
+  id: string;
+  name: string;
+  purpose: string;
+  overview: string;
+  key_facts: string[];
+  doc_count: number;
+  has_mem0: boolean;
+  has_github: boolean;
+  has_notion: boolean;
+  has_summary: boolean;
+}
+
 export interface FolderSummaryResponse {
   folder: { id: string; name: string; parent_id: string | null };
   summary: FolderSummaryRow | null;
+  /** Populated only when summary.kind === 'workspace_rollup'. Direct
+   *  subfolder cards for the workspace grid. */
+  subfolders: WorkspaceSubfolderCard[] | null;
 }
 
 export interface FolderSummaryHistoryRow {
   id: string;
   generated_at: string;
-  kind: "full" | "delta" | "seed";
+  kind: "full" | "delta" | "seed" | "workspace_rollup";
   trigger: string | null;
   doc_count: number;
   changed_files: { added: string[]; removed: string[]; modified: string[] };
