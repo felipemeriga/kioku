@@ -140,6 +140,60 @@ class UpdateSectionRequest(BaseModel):
     updated_by: str | None = None  # free-form label
 
 
+class ReplaceBriefingRequest(BaseModel):
+    """Replace one or more sections in a single call.
+
+    - `sections` is the desired shape. Missing keys are left alone
+      (a partial replace is treated as a merge).
+    - `pin_all` marks every provided section as pinned (default True),
+      so auto-regen respects the caller's overwrite.
+    """
+    sections: dict[str, Any] = Field(default_factory=dict)
+    pin_all: bool = True
+    updated_by: str | None = None
+
+
+@router.put("/{folder_id}/briefing")
+async def replace_briefing(
+    folder_id: str,
+    body: ReplaceBriefingRequest,
+    user_id: str = Depends(get_current_user),
+):
+    """Overwrite all provided sections in one atomic call.
+
+    Rejects unknown section names with a helpful error. Sections not
+    provided are preserved from the current state (partial replace ==
+    merge). Every provided section is stamped provenance='user_ui'.
+    """
+    sb = get_supabase()
+    _folder_must_be_repo(sb, folder_id, user_id)
+
+    unknown = [k for k in body.sections.keys() if k not in SECTION_KEYS]
+    if unknown:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Unknown sections: {unknown}. Valid: {SECTION_KEYS}. "
+                "Call the get_folder_briefing_schema tool for shape hints."
+            ),
+        )
+
+    sections = _current_briefing(sb, folder_id, user_id)
+    for key, content in body.sections.items():
+        sections[key] = new_section(
+            content,
+            status="pinned" if body.pin_all else "auto",
+            provenance="user_ui",
+            updated_by=body.updated_by,
+        )
+    _persist_sections(sb, folder_id=folder_id, user_id=user_id, sections=sections)
+    return {
+        "ok": True,
+        "replaced_sections": list(body.sections.keys()),
+        "total_sections": len(sections),
+    }
+
+
 @router.patch("/{folder_id}/briefing/section/{section_name}")
 async def update_briefing_section(
     folder_id: str,

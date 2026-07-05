@@ -816,6 +816,126 @@ def get_folder_briefing(folder: str | None = None) -> str:
 
 
 @mcp.tool()
+def replace_folder_briefing(
+    sections: str,
+    pin_all: bool = True,
+    folder: str | None = None,
+) -> str:
+    """Replace the ENTIRE briefing in one call — all 8 sections at once.
+
+    Use when you want to overwrite the whole briefing (e.g. after doing
+    a big investigation that touched every area). Call
+    get_folder_briefing_schema first to see the shape.
+
+    Args:
+        sections: JSON string with a top-level object where each key is
+            one of the 8 section names and each value is that section's
+            content shape. Partial replaces are allowed — missing keys
+            are left alone and merge with the existing briefing.
+        pin_all: If True (default), every provided section is marked
+            pinned so auto-regen won't overwrite the changes. Set False
+            for 'suggestion' behavior.
+        folder: Same resolver as get_folder_briefing (name / slash-path /
+            UUID). Omit to target the API key's scope folder.
+
+    Records provenance='agent_mcp' on every provided section.
+    """
+    if not _current_user_id.get():
+        return "Error: Not authenticated."
+    from services.folder_summary.briefing import (
+        BRIEFING_SCHEMA_VERSION, SECTION_KEYS, empty_briefing, new_section,
+    )
+    from services.folder_summary.repo import (
+        get_folder, get_latest_summary,
+    )
+    sb = get_supabase()
+    user_id = _current_user_id.get()
+    resolved_id, resolved_name = resolve_focus_folder(
+        sb, scope_folder_id=_current_scope_folder_id.get(),
+        user_id=user_id, focus=folder,
+    )
+    if not resolved_id:
+        return f"Error: {resolved_name}"
+    folder_row = get_folder(sb, resolved_id, user_id)
+    if not folder_row or (folder_row.get("kind") or "folder") != "repo":
+        return f"Error: '{resolved_name}' is not a repo folder."
+
+    try:
+        payload_sections = json.loads(sections)
+    except Exception as exc:  # noqa: BLE001
+        return f"Error: sections argument must be valid JSON: {exc}"
+    if not isinstance(payload_sections, dict):
+        return "Error: sections must be a JSON object mapping section names to content."
+
+    unknown = [k for k in payload_sections.keys() if k not in SECTION_KEYS]
+    if unknown:
+        return (
+            f"Error: unknown section names: {unknown}. "
+            f"Valid: {SECTION_KEYS}. "
+            "Call get_folder_briefing_schema for shape hints."
+        )
+
+    latest = get_latest_summary(sb, resolved_id, user_id)
+    current = (
+        (latest or {}).get("sections")
+        or ((latest or {}).get("content") or {}).get("sections")
+        or empty_briefing()
+    )
+    for key, content in payload_sections.items():
+        current[key] = new_section(
+            content,
+            status="pinned" if pin_all else "auto",
+            provenance="agent_mcp",
+            updated_by="agent_mcp",
+        )
+    # Reuse the same downgrade-safe insert pipeline the section update
+    # tool uses so pre-migration DBs still land the row.
+    payload = {
+        "folder_id": resolved_id,
+        "user_id": user_id,
+        "kind": "briefing",
+        "trigger": "mcp_edit",
+        "content": {"__briefing_v": BRIEFING_SCHEMA_VERSION, "sections": current},
+        "previous_content": None,
+        "included_hashes": [],
+        "doc_count": 0,
+        "changed_files": {},
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "duration_ms": 0,
+        "briefing_schema_version": BRIEFING_SCHEMA_VERSION,
+        "sections": current,
+    }
+    last_err = None
+    for _ in range(4):
+        try:
+            sb.table("folder_summaries").insert(payload).execute()
+            return json.dumps({
+                "ok": True,
+                "replaced": list(payload_sections.keys()),
+                "total_sections": len(current),
+            }, ensure_ascii=False)
+        except Exception as exc:  # noqa: BLE001
+            last_err = exc
+            msg = str(exc)
+            downgraded = False
+            if "kind_check" in msg and payload.get("kind") != "full":
+                payload["kind"] = "full"
+                downgraded = True
+            if "trigger_check" in msg and payload.get("trigger") != "manual":
+                payload["trigger"] = "manual"
+                downgraded = True
+            if ("briefing_schema_version" in msg or "sections" in msg) \
+                    and "briefing_schema_version" in payload:
+                payload.pop("briefing_schema_version", None)
+                payload.pop("sections", None)
+                downgraded = True
+            if not downgraded:
+                break
+    return f"Error persisting briefing: {str(last_err)[:200]}"
+
+
+@mcp.tool()
 def update_folder_briefing_section(
     section: str,
     content: str,
