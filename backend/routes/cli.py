@@ -151,6 +151,22 @@ async def whoami(user_id: str = Depends(get_current_user)):
     return {"user_id": user_id, "root_folders": folders}
 
 
+@router.get("/auth-config")
+async def auth_config():
+    """Return the Supabase URL + anon key so the CLI can call the
+    Supabase refresh endpoint directly (bypassing the backend for token
+    renewal — same pattern as any Supabase client SDK).
+
+    Anon key is safe to expose publicly (by design). No auth required."""
+    return {
+        "supabase_url": os.environ["SUPABASE_URL"],
+        "supabase_anon_key": (
+            os.environ.get("SUPABASE_ANON_KEY")
+            or os.environ.get("SUPABASE_PUBLISHABLE_KEY")
+        ),
+    }
+
+
 class TranscriptTurn(BaseModel):
     role: str  # 'user' | 'assistant'
     content: str

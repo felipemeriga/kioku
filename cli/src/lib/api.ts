@@ -42,7 +42,7 @@ export class ApiError extends Error {
 
 async function apiFetch<T>(
   path: string,
-  init: RequestInit & { auth?: boolean } = {},
+  init: RequestInit & { auth?: boolean; _retry?: boolean } = {},
 ): Promise<T> {
   const cfg = readConfig();
   const url = `${cfg.api_base}${path}`;
@@ -59,12 +59,9 @@ async function apiFetch<T>(
     res = await fetch(url, { ...init, headers });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    // Node's fetch throws with 'fetch failed' and cause: {code:'ECONNREFUSED', ...}
-    // — surface something the user can act on.
     const isRefused =
       msg.includes("ECONNREFUSED") ||
       msg.includes("connect ECONN") ||
-      // fetch failed on Node without a body means the socket died
       msg.includes("fetch failed") ||
       msg.includes("getaddrinfo");
     throw new ApiError(`Couldn't reach ${cfg.api_base}: ${msg}`, {
@@ -75,6 +72,19 @@ async function apiFetch<T>(
     });
   }
   if (!res.ok) {
+    // Auto-refresh on 401 — silent, one-shot. If refresh succeeds we
+    // replay the original call. If not, surface the actionable hint.
+    if (
+      (res.status === 401 || res.status === 403) &&
+      !init._retry &&
+      auth &&
+      cfg.refresh_token
+    ) {
+      const refreshed = await tryRefreshToken();
+      if (refreshed) {
+        return apiFetch<T>(path, { ...init, _retry: true });
+      }
+    }
     const text = await res.text();
     let detail = text;
     try {
@@ -96,6 +106,69 @@ async function apiFetch<T>(
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
+}
+
+
+/**
+ * Exchange refresh_token for a new access_token via Supabase's /auth/v1/token.
+ * On success, persists the new tokens to config and returns true. On
+ * failure (revoked, expired, network), returns false so the caller can
+ * surface a friendly re-login prompt.
+ */
+let _refreshInFlight: Promise<boolean> | null = null;
+
+async function tryRefreshToken(): Promise<boolean> {
+  // Coalesce concurrent refreshes so 3 parallel API calls with an
+  // expired token only trigger ONE refresh round-trip.
+  if (_refreshInFlight) return _refreshInFlight;
+  _refreshInFlight = (async () => {
+    try {
+      const cfg = readConfig();
+      if (!cfg.refresh_token) return false;
+
+      // Discover Supabase URL + anon key. We fetch it from the backend
+      // once — no need to hardcode secrets in the CLI, and the anon key
+      // is safe to expose by design.
+      const authConfigRes = await fetch(`${cfg.api_base}/api/cli/auth-config`);
+      if (!authConfigRes.ok) return false;
+      const { supabase_url, supabase_anon_key } = (await authConfigRes.json()) as {
+        supabase_url: string;
+        supabase_anon_key: string;
+      };
+
+      const res = await fetch(
+        `${supabase_url}/auth/v1/token?grant_type=refresh_token`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: supabase_anon_key,
+          },
+          body: JSON.stringify({ refresh_token: cfg.refresh_token }),
+        },
+      );
+      if (!res.ok) return false;
+      const body = (await res.json()) as {
+        access_token?: string;
+        refresh_token?: string;
+        expires_at?: number;
+      };
+      if (!body.access_token) return false;
+
+      writeConfig({
+        ...cfg,
+        access_token: body.access_token,
+        refresh_token: body.refresh_token ?? cfg.refresh_token,
+        expires_at: body.expires_at ?? cfg.expires_at,
+      });
+      return true;
+    } catch {
+      return false;
+    } finally {
+      _refreshInFlight = null;
+    }
+  })();
+  return _refreshInFlight;
 }
 
 // ── Auth ────────────────────────────────────────────────────────────
@@ -150,6 +223,31 @@ export async function createFolder(
     body: JSON.stringify({ name, parent_id }),
   });
 }
+
+// ── Briefings ────────────────────────────────────────────────────────
+
+export type BriefingSectionStatus = "auto" | "pinned" | "hybrid";
+export type BriefingProvenance = "auto" | "user_ui" | "agent_mcp";
+
+export interface BriefingSection<C = unknown> {
+  status: BriefingSectionStatus;
+  content: C;
+  provenance: BriefingProvenance;
+  updated_at: string;
+  updated_by: string | null;
+}
+
+export interface BriefingResponse {
+  folder: { id: string; name: string; kind?: "folder" | "repo" };
+  schema_version: number;
+  sections: Record<string, BriefingSection>;
+  last_generated_at: string | null;
+}
+
+export async function fetchBriefing(folderId: string): Promise<BriefingResponse> {
+  return apiFetch(`/api/folders/${folderId}/briefing`);
+}
+
 
 /** Turn a folder into a repo (or rename it, or both). */
 export async function updateFolder(
