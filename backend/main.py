@@ -12,6 +12,7 @@ from db.client import get_supabase
 from routes.api_keys import router as api_keys_router
 from routes.briefing import router as briefing_router
 from routes.chat import router as chat_router
+from routes.cli import router as cli_router
 from routes.context import router as context_router
 from routes.conversations import router as conversations_router
 from routes.documents import router as documents_router
@@ -66,6 +67,7 @@ app.include_router(ingestion_jobs_router)
 app.include_router(mem0_router)
 app.include_router(github_router)
 app.include_router(briefing_router)
+app.include_router(cli_router)
 app.include_router(retrieval_log_router)
 
 

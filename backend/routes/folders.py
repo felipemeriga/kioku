@@ -27,7 +27,8 @@ class CreateFolderRequest(BaseModel):
 
 
 class RenameFolderRequest(BaseModel):
-    name: str
+    name: str | None = None
+    kind: str | None = None  # 'folder' | 'repo' — omit to leave unchanged
 
 
 @router.get("")
@@ -134,33 +135,55 @@ async def create_folder(
 
 
 @router.patch("/{folder_id}")
-async def rename_folder(
+async def update_folder(
     folder_id: str,
     body: RenameFolderRequest,
     user_id: str = Depends(get_current_user),
 ):
-    """Rename a folder."""
-    name = _validate_folder_name(body.name)
+    """Update a folder — name and/or kind. Both are optional; if body has
+    neither, this is a no-op that returns the current row.
+
+    kind='repo' is the CLI's "turn this folder into a repo" affordance —
+    it's the same state that GitHub-connect would set, without requiring
+    a GitHub binding first."""
     sb = get_supabase()
+    updates: dict = {}
 
-    # Look up current parent_id so we can enforce sibling uniqueness under
-    # the same scope (not against the whole tree).
-    existing = (
-        sb.table("folders").select("parent_id")
-        .eq("id", folder_id).eq("user_id", user_id)
-        .limit(1).execute().data
-    )
-    if not existing:
-        raise HTTPException(status_code=404, detail="Folder not found")
+    if body.name is not None:
+        name = _validate_folder_name(body.name)
+        existing = (
+            sb.table("folders").select("parent_id")
+            .eq("id", folder_id).eq("user_id", user_id)
+            .limit(1).execute().data
+        )
+        if not existing:
+            raise HTTPException(status_code=404, detail="Folder not found")
+        _check_unique_sibling(
+            sb, name=name, parent_id=existing[0].get("parent_id"),
+            user_id=user_id, excluding_id=folder_id,
+        )
+        updates["name"] = name
 
-    _check_unique_sibling(
-        sb, name=name, parent_id=existing[0].get("parent_id"),
-        user_id=user_id, excluding_id=folder_id,
-    )
+    if body.kind is not None:
+        if body.kind not in ("folder", "repo"):
+            raise HTTPException(
+                status_code=400,
+                detail="kind must be 'folder' or 'repo'",
+            )
+        updates["kind"] = body.kind
+
+    if not updates:
+        row = (
+            sb.table("folders").select("*")
+            .eq("id", folder_id).eq("user_id", user_id).limit(1).execute().data
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="Folder not found")
+        return row[0]
 
     result = (
         sb.table("folders")
-        .update({"name": name})
+        .update(updates)
         .eq("id", folder_id)
         .eq("user_id", user_id)
         .execute()
