@@ -120,36 +120,34 @@ export async function doctor(): Promise<void> {
     });
   }
 
-  // 5. gh CLI status (optional)
-  let ghStatus: CheckResult = {
-    name: "gh CLI (optional)",
-    ok: false,
-    detail: "Not installed — private repos will need a PAT.",
-    hint: undefined,
-  };
-  try {
-    execFileSync("gh", ["--version"], {
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 2000,
+  // 5. gh CLI status (optional but STRONGLY recommended — it makes
+  //    private-repo auth zero-friction).
+  const { detectGhState, ghInstallCommand } = await import("../lib/github-auth.js");
+  const ghState = detectGhState();
+  if (ghState === "installed-and-logged-in") {
+    checks.push({
+      name: "gh CLI (recommended)",
+      ok: true,
+      detail: "Installed + authenticated",
     });
-    try {
-      execFileSync("gh", ["auth", "token"], {
-        stdio: ["ignore", "pipe", "ignore"],
-        timeout: 2000,
-      });
-      ghStatus = { name: "gh CLI (optional)", ok: true, detail: "Installed + authenticated" };
-    } catch {
-      ghStatus = {
-        name: "gh CLI (optional)",
-        ok: false,
-        detail: "Installed but not authenticated",
-        hint: "Run: gh auth login  (silences PAT prompt for private repos)",
-      };
-    }
-  } catch {
-    // Not installed — the default detail already covers this
+  } else if (ghState === "installed-not-logged-in") {
+    checks.push({
+      name: "gh CLI (recommended)",
+      ok: false,
+      detail: "Installed but not logged in",
+      hint: "Run: gh auth login  (needed for private-repo sync without pasting a PAT)",
+    });
+  } else {
+    const install = ghInstallCommand();
+    checks.push({
+      name: "gh CLI (recommended)",
+      ok: false,
+      detail: "Not installed — private repos will prompt for a PAT",
+      hint: install
+        ? `Install: ${install.label}  (agentic-rag init can do this for you)`
+        : "See https://github.com/cli/cli#installation",
+    });
   }
-  checks.push(ghStatus);
 
   // Print system results
   section("System");

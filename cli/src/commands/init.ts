@@ -273,7 +273,7 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
           pasted: "  (via pasted PAT)",
           none: "",
         } as const)[tokenSource];
-        if (sourceLabel) info(sourceLabel.trim());
+        ok(`GitHub sync configured${sourceLabel ? kleur.dim(sourceLabel) : ""}`);
       } catch (err) {
         warn(
           `GitHub sync couldn't be wired: ${err instanceof Error ? err.message : String(err)}`,
