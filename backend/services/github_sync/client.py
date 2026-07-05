@@ -108,6 +108,52 @@ class GitHubClient:
     def __exit__(self, *a: Any) -> None:
         self.close()
 
+    # ── Raw content fetchers (used by the briefing LLM populators) ────────
+
+    def fetch_file(self, path: str, *, max_bytes: int = 100_000) -> str | None:
+        """Fetch a single file by path. Returns None on 404 / error.
+
+        Uses the /repos/{owner}/{repo}/contents API with the raw accept
+        header — one round-trip regardless of default branch, and it works
+        for private repos via the same token.
+        """
+        try:
+            r = self._client.get(
+                f"/repos/{self.owner}/{self.repo}/contents/{path}",
+                headers={"Accept": "application/vnd.github.raw"},
+            )
+        except Exception:  # noqa: BLE001
+            return None
+        if r.status_code == 200:
+            body = r.text or ""
+            # Cap so a monster README doesn't blow the LLM budget.
+            return body[:max_bytes]
+        return None
+
+    def list_dir(self, path: str = "") -> list[dict]:
+        """List a directory. Each entry: {name, path, type: 'file'|'dir', size}."""
+        try:
+            r = self._client.get(
+                f"/repos/{self.owner}/{self.repo}/contents/{path}",
+                headers={"Accept": "application/vnd.github+json"},
+            )
+        except Exception:  # noqa: BLE001
+            return []
+        if r.status_code != 200:
+            return []
+        data = r.json()
+        if not isinstance(data, list):
+            return []
+        return [
+            {
+                "name": e.get("name"),
+                "path": e.get("path"),
+                "type": e.get("type"),
+                "size": e.get("size", 0),
+            }
+            for e in data
+        ]
+
     def ping(self) -> tuple[bool, str | None]:
         try:
             r = self._client.get(f"/repos/{self.owner}/{self.repo}")

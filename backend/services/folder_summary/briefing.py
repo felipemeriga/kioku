@@ -389,12 +389,39 @@ def merge_briefing(*, existing: dict | None, refresh: dict) -> dict:
 
 def generate_briefing_for_repo(sb, *, folder_id: str, user_id: str) -> dict:
     """Assemble the auto part of a briefing using ONLY mechanical
-    populators. LLM populators (overview, architecture, important_files,
-    how_it_runs, deployment) are Phase 4 — for now they land as empty
-    auto sections and the user can pin their own content via UI/MCP.
+    populators. Fast; safe to call on every regen.
+
+    Use generate_full_briefing_for_repo (async) for a first-time bootstrap
+    or an explicit Full-mode regen — that also runs the 5 LLM populators.
     """
     briefing = empty_briefing()
     briefing["preferences"] = populate_preferences(sb, folder_id=folder_id, user_id=user_id)
     briefing["activity"] = populate_activity(sb, folder_id=folder_id, user_id=user_id)
     briefing["dependencies"] = populate_dependencies(sb, folder_id=folder_id, user_id=user_id)
+    return briefing
+
+
+async def generate_full_briefing_for_repo(sb, *, folder_id: str, user_id: str) -> dict:
+    """Full briefing including the 5 LLM populators. Fired on:
+      - first-time briefing (no previous row exists), OR
+      - explicit mode='full' regen from the user.
+
+    Runs mechanical + LLM populators in parallel. Wall time ≈ slowest
+    single Haiku call (~1.5-3s) rather than the sum.
+    """
+    from services.folder_summary.llm_populators import run_llm_populators  # local: cycle-free
+
+    briefing = empty_briefing()
+    # Mechanical populators are cheap — run inline first so the rest of
+    # the merge logic sees them in place.
+    briefing["preferences"] = populate_preferences(sb, folder_id=folder_id, user_id=user_id)
+    briefing["activity"] = populate_activity(sb, folder_id=folder_id, user_id=user_id)
+    briefing["dependencies"] = populate_dependencies(sb, folder_id=folder_id, user_id=user_id)
+    # LLM populators — fan out concurrently.
+    llm = await run_llm_populators(sb, folder_id=folder_id, user_id=user_id)
+    briefing["overview"] = llm.overview
+    briefing["architecture"] = llm.architecture
+    briefing["important_files"] = llm.important_files
+    briefing["how_it_runs"] = llm.how_it_runs
+    briefing["deployment"] = llm.deployment
     return briefing

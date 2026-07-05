@@ -185,10 +185,32 @@ async def reset_briefing_section(
     sb = get_supabase()
     _folder_must_be_repo(sb, folder_id, user_id)
     sections = _current_briefing(sb, folder_id, user_id)
-    # Regenerate ONLY this section from the mechanical populator; leaves
-    # everything else pinned/untouched.
-    refresh = generate_briefing_for_repo(sb, folder_id=folder_id, user_id=user_id)
-    sections[section_name] = refresh.get(section_name, sections[section_name])
+
+    # Sections that have LLM populators get a fresh Haiku call. Others
+    # (preferences / activity / dependencies) get their mechanical populator.
+    llm_populated = {"overview", "architecture", "important_files",
+                     "how_it_runs", "deployment"}
+    if section_name in llm_populated:
+        from services.folder_summary.llm_populators import (
+            populate_overview, populate_architecture,
+            populate_important_files, populate_how_it_runs,
+            populate_deployment,
+        )
+        populators = {
+            "overview": populate_overview,
+            "architecture": populate_architecture,
+            "important_files": populate_important_files,
+            "how_it_runs": populate_how_it_runs,
+            "deployment": populate_deployment,
+        }
+        sections[section_name] = populators[section_name](
+            sb, folder_id=folder_id, user_id=user_id,
+        )
+    else:
+        refresh = generate_briefing_for_repo(
+            sb, folder_id=folder_id, user_id=user_id,
+        )
+        sections[section_name] = refresh.get(section_name, sections[section_name])
     sections[section_name]["status"] = "auto"
     sections[section_name]["provenance"] = "auto"
     sections[section_name]["updated_by"] = None

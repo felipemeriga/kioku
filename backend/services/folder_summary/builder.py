@@ -255,17 +255,31 @@ async def generate_folder_summary(
     folder_name = folder["name"]
     folder_path = get_folder_path(sb, folder_id, user_id) or folder_name
 
-    # Repo folders get the strict briefing schema — mechanical populators
-    # today, LLM populators in Phase 4. Skip the leaf/rollup path entirely.
+    # Repo folders get the strict briefing schema.
     if (folder.get("kind") or "folder") == "repo":
         from services.folder_summary.briefing import (
             BRIEFING_SCHEMA_VERSION,
             generate_briefing_for_repo,
+            generate_full_briefing_for_repo,
             merge_briefing,
         )
         latest_briefing = get_latest_summary(sb, folder_id, user_id)
-        refresh = generate_briefing_for_repo(sb, folder_id=folder_id, user_id=user_id)
-        existing_sections = (latest_briefing or {}).get("sections")
+        existing_sections = (
+            (latest_briefing or {}).get("sections")
+            or ((latest_briefing or {}).get("content") or {}).get("sections")
+        )
+        # Fire the LLM populators when:
+        #  - the user asked for a full rebuild explicitly, OR
+        #  - this folder has never had a briefing (first bootstrap).
+        run_llm = (mode == "full") or (existing_sections is None)
+        if run_llm:
+            refresh = await generate_full_briefing_for_repo(
+                sb, folder_id=folder_id, user_id=user_id,
+            )
+        else:
+            refresh = generate_briefing_for_repo(
+                sb, folder_id=folder_id, user_id=user_id,
+            )
         merged = merge_briefing(existing=existing_sections, refresh=refresh)
         row = _insert_briefing_row(
             sb,
