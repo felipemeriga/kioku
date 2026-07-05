@@ -525,8 +525,12 @@ export async function renameFolder(
   return res.json();
 }
 
-export async function deleteFolder(folderId: string): Promise<void> {
-  await apiFetch(`/api/folders/${folderId}`, { method: "DELETE" });
+export async function deleteFolder(
+  folderId: string,
+  deleteDocs: boolean = false
+): Promise<void> {
+  const q = deleteDocs ? "?delete_docs=true" : "";
+  await apiFetch(`/api/folders/${folderId}${q}`, { method: "DELETE" });
 }
 
 export async function fetchBreadcrumbs(
