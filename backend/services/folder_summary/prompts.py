@@ -97,6 +97,23 @@ DELTA_ROLLUP_TOOL: dict[str, Any] = {
 }
 
 
+# Workspace rollup: same emit shape as leaf rollups, but the model composes it
+# from CHILD-FOLDER summaries rather than doc summaries. Keeping the schema
+# identical means MCP + frontend see the same top-level fields; the extra
+# `subfolders[]` metadata is attached at persistence time from the child rows
+# themselves (no LLM needed for structured drilldown).
+WORKSPACE_ROLLUP_TOOL: dict[str, Any] = {
+    "name": "emit_folder_summary",
+    "description": (
+        "Emit a workspace-level structured summary of a container folder, "
+        "synthesized from the summaries of its direct subfolders. The result "
+        "should read as a workspace briefing — what this workspace is, how the "
+        "subfolders fit together, and what an agent should know to navigate."
+    ),
+    "input_schema": _FOLDER_SUMMARY_INPUT_SCHEMA,
+}
+
+
 # ---------- System prompts ----------
 
 DOC_SUMMARY_SYSTEM = (
@@ -135,6 +152,36 @@ FULL_ROLLUP_SYSTEM = (
 )
 
 
+WORKSPACE_ROLLUP_SYSTEM = (
+    "You are producing a WORKSPACE briefing for a container folder — one whose "
+    "direct content is nearly empty but which contains subfolders that are the "
+    "real projects, teams, or areas of work. Think of it like a company handbook "
+    "root, a monorepo root, or a Notion workspace root.\n\n"
+    "You will be given the folder metadata and the compact summary of EACH "
+    "direct subfolder (purpose, overview, key facts). Your job is to synthesize "
+    "a unified briefing that:\n\n"
+    "- purpose: one sentence saying what this workspace is for as a whole.\n"
+    "- overview: 2-4 sentences describing how the subfolders fit together — what "
+    "they collectively represent, and any obvious grouping.\n"
+    "- key_facts: 4-8 concrete facts that span the workspace. Prefer cross-cutting "
+    "observations (e.g. 'all projects use Python 3.10+', 'three of the five "
+    "subfolders are internal tools, two are public') over per-subfolder trivia.\n"
+    "- gotchas: things a fresh agent should know before diving in — conventions, "
+    "known drift, integration boundaries. Not generic warnings.\n"
+    "- key_documents: ONLY populate if there are documents directly in this "
+    "folder (rare for containers). Otherwise emit an empty array.\n"
+    "- themes: an ARRAY of {name, description} objects — top themes across the "
+    "workspace.\n\n"
+    "Rules:\n"
+    "- Name the subfolders by their real names. Never say 'various subfolders'.\n"
+    "- Do not invent content that isn't in a child summary.\n"
+    "- If two child summaries contradict, prefer the more specific/recent one.\n\n"
+    "FORMATTING RULES:\n"
+    "- key_facts, entities, gotchas are ARRAYS of strings, not <item> XML.\n"
+    "- Call the emit_folder_summary tool exactly once."
+)
+
+
 DELTA_ROLLUP_SYSTEM = (
     "You are patching an existing folder summary to reflect changes. The previous "
     "summary is provided as JSON; you also receive lists of added, modified, and "
@@ -169,6 +216,38 @@ def build_doc_summary_message(filename: str, content: str, max_chars: int = 1200
             "role": "user",
             "content": (
                 f"Filename: {filename}\n\n---BEGIN DOCUMENT---\n{content}\n---END DOCUMENT---"
+            ),
+        }
+    ]
+
+
+def build_workspace_rollup_message(
+    folder_name: str,
+    folder_path: str,
+    subfolder_summaries: list[dict],
+    pooled_activity: dict | None = None,
+) -> list[dict]:
+    """User message for the workspace-rollup call.
+
+    subfolder_summaries: list of {name, purpose, overview, key_facts,
+      key_documents, doc_count, has_mem0, has_github, has_notion}.
+    pooled_activity: optional {recent_commits: [...], recent_learnings: [...]}
+      pooled across the entire subtree so the model can mention momentum.
+    """
+    payload = {
+        "folder": {"name": folder_name, "path": folder_path},
+        "subfolders": subfolder_summaries,
+        "recent_activity_pool": pooled_activity or {},
+    }
+    return [
+        {
+            "role": "user",
+            "content": (
+                f"Compose a workspace briefing for '{folder_name}'. It contains "
+                f"{len(subfolder_summaries)} direct subfolders, each with its own "
+                f"summary. Synthesize a unified overview that shows how they fit "
+                f"together.\n\n"
+                + json.dumps(payload, ensure_ascii=False, indent=2)
             ),
         }
     ]

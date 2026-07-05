@@ -269,9 +269,26 @@ async def get_folder_summary(
         raise HTTPException(status_code=404, detail="Folder not found")
 
     latest = get_latest_summary(sb, folder_id, user_id)
+
+    # For container / workspace-rollup summaries, hand the frontend the
+    # structured subfolder index so the Folder Detail page can render the
+    # workspace grid without a second round-trip.
+    subfolders_index = None
+    if latest and latest.get("kind") == "workspace_rollup":
+        try:
+            from services.folder_summary.rollup import (
+                build_workspace_orientation_payload,
+            )
+            subfolders_index = build_workspace_orientation_payload(
+                sb, folder_id=folder_id, user_id=user_id, latest_row=latest,
+            )["subfolders"]
+        except Exception:  # noqa: BLE001
+            pass
+
     return {
         "folder": folder,
         "summary": latest,
+        "subfolders": subfolders_index,
     }
 
 

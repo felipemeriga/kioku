@@ -255,6 +255,18 @@ async def generate_folder_summary(
     folder_name = folder["name"]
     folder_path = get_folder_path(sb, folder_id, user_id) or folder_name
 
+    # Container folders (e.g. 'cosm' which is just a bucket for c360-lead/,
+    # h265/, nba/, smt/, Tiled Media/) get a workspace rollup instead of a
+    # leaf summary. Detection: has subfolders AND ≤2 direct docs. The
+    # rollup synthesizes the workspace briefing from the direct children's
+    # own summaries.
+    from services.folder_summary.repo import is_container_folder  # local: cycle-free
+    if is_container_folder(sb, folder_id, user_id):
+        from services.folder_summary.rollup import generate_workspace_rollup
+        return await generate_workspace_rollup(
+            sb, folder_id=folder_id, user_id=user_id, mode=mode, trigger=trigger,
+        )
+
     docs = get_docs_in_subtree(sb, folder_id, user_id)
     current_manifest = [{"filename": d["source_filename"], "hash": d["content_hash"]} for d in docs]
 

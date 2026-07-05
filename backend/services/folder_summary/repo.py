@@ -53,6 +53,34 @@ def get_direct_subfolders(sb, folder_id: str, user_id: str) -> list[dict]:
     return r.data or []
 
 
+def count_direct_docs(sb, folder_id: str, user_id: str) -> int:
+    """Documents whose folder_id == this folder (NOT descendants). Cheap: a
+    HEAD count query with the (user_id, folder_id) index."""
+    r = (
+        sb.table("documents")
+        .select("id", count="exact", head=True)
+        .eq("user_id", user_id)
+        .eq("folder_id", folder_id)
+        .eq("status", "completed")
+        .execute()
+    )
+    return r.count or 0
+
+
+# A folder is treated as a "container" (aka workspace root) when it has at
+# least one subfolder and very few direct docs. That covers the mental
+# model of a company/monorepo/notion-workspace root: the real content lives
+# a level down under c360-lead/, h265/, nba/, etc.
+_CONTAINER_MAX_DIRECT_DOCS = 2
+
+
+def is_container_folder(sb, folder_id: str, user_id: str) -> bool:
+    subs = get_direct_subfolders(sb, folder_id, user_id)
+    if not subs:
+        return False
+    return count_direct_docs(sb, folder_id, user_id) <= _CONTAINER_MAX_DIRECT_DOCS
+
+
 def get_folder_path(sb, folder_id: str, user_id: str) -> str:
     """Slash-joined breadcrumb from root down to this folder, e.g. 'Projects/agentic-rag'."""
     parts: list[str] = []
