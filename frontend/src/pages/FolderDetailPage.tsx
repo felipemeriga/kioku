@@ -45,9 +45,11 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import AddIcon from "@mui/icons-material/Add";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import { useNavigate, useParams } from "react-router-dom";
 
 import FolderSummaryPanel from "../components/FolderSummaryPanel";
+import BriefingPanel from "../components/BriefingPanel";
 import FolderIntegrationsDialog from "../components/FolderIntegrationsDialog";
 import { useToast } from "../components/ToastProvider";
 import {
@@ -90,7 +92,9 @@ export default function FolderDetailPage() {
   const [loadingDocs, setLoadingDocs] = useState(false);
   const [selectedDoc, setSelectedDoc] = useState<DocumentContent | null>(null);
   const [loadingDoc, setLoadingDoc] = useState(false);
-  const [tab, setTab] = useState<"summary" | "documents" | "memory">("summary");
+  const [tab, setTab] = useState<
+    "summary" | "briefing" | "documents" | "memory"
+  >("summary");
 
   // Load folder metadata
   useEffect(() => {
@@ -335,6 +339,9 @@ export default function FolderDetailPage() {
         sx={{ borderBottom: `1px solid ${brand.line}`, px: 2 }}
       >
         <Tab value="summary" label="Summary" icon={<AutoAwesomeIcon fontSize="small" />} iconPosition="start" />
+        {folder?.kind === "repo" && (
+          <Tab value="briefing" label="Briefing" icon={<AccountTreeIcon fontSize="small" />} iconPosition="start" />
+        )}
         <Tab value="documents" label={`Documents (${documents.length})`} icon={<DescriptionIcon fontSize="small" />} iconPosition="start" />
         <Tab value="memory" label={`Memory (${memories.length})`} icon={<PsychologyIcon fontSize="small" />} iconPosition="start" />
       </Tabs>
@@ -345,6 +352,10 @@ export default function FolderDetailPage() {
             folderId={folderId}
             folderName={folder?.name ?? "this folder"}
           />
+        )}
+
+        {tab === "briefing" && folder?.kind === "repo" && (
+          <BriefingPanel folderId={folderId} />
         )}
 
         {tab === "documents" && (
