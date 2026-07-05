@@ -21,6 +21,25 @@ export interface Folder {
   created_at: string;
 }
 
+/**
+ * Rich error class so command handlers can distinguish transport errors
+ * (backend down) from auth errors (session expired) from real 400/500s
+ * and format a helpful message per case.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly kind: "unreachable" | "unauthorized" | "http";
+  readonly hint: string | undefined;
+
+  constructor(msg: string, opts: { status?: number; kind?: ApiError["kind"]; hint?: string } = {}) {
+    super(msg);
+    this.name = "ApiError";
+    this.status = opts.status ?? 0;
+    this.kind = opts.kind ?? "http";
+    this.hint = opts.hint;
+  }
+}
+
 async function apiFetch<T>(
   path: string,
   init: RequestInit & { auth?: boolean } = {},
@@ -35,7 +54,26 @@ async function apiFetch<T>(
   if (auth && cfg.access_token) {
     headers["Authorization"] = `Bearer ${cfg.access_token}`;
   }
-  const res = await fetch(url, { ...init, headers });
+  let res: Response;
+  try {
+    res = await fetch(url, { ...init, headers });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // Node's fetch throws with 'fetch failed' and cause: {code:'ECONNREFUSED', ...}
+    // — surface something the user can act on.
+    const isRefused =
+      msg.includes("ECONNREFUSED") ||
+      msg.includes("connect ECONN") ||
+      // fetch failed on Node without a body means the socket died
+      msg.includes("fetch failed") ||
+      msg.includes("getaddrinfo");
+    throw new ApiError(`Couldn't reach ${cfg.api_base}: ${msg}`, {
+      kind: "unreachable",
+      hint: isRefused
+        ? `Is the backend running at ${cfg.api_base}? Start it, or export AGENTIC_RAG_API_BASE=https://your-prod-url.`
+        : `Check your network + AGENTIC_RAG_API_BASE (currently ${cfg.api_base}).`,
+    });
+  }
   if (!res.ok) {
     const text = await res.text();
     let detail = text;
@@ -44,7 +82,17 @@ async function apiFetch<T>(
     } catch {
       // not JSON
     }
-    throw new Error(`${res.status} ${res.statusText}: ${detail}`);
+    if (res.status === 401 || res.status === 403) {
+      throw new ApiError(`Session expired (${res.status}): ${detail}`, {
+        status: res.status,
+        kind: "unauthorized",
+        hint: "Run: agentic-rag login",
+      });
+    }
+    throw new ApiError(`${res.status} ${res.statusText}: ${detail}`, {
+      status: res.status,
+      kind: "http",
+    });
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;

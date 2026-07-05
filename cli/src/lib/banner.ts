@@ -67,6 +67,62 @@ export function info(msg: string): void {
   console.log(`  ${DIM("·")} ${DIM(msg)}`);
 }
 
+/**
+ * Pretty-print an ApiError (or any error) with an actionable hint.
+ * Keeps the exit path in each command handler to a single line.
+ */
+export function printError(err: unknown): void {
+  const msg = err instanceof Error ? err.message : String(err);
+  console.log();
+  console.log(`  ${kleur.red("✗")} ${msg}`);
+  const anyErr = err as { hint?: string };
+  if (anyErr?.hint) {
+    console.log(`    ${DIM(anyErr.hint)}`);
+  }
+  console.log();
+}
+
+/**
+ * Long-running work indicator. Prints "  ⋯ msg" and returns a function
+ * that erases the line and prints "  ✓ msg" (or "  ✗ msg" on error). We
+ * don't take an `ora` dependency because a single spinner char is enough
+ * for our 2-5s calls and it keeps the binary tiny.
+ */
+export async function step<T>(msg: string, fn: () => Promise<T>): Promise<T> {
+  const isTTY = process.stdout.isTTY;
+  const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+  let i = 0;
+  const start = Date.now();
+  const draw = (frame: string) => {
+    if (!isTTY) return;
+    process.stdout.write(`\r  ${VIOLET(frame)} ${msg}`);
+  };
+  const timer = isTTY
+    ? setInterval(() => {
+        i = (i + 1) % frames.length;
+        draw(frames[i]);
+      }, 90)
+    : null;
+  if (!isTTY) console.log(`  ${DIM("·")} ${DIM(msg)}`);
+  else draw(frames[0]);
+  try {
+    const result = await fn();
+    if (timer) clearInterval(timer);
+    if (isTTY) {
+      const elapsed = Date.now() - start;
+      const suffix = elapsed > 800 ? DIM(`  (${Math.round(elapsed / 100) / 10}s)`) : "";
+      process.stdout.write(
+        `\r  ${kleur.green("✓")} ${msg}${suffix}\x1b[K\n`,
+      );
+    }
+    return result;
+  } catch (err) {
+    if (timer) clearInterval(timer);
+    if (isTTY) process.stdout.write(`\r  ${kleur.red("✗")} ${msg}\x1b[K\n`);
+    throw err;
+  }
+}
+
 /** For the boxed panel around the "logged in" success state. */
 export function box(lines: string[]): void {
   const width = Math.max(...lines.map((l) => stripAnsi(l).length));

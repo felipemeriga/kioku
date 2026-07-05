@@ -25,7 +25,7 @@ import {
   writeCaptureState,
   writeMcpConfig,
 } from "../lib/claude.js";
-import { bad, box, info, ok, section, warn } from "../lib/banner.js";
+import { bad, box, info, ok, section, step, warn } from "../lib/banner.js";
 
 interface InitOptions {
   yes?: boolean;
@@ -56,53 +56,96 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
       : "No remote configured — GitHub sync will be skipped.",
   );
 
-  // Step 1: pick a root folder
+  // Step 1: pick a root folder.
+  //
+  // Smart-default ladder — take the shortest path that doesn't ask a
+  // question the user can't obviously answer:
+  //   1. --root flag → use it (fail if missing)
+  //   2. Only 1 root exists → use it silently
+  //   3. A root name matches the GitHub owner → use it silently (this
+  //      is the common case: 'personal' repo owner, 'personal' root)
+  //   4. Nothing exists yet → auto-create a root named after the
+  //      GitHub owner (or 'personal') and skip the prompt with --yes
+  //   5. Otherwise → prompt with all the existing roots
   const w = await whoami();
-  if (w.root_folders.length === 0) {
-    // First-time flow: no roots exist yet. Suggest the GitHub owner as
-    // the root name (falling back to 'personal'), since that's usually
-    // a company or username that groups multiple repos.
-    const suggested = git.owner ?? "personal";
-    info("You have no root folders yet. A root usually represents a company or a personal workspace.");
-    const name = await input({
-      message: "Name for your first root:",
-      default: suggested,
-    });
-    const created = await createFolder(name.trim(), null);
-    w.root_folders.push({
-      id: created.id,
-      name: created.name,
-      kind: (created.kind as "folder" | "repo") ?? "folder",
-      parent_id: null,
-    });
-  }
   let rootId: string | undefined;
+
   if (opts.root) {
     const hit = w.root_folders.find(
       (f) => f.name.toLowerCase() === opts.root!.toLowerCase() || f.id === opts.root,
     );
     if (!hit) {
-      console.log(kleur.red(`No root folder named "${opts.root}"`));
-      process.exitCode = 1;
-      return;
+      throw new Error(
+        `No root folder named "${opts.root}". Run without --root to pick from the list.`,
+      );
     }
     rootId = hit.id;
-  } else {
-    rootId = await select({
-      message: "Which root folder does this repo belong to?",
-      choices: [
-        ...w.root_folders.map((f) => ({ name: `${f.name}${f.kind === "repo" ? " (repo)" : ""}`, value: f.id })),
-        { name: kleur.dim("+ create a new root"), value: "__create__" },
-      ],
-    });
-    if (rootId === "__create__") {
-      const name = await input({ message: "New root folder name:" });
-      const created = await createFolder(name.trim(), null);
+    info(`Using root "${hit.name}"`);
+  } else if (w.root_folders.length === 0) {
+    // First-time flow — auto-name after the git owner.
+    const name = (git.owner ?? "personal").trim();
+    if (opts.yes) {
+      const created = await createFolder(name, null);
       rootId = created.id;
       w.root_folders.push({
         id: created.id, name: created.name,
-        kind: "folder", parent_id: null,
+        kind: (created.kind as "folder" | "repo") ?? "folder",
+        parent_id: null,
       });
+      info(`Created your first root: "${name}"`);
+    } else {
+      const chosenName = await input({
+        message: "Name for your first root:",
+        default: name,
+      });
+      const created = await createFolder(chosenName.trim(), null);
+      rootId = created.id;
+      w.root_folders.push({
+        id: created.id, name: created.name,
+        kind: (created.kind as "folder" | "repo") ?? "folder",
+        parent_id: null,
+      });
+    }
+  } else if (w.root_folders.length === 1) {
+    rootId = w.root_folders[0].id;
+    info(`Using your only root "${w.root_folders[0].name}"`);
+  } else {
+    // Multiple roots — try to auto-pick if the git owner matches one.
+    const ownerLower = git.owner?.toLowerCase();
+    const ownerMatch = ownerLower
+      ? w.root_folders.find((f) => f.name.toLowerCase() === ownerLower)
+      : undefined;
+    if (ownerMatch && opts.yes) {
+      rootId = ownerMatch.id;
+      info(`Using root "${ownerMatch.name}" (matches your GitHub owner)`);
+    } else {
+      rootId = await select<string>({
+        message: "Which root does this repo belong to?",
+        default: ownerMatch?.id,
+        choices: [
+          ...w.root_folders.map((f) => ({
+            name:
+              (ownerMatch && f.id === ownerMatch.id
+                ? `${f.name}  ${kleur.dim("(matches your GitHub owner)")}`
+                : f.name) +
+              (f.kind === "repo" ? kleur.dim(" (repo)") : ""),
+            value: f.id,
+          })),
+          { name: kleur.dim("+ create a new root"), value: "__create__" },
+        ],
+      });
+      if (rootId === "__create__") {
+        const name = await input({
+          message: "New root folder name:",
+          default: git.owner ?? "personal",
+        });
+        const created = await createFolder(name.trim(), null);
+        rootId = created.id;
+        w.root_folders.push({
+          id: created.id, name: created.name,
+          kind: "folder", parent_id: null,
+        });
+      }
     }
   }
 
@@ -120,10 +163,18 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
   );
 
   let repoFolder: Folder;
-  if (opts.yes && nameMatch) {
+  if (nameMatch && (opts.yes || nameMatch.kind === "repo")) {
+    // Silent attach when either --yes is set OR the match is already a
+    // repo (there's no other reasonable interpretation than 'reuse it').
     repoFolder = nameMatch;
-    info(`Attaching to existing folder "${repoFolder.name}"`);
+    info(
+      `Attaching to existing ${nameMatch.kind === "repo" ? "repo" : "folder"} "${repoFolder.name}"`,
+    );
   } else if (opts.yes && !nameMatch) {
+    info(`Creating folder "${desiredName}"…`);
+    repoFolder = await createFolder(desiredName, rootId!);
+  } else if (!nameMatch && children.length === 0) {
+    // Empty root — obvious answer: create the folder now, no picker.
     info(`Creating folder "${desiredName}"…`);
     repoFolder = await createFolder(desiredName, rootId!);
   } else {
@@ -208,19 +259,21 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
       }
 
       try {
-        await connectGitHub({
-          root_folder_id: repoFolder.id,
-          repo_url: `${git.owner}/${git.repo}`,
-          token: token || undefined,
-          since_days: 30,
-        });
+        await step("Connecting to GitHub", () =>
+          connectGitHub({
+            root_folder_id: repoFolder.id,
+            repo_url: `${git.owner}/${git.repo}`,
+            token: token || undefined,
+            since_days: 30,
+          }),
+        );
         const sourceLabel = ({
           "gh-cli": "  (via gh CLI)",
           env: "  (via env var)",
           pasted: "  (via pasted PAT)",
           none: "",
         } as const)[tokenSource];
-        ok(`GitHub sync configured${sourceLabel ? kleur.dim(sourceLabel) : ""}`);
+        if (sourceLabel) info(sourceLabel.trim());
       } catch (err) {
         warn(
           `GitHub sync couldn't be wired: ${err instanceof Error ? err.message : String(err)}`,
@@ -232,12 +285,12 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
 
   // Step 4: mint an api key scoped to the ROOT (so Claude Code can drill
   // sibling repos in this workspace).
-  info("Minting API key scoped to root…");
-  const key = await mintScopedApiKey({
-    scope_folder_id: rootId!,
-    name: `cli-${desiredName}-${new Date().toISOString().slice(0, 10)}`,
-  });
-  ok(`API key created  ${kleur.dim(key.id.slice(0, 8) + "…")}`);
+  const key = await step("Minting API key", () =>
+    mintScopedApiKey({
+      scope_folder_id: rootId!,
+      name: `cli-${desiredName}-${new Date().toISOString().slice(0, 10)}`,
+    }),
+  );
 
   // Step 5: write .mcp.json
   const mcpEntry = (key.mcp_config as {

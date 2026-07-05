@@ -2,11 +2,12 @@
 import { Command } from "commander";
 import kleur from "kleur";
 import { capture } from "./commands/capture.js";
+import { doctor } from "./commands/doctor.js";
 import { login } from "./commands/login.js";
 import { init } from "./commands/init.js";
 import { sessionStart } from "./commands/session-start.js";
 import { status } from "./commands/status.js";
-import { banner } from "./lib/banner.js";
+import { banner, printError } from "./lib/banner.js";
 
 const program = new Command();
 
@@ -25,7 +26,7 @@ program
     try {
       await login();
     } catch (err) {
-      console.error(kleur.red("✗ ") + (err instanceof Error ? err.message : err));
+      printError(err);
       process.exitCode = 1;
     }
   });
@@ -42,7 +43,7 @@ program
     try {
       await init(process.cwd(), opts);
     } catch (err) {
-      console.error(kleur.red("✗ ") + (err instanceof Error ? err.message : err));
+      printError(err);
       process.exitCode = 1;
     }
   });
@@ -74,13 +75,26 @@ program
   });
 
 program
+  .command("doctor")
+  .description("Run health checks — backend, MCP, session, per-repo files")
+  .action(async () => {
+    banner();
+    try {
+      await doctor();
+    } catch (err) {
+      printError(err);
+      process.exitCode = 1;
+    }
+  });
+
+program
   .command("status")
   .description("Show login + repo binding status")
   .action(async () => {
     try {
       await status();
     } catch (err) {
-      console.error(kleur.red("✗ ") + (err instanceof Error ? err.message : err));
+      printError(err);
       process.exitCode = 1;
     }
   });
