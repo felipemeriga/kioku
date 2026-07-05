@@ -349,6 +349,79 @@ async def session_capture(body: SessionCaptureRequest, request: Request):
     return {"ok": True, "count": len(saved), "memories": saved}
 
 
+class SearchRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=2000)
+    folder_id: str | None = None  # narrow to this subtree; default = key's scope
+    limit: int = Field(default=5, ge=1, le=25)
+
+
+@router.post("/search")
+async def search(body: SearchRequest, request: Request):
+    """Knowledge-base search from the CLI. Api-key auth. Uses the same
+    fanout_search backend that MCP knowledge_base_search uses — docs +
+    Mem0 in one call — so terminal results match what Claude Code
+    would see for the same query.
+    """
+    import hashlib
+    from fastapi import HTTPException as HE
+
+    from mcp_server import _descendant_folder_ids
+    from services.embeddings import embed_query
+    from services.mem0_sync.fanout import fanout_search
+
+    auth = request.headers.get("Authorization") or ""
+    if not auth.startswith("Bearer rag_"):
+        raise HE(status_code=401, detail="Bearer api key required")
+    key = auth[len("Bearer "):]
+    key_hash = hashlib.sha256(key.encode()).hexdigest()
+    sb = get_supabase()
+    row = (
+        sb.table("api_keys").select("user_id, scope_folder_id")
+        .eq("key_hash", key_hash).limit(1).execute().data
+    )
+    if not row or not row[0].get("scope_folder_id"):
+        raise HE(status_code=401, detail="Invalid or unscoped api key")
+    user_id = row[0]["user_id"]
+    scope_id = row[0]["scope_folder_id"]
+
+    # Narrow to sub-folder if requested; ensure it's inside scope
+    target = body.folder_id or scope_id
+    subtree = _descendant_folder_ids(sb, scope_id, user_id)
+    if target not in subtree:
+        raise HE(
+            status_code=403,
+            detail=f"folder_id {target!r} not in api-key scope",
+        )
+
+    # Embed + fanout
+    embedding = embed_query(body.query)
+    result = await fanout_search(
+        sb,
+        embedding=embedding,
+        query_text=body.query,
+        user_id=user_id,
+        folder_id=target,
+        limit=body.limit,
+        channel="cli",
+    )
+    hits = []
+    for h in result.hits[: body.limit]:
+        md = h.metadata or {}
+        hits.append({
+            "source": h.source,
+            "content": (h.content or "")[:1200],
+            "similarity": h.score if h.score is not None else 0.0,
+            "filename": md.get("source_filename"),
+            "category": md.get("category"),
+            "created_at": md.get("created_at"),
+        })
+    return {
+        "query": body.query,
+        "folder_id": target,
+        "hits": hits,
+    }
+
+
 @router.get("/scope-info")
 async def scope_info(request: Request):
     """Compact scope summary for the SessionStart hook — auth via the

@@ -8,10 +8,32 @@ import { init } from "./commands/init.js";
 import { login } from "./commands/login.js";
 import { logout } from "./commands/logout.js";
 import { ls } from "./commands/ls.js";
+import { openCmd } from "./commands/open.js";
 import { quickstart } from "./commands/quickstart.js";
+import { search } from "./commands/search.js";
 import { sessionStart } from "./commands/session-start.js";
 import { status } from "./commands/status.js";
+import { welcome } from "./commands/welcome.js";
+import { whoami } from "./commands/whoami.js";
 import { banner, printError } from "./lib/banner.js";
+import { checkForUpdate } from "./lib/update-check.js";
+
+const VERSION = "0.1.0";
+
+// Verbose --version — intercept before commander shows the plain number.
+if (process.argv.includes("-V") || process.argv.includes("--version")) {
+  const cfgPath =
+    process.env.XDG_CONFIG_HOME
+      ? `${process.env.XDG_CONFIG_HOME}/agentic-rag/config.json`
+      : `${process.env.HOME}/.config/agentic-rag/config.json`;
+  console.log(`agentic-rag  ${VERSION}`);
+  console.log(`  node       ${process.version}`);
+  console.log(`  platform   ${process.platform}-${process.arch}`);
+  console.log(`  config     ${cfgPath}`);
+  const apiBase = process.env.AGENTIC_RAG_API_BASE || "http://localhost:8000";
+  console.log(`  api base   ${apiBase}`);
+  process.exit(0);
+}
 
 const program = new Command();
 
@@ -20,7 +42,11 @@ program
   .description(
     "Wire a local repo to your agentic-rag second-brain — MCP, SessionStart hook, CLAUDE.md.",
   )
-  .version("0.1.0")
+  .version(
+    VERSION,
+    "-V, --version",
+    "Show version + runtime info",
+  )
   // Global flags — read early so every command respects them.
   .option("--quiet", "Suppress banner and progress lines")
   .option("--no-color", "Disable ANSI colors (same as NO_COLOR=1)")
@@ -231,6 +257,69 @@ Examples:
   });
 
 program
+  .command("whoami")
+  .description("Print the signed-in email + user id")
+  .option("--json", "Machine-readable JSON output")
+  .action(async (opts) => {
+    try {
+      await whoami(opts);
+    } catch (err) {
+      printError(err);
+      process.exitCode = 1;
+    }
+  });
+
+program
+  .command("open [target]")
+  .description("Open the web UI in a browser — this repo's folder if wired")
+  .option("--json", "Print the URL instead of opening")
+  .addHelpText(
+    "after",
+    `
+Examples:
+  $ agentic-rag open                    # opens the current repo's folder
+  $ agentic-rag open personal           # opens the 'personal' root by id/name
+  $ agentic-rag open --json | jq -r .url
+`,
+  )
+  .action(async (target, opts) => {
+    if (!opts.json) banner();
+    try {
+      await openCmd(target, opts);
+    } catch (err) {
+      printError(err);
+      process.exitCode = 1;
+    }
+  });
+
+program
+  .command("search <query...>")
+  .description(
+    "Search the knowledge base + memory — same tool Claude Code uses",
+  )
+  .option("--json", "Machine-readable JSON output")
+  .option("--limit <n>", "How many hits to return (1-25, default 5)")
+  .option("--folder <name>", "Narrow to a specific folder inside your scope")
+  .addHelpText(
+    "after",
+    `
+Examples:
+  $ agentic-rag search how does deploy work
+  $ agentic-rag search --limit 10 mem0 filter grammar
+  $ agentic-rag search --json 'ruff format' | jq '.hits[0]'
+`,
+  )
+  .action(async (queryParts, opts) => {
+    if (!opts.json) banner();
+    try {
+      await search(queryParts.join(" "), opts);
+    } catch (err) {
+      printError(err);
+      process.exitCode = 1;
+    }
+  });
+
+program
   .command("status")
   .description("Show login + repo binding status")
   .action(async () => {
@@ -242,4 +331,20 @@ program
     }
   });
 
-program.parseAsync(process.argv);
+// Bare `agentic-rag` (no subcommand) → smart welcome instead of --help.
+// Users don't want to read a full command list to know what to do next.
+if (process.argv.length <= 2) {
+  banner();
+  welcome()
+    .then(() => checkForUpdate(VERSION))
+    .catch((err) => {
+      printError(err);
+      process.exitCode = 1;
+    });
+} else {
+  program.parseAsync(process.argv).then(() => {
+    // Fire-and-forget update check AFTER the main command finishes so
+    // we don't add latency to hot-path commands.
+    void checkForUpdate(VERSION);
+  });
+}
