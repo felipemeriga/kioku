@@ -48,6 +48,192 @@ def _verify_api_key(key: str) -> tuple[str, str] | None:
     return None
 
 
+def _descendant_folder_ids(sb, root_id: str, user_id: str) -> list[str]:
+    """BFS the folders tree — returns root_id + all descendants (inclusive).
+    Uses the existing user_id filter at each hop so a misconfigured
+    parent_id can never leak another user's folder into the traversal."""
+    result = [root_id]
+    frontier = [root_id]
+    while frontier:
+        r = (
+            sb.table("folders").select("id")
+            .in_("parent_id", frontier).eq("user_id", user_id).execute()
+            .data or []
+        )
+        next_ids = [row["id"] for row in r]
+        if not next_ids:
+            break
+        result.extend(next_ids)
+        frontier = next_ids
+    return result
+
+
+def resolve_focus_folder(
+    sb, *, scope_folder_id: str, user_id: str, focus: str | None,
+) -> tuple[str, str] | tuple[None, str]:
+    """Resolve an optional focus arg to (folder_id, folder_name).
+
+    `focus` accepts three forms:
+      - None → the scope folder itself.
+      - A UUID → looked up directly; must be scope or a descendant.
+      - A plain name like 'c360-lead' or slash-path like 'cosm/c360-lead'
+        → BFS the subtree, case-insensitive match on the leaf name (or
+        the whole path when '/' is present).
+
+    Returns:
+      (folder_id, folder_name) on success, or
+      (None, error_message) on failure.
+
+    All lookups are restricted to descendants of scope_folder_id so a
+    root-scoped key can drill down but cannot escape its scope.
+    """
+    if not scope_folder_id:
+        return (None, "This API key has no folder scope.")
+
+    subtree_ids = _descendant_folder_ids(sb, scope_folder_id, user_id)
+    if not focus:
+        row = (
+            sb.table("folders").select("id, name")
+            .eq("id", scope_folder_id).eq("user_id", user_id)
+            .limit(1).execute().data
+        )
+        if not row:
+            return (None, "Scope folder not found.")
+        return (row[0]["id"], row[0]["name"])
+
+    focus = focus.strip()
+    # UUID form?
+    if len(focus) == 36 and focus.count("-") == 4:
+        if focus not in subtree_ids:
+            return (None, f"Folder {focus!r} is not inside your scope.")
+        row = (
+            sb.table("folders").select("id, name")
+            .eq("id", focus).eq("user_id", user_id).limit(1).execute().data
+        )
+        if not row:
+            return (None, f"Folder {focus!r} not found.")
+        return (row[0]["id"], row[0]["name"])
+
+    # Path form ('cosm/c360-lead' or 'c360-lead')
+    parts = [p for p in focus.split("/") if p]
+    if not parts:
+        return (None, "Empty focus argument.")
+    target_name = parts[-1].lower()
+
+    # Load candidate rows in the subtree with matching name.
+    rows = (
+        sb.table("folders").select("id, name, parent_id")
+        .in_("id", subtree_ids).eq("user_id", user_id)
+        .ilike("name", target_name).execute()
+        .data or []
+    )
+    # Case-insensitive strict match on the leaf name
+    exact = [r for r in rows if r["name"].lower() == target_name]
+    if not exact:
+        return (None, f"No folder named {target_name!r} in your scope.")
+
+    # If multiple, prefer the one whose path matches all provided parts.
+    if len(exact) == 1:
+        return (exact[0]["id"], exact[0]["name"])
+
+    if len(parts) > 1:
+        # Walk each candidate's ancestry, compare against parts[:-1]
+        def ancestry_names(fid: str) -> list[str]:
+            names: list[str] = []
+            cur = fid
+            for _ in range(30):
+                rr = (
+                    sb.table("folders").select("name, parent_id")
+                    .eq("id", cur).eq("user_id", user_id).limit(1).execute()
+                    .data
+                )
+                if not rr:
+                    break
+                names.append(rr[0]["name"])
+                if not rr[0].get("parent_id"):
+                    break
+                cur = rr[0]["parent_id"]
+            return list(reversed(names))
+        matches = []
+        wanted = [p.lower() for p in parts]
+        for cand in exact:
+            path = [n.lower() for n in ancestry_names(cand["id"])]
+            if path[-len(wanted):] == wanted:
+                matches.append(cand)
+        if len(matches) == 1:
+            return (matches[0]["id"], matches[0]["name"])
+        elif not matches:
+            return (
+                None,
+                f"No folder path {focus!r} matches your scope subtree.",
+            )
+        else:
+            return (
+                None,
+                f"Ambiguous focus {focus!r} — matches {len(matches)} folders. "
+                f"Try a longer path.",
+            )
+    return (
+        None,
+        f"Ambiguous focus {focus!r} — {len(exact)} folders match. "
+        "Try a slash-path like 'parent/child'.",
+    )
+
+
+def _folder_tree_under_scope(
+    sb, *, scope_folder_id: str, user_id: str,
+) -> list[dict]:
+    """List all folders under scope with {id, name, kind, path, has_briefing}.
+
+    Handy for a coding agent's list_folders_in_scope tool — shows the
+    whole subtree so the agent knows what to focus on.
+    """
+    subtree_ids = _descendant_folder_ids(sb, scope_folder_id, user_id)
+    if not subtree_ids:
+        return []
+    rows = (
+        sb.table("folders").select("id, name, parent_id, kind")
+        .in_("id", subtree_ids).eq("user_id", user_id).execute()
+        .data or []
+    )
+    by_id = {r["id"]: r for r in rows}
+
+    def build_path(fid: str) -> str:
+        parts: list[str] = []
+        cur = fid
+        for _ in range(30):
+            if cur not in by_id:
+                break
+            parts.append(by_id[cur]["name"])
+            parent = by_id[cur].get("parent_id")
+            if not parent or parent not in by_id:
+                break
+            cur = parent
+        return "/".join(reversed(parts))
+
+    # Which folders have a briefing/summary row?
+    with_summaries = (
+        sb.table("folder_summaries").select("folder_id")
+        .in_("folder_id", subtree_ids).eq("user_id", user_id).execute()
+        .data or []
+    )
+    summarized = {r["folder_id"] for r in with_summaries}
+
+    return sorted(
+        [
+            {
+                "id": r["id"],
+                "name": r["name"],
+                "kind": r.get("kind") or "folder",
+                "path": build_path(r["id"]),
+                "has_summary": r["id"] in summarized,
+            }
+            for r in rows
+        ],
+        key=lambda x: x["path"],
+    )
+
+
 @mcp.tool()
 async def knowledge_base_search(query: str) -> str:
     """Search across all knowledge for this scope: documents AND any connected
@@ -493,6 +679,40 @@ def evaluate_retrieval(questions: str) -> str:
 
 
 @mcp.tool()
+def list_folders_in_scope() -> str:
+    """Discover the folder subtree accessible to this API key.
+
+    Returns every folder under the key's scope with its name, kind
+    ('folder' or 'repo'), full slash-path (like 'cosm/c360-lead'),
+    and whether it already has a summary/briefing.
+
+    Common flow: when starting a session with a root-scoped key,
+    call this first to see the workspace layout, then focus on a
+    specific repo with get_folder_briefing(folder='<name>').
+    """
+    if not _current_user_id.get():
+        return "Error: Not authenticated."
+    scope = _current_scope_folder_id.get()
+    if not scope:
+        return "Error: This API key has no folder scope."
+    sb = get_supabase()
+    tree = _folder_tree_under_scope(
+        sb, scope_folder_id=scope, user_id=_current_user_id.get(),
+    )
+    return json.dumps({
+        "scope_folder_id": scope,
+        "folders": tree,
+        "hint": (
+            "Call get_folder_briefing(folder='<name>') or "
+            "get_folder_orientation(folder='<name>') to focus on any of these. "
+            "The 'folder' argument accepts a name ('c360-lead'), a slash-path "
+            "('cosm/c360-lead'), or a UUID. Repo folders have the strict "
+            "8-section briefing; regular folders have a freeform summary."
+        ),
+    }, indent=2, ensure_ascii=False)
+
+
+@mcp.tool()
 def get_folder_briefing_schema() -> str:
     """Return the canonical shape of a folder briefing.
 
@@ -525,15 +745,28 @@ def get_folder_briefing_schema() -> str:
 
 
 @mcp.tool()
-def get_folder_briefing() -> str:
-    """Read the current folder briefing (repo folders only).
+def get_folder_briefing(folder: str | None = None) -> str:
+    """Read the briefing for a repo folder inside your scope.
 
-    Returns the full 8-section briefing with each section's content,
-    status (auto|pinned|hybrid), provenance (auto|user_ui|agent_mcp),
-    and last-edit timestamp. Use to decide whether to add/update a
-    section via update_folder_briefing_section.
+    Args:
+        folder: Optional focus. If omitted, uses the API key's scope
+            folder. Otherwise the focus is resolved as: a plain name
+            like 'c360-lead', a slash-path like 'cosm/c360-lead', or
+            a UUID. Focus must be a descendant of your scope — you
+            can drill INTO your subtree but cannot escape it.
 
-    Returns an error string if this scope isn't a repo folder.
+    Common flow with a root-scoped key:
+        # Discover the subtree
+        list_folders_in_scope()
+        # Focus on the repo you're working in
+        get_folder_briefing(folder='c360-lead')
+
+    Returns the full 8-section briefing (status, content, provenance,
+    updated_at, updated_by per section) plus a hint reminding you to
+    call update_folder_briefing_section to write back new facts.
+
+    Non-repo folders return a helpful error — use get_folder_orientation
+    for those instead.
     """
     if not _current_user_id.get():
         return "Error: Not authenticated. Provide a valid API key."
@@ -545,32 +778,38 @@ def get_folder_briefing() -> str:
     )
     sb = get_supabase()
     user_id = _current_user_id.get()
-    folder_id = _current_scope_folder_id.get()
-    folder = get_folder(sb, folder_id, user_id)
-    if not folder:
+    resolved_id, resolved_name = resolve_focus_folder(
+        sb, scope_folder_id=_current_scope_folder_id.get(),
+        user_id=user_id, focus=folder,
+    )
+    if not resolved_id:
+        return f"Error: {resolved_name}"
+    folder_row = get_folder(sb, resolved_id, user_id)
+    if not folder_row:
         return "Error: Folder not found."
-    if (folder.get("kind") or "folder") != "repo":
+    if (folder_row.get("kind") or "folder") != "repo":
         return (
-            "This folder is not a repo. Briefings are only available for "
-            "GitHub-synced folders. Use get_folder_orientation for a "
+            f"'{resolved_name}' is not a repo. Briefings are only available "
+            "for GitHub-synced folders. Use get_folder_orientation for a "
             "generic summary instead."
         )
-    latest = get_latest_summary(sb, folder_id, user_id)
+    latest = get_latest_summary(sb, resolved_id, user_id)
     sections = None
     if latest:
         sections = latest.get("sections") or (
             (latest.get("content") or {}).get("sections")
         )
     payload = {
-        "folder": folder.get("name"),
+        "folder": folder_row.get("name"),
         "sections": sections or empty_briefing(),
         "last_generated_at": (latest or {}).get("generated_at"),
         "hint": (
             "This briefing is your session-start context. If you learn "
             "something the user hasn't captured (a deployment gotcha, a "
             "'why this file matters' fact, a run-command they use), call "
-            "update_folder_briefing_section(section, content, pin=True) to "
-            "save it. It survives across sessions and PC switches."
+            "update_folder_briefing_section(section, content, pin=True, "
+            "folder=...) to save it. It survives across sessions and PC "
+            "switches."
         ),
     }
     return json.dumps(payload, indent=2, ensure_ascii=False)
@@ -581,8 +820,9 @@ def update_folder_briefing_section(
     section: str,
     content: str,
     pin: bool = True,
+    folder: str | None = None,
 ) -> str:
-    """Patch one section of the current folder's briefing.
+    """Patch one section of a repo's briefing.
 
     Args:
         section: One of 'overview', 'architecture', 'preferences',
@@ -594,9 +834,10 @@ def update_folder_briefing_section(
         pin: If True (default), the section is marked pinned — auto-regen
             will NOT overwrite it. Set False for 'suggestion' behavior
             where the next regen re-drafts the section.
+        folder: Which repo to update. Same resolver as get_folder_briefing
+            (name / slash-path / UUID). Omit to target the scope folder.
 
-    Records provenance='agent_mcp' + updated_by=<api_key_id> so the UI
-    can attribute the edit.
+    Records provenance='agent_mcp' so the UI can attribute the edit.
     """
     if not _current_user_id.get():
         return "Error: Not authenticated."
@@ -610,10 +851,16 @@ def update_folder_briefing_section(
         return f"Error: Unknown section '{section}'. Valid: {SECTION_KEYS}"
     sb = get_supabase()
     user_id = _current_user_id.get()
-    folder_id = _current_scope_folder_id.get()
-    folder = get_folder(sb, folder_id, user_id)
-    if not folder or (folder.get("kind") or "folder") != "repo":
-        return "Error: Not a repo folder."
+    resolved_id, resolved_name = resolve_focus_folder(
+        sb, scope_folder_id=_current_scope_folder_id.get(),
+        user_id=user_id, focus=folder,
+    )
+    if not resolved_id:
+        return f"Error: {resolved_name}"
+    folder_id = resolved_id
+    folder_row = get_folder(sb, folder_id, user_id)
+    if not folder_row or (folder_row.get("kind") or "folder") != "repo":
+        return f"Error: '{resolved_name}' is not a repo folder."
     # Content may be JSON or a plain string — try JSON first, fall back
     # to raw string.
     try:
@@ -676,7 +923,10 @@ def update_folder_briefing_section(
 
 
 @mcp.tool()
-def get_folder_orientation(folder_name: str | None = None) -> str:
+def get_folder_orientation(
+    folder: str | None = None,
+    folder_name: str | None = None,
+) -> str:
     """Load a compact orientation summary of a folder for session start.
 
     Call this at the beginning of a session to get the big picture of what a
@@ -685,8 +935,16 @@ def get_folder_orientation(folder_name: str | None = None) -> str:
     without burning tokens on every query.
 
     Args:
-        folder_name: Optional folder name to look up. If omitted, uses the
-            folder scoped to this API key. Case-insensitive prefix match.
+        folder: Which folder inside your scope to load. Accepts a plain
+            name ('c360-lead'), a slash-path ('cosm/c360-lead'), or a
+            UUID. Omit to load the scope folder itself.
+        folder_name: Legacy alias for `folder`. Prefer `folder`.
+
+    Common pattern with a root-scoped key on a workspace like 'cosm':
+        # Get the workspace briefing + a subfolders index
+        get_folder_orientation()
+        # Focus on the repo you're actually working in
+        get_folder_orientation(folder='c360-lead')
 
     Returns:
         A JSON string containing:
@@ -697,7 +955,9 @@ def get_folder_orientation(folder_name: str | None = None) -> str:
             - learnings: last N days of episodic memories (empty if no Mem0)
             - changes: files added/removed/modified in the KB since the previous summary
             - commits: recent GitHub activity (empty if no GitHub integration)
-        - metadata: last_generated_at, kind (full|delta|seed), doc_count
+        - subfolders: (workspace_rollup folders only) structured index of children
+        - briefing: (repo folders only) the 8-section briefing
+        - metadata: last_generated_at, kind, doc_count
     """
     if not _current_user_id.get():
         return "Error: Not authenticated. Provide a valid API key."
@@ -705,30 +965,14 @@ def get_folder_orientation(folder_name: str | None = None) -> str:
     user_id = _current_user_id.get()
     sb = get_supabase()
 
-    # Resolve the target folder id.
-    if folder_name:
-        r = (
-            sb.table("folders")
-            .select("id, name")
-            .eq("user_id", user_id)
-            .ilike("name", f"{folder_name}%")
-            .order("name")
-            .limit(1)
-            .execute()
-        )
-        if not r.data:
-            return f"No folder found matching '{folder_name}'."
-        folder_id = r.data[0]["id"]
-        folder_name_resolved = r.data[0]["name"]
-    else:
-        folder_id = _current_scope_folder_id.get()
-        if not folder_id:
-            return (
-                "This API key has no scope folder and no folder_name was given. "
-                "Pass folder_name to select one."
-            )
-        r = sb.table("folders").select("name").eq("id", folder_id).limit(1).execute()
-        folder_name_resolved = r.data[0]["name"] if r.data else "(scope folder)"
+    # Resolver: accepts either the new `folder` arg or the legacy `folder_name`.
+    focus = folder or folder_name
+    folder_id, folder_name_resolved = resolve_focus_folder(
+        sb, scope_folder_id=_current_scope_folder_id.get(),
+        user_id=user_id, focus=focus,
+    )
+    if not folder_id:
+        return f"Error: {folder_name_resolved}"
 
     # Fetch latest summary.
     latest = (
