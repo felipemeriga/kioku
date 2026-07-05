@@ -255,6 +255,28 @@ async def generate_folder_summary(
     folder_name = folder["name"]
     folder_path = get_folder_path(sb, folder_id, user_id) or folder_name
 
+    # Repo folders get the strict briefing schema — mechanical populators
+    # today, LLM populators in Phase 4. Skip the leaf/rollup path entirely.
+    if (folder.get("kind") or "folder") == "repo":
+        from services.folder_summary.briefing import (
+            BRIEFING_SCHEMA_VERSION,
+            generate_briefing_for_repo,
+            merge_briefing,
+        )
+        latest_briefing = get_latest_summary(sb, folder_id, user_id)
+        refresh = generate_briefing_for_repo(sb, folder_id=folder_id, user_id=user_id)
+        existing_sections = (latest_briefing or {}).get("sections")
+        merged = merge_briefing(existing=existing_sections, refresh=refresh)
+        row = _insert_briefing_row(
+            sb,
+            folder_id=folder_id, user_id=user_id, trigger=trigger,
+            sections=merged,
+            previous_sections=existing_sections,
+            schema_version=BRIEFING_SCHEMA_VERSION,
+            duration_ms=int((time.perf_counter() - started) * 1000),
+        )
+        return SummaryOutcome(kind="briefing", row=row, diff=None)
+
     # Container folders (e.g. 'cosm' which is just a bucket for c360-lead/,
     # h265/, nba/, smt/, Tiled Media/) get a workspace rollup instead of a
     # leaf summary. Detection: has subfolders AND ≤2 direct docs. The
@@ -373,3 +395,55 @@ async def generate_folder_summary(
         duration_ms=int((time.perf_counter() - started) * 1000),
     )
     return SummaryOutcome(kind=resolved_mode, row=row, diff=diff)
+
+
+def _insert_briefing_row(
+    sb,
+    *,
+    folder_id: str,
+    user_id: str,
+    trigger: str,
+    sections: dict,
+    previous_sections: dict | None,
+    schema_version: int,
+    duration_ms: int,
+) -> dict:
+    """Persist a briefing-shaped folder_summaries row.
+
+    Falls back to kind='full' and stuffing sections into `content` for
+    databases where the Phase 2 migration hasn't landed yet. That keeps
+    the pipeline functional until the constraint + new columns exist.
+    """
+    payload = {
+        "folder_id": folder_id,
+        "user_id": user_id,
+        "kind": "briefing",
+        "trigger": trigger,
+        "content": {"__briefing_v": schema_version, "sections": sections},
+        "previous_content": (
+            {"__briefing_v": schema_version, "sections": previous_sections}
+            if previous_sections else None
+        ),
+        "included_hashes": [],
+        "doc_count": 0,
+        "changed_files": {},
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "duration_ms": duration_ms,
+        "briefing_schema_version": schema_version,
+        "sections": sections,
+    }
+    try:
+        r = sb.table("folder_summaries").insert(payload).execute()
+        return r.data[0]
+    except Exception as exc:  # noqa: BLE001
+        msg = str(exc)
+        if "kind_check" not in msg and "briefing_schema_version" not in msg \
+                and "sections" not in msg:
+            raise
+        # Migration not applied yet. Downgrade to 'full' + drop new columns.
+        payload.pop("briefing_schema_version", None)
+        payload.pop("sections", None)
+        payload["kind"] = "full"
+        r = sb.table("folder_summaries").insert(payload).execute()
+        return r.data[0]

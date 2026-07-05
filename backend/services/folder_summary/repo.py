@@ -10,9 +10,12 @@ from typing import Any
 
 
 def get_folder(sb, folder_id: str, user_id: str) -> dict | None:
+    # Wildcard select so the builder gets `kind` once the Phase 1 migration
+    # lands, without needing to touch this helper again. Missing column pre-
+    # migration = callers default to 'folder' when reading .get("kind").
     r = (
         sb.table("folders")
-        .select("id, name, parent_id")
+        .select("*")
         .eq("id", folder_id)
         .eq("user_id", user_id)
         .limit(1)
