@@ -1,5 +1,5 @@
 import { basename, resolve } from "node:path";
-import { input, select, password, confirm } from "@inquirer/prompts";
+import { input, select, confirm } from "@inquirer/prompts";
 import kleur from "kleur";
 import {
   connectGitHub,
@@ -12,6 +12,11 @@ import {
 } from "../lib/api.js";
 import { isLoggedIn } from "../lib/config.js";
 import { detectGit } from "../lib/git.js";
+import {
+  detectRepoVisibility,
+  resolveGitHubToken,
+  type TokenSource,
+} from "../lib/github-auth.js";
 import {
   installSessionStartHook,
   installStopHook,
@@ -26,6 +31,7 @@ interface InitOptions {
   yes?: boolean;
   root?: string;
   githubToken?: string;
+  skipGithub?: boolean;
 }
 
 export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
@@ -167,18 +173,40 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
     ok("Folder marked as repo");
   }
 
-  // Step 3: GitHub connect (if we have a remote)
-  if (git.owner && git.repo) {
-    const yes = opts.yes || await confirm({
+  // Step 3: GitHub connect (if we have a remote).
+  //
+  // Auth strategy in resolveGitHubToken:
+  //   1. explicit --github-token flag
+  //   2. gh CLI (`gh auth token`)
+  //   3. GITHUB_TOKEN / GH_TOKEN env
+  //   4. interactive PAT paste (only if visibility=private OR unknown)
+  //
+  // Public repos skip the auth flow entirely — sync works token-less.
+  if (git.owner && git.repo && !opts.skipGithub) {
+    const shouldWire = opts.yes || await confirm({
       message: `Sync this repo with GitHub (${git.owner}/${git.repo})?`,
       default: true,
     });
-    if (yes) {
-      const token = opts.githubToken ?? await password({
-        message:
-          "GitHub personal access token (leave empty for public repos):",
-        mask: "*",
-      });
+    if (shouldWire) {
+      const vis = await detectRepoVisibility(git.owner, git.repo);
+      let tokenSource: TokenSource = "none";
+      let token: string | null = null;
+
+      if (vis.visibility === "public") {
+        info(`${git.owner}/${git.repo} is public — no token needed.`);
+      } else {
+        // 'private' or 'unknown' (a private repo returns 404 to anon
+        // requests, so 'unknown' usually means private-but-invisible).
+        const resolved = await resolveGitHubToken({
+          owner: git.owner,
+          repo: git.repo,
+          nonInteractive: !!opts.yes,
+          explicit: opts.githubToken,
+        });
+        token = resolved.token;
+        tokenSource = resolved.source;
+      }
+
       try {
         await connectGitHub({
           root_folder_id: repoFolder.id,
@@ -186,7 +214,13 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
           token: token || undefined,
           since_days: 30,
         });
-        ok("GitHub sync configured");
+        const sourceLabel = ({
+          "gh-cli": "  (via gh CLI)",
+          env: "  (via env var)",
+          pasted: "  (via pasted PAT)",
+          none: "",
+        } as const)[tokenSource];
+        ok(`GitHub sync configured${sourceLabel ? kleur.dim(sourceLabel) : ""}`);
       } catch (err) {
         warn(
           `GitHub sync couldn't be wired: ${err instanceof Error ? err.message : String(err)}`,

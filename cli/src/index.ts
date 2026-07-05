@@ -35,7 +35,8 @@ program
   .description("Wire the current repo — MCP, hook, CLAUDE.md, GitHub sync")
   .option("--root <name>", "Pre-select a root folder by name or id")
   .option("--yes", "Skip prompts where a sensible default exists")
-  .option("--github-token <token>", "GitHub token (skips the prompt)")
+  .option("--github-token <token>", "GitHub token (bypasses tier detection)")
+  .option("--skip-github", "Skip GitHub sync — briefings won't include activity")
   .action(async (opts) => {
     banner();
     try {
