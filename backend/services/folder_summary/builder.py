@@ -447,17 +447,25 @@ def _insert_briefing_row(
         "briefing_schema_version": schema_version,
         "sections": sections,
     }
-    try:
-        r = sb.table("folder_summaries").insert(payload).execute()
-        return r.data[0]
-    except Exception as exc:  # noqa: BLE001
-        msg = str(exc)
-        if "kind_check" not in msg and "briefing_schema_version" not in msg \
-                and "sections" not in msg:
-            raise
-        # Migration not applied yet. Downgrade to 'full' + drop new columns.
-        payload.pop("briefing_schema_version", None)
-        payload.pop("sections", None)
-        payload["kind"] = "full"
-        r = sb.table("folder_summaries").insert(payload).execute()
-        return r.data[0]
+    # Migration-safe downgrade chain — same pattern as routes/briefing.py.
+    for _ in range(4):
+        try:
+            r = sb.table("folder_summaries").insert(payload).execute()
+            return r.data[0]
+        except Exception as exc:  # noqa: BLE001
+            msg = str(exc)
+            downgraded = False
+            if "kind_check" in msg and payload.get("kind") != "full":
+                payload["kind"] = "full"
+                downgraded = True
+            if "trigger_check" in msg and payload.get("trigger") != "manual":
+                payload["trigger"] = "manual"
+                downgraded = True
+            if ("briefing_schema_version" in msg or "sections" in msg) \
+                    and "briefing_schema_version" in payload:
+                payload.pop("briefing_schema_version", None)
+                payload.pop("sections", None)
+                downgraded = True
+            if not downgraded:
+                raise
+    raise RuntimeError("briefing persistence exhausted downgrade attempts")

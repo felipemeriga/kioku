@@ -649,22 +649,30 @@ def update_folder_briefing_section(
         "briefing_schema_version": BRIEFING_SCHEMA_VERSION,
         "sections": sections,
     }
-    try:
-        sb.table("folder_summaries").insert(payload).execute()
-    except Exception as exc:  # noqa: BLE001
-        msg = str(exc)
-        if "kind_check" not in msg and "briefing_schema_version" not in msg \
-                and "sections" not in msg:
-            return f"Error persisting briefing: {msg[:200]}"
-        # Migration-safe fallback.
-        payload.pop("briefing_schema_version", None)
-        payload.pop("sections", None)
-        payload["kind"] = "full"
+    # Migration-safe downgrade chain — matches routes/briefing.py.
+    last_err = None
+    for _ in range(4):
         try:
             sb.table("folder_summaries").insert(payload).execute()
-        except Exception as exc2:  # noqa: BLE001
-            return f"Error persisting briefing: {str(exc2)[:200]}"
-    return f"Updated section '{section}' (status={'pinned' if pin else 'auto'})."
+            return f"Updated section '{section}' (status={'pinned' if pin else 'auto'})."
+        except Exception as exc:  # noqa: BLE001
+            last_err = exc
+            msg = str(exc)
+            downgraded = False
+            if "kind_check" in msg and payload.get("kind") != "full":
+                payload["kind"] = "full"
+                downgraded = True
+            if "trigger_check" in msg and payload.get("trigger") != "manual":
+                payload["trigger"] = "manual"
+                downgraded = True
+            if ("briefing_schema_version" in msg or "sections" in msg) \
+                    and "briefing_schema_version" in payload:
+                payload.pop("briefing_schema_version", None)
+                payload.pop("sections", None)
+                downgraded = True
+            if not downgraded:
+                break
+    return f"Error persisting briefing: {str(last_err)[:200]}"
 
 
 @mcp.tool()
@@ -839,7 +847,17 @@ def get_folder_orientation(folder_name: str | None = None) -> str:
     # agent has structured facts to work with immediately + can update
     # any section via update_folder_briefing_section.
     sections = row.get("sections") or (row.get("content") or {}).get("sections")
-    if row.get("kind") == "briefing" and sections:
+    # Detect briefing rows by shape rather than kind — the constraint may
+    # not have been widened yet, in which case briefings are persisted
+    # with kind='full' + sections still populated.
+    is_briefing_row = (
+        row.get("kind") == "briefing"
+        or row.get("briefing_schema_version")
+        or (isinstance(sections, dict) and any(
+            k in sections for k in ("overview", "architecture", "activity")
+        ))
+    )
+    if is_briefing_row and sections:
         payload["briefing"] = {
             "schema_version": row.get("briefing_schema_version") or 1,
             "sections": sections,
