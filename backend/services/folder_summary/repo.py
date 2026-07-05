@@ -229,8 +229,20 @@ def insert_summary(
         "output_tokens": output_tokens,
         "duration_ms": duration_ms,
     }
-    r = sb.table("folder_summaries").insert(payload).execute()
-    return r.data[0]
+    # Migration-safe downgrade chain — some DBs haven't widened the
+    # trigger_check constraint to allow 'rollup_bootstrap:*'. Downgrade to
+    # 'manual' rather than failing the whole regen.
+    for _ in range(3):
+        try:
+            r = sb.table("folder_summaries").insert(payload).execute()
+            return r.data[0]
+        except Exception as exc:  # noqa: BLE001
+            msg = str(exc)
+            if "trigger_check" in msg and payload.get("trigger") != "manual":
+                payload["trigger"] = "manual"
+                continue
+            raise
+    raise RuntimeError("insert_summary exhausted downgrade attempts")
 
 
 def list_folder_ids_with_docs(sb) -> list[dict]:
