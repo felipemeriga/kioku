@@ -99,6 +99,15 @@ async def connect(body: ConnectGitHubRequest, user_id: str = Depends(get_current
         .execute()
         .data
     )
+    # Phase 1: flip the folder into a repo. Defensive — if the migration
+    # hasn't landed yet, this update silently no-ops on unknown column and
+    # the folder stays kind='folder'.
+    try:
+        sb.table("folders").update({"kind": "repo"}).eq(
+            "id", body.root_folder_id
+        ).eq("user_id", user_id).execute()
+    except Exception:  # noqa: BLE001
+        pass
     return row[0] if row else {"ok": True}
 
 
@@ -122,6 +131,16 @@ async def disconnect(
         sb.table("documents").delete().eq("user_id", user_id).eq("folder_id", folder_id).in_(
             "source_type", ["github_commit", "github_pr", "github_issue"],
         ).execute()
+    # Phase 1: flip the folder back to a plain folder. Mem0 configs
+    # attached to it stay — we don't force-disconnect Mem0, but it will
+    # be hidden in the UI and blocked from new writes until the folder
+    # becomes a repo again.
+    try:
+        sb.table("folders").update({"kind": "folder"}).eq(
+            "id", folder_id
+        ).eq("user_id", user_id).execute()
+    except Exception:  # noqa: BLE001
+        pass
     return {"ok": True}
 
 

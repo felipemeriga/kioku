@@ -90,6 +90,24 @@ async def connect(body: ConnectMem0Request, user_id: str = Depends(get_current_u
     sb = get_supabase()
     _validate_folder(sb, body.root_folder_id, user_id)
 
+    # Phase 1 gating: Mem0 is repo-only. Preferences + findings are per-repo
+    # concepts and get noisy when scoped to a random doc-folder. Turn the
+    # folder into a repo first (via GitHub Connect) before wiring Mem0.
+    folder_row = (
+        sb.table("folders").select("kind")
+        .eq("id", body.root_folder_id).eq("user_id", user_id)
+        .limit(1).execute().data
+    )
+    kind = (folder_row[0].get("kind") if folder_row else None) or "folder"
+    if kind != "repo":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Mem0 can only be wired to repo folders. Connect this folder "
+                "to a GitHub repo first, then wire Mem0."
+            ),
+        )
+
     # Verify the API key by pinging Mem0 before persisting.
     ping_config = {
         "id": "probe",

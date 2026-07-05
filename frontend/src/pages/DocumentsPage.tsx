@@ -27,6 +27,7 @@ import UploadFileIcon from "@mui/icons-material/UploadFile";
 import DeleteIcon from "@mui/icons-material/Delete";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import FolderIcon from "@mui/icons-material/Folder";
+import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import MicIcon from "@mui/icons-material/Mic";
 import DriveFileMoveIcon from "@mui/icons-material/DriveFileMove";
 import CloseIcon from "@mui/icons-material/Close";
@@ -68,7 +69,7 @@ export default function DocumentsPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [, setDragOver] = useState(false);
   const [integrationsTarget, setIntegrationsTarget] = useState<
-    { id: string; name: string } | null
+    { id: string; name: string; kind?: "folder" | "repo" } | null
   >(null);
   const [globalDropActive, setGlobalDropActive] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -749,7 +750,11 @@ export default function DocumentsPage() {
                     key={folder.id}
                     onContextMenu={(e) => {
                       e.preventDefault();
-                      setIntegrationsTarget({ id: folder.id, name: folder.name });
+                      setIntegrationsTarget({
+                        id: folder.id,
+                        name: folder.name,
+                        kind: folder.kind,
+                      });
                     }}
                     onDragOver={(e) => {
                       e.preventDefault();
@@ -829,7 +834,11 @@ export default function DocumentsPage() {
                     >
                       <DeleteIcon sx={{ fontSize: 14 }} />
                     </IconButton>
-                    <FolderIcon sx={{ fontSize: 36, color: "#7c3aed" }} />
+                    {folder.kind === "repo" ? (
+                      <AccountTreeIcon sx={{ fontSize: 36, color: "#06b6d4" }} />
+                    ) : (
+                      <FolderIcon sx={{ fontSize: 36, color: "#7c3aed" }} />
+                    )}
                     <Typography
                       variant="caption"
                       noWrap

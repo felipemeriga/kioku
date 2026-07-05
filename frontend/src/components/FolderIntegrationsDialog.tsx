@@ -51,7 +51,7 @@ import { NotionConnectDialog } from "./NotionIntegrationSection";
 
 interface Props {
   open: boolean;
-  folder: { id: string; name: string } | null;
+  folder: { id: string; name: string; kind?: "folder" | "repo" } | null;
   onClose: () => void;
 }
 
@@ -154,10 +154,12 @@ export default function FolderIntegrationsDialog({
           </Typography>
 
           <Stack spacing={2}>
+            {/* Mem0 is repo-only. On a plain folder we still show the card
+                but disable Connect and add a hint explaining why. */}
             <IntegrationCard
               icon={<PsychologyIcon fontSize="small" />}
               title="Mem0 memory"
-              description="Episodic and eternal memory (agent-authored) scoped to this folder."
+              description="Episodic and eternal memory (agent-authored) scoped to this repo."
               connected={!!mem0}
               statusDetail={
                 mem0?.last_verified_at
@@ -169,9 +171,16 @@ export default function FolderIntegrationsDialog({
                   : null
               }
               errorDetail={mem0?.last_error ?? null}
-              onConnect={() => setConnectOpen("mem0")}
-              onDisconnect={() => handleDisconnect("mem0")}
+              onConnect={
+                folder?.kind === "repo" ? () => setConnectOpen("mem0") : undefined
+              }
+              onDisconnect={mem0 ? () => handleDisconnect("mem0") : undefined}
               loading={loading}
+              connectHint={
+                folder?.kind === "repo"
+                  ? undefined
+                  : "Mem0 is repo-only — connect this folder to a GitHub repo first."
+              }
             />
 
             <IntegrationCard

@@ -13,6 +13,7 @@ import {
 } from "@mui/material";
 import FolderIcon from "@mui/icons-material/Folder";
 import FolderOpenIcon from "@mui/icons-material/FolderOpen";
+import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import DeleteIcon from "@mui/icons-material/Delete";
 import HubIcon from "@mui/icons-material/Hub";
@@ -35,7 +36,11 @@ interface FolderTreeNodeProps extends FolderDropOps {
   onSelect: (id: string | null) => void;
   depth: number;
   onRequestDelete: (folderId: string, folderName: string) => void;
-  onRequestIntegrations: (folderId: string, folderName: string) => void;
+  onRequestIntegrations: (
+    folderId: string,
+    folderName: string,
+    kind?: "folder" | "repo"
+  ) => void;
 }
 
 function FolderTreeNode({
@@ -88,7 +93,7 @@ function FolderTreeNode({
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    onRequestIntegrations(folder.id, folder.name);
+    onRequestIntegrations(folder.id, folder.name, folder.kind);
   };
 
   return (
@@ -151,7 +156,11 @@ function FolderTreeNode({
           <ExpandMoreIcon sx={{ fontSize: 16, color: brand.muted }} />
         </IconButton>
         <ListItemIcon sx={{ minWidth: 26 }}>
-          {open ? (
+          {folder.kind === "repo" ? (
+            // Repos get a distinct icon + cyan tint so at-a-glance it's
+            // clear these are the strict-schema, GitHub-bound folders.
+            <AccountTreeIcon sx={{ fontSize: 17, color: brand.cyan }} />
+          ) : open ? (
             <FolderOpenIcon sx={{ fontSize: 17, color: brand.violet2 }} />
           ) : (
             <FolderIcon sx={{ fontSize: 17, color: brand.violet2 }} />
@@ -184,7 +193,7 @@ function FolderTreeNode({
               size="small"
               onClick={(e) => {
                 e.stopPropagation();
-                onRequestIntegrations(folder.id, folder.name);
+                onRequestIntegrations(folder.id, folder.name, folder.kind);
               }}
               aria-label={`Manage integrations for ${folder.name}`}
               sx={{
@@ -235,7 +244,11 @@ interface FolderTreeProps extends FolderDropOps {
   selectedFolderId: string | null;
   onSelectFolder: (id: string | null) => void;
   onRequestDelete: (folderId: string, folderName: string) => void;
-  onRequestIntegrations: (folderId: string, folderName: string) => void;
+  onRequestIntegrations: (
+    folderId: string,
+    folderName: string,
+    kind?: "folder" | "repo"
+  ) => void;
 }
 
 export default function FolderTree({

@@ -170,6 +170,68 @@ export async function deleteConversation(id: string): Promise<void> {
   await apiFetch(`/api/conversations/${id}`, { method: "DELETE" });
 }
 
+// ── Briefing (Phase 3+) ──────────────────────────────────────────────────
+
+export type BriefingSectionStatus = "auto" | "pinned" | "hybrid";
+export type BriefingProvenance = "auto" | "user_ui" | "agent_mcp";
+
+export interface BriefingSection<C = unknown> {
+  status: BriefingSectionStatus;
+  content: C;
+  provenance: BriefingProvenance;
+  updated_at: string;
+  updated_by: string | null;
+}
+
+/** Fixed section keys — order matters for stable rendering. */
+export const BRIEFING_SECTIONS = [
+  "overview",
+  "architecture",
+  "preferences",
+  "important_files",
+  "how_it_runs",
+  "deployment",
+  "dependencies",
+  "activity",
+] as const;
+export type BriefingSectionKey = (typeof BRIEFING_SECTIONS)[number];
+
+export interface BriefingResponse {
+  folder: { id: string; name: string; kind?: "folder" | "repo" };
+  schema_version: number;
+  sections: Record<BriefingSectionKey, BriefingSection>;
+  last_generated_at: string | null;
+}
+
+export async function fetchBriefing(folderId: string): Promise<BriefingResponse> {
+  const res = await apiFetch(`/api/folders/${folderId}/briefing`);
+  return res.json();
+}
+
+export async function updateBriefingSection(
+  folderId: string,
+  section: BriefingSectionKey,
+  content: unknown,
+  status: BriefingSectionStatus = "pinned",
+  updatedBy?: string,
+): Promise<{ ok: boolean; section: BriefingSection }> {
+  const res = await apiFetch(`/api/folders/${folderId}/briefing/section/${section}`, {
+    method: "PATCH",
+    body: JSON.stringify({ content, status, updated_by: updatedBy }),
+  });
+  return res.json();
+}
+
+export async function resetBriefingSection(
+  folderId: string,
+  section: BriefingSectionKey,
+): Promise<{ ok: boolean; section: BriefingSection }> {
+  const res = await apiFetch(`/api/folders/${folderId}/briefing/section/${section}/reset`, {
+    method: "POST",
+  });
+  return res.json();
+}
+
 export async function renameConversation(
   id: string,
   title: string
@@ -488,6 +550,11 @@ export interface Folder {
   parent_id: string | null;
   user_id: string;
   created_at: string;
+  /** Phase 1 of the second-brain reframe. 'repo' folders are bound to a
+   *  GitHub sync config and hold the strict 8-section briefing; 'folder'
+   *  is anything else. Server may omit before the migration lands — treat
+   *  missing as 'folder'. */
+  kind?: "folder" | "repo";
 }
 
 export interface Breadcrumb {
