@@ -238,6 +238,187 @@ async def disconnect(
     return {"ok": True}
 
 
+class PrepareCloneRequest(BaseModel):
+    root_folder_id: str
+    repo_url: str  # 'owner/repo' or a full HTTPS/SSH URL
+    since_days: int = Field(default=14, ge=1, le=365)
+
+
+class PrepareCloneResponse(BaseModel):
+    config_id: str
+    public_key: str
+    # A ready-to-paste terminal command for users who prefer manual
+    # setup over gh CLI.
+    manual_setup_hint: str
+
+
+@router.post("/prepare-clone", response_model=PrepareCloneResponse)
+async def prepare_clone(
+    body: PrepareCloneRequest, user_id: str = Depends(get_current_user)
+):
+    """Step 1 of the deploy-key flow (CLI-invoked).
+
+    Backend generates an Ed25519 SSH keypair, stores the private key
+    encrypted at rest, returns the public key so the caller (CLI) can
+    install it on the repo via `gh repo deploy-key add`. No cloning
+    happens here — the clone attempt is a separate `finalize-clone`
+    call so a failed key installation doesn't leave a half-cloned
+    directory around.
+    """
+    sb = get_supabase()
+    _validate_folder(sb, body.root_folder_id, user_id)
+
+    try:
+        owner, repo = parse_repo_url(body.repo_url)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    from services.github_sync.local_repo import generate_deploy_keypair
+
+    public_openssh, private_openssh = generate_deploy_keypair(
+        comment=f"kioku-{owner}-{repo}"
+    )
+
+    payload = {
+        "user_id": user_id,
+        "root_folder_id": body.root_folder_id,
+        "repo_owner": owner,
+        "repo_name": repo,
+        "since_days": body.since_days,
+        "last_error": None,
+        "sync_mode": "deploy_key",
+        "deploy_key_public": public_openssh,
+        "deploy_key_private_encrypted": encrypt_secret(private_openssh),
+        # local_clone_path stays null until finalize-clone succeeds.
+        "local_clone_path": None,
+    }
+    row = _upsert_config_downgrade_safe(sb, payload)
+    if not row:
+        raise HTTPException(status_code=500, detail="Failed to persist config")
+
+    return PrepareCloneResponse(
+        config_id=row["id"],
+        public_key=public_openssh,
+        manual_setup_hint=(
+            f"gh repo deploy-key add - --repo {owner}/{repo} "
+            f'--title "Kioku sync (read-only)" <<< "{public_openssh}"'
+        ),
+    )
+
+
+class FinalizeCloneRequest(BaseModel):
+    config_id: str
+
+
+@router.post("/finalize-clone")
+async def finalize_clone(
+    body: FinalizeCloneRequest, user_id: str = Depends(get_current_user)
+):
+    """Step 2 of the deploy-key flow (CLI-invoked).
+
+    After the user (or the CLI on their behalf) has installed the
+    public key on the repo, this endpoint tries the SSH clone. Success
+    persists `local_clone_path` and `last_fetched_at`; failure returns
+    the git error verbatim so the CLI can render an actionable message
+    ('deploy key not accepted — re-run prepare-clone', etc.).
+    """
+    sb = get_supabase()
+    row = (
+        sb.table("github_sync_configs").select("*")
+        .eq("id", body.config_id).eq("user_id", user_id).limit(1).execute().data
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Config not found")
+    cfg = row[0]
+    if cfg.get("sync_mode") != "deploy_key":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Config is in sync_mode={cfg.get('sync_mode')}, expected 'deploy_key'",
+        )
+    enc = cfg.get("deploy_key_private_encrypted")
+    if not enc:
+        raise HTTPException(
+            status_code=400,
+            detail="No deploy key on file — call /prepare-clone first",
+        )
+
+    from services.github_sync.local_repo import (
+        LocalRepoClient,
+        clone_via_ssh,
+        GitError,
+    )
+    from services.crypto import decrypt_secret
+
+    try:
+        private_key = decrypt_secret(enc)
+    except Exception:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500,
+            detail="Couldn't decrypt stored private key — key material is corrupted",
+        )
+
+    try:
+        clone_path = clone_via_ssh(
+            cfg["repo_owner"],
+            cfg["repo_name"],
+            private_key_pem=private_key,
+            depth=30,
+        )
+    except GitError as exc:
+        # Persist the error so the UI can render it. Don't tear the
+        # config down — the user may want to retry after re-adding the
+        # deploy key.
+        _upsert_config_downgrade_safe(sb, {
+            "id": cfg["id"],
+            "user_id": user_id,
+            "root_folder_id": cfg["root_folder_id"],
+            "repo_owner": cfg["repo_owner"],
+            "repo_name": cfg["repo_name"],
+            "last_error": str(exc)[:400],
+        })
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Clone failed: {exc}. Make sure the deploy key is installed "
+                f"on {cfg['repo_owner']}/{cfg['repo_name']}."
+            ),
+        )
+
+    ok, err = LocalRepoClient(
+        owner=cfg["repo_owner"],
+        repo=cfg["repo_name"],
+        clone_path=clone_path,
+    ).ping()
+    if not ok:
+        raise HTTPException(status_code=500, detail=f"Post-clone health check failed: {err}")
+
+    from datetime import datetime, timezone as _tz
+    updated = _upsert_config_downgrade_safe(sb, {
+        "user_id": user_id,
+        "root_folder_id": cfg["root_folder_id"],
+        "repo_owner": cfg["repo_owner"],
+        "repo_name": cfg["repo_name"],
+        "since_days": cfg.get("since_days") or 14,
+        "sync_mode": "deploy_key",
+        "local_clone_path": str(clone_path),
+        "last_fetched_at": datetime.now(_tz.utc).isoformat(),
+        "last_error": None,
+        # Preserve keypair
+        "deploy_key_public": cfg.get("deploy_key_public"),
+        "deploy_key_private_encrypted": enc,
+    })
+
+    # Flip the folder into a repo (idempotent).
+    try:
+        sb.table("folders").update({"kind": "repo"}).eq(
+            "id", cfg["root_folder_id"]
+        ).eq("user_id", user_id).execute()
+    except Exception:  # noqa: BLE001
+        pass
+
+    return updated if updated else {"ok": True}
+
+
 class ListReposRequest(BaseModel):
     token: str = Field(min_length=8)
 

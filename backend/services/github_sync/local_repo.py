@@ -30,6 +30,43 @@ from typing import Any
 log = logging.getLogger(__name__)
 
 
+# ── SSH keypair generation ────────────────────────────────────────────
+
+def generate_deploy_keypair(comment: str = "kioku-deploy-key") -> tuple[str, str]:
+    """Generate an Ed25519 SSH keypair for use as a GitHub deploy key.
+
+    Returns (public_openssh, private_openssh).
+
+    Ed25519 chosen over RSA for size + modern support:
+      - Public key is ~80 chars (fits in a config UI paste)
+      - Private key is ~400 chars (fits in a JSON payload comfortably)
+      - GitHub supports Ed25519 deploy keys since 2015
+
+    The private key is NOT password-protected — Kioku's server-side
+    encryption (Fernet, in services/crypto.py) provides at-rest
+    protection instead. Adding a passphrase would require prompting on
+    every fetch, which we can't do from cron.
+    """
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives import serialization
+
+    key = Ed25519PrivateKey.generate()
+
+    private_bytes = key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.OpenSSH,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    public_bytes = key.public_key().public_bytes(
+        encoding=serialization.Encoding.OpenSSH,
+        format=serialization.PublicFormat.OpenSSH,
+    )
+    # Append a comment so users can spot which key is Kioku's in
+    # GitHub's deploy key list.
+    public_openssh = public_bytes.decode() + " " + comment
+    return public_openssh, private_bytes.decode()
+
+
 # ── Data classes — parity with client.py ──────────────────────────────
 
 @dataclass

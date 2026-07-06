@@ -272,6 +272,44 @@ export async function connectGitHub(args: {
   });
 }
 
+/**
+ * Step 1 of the private-repo deploy-key flow. Backend generates a
+ * keypair, stores the private encrypted, returns the public plus a
+ * ready-to-paste `gh` command for manual install.
+ */
+export async function prepareGithubClone(args: {
+  root_folder_id: string;
+  repo_url: string;
+  since_days?: number;
+}): Promise<{
+  config_id: string;
+  public_key: string;
+  manual_setup_hint: string;
+}> {
+  return apiFetch<{
+    config_id: string;
+    public_key: string;
+    manual_setup_hint: string;
+  }>("/api/github/prepare-clone", {
+    method: "POST",
+    body: JSON.stringify({ since_days: 30, ...args }),
+  });
+}
+
+/**
+ * Step 2 of the deploy-key flow. Backend attempts an SSH clone using
+ * the previously-stored private key. Fails cleanly if the public key
+ * wasn't installed on the repo.
+ */
+export async function finalizeGithubClone(args: {
+  config_id: string;
+}): Promise<unknown> {
+  return apiFetch("/api/github/finalize-clone", {
+    method: "POST",
+    body: JSON.stringify(args),
+  });
+}
+
 export async function mintScopedApiKey(args: {
   scope_folder_id: string;
   name: string;

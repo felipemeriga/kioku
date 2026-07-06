@@ -1026,7 +1026,6 @@ export async function fetchGitHubConfigs(): Promise<GitHubConfig[]> {
 export async function connectGitHub(input: {
   root_folder_id: string;
   repo_url: string;
-  token?: string;
   since_days?: number;
 }): Promise<GitHubConfig> {
   const res = await apiFetch("/api/github/connect", {

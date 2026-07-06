@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   Alert,
-  Autocomplete,
   Box,
   Button,
   Card,
   CardContent,
-  Chip,
   Dialog,
   DialogActions,
   DialogContent,
@@ -28,10 +26,9 @@ import {
   disconnectGitHub,
   fetchFolders,
   fetchGitHubConfigs,
-  listGitHubRepos,
   syncGitHubNow,
 } from "../lib/api";
-import type { Folder, GitHubConfig, GitHubRepoOption } from "../lib/api";
+import type { Folder, GitHubConfig } from "../lib/api";
 import { messageFromError, useToast } from "./ToastProvider";
 
 export function GitHubIntegrationSection() {
@@ -241,53 +238,29 @@ export function GitHubConnectDialog({
   onClose: () => void;
   onConnected: () => void;
 }) {
-  const [manualEntry, setManualEntry] = useState(false);
+  // UI is public-repo-only. Private/org repos need the deploy-key flow
+  // which requires local `gh` — configure them from the CLI instead.
   const [repoUrl, setRepoUrl] = useState("");
-  const [token, setToken] = useState("");
-  const [repos, setRepos] = useState<GitHubRepoOption[]>([]);
-  const [selectedRepo, setSelectedRepo] = useState<GitHubRepoOption | null>(null);
-  const [loadingRepos, setLoadingRepos] = useState(false);
   const [rootFolderId, setRootFolderId] = useState(fixedFolderId ?? "");
   const [sinceDays, setSinceDays] = useState(14);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const resetForm = () => {
-    setManualEntry(false);
     setRepoUrl("");
-    setToken("");
-    setRepos([]);
-    setSelectedRepo(null);
     setRootFolderId(fixedFolderId ?? "");
     setSinceDays(14);
     setError(null);
   };
 
-  const loadRepos = async () => {
-    setError(null);
-    setLoadingRepos(true);
-    try {
-      const result = await listGitHubRepos(token);
-      setRepos(result);
-      if (result.length === 0) {
-        setError("Token authenticated but returned no repos.");
-      }
-    } catch (err) {
-      setError(`Couldn't list repos: ${messageFromError(err)}`);
-    } finally {
-      setLoadingRepos(false);
-    }
-  };
-
   const submit = async () => {
     setError(null);
     setBusy(true);
-    const finalRepoUrl = selectedRepo ? selectedRepo.full_name : repoUrl;
+    const finalRepoUrl = repoUrl.trim();
     try {
       await connectGitHub({
         root_folder_id: rootFolderId,
         repo_url: finalRepoUrl,
-        token: token || undefined,
         since_days: sinceDays,
       });
       onConnected();
@@ -299,114 +272,33 @@ export function GitHubConnectDialog({
     }
   };
 
-  const canSubmit =
-    !!rootFolderId &&
-    (selectedRepo !== null || (manualEntry && !!repoUrl.trim())) &&
-    !busy;
+  const canSubmit = !!rootFolderId && !!repoUrl.trim() && !busy;
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle>Connect GitHub repository</DialogTitle>
+      <DialogTitle>Connect a public GitHub repo</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
           <Typography variant="body2" color="text.secondary">
-            Provide a personal access token with <code>repo</code> scope, then
-            pick a repo from the list. Read-only — we never write to your repo
-            or clone code. Public-repo-only mode is available via "Enter URL
-            manually".
+            Kioku clones the repo locally over HTTPS and reads from that
+            clone — no credentials leave your Kioku instance.
           </Typography>
+          <Alert severity="info" sx={{ py: 0.5 }}>
+            <Typography variant="body2">
+              For <strong>private or org-restricted</strong> repos, run{" "}
+              <code>kioku init</code> from the repo directory instead —
+              the CLI sets up a deploy key using your local <code>gh</code>{" "}
+              auth.
+            </Typography>
+          </Alert>
           <TextField
-            label="GitHub token"
-            placeholder="ghp_… or github_pat_…"
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            type="password"
+            label="Repository URL or owner/repo"
+            placeholder="https://github.com/owner/repo  or  owner/repo"
+            value={repoUrl}
+            onChange={(e) => setRepoUrl(e.target.value)}
             fullWidth
             autoFocus
           />
-
-          {!manualEntry ? (
-            <>
-              <Stack direction="row" spacing={1} alignItems="center">
-                <Button
-                  variant="outlined"
-                  onClick={loadRepos}
-                  disabled={!token || loadingRepos}
-                >
-                  {loadingRepos ? "Loading…" : "Load my repos"}
-                </Button>
-                <Typography variant="caption" color="text.secondary">
-                  or{" "}
-                  <Button
-                    size="small"
-                    onClick={() => setManualEntry(true)}
-                    sx={{ textTransform: "none", py: 0 }}
-                  >
-                    enter repo URL manually
-                  </Button>
-                </Typography>
-              </Stack>
-
-              {repos.length > 0 && (
-                <Autocomplete
-                  options={repos}
-                  value={selectedRepo}
-                  onChange={(_, v) => setSelectedRepo(v)}
-                  getOptionLabel={(opt) => opt.full_name}
-                  renderOption={(props, opt) => (
-                    <Box component="li" {...props}>
-                      <Stack sx={{ width: "100%" }}>
-                        <Stack direction="row" spacing={1} alignItems="center">
-                          <Typography sx={{ fontWeight: 600 }}>
-                            {opt.full_name}
-                          </Typography>
-                          {opt.private && (
-                            <Chip
-                              label="private"
-                              size="small"
-                              sx={{ height: 18, fontSize: "0.65rem" }}
-                            />
-                          )}
-                        </Stack>
-                        {opt.description && (
-                          <Typography variant="caption" color="text.secondary">
-                            {opt.description}
-                          </Typography>
-                        )}
-                        {opt.pushed_at && (
-                          <Typography variant="caption" color="text.secondary">
-                            pushed{" "}
-                            {new Date(opt.pushed_at).toLocaleDateString()}
-                          </Typography>
-                        )}
-                      </Stack>
-                    </Box>
-                  )}
-                  renderInput={(params) => (
-                    <TextField {...params} label={`Select repo (${repos.length})`} />
-                  )}
-                  fullWidth
-                />
-              )}
-            </>
-          ) : (
-            <Stack spacing={1}>
-              <TextField
-                label="Repository URL or owner/repo"
-                placeholder="https://github.com/owner/repo or owner/repo"
-                value={repoUrl}
-                onChange={(e) => setRepoUrl(e.target.value)}
-                fullWidth
-              />
-              <Button
-                size="small"
-                onClick={() => setManualEntry(false)}
-                sx={{ alignSelf: "flex-start", textTransform: "none" }}
-              >
-                ← use the repo picker instead
-              </Button>
-            </Stack>
-          )}
 
           {!fixedFolderId && (
             <FormControl fullWidth>
