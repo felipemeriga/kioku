@@ -112,6 +112,12 @@ async def main():
         check("regenerate on container → 200", r.status_code == 200, r.text[:200])
 
         hr("C. Full-briefing replace via MCP — validates schema, ok on happy path")
+        # Wait for the arq regen job queued in Step B to complete BEFORE
+        # doing our replace. Otherwise the async job could race with the
+        # MCP replace and either the auto-populators would overwrite our
+        # pinned content or the read-back sees a stale row.
+        await asyncio.sleep(4)
+
         # Mint api key scoped to repo folder
         r = await c.post(f"{BACKEND}/api/api-keys",
                           json={"name": f"recent-{tid}", "scope_folder_id": repo_id})
@@ -158,6 +164,8 @@ async def main():
             }),
             "pin_all": True,
         })
+        # Small read-your-write wait so the next GET sees the new row.
+        await asyncio.sleep(1)
         r = await c.get(f"{BACKEND}/api/folders/{repo_id}/briefing")
         b = r.json()
         check("partial replace updated overview",
