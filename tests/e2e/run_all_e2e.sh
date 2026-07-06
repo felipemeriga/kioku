@@ -37,6 +37,7 @@ SUITES=(
   "Recent features (cron scope + replace briefing):/tmp/e2e_recent_features.py"
   "Cron scope enumerator:/tmp/e2e_cron_scope.py"
   "Summary lifecycle (leaf + repo + workspace):/tmp/e2e_summary_lifecycle.py"
+  "Summary deep behaviors (mode transitions + pin preservation):/tmp/e2e_summary_deep.py"
   "Chaos + resilience:/tmp/e2e_chaos.py"
   "Security (injection, secret leaks, IDOR):/tmp/e2e_security.py"
   "Performance SLOs:/tmp/e2e_performance.py"
@@ -44,6 +45,7 @@ SUITES=(
   "CLI smoothness:/tmp/e2e_cli_smooth.py"
   "CLI GitHub auth ladder:/tmp/e2e_cli_github_auth.py"
   "CLI feature matrix:/tmp/e2e_cli_matrix.py"
+  "CLI stateful workflows:/tmp/e2e_cli_stateful.py"
   "CLI pro tier:/tmp/e2e_cli_pro.py"
   "CLI (full lifecycle):/tmp/e2e_cli.py"
 )

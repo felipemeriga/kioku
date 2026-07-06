@@ -79,6 +79,14 @@ export async function briefing(opts: Opts): Promise<void> {
   );
   console.log();
 
+  // If the user asked for a specific section, validate it BEFORE
+  // rendering so a typo produces an actionable error instead of silent
+  // success with no output.
+  if (opts.section && !SECTION_ORDER.includes(opts.section as (typeof SECTION_ORDER)[number])) {
+    throw new Error(
+      `Unknown section '${opts.section}'. Valid: ${SECTION_ORDER.join(", ")}`,
+    );
+  }
   const keys = opts.section ? [opts.section] : SECTION_ORDER;
   for (const key of keys) {
     const s = b.sections[key];

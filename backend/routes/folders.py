@@ -381,10 +381,15 @@ async def regenerate_folder_summary(
 
     pool = await create_pool(_redis_settings())
     try:
-        # Deterministic job_id per (folder, mode) so multiple concurrent
-        # regenerate clicks collapse to a single in-flight job. Without this,
-        # two clients hitting Regenerate at once produce two summary rows
-        # with identical included_hashes but differently-worded content.
+        # Bucketed job_id: dedups clicks within the same 10-second window
+        # so a user hammering Regenerate collapses to one job, but a
+        # legitimate re-click after content changes still enqueues.
+        # Previous approach used a static job_id, which arq treated as
+        # "reserved" for keep_result seconds (1h default) — meaning the
+        # 2nd click within an hour silently no-op'd (job_id: null in
+        # the response) even after the first job completed.
+        import time as _time
+        bucket = int(_time.time()) // 10
         job = await pool.enqueue_job(
             "summarize_folder_task",
             {
@@ -393,7 +398,7 @@ async def regenerate_folder_summary(
                 "mode": body.mode,
                 "trigger": "manual",
             },
-            _job_id=f"summarize:{folder_id}:{body.mode}",
+            _job_id=f"summarize:{folder_id}:{body.mode}:{bucket}",
         )
     finally:
         await pool.close()
