@@ -35,7 +35,17 @@ from services.folder_summary.repo import get_folder, get_latest_summary
 router = APIRouter(prefix="/api/folders")
 
 
+import re as _re
+
+_UUID_RE = _re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    _re.IGNORECASE,
+)
+
+
 def _folder_must_be_repo(sb, folder_id: str, user_id: str) -> dict:
+    if not _UUID_RE.match(folder_id):
+        raise HTTPException(status_code=404, detail="Folder not found")
     folder = get_folder(sb, folder_id, user_id)
     if not folder:
         raise HTTPException(status_code=404, detail="Folder not found")

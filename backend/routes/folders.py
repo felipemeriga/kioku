@@ -1,6 +1,7 @@
 """Folder CRUD + summary endpoints for organizing documents."""
 
 import os
+import re
 
 from arq.connections import RedisSettings, create_pool
 from fastapi import APIRouter, Depends, HTTPException
@@ -15,6 +16,20 @@ from services.folder_summary.repo import (
 )
 
 router = APIRouter(prefix="/api/folders")
+
+
+# Shared UUID guard — Postgres raises 22P02 on non-UUID input, which
+# bubbles as a 500. All path-param IDs go through this first so
+# nonsense hits a 404 instead of leaking a DB error.
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+
+
+def _require_uuid(folder_id: str) -> None:
+    if not _UUID_RE.match(folder_id):
+        raise HTTPException(status_code=404, detail="Folder not found")
 
 
 def _redis_settings() -> RedisSettings:
@@ -104,33 +119,49 @@ async def create_folder(
     name = _validate_folder_name(body.name)
     sb = get_supabase()
 
-    # Verify parent folder belongs to user if specified
-    if body.parent_id:
-        parent = (
+    # Wrap everything that talks to Postgrest — the upstream WAF may
+    # reject weird payloads (SQL-looking names, malformed data) with a
+    # 403 HTML page. We convert those into a clean 400 so the client
+    # can retry with a different name instead of seeing a raw stack.
+    try:
+        # Verify parent folder belongs to user if specified
+        if body.parent_id:
+            parent = (
+                sb.table("folders")
+                .select("id")
+                .eq("id", body.parent_id)
+                .eq("user_id", user_id)
+                .execute()
+            )
+            if not parent.data:
+                raise HTTPException(status_code=404, detail="Parent folder not found")
+
+        _check_unique_sibling(
+            sb, name=name, parent_id=body.parent_id, user_id=user_id
+        )
+
+        result = (
             sb.table("folders")
-            .select("id")
-            .eq("id", body.parent_id)
-            .eq("user_id", user_id)
+            .insert(
+                {
+                    "name": name,
+                    "parent_id": body.parent_id,
+                    "user_id": user_id,
+                }
+            )
             .execute()
         )
-        if not parent.data:
-            raise HTTPException(status_code=404, detail="Parent folder not found")
-
-    _check_unique_sibling(
-        sb, name=name, parent_id=body.parent_id, user_id=user_id
-    )
-
-    result = (
-        sb.table("folders")
-        .insert(
-            {
-                "name": name,
-                "parent_id": body.parent_id,
-                "user_id": user_id,
-            }
+    except HTTPException:
+        # Preserve intentional HTTPExceptions raised inside the block.
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Couldn't create folder — the storage backend rejected the "
+                "request. Try a simpler name without shell/SQL characters."
+            ),
         )
-        .execute()
-    )
     return result.data[0]
 
 
@@ -146,6 +177,7 @@ async def update_folder(
     kind='repo' is the CLI's "turn this folder into a repo" affordance —
     it's the same state that GitHub-connect would set, without requiring
     a GitHub binding first."""
+    _require_uuid(folder_id)
     sb = get_supabase()
     updates: dict = {}
 
@@ -206,6 +238,7 @@ async def delete_folder(
     `delete_docs=true` to also physically delete the docs and their
     original files from Supabase Storage.
     """
+    _require_uuid(folder_id)
     sb = get_supabase()
     # Fetch first so we know what to clean up + can return proper 404.
     row = (
@@ -286,6 +319,7 @@ async def get_folder_summary(
     user_id: str = Depends(get_current_user),
 ):
     """Latest folder summary + minimal metadata for the panel."""
+    _require_uuid(folder_id)
     sb = get_supabase()
     folder = get_folder(sb, folder_id, user_id)
     if not folder:
@@ -321,6 +355,7 @@ async def get_folder_summary_history(
     limit: int = 10,
     user_id: str = Depends(get_current_user),
 ):
+    _require_uuid(folder_id)
     sb = get_supabase()
     folder = get_folder(sb, folder_id, user_id)
     if not folder:
@@ -335,6 +370,7 @@ async def regenerate_folder_summary(
     user_id: str = Depends(get_current_user),
 ):
     """Enqueue a summarize_folder_task and return the arq job id."""
+    _require_uuid(folder_id)
     if body.mode not in {"auto", "full", "delta"}:
         raise HTTPException(status_code=400, detail="mode must be auto|full|delta")
 
@@ -370,7 +406,14 @@ async def get_breadcrumbs(
     folder_id: str,
     user_id: str = Depends(get_current_user),
 ):
-    """Return the breadcrumb path from root to the given folder."""
+    """Return the breadcrumb path from root to the given folder.
+
+    Malformed UUIDs return [] (200) — this endpoint historically
+    behaves like 'best-effort lookup' since it's often called
+    speculatively from the frontend to decide whether to render.
+    """
+    if not _UUID_RE.match(folder_id):
+        return []
     sb = get_supabase()
     breadcrumbs = []
     current_id: str | None = folder_id
