@@ -43,7 +43,7 @@ interface TranscriptTurn {
 }
 
 function statePath(repoRoot: string): string {
-  return join(repoRoot, ".claude", "agentic-rag-state.json");
+  return join(repoRoot, ".claude", "kioku-state.json");
 }
 
 function readState(repoRoot: string): StateFile | null {
@@ -63,9 +63,9 @@ function writeState(repoRoot: string, state: StateFile): void {
 }
 
 function logDebug(repoRoot: string, msg: string): void {
-  if (!process.env.AGENTIC_RAG_DEBUG) return;
+  if (!process.env.KIOKU_DEBUG) return;
   try {
-    const p = join(repoRoot, ".claude", "agentic-rag-capture.log");
+    const p = join(repoRoot, ".claude", "kioku-capture.log");
     mkdirSync(dirname(p), { recursive: true });
     appendFileSync(p, `[${new Date().toISOString()}] ${msg}\n`);
   } catch {
@@ -161,7 +161,7 @@ function readMcpApiKey(repoRoot: string): { key: string; sseUrl: string } | null
         { url?: string; headers?: Record<string, string> }
       >;
     };
-    const entry = cfg.mcpServers?.["agentic-rag"];
+    const entry = cfg.mcpServers?.["kioku"];
     if (!entry?.headers?.Authorization || !entry.url) return null;
     return {
       key: entry.headers.Authorization.replace(/^Bearer\s+/, ""),

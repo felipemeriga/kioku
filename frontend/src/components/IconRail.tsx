@@ -92,41 +92,55 @@ export default function IconRail({
           borderBottom: `1px solid ${brand.line}`,
         }}
       >
+        {/* Kanji brand mark — 記 in a magenta-glowing chrome frame.
+            Reads as a stamped hanko / neon signage in cyberpunk Tokyo. */}
         <Box
-          component="img"
-          src="/logo.svg"
-          alt="Agentic RAG"
           sx={{
-            width: 30,
-            height: 30,
-            borderRadius: 1.5,
-            boxShadow: `0 4px 14px ${alpha(brand.violet, 0.55)}`,
+            width: 34,
+            height: 34,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            border: `1px solid ${brand.magenta}`,
+            borderRadius: 1,
+            background: `linear-gradient(135deg, ${brand.magenta}22 0%, ${brand.cyan}11 100%)`,
+            boxShadow: `0 0 12px ${alpha(brand.magenta, 0.6)}, inset 0 0 8px ${alpha(brand.magenta, 0.25)}`,
+            fontFamily: fonts.jp,
+            fontWeight: 900,
+            fontSize: "1.2rem",
+            color: brand.magentaGlow,
+            textShadow: `0 0 6px ${brand.magenta}, 0 0 12px ${brand.magenta}88`,
+            flexShrink: 0,
           }}
-        />
+        >
+          記
+        </Box>
         <Stack spacing={0}>
           <Typography
             variant="overline"
             sx={{
-              fontFamily: fonts.mono,
-              fontSize: "0.6rem",
-              letterSpacing: "0.14em",
-              color: brand.muted,
+              fontFamily: fonts.jp,
+              fontSize: "0.58rem",
+              letterSpacing: "0.35em",
+              color: brand.cyan,
               lineHeight: 1,
+              textShadow: `0 0 6px ${brand.cyan}66`,
             }}
           >
-            AGENTIC
+            キオク
           </Typography>
           <Typography
             sx={{
               fontFamily: fonts.display,
               fontWeight: 700,
               fontSize: "1.05rem",
-              letterSpacing: "-0.02em",
+              letterSpacing: "0.08em",
               color: brand.text,
               lineHeight: 1.1,
+              textTransform: "uppercase",
             }}
           >
-            RAG
+            Kioku
           </Typography>
         </Stack>
       </Box>

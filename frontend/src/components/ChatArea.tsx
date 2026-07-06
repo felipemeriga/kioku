@@ -83,7 +83,7 @@ export default function ChatArea({
                     color: brand.text,
                   }}
                 >
-                  Ask your knowledge base.
+                  Ask your second brain.
                 </Typography>
                 <Typography
                   sx={{
@@ -95,7 +95,7 @@ export default function ChatArea({
                     mt: 0.5,
                   }}
                 >
-                  Query your ingested documents, filter by topic or metadata, or reach for the web when your corpus doesn't have the answer.
+                  Query your repos, docs, and memories. Filter by topic or metadata, or reach for the web when your corpus doesn't have the answer.
                 </Typography>
               </Stack>
 

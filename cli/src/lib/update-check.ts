@@ -10,7 +10,7 @@ import { join } from "node:path";
 import kleur from "kleur";
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const PKG_NAME = "agentic-rag";
+const PKG_NAME = "kioku";
 
 interface Cache {
   checked_at: number;
@@ -20,8 +20,8 @@ interface Cache {
 function cachePath(): string {
   const xdg = process.env.XDG_CACHE_HOME;
   const dir = xdg
-    ? join(xdg, "agentic-rag")
-    : join(homedir(), ".cache", "agentic-rag");
+    ? join(xdg, "kioku")
+    : join(homedir(), ".cache", "kioku");
   return join(dir, "update-check.json");
 }
 
@@ -47,7 +47,7 @@ function writeCache(c: Cache): void {
  * anything the user is waiting on.
  */
 export async function checkForUpdate(currentVersion: string): Promise<void> {
-  if (process.env.AGENTIC_RAG_NO_UPDATE_CHECK) return;
+  if (process.env.KIOKU_NO_UPDATE_CHECK) return;
   const cached = readCache();
   const now = Date.now();
   if (cached && now - cached.checked_at < CACHE_TTL_MS) {
@@ -77,7 +77,7 @@ function maybeNotify(current: string, latest: string | null): void {
   if (!latest) return;
   if (compareSemver(latest, current) <= 0) return;
   // Subtle bottom-of-output line. Skip if quiet.
-  if (process.env.AGENTIC_RAG_QUIET) return;
+  if (process.env.KIOKU_QUIET) return;
   console.log();
   console.log(
     `  ${kleur.yellow("⇧")} ${kleur.dim(

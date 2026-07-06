@@ -67,8 +67,8 @@ async function apiFetch<T>(
     throw new ApiError(`Couldn't reach ${cfg.api_base}: ${msg}`, {
       kind: "unreachable",
       hint: isRefused
-        ? `Is the backend running at ${cfg.api_base}? Start it, or export AGENTIC_RAG_API_BASE=https://your-prod-url.`
-        : `Check your network + AGENTIC_RAG_API_BASE (currently ${cfg.api_base}).`,
+        ? `Is the backend running at ${cfg.api_base}? Start it, or export KIOKU_API_BASE=https://your-prod-url.`
+        : `Check your network + KIOKU_API_BASE (currently ${cfg.api_base}).`,
     });
   }
   if (!res.ok) {
@@ -96,7 +96,7 @@ async function apiFetch<T>(
       throw new ApiError(`Session expired (${res.status}): ${detail}`, {
         status: res.status,
         kind: "unauthorized",
-        hint: "Run: agentic-rag login",
+        hint: "Run: kioku login",
       });
     }
     throw new ApiError(`${res.status} ${res.statusText}: ${detail}`, {

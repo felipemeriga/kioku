@@ -1,5 +1,5 @@
 /**
- * GitHub auth strategy for `agentic-rag init`.
+ * GitHub auth strategy for `kioku init`.
  *
  * The problem: we need a token to sync private repos, but we don't want
  * the user to always paste one. Three fallback tiers, ordered by UX:
@@ -99,7 +99,7 @@ export function ghCliToken(): string | null {
  *  have to hunt through the settings screen. */
 function patCreationUrl(owner: string, repo: string): string {
   const params = new URLSearchParams({
-    description: `agentic-rag sync — ${owner}/${repo}`,
+    description: `kioku sync — ${owner}/${repo}`,
     scopes: "repo,read:org",
   });
   return `https://github.com/settings/tokens/new?${params.toString()}`;

@@ -67,7 +67,7 @@ export async function login(): Promise<void> {
         ),
       ]);
       console.log();
-      info("Next: cd into a repo and run " + kleur.bold("agentic-rag init"));
+      info("Next: cd into a repo and run " + kleur.bold("kioku init"));
       console.log();
       return;
     } catch (err) {

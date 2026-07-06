@@ -1,5 +1,5 @@
 /**
- * CLI config storage — ~/.config/agentic-rag/config.json (0600).
+ * CLI config storage — ~/.config/kioku/config.json (0600).
  *
  * Stores:
  *   - api_base:      backend URL (default http://localhost:8000)
@@ -32,22 +32,22 @@ const DEFAULT_API_BASE = "http://localhost:8000";
  * env changes made by commander's preAction hook (from --api-base flag)
  * take effect:
  *
- *   1. AGENTIC_RAG_API_BASE env var — set by --api-base flag or shell
- *   2. api_base persisted in ~/.config/agentic-rag/config.json
+ *   1. KIOKU_API_BASE env var — set by --api-base flag or shell
+ *   2. api_base persisted in ~/.config/kioku/config.json
  *   3. DEFAULT_API_BASE (localhost:8000)
  *
  * Previously the config-file value ALWAYS won over the env var, which
  * defeated the whole purpose of --api-base as an override.
  */
 function resolveApiBase(fromFile: string | undefined): string {
-  return process.env.AGENTIC_RAG_API_BASE || fromFile || DEFAULT_API_BASE;
+  return process.env.KIOKU_API_BASE || fromFile || DEFAULT_API_BASE;
 }
 
 function configDir(): string {
   const xdg = process.env.XDG_CONFIG_HOME;
   return xdg
-    ? join(xdg, "agentic-rag")
-    : join(homedir(), ".config", "agentic-rag");
+    ? join(xdg, "kioku")
+    : join(homedir(), ".config", "kioku");
 }
 
 function configPath(): string {

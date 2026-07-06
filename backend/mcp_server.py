@@ -25,7 +25,7 @@ from services.text_to_sql import generate_and_execute_sql
 
 MCP_PORT = int(os.environ.get("MCP_PORT", "8001"))
 
-mcp = FastMCP("Agentic RAG Knowledge Base", host="0.0.0.0", port=MCP_PORT)
+mcp = FastMCP("Kioku Second Brain", host="0.0.0.0", port=MCP_PORT)
 
 # Per-request user_id via contextvars (safe for concurrent connections)
 _current_user_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(

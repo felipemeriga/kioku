@@ -11,7 +11,7 @@
 
 set -u -o pipefail
 
-BE=/Users/feliperamosdasilva/personal_projects/agentic-rag/backend
+BE=/Users/feliperamosdasilva/personal_projects/kioku/backend
 RESULTS_DIR=/tmp/e2e_results_$(date +%s)
 mkdir -p "$RESULTS_DIR"
 

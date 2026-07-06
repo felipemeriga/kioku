@@ -1,10 +1,10 @@
 {
-  "name": "agentic-rag",
+  "name": "kioku",
   "version": "0.1.0",
-  "description": "CLI for wiring a local repo to your agentic-rag second-brain — installs the MCP, session-start hook, and CLAUDE.md snippet.",
+  "description": "Kioku (記憶) — second brain for your repos. Wires a local repo to your Kioku instance: MCP server, SessionStart hook, capture Stop hook, CLAUDE.md snippet.",
   "type": "module",
   "bin": {
-    "agentic-rag": "./dist/index.js"
+    "kioku": "./dist/index.js"
   },
   "files": [
     "dist",

@@ -103,7 +103,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         onNewFolder={handleNewFolder}
         onRequestDeleteFolder={handleRequestDeleteFolder}
       />
-      <Box sx={{ flex: 1, overflow: "hidden" }}>{children}</Box>
+      <Box sx={{ flex: 1, minWidth: 0, overflowY: "auto", overflowX: "hidden" }}>
+        {children}
+      </Box>
 
       <Dialog
         open={!!deleteTarget}

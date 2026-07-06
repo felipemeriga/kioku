@@ -12,7 +12,7 @@ export async function status(): Promise<void> {
   info(`API base: ${cfg.api_base}`);
 
   if (!cfg.access_token) {
-    warn("Not signed in.", "Run: agentic-rag login");
+    warn("Not signed in.", "Run: kioku login");
     return;
   }
   try {
@@ -21,7 +21,7 @@ export async function status(): Promise<void> {
   } catch (err) {
     warn(
       `Auth check failed: ${err instanceof Error ? err.message : err}`,
-      "Try: agentic-rag login",
+      "Try: kioku login",
     );
     return;
   }
@@ -39,14 +39,14 @@ export async function status(): Promise<void> {
       : "git: not a repo",
   );
   if (existsSync(mcpPath)) ok(".mcp.json wired");
-  else bad(".mcp.json missing", "Run: agentic-rag init");
+  else bad(".mcp.json missing", "Run: kioku init");
   if (existsSync(hookPath)) {
     try {
       const s = JSON.parse(readFileSync(hookPath, "utf8")) as {
         hooks?: { SessionStart?: Array<{ command: string }> };
       };
       const has = s.hooks?.SessionStart?.some((h) =>
-        h.command.includes("agentic-rag"),
+        h.command.includes("kioku"),
       );
       if (has) ok("SessionStart hook installed");
       else warn("SessionStart hook not set");
@@ -61,7 +61,7 @@ export async function status(): Promise<void> {
 
   // Capture state — subtle recency indicator showing the hook loop is
   // actually running.
-  const statePath = join(repoRoot, ".claude", "agentic-rag-state.json");
+  const statePath = join(repoRoot, ".claude", "kioku-state.json");
   if (existsSync(statePath)) {
     try {
       const state = JSON.parse(readFileSync(statePath, "utf8")) as {

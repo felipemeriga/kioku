@@ -22,10 +22,10 @@ import httpx
 from dotenv import load_dotenv
 from supabase import create_client
 
-load_dotenv("/Users/feliperamosdasilva/personal_projects/agentic-rag/backend/.env")
-sys.path.insert(0, "/Users/feliperamosdasilva/personal_projects/agentic-rag/backend")
+load_dotenv("/Users/feliperamosdasilva/personal_projects/kioku/backend/.env")
+sys.path.insert(0, "/Users/feliperamosdasilva/personal_projects/kioku/backend")
 
-CLI = "/Users/feliperamosdasilva/personal_projects/agentic-rag/cli/dist/index.js"
+CLI = "/Users/feliperamosdasilva/personal_projects/kioku/cli/dist/index.js"
 BACKEND = "http://localhost:8000"
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 ANON = os.environ["SUPABASE_ANON_KEY"]

@@ -1,13 +1,13 @@
 /**
- * Bare `agentic-rag` — smart contextual welcome.
+ * Bare `kioku` — smart contextual welcome.
  *
  * Detects state + shows the SINGLE most useful next step. No walls of
  * text. Meant to answer "what do I do next?" in one glance.
  *
  * State flowchart:
- *   Not signed in           → "Run: agentic-rag login"
- *   Signed in, not in repo  → "Run this in a git repo, then: agentic-rag init"
- *   In repo, not wired      → "Run: agentic-rag init"
+ *   Not signed in           → "Run: kioku login"
+ *   Signed in, not in repo  → "Run this in a git repo, then: kioku init"
+ *   In repo, not wired      → "Run: kioku init"
  *   In wired repo           → summary card + tips
  */
 
@@ -26,23 +26,23 @@ export async function welcome(): Promise<void> {
   if (!isLoggedIn()) {
     section("Welcome");
     info("Sign in to get started:");
-    console.log(`    ${kleur.bold("agentic-rag login")}`);
+    console.log(`    ${kleur.bold("kioku login")}`);
     console.log();
     return;
   }
 
   const repoRoot = resolve(process.cwd());
   const git = detectGit(repoRoot);
-  const statePath = join(repoRoot, ".claude", "agentic-rag-state.json");
+  const statePath = join(repoRoot, ".claude", "kioku-state.json");
   const wired = existsSync(statePath);
 
   // 2. Not in a git repo
   if (!git.isRepo) {
     section(`Hi ${cfg.email}`);
     info("You're not in a git repo yet. cd into one and run:");
-    console.log(`    ${kleur.bold("agentic-rag init")}`);
+    console.log(`    ${kleur.bold("kioku init")}`);
     console.log();
-    info("Or browse your workspace: " + kleur.bold("agentic-rag ls"));
+    info("Or browse your workspace: " + kleur.bold("kioku ls"));
     console.log();
     return;
   }
@@ -52,10 +52,10 @@ export async function welcome(): Promise<void> {
     section(`Hi ${cfg.email}`);
     info(
       git.owner
-        ? `Detected ${git.owner}/${git.repo} — not wired to agentic-rag yet.`
-        : "Detected a git repo — not wired to agentic-rag yet.",
+        ? `Detected ${git.owner}/${git.repo} — not wired to kioku yet.`
+        : "Detected a git repo — not wired to kioku yet.",
     );
-    console.log(`    ${kleur.bold("agentic-rag init")}    ${kleur.dim("# wire this repo")}`);
+    console.log(`    ${kleur.bold("kioku init")}    ${kleur.dim("# wire this repo")}`);
     console.log();
     return;
   }
@@ -87,19 +87,19 @@ export async function welcome(): Promise<void> {
   console.log();
   console.log(kleur.bold("  Handy commands:"));
   console.log(
-    `    ${kleur.bold("agentic-rag briefing")}    ${kleur.dim("# view this repo's briefing")}`,
+    `    ${kleur.bold("kioku briefing")}    ${kleur.dim("# view this repo's briefing")}`,
   );
   console.log(
-    `    ${kleur.bold("agentic-rag ls")}          ${kleur.dim("# browse your workspace")}`,
+    `    ${kleur.bold("kioku ls")}          ${kleur.dim("# browse your workspace")}`,
   );
   console.log(
-    `    ${kleur.bold("agentic-rag search \"...\"")}  ${kleur.dim("# knowledge base search")}`,
+    `    ${kleur.bold("kioku search \"...\"")}  ${kleur.dim("# knowledge base search")}`,
   );
   console.log(
-    `    ${kleur.bold("agentic-rag open")}        ${kleur.dim("# open in web UI")}`,
+    `    ${kleur.bold("kioku open")}        ${kleur.dim("# open in web UI")}`,
   );
   console.log(
-    `    ${kleur.bold("agentic-rag doctor")}      ${kleur.dim("# health checks")}`,
+    `    ${kleur.bold("kioku doctor")}      ${kleur.dim("# health checks")}`,
   );
   console.log();
 }

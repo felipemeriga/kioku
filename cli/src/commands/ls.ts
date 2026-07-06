@@ -1,5 +1,5 @@
 /**
- * `agentic-rag ls [path]` — browse your workspace.
+ * `kioku ls [path]` — browse your workspace.
  *
  * With no arg → list root folders.
  * With a name/path → list that folder's children.
@@ -40,7 +40,7 @@ export async function ls(pathArg: string | undefined, opts: Opts): Promise<void>
     printListing(`Signed in as ${w.user_id.slice(0, 8)}… · roots`, roots);
     if (roots.length === 0) {
       console.log();
-      info("No roots yet. Run agentic-rag init in a repo to create one.");
+      info("No roots yet. Run kioku init in a repo to create one.");
     }
     return;
   }
@@ -91,7 +91,7 @@ export async function ls(pathArg: string | undefined, opts: Opts): Promise<void>
   printListing(header, entries);
   if (entries.length === 0) {
     console.log();
-    info("Empty. `agentic-rag init` in a repo to add one here.");
+    info("Empty. `kioku init` in a repo to add one here.");
   }
 }
 

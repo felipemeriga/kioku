@@ -1,5 +1,5 @@
 /**
- * `agentic-rag quickstart` — first-run flow.
+ * `kioku quickstart` — first-run flow.
  *
  * Combines login + init in one guided command so new users get from
  * zero to Claude Code in ~30 seconds. Skips login step if already
@@ -21,8 +21,8 @@ export async function quickstart(opts: Opts): Promise<void> {
   const git = detectGit(process.cwd());
   if (!git.isRepo) {
     section("Quickstart");
-    info("This command wires the CURRENT directory to agentic-rag. Run it inside a git repo.");
-    info(`git init && git remote add origin <url> && agentic-rag quickstart`);
+    info("This command wires the CURRENT directory to kioku. Run it inside a git repo.");
+    info(`git init && git remote add origin <url> && kioku quickstart`);
     process.exitCode = 1;
     return;
   }
@@ -41,7 +41,7 @@ export async function quickstart(opts: Opts): Promise<void> {
   box([
     `${kleur.green("✓")} ${kleur.bold("You're set.")}`,
     kleur.dim("  Open this repo in Claude Code — briefing loads at session start."),
-    kleur.dim("  Try:  agentic-rag briefing   to see what Claude Code will see."),
+    kleur.dim("  Try:  kioku briefing   to see what Claude Code will see."),
   ]);
   console.log();
 }

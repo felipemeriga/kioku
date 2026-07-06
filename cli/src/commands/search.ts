@@ -1,5 +1,5 @@
 /**
- * `agentic-rag search "query"` — knowledge-base search from the terminal.
+ * `kioku search "query"` — knowledge-base search from the terminal.
  *
  * Uses the current repo's api key from .mcp.json (fast + doesn't
  * need the session token — same auth as the SessionStart hook).
@@ -42,7 +42,7 @@ export async function search(query: string, opts: Opts): Promise<void> {
           { headers?: Record<string, string> }
         >;
       };
-      const bearer = mcp.mcpServers?.["agentic-rag"]?.headers?.Authorization;
+      const bearer = mcp.mcpServers?.["kioku"]?.headers?.Authorization;
       if (bearer) {
         apiKey = bearer.replace(/^Bearer\s+/, "");
         source = "mcp";
@@ -64,14 +64,14 @@ export async function search(query: string, opts: Opts): Promise<void> {
     // Better UX: tell the user why we can't proceed.
     warn(
       "This works best from inside a wired repo.",
-      "cd into a repo with .mcp.json, or run `agentic-rag init` first.",
+      "cd into a repo with .mcp.json, or run `kioku init` first.",
     );
     process.exitCode = 1;
     return;
   } else {
     warn(
       "Not signed in and no .mcp.json here.",
-      "Run: agentic-rag login  (or cd into a wired repo)",
+      "Run: kioku login  (or cd into a wired repo)",
     );
     process.exitCode = 1;
     return;

@@ -1,8 +1,10 @@
-# Agentic RAG
+# Kioku (記憶)
 
-A personal knowledge base powered by an AI agent that reasons over your documents. Upload PDFs, DOCX, HTML, Markdown, or plain text files, organize them in folders, and ask questions — the agent decides which tools to use (vector search, metadata queries, or web search) to find the best answer.
+**Second brain for your repos.** A persistent memory system that pairs with Claude Code — captures preferences, findings, decisions, and architecture briefings per-repo, and streams them back at the start of every session via MCP.
 
-Built as a self-hosted alternative to project-scoped RAG tools. Unlike per-project solutions, Agentic RAG gives you a single knowledge base that spans across all your work, with folder-based organization to scope searches when needed.
+Upload PDFs, DOCX, Markdown, or plain text; connect GitHub repos + Notion pages; wire Claude Code hooks with a single CLI command. Every session starts with your repo's briefing pre-loaded; every session ends with what you learned auto-captured to memory.
+
+Built as a self-hosted, folder-scoped second brain. Unlike per-project agents, Kioku unifies your workspace across repos while keeping strict per-repo scope for retrieval and memory.
 
 ![Dark themed UI with glassmorphism](https://img.shields.io/badge/theme-glassmorphism-6366f1)
 

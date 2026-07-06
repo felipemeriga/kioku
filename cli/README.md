@@ -1,9 +1,9 @@
-# agentic-rag
+# kioku
 
-CLI that wires a local repo to your **agentic-rag** second-brain — installs the MCP server, session hooks, and CLAUDE.md snippet so Claude Code loads your briefing at session start and captures learnings back to Mem0.
+CLI that wires a local repo to your **kioku** second-brain — installs the MCP server, session hooks, and CLAUDE.md snippet so Claude Code loads your briefing at session start and captures learnings back to Mem0.
 
 ```text
-  ● agentic-rag  second-brain for coding agents
+  ● kioku  second-brain for coding agents
   ────────────────────────────────────────
 ```
 
@@ -13,23 +13,23 @@ Pick one:
 
 ```bash
 # via npx (no install, always latest)
-npx agentic-rag@latest login
+npx kioku@latest login
 
 # global install
-npm install -g agentic-rag
-agentic-rag login
+npm install -g kioku
+kioku login
 
 # from source (until first npm publish)
 git clone <this-repo>
-cd agentic-rag/cli && npm install && npm run build && npm link
+cd kioku/cli && npm install && npm run build && npm link
 ```
 
 ## Quickstart
 
 ```bash
-agentic-rag login             # email + 6-digit code from your inbox
+kioku login             # email + 6-digit code from your inbox
 cd ~/repos/my-project
-agentic-rag init              # picks folder, wires MCP, installs hooks, done
+kioku init              # picks folder, wires MCP, installs hooks, done
 ```
 
 That's it. Open Claude Code in `~/repos/my-project` and the SessionStart hook loads your briefing automatically. Stop hook captures learnings every ~10 min or every 5 turns.
@@ -39,9 +39,9 @@ That's it. Open Claude Code in `~/repos/my-project` and the SessionStart hook lo
 The CLI defaults to `http://localhost:8000` for the backend REST API. Point it elsewhere:
 
 ```bash
-export AGENTIC_RAG_API_BASE=https://api.your-domain.com
+export KIOKU_API_BASE=https://api.your-domain.com
 # The MCP URL is derived by swapping :8000 → :8001. Override if needed:
-export AGENTIC_RAG_MCP_URL=https://mcp.your-domain.com/sse
+export KIOKU_MCP_URL=https://mcp.your-domain.com/sse
 ```
 
 ## Commands
@@ -62,18 +62,18 @@ Sign in via email OTP.
   ╰──────────────────────────╯
 ```
 
-Tokens stored at `~/.config/agentic-rag/config.json` (0600). No password. No browser dance.
+Tokens stored at `~/.config/kioku/config.json` (0600). No password. No browser dance.
 
 ### `init`
 
 Wires the current repo. Detects your git remote, figures out (or asks about) where in your workspace this repo lives, mints an API key, and writes 4 files. **Idempotent** — safe to re-run any time.
 
 ```bash
-agentic-rag init                          # interactive; smart defaults
-agentic-rag init --yes                    # no prompts, take all defaults
-agentic-rag init --root my-company        # pre-select a root by name
-agentic-rag init --github-token ghp_...   # explicit token (bypasses gh CLI detection)
-agentic-rag init --skip-github            # no GitHub sync (public-only briefing)
+kioku init                          # interactive; smart defaults
+kioku init --yes                    # no prompts, take all defaults
+kioku init --root my-company        # pre-select a root by name
+kioku init --github-token ghp_...   # explicit token (bypasses gh CLI detection)
+kioku init --skip-github            # no GitHub sync (public-only briefing)
 ```
 
 **Smart defaults**: no prompt when there's an obvious answer.
@@ -93,7 +93,7 @@ agentic-rag init --skip-github            # no GitHub sync (public-only briefing
 |---|---|---|
 | `.mcp.json` | Server config with SSE URL + Bearer API key | ✓ |
 | `.claude/settings.json` | `SessionStart` + `Stop` hooks | (committable) |
-| `.claude/agentic-rag-state.json` | folder_id + capture watermark | ✓ |
+| `.claude/kioku-state.json` | folder_id + capture watermark | ✓ |
 | `CLAUDE.md` | Instructions for Claude on when to save memories vs. update the briefing | (committable) |
 | `.gitignore` | Adds the 4 above ✓ entries | (committable) |
 
@@ -102,7 +102,7 @@ agentic-rag init --skip-github            # no GitHub sync (public-only briefing
 Run automatically by the SessionStart hook. Reads `.mcp.json`, hits `/api/cli/scope-info`, prints a compact context block Claude Code prepends to the session:
 
 ```
-── agentic-rag second-brain ──
+── kioku second-brain ──
 Scope: personal
 Folders in scope: 3
 Repos: personal/my-project, personal/other-repo
@@ -117,7 +117,7 @@ You never call this by hand, but it's useful for testing your setup.
 
 Run automatically by the Stop hook after every assistant turn. Debounced — fires only when **5 new turns** OR **10 minutes** since the last fire. Reads Claude Code's transcript, ships the delta, backend distills to 0-3 memory entries via Haiku (categories: `preference` / `finding` / `decision` / `issue` / `session`), Mem0 stores with content-hash dedup.
 
-Silent on failure. Set `AGENTIC_RAG_DEBUG=1` to log to `.claude/agentic-rag-capture.log`.
+Silent on failure. Set `KIOKU_DEBUG=1` to log to `.claude/kioku-capture.log`.
 
 ### `status`
 
@@ -156,16 +156,16 @@ Diagnostic. Runs every check + prints fix hints:
   ✓ .mcp.json                      
   ✓ .claude/settings.json          
   ✓ CLAUDE.md                      
-  ✓ .claude/agentic-rag-state.json 
+  ✓ .claude/kioku-state.json 
 
   ✓ All checks passed.  Open Claude Code here — you're set.
 ```
 
-If anything fails, the fix hint appears under it: `Run: agentic-rag login`, `Start the backend`, `Run: gh auth login`, etc.
+If anything fails, the fix hint appears under it: `Run: kioku login`, `Start the backend`, `Run: gh auth login`, etc.
 
 ## Files & storage
 
-**Global**: `~/.config/agentic-rag/config.json` — login tokens only (0600).
+**Global**: `~/.config/kioku/config.json` — login tokens only (0600).
 
 **Per-repo**: everything in `.mcp.json`, `.claude/*.json`, `CLAUDE.md`. No secrets outside `.mcp.json` (which is gitignored).
 
@@ -173,12 +173,12 @@ If anything fails, the fix hint appears under it: `Run: agentic-rag login`, `Sta
 
 ## Troubleshooting
 
-**"Couldn't reach http://localhost:8000"** — Backend not running. Start it (or point at your prod URL with `AGENTIC_RAG_API_BASE`).
+**"Couldn't reach http://localhost:8000"** — Backend not running. Start it (or point at your prod URL with `KIOKU_API_BASE`).
 
-**"Session expired"** — Your login token TTL'd out. `agentic-rag login` again.
+**"Session expired"** — Your login token TTL'd out. `kioku login` again.
 
 **"gh CLI is logged in but doesn't have access to X"** — Your gh account isn't a collaborator on that repo. Get access, or paste a PAT with `repo` scope.
 
-**Hook errors in Claude Code** — Set `AGENTIC_RAG_DEBUG=1` in your shell and re-run. Debug output goes to `.claude/agentic-rag-capture.log`.
+**Hook errors in Claude Code** — Set `KIOKU_DEBUG=1` in your shell and re-run. Debug output goes to `.claude/kioku-capture.log`.
 
-**Anything else** — `agentic-rag doctor` will tell you what's wrong and what to run.
+**Anything else** — `kioku doctor` will tell you what's wrong and what to run.

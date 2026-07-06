@@ -91,11 +91,12 @@ function KindChip({ kind }: { kind: FolderSummaryRow["kind"] }) {
 
 // CHANGES — softer data chip. Signals "here's what changed" — read like a stat.
 function ChangesChip({ row }: { row: FolderSummaryRow }) {
-  const { added = [], removed = [], modified = [] } = row.changed_files || {
-    added: [],
-    removed: [],
-    modified: [],
-  };
+  // changed_files may be a workspace-rollup shape (no added/removed/modified),
+  // so defensively coerce anything non-array to [].
+  const cf = row.changed_files ?? {};
+  const added = Array.isArray(cf.added) ? cf.added : [];
+  const removed = Array.isArray(cf.removed) ? cf.removed : [];
+  const modified = Array.isArray(cf.modified) ? cf.modified : [];
   const total = added.length + removed.length + modified.length;
   if (total === 0) return null;
   return (
@@ -456,10 +457,16 @@ export default function FolderSummaryPanel({ folderId, folderName }: Props) {
   // ground truth from the diff logic in services/folder_summary/diff.py.
   const fileDiff = useMemo(() => {
     if (!row) return null;
-    const cf = row.changed_files || { added: [], removed: [], modified: [] };
-    const total = cf.added.length + cf.removed.length + cf.modified.length;
+    const cf = row.changed_files ?? {};
+    // Workspace rollups write a different shape (subfolder_count /
+    // subfolder_snapshots) and have no per-file diff. Guard against
+    // missing keys so those rows don't crash the panel.
+    const added = Array.isArray(cf.added) ? cf.added : [];
+    const removed = Array.isArray(cf.removed) ? cf.removed : [];
+    const modified = Array.isArray(cf.modified) ? cf.modified : [];
+    const total = added.length + removed.length + modified.length;
     if (total === 0) return null;
-    return cf;
+    return { added, removed, modified };
   }, [row]);
 
   return (

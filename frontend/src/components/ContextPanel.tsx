@@ -134,9 +134,9 @@ export default function ContextPanel({
                   width: 24,
                   height: 24,
                   borderRadius: 1,
-                  bgcolor: alpha("#7c3aed", 0.15),
+                  bgcolor: alpha("#FF2E93", 0.15),
                   color: "#a78bfa",
-                  "&:hover": { bgcolor: alpha("#7c3aed", 0.25) },
+                  "&:hover": { bgcolor: alpha("#FF2E93", 0.25) },
                 }}
               >
                 <AddIcon sx={{ fontSize: 14 }} />
@@ -207,9 +207,9 @@ function ChatPanel({
             width: 24,
             height: 24,
             borderRadius: 1,
-            bgcolor: alpha("#7c3aed", 0.15),
+            bgcolor: alpha("#FF2E93", 0.15),
             color: "#a78bfa",
-            "&:hover": { bgcolor: alpha("#7c3aed", 0.25) },
+            "&:hover": { bgcolor: alpha("#FF2E93", 0.25) },
           }}
         >
           <AddIcon sx={{ fontSize: 14 }} />
@@ -312,8 +312,8 @@ function ConversationRow({
         py: 0.6,
         mb: 0.25,
         "&.Mui-selected": {
-          bgcolor: alpha("#7c3aed", 0.12),
-          "&:hover": { bgcolor: alpha("#7c3aed", 0.18) },
+          bgcolor: alpha("#FF2E93", 0.12),
+          "&:hover": { bgcolor: alpha("#FF2E93", 0.18) },
         },
         "&:hover": {
           bgcolor: alpha("#ffffff", 0.04),
@@ -349,11 +349,11 @@ function ConversationRow({
             color: "#fff",
             "& input": {
               padding: 0,
-              border: `1px solid ${alpha("#7c3aed", 0.4)}`,
+              border: `1px solid ${alpha("#FF2E93", 0.4)}`,
               borderRadius: 0.75,
               px: 1,
               py: 0.4,
-              bgcolor: alpha("#7c3aed", 0.08),
+              bgcolor: alpha("#FF2E93", 0.08),
             },
           }}
         />

@@ -43,7 +43,7 @@ async def lifespan(app: FastAPI):
             pass
 
 
-app = FastAPI(title="Agentic RAG API", lifespan=lifespan)
+app = FastAPI(title="Kioku API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -71,7 +71,7 @@ app.include_router(cli_router)
 app.include_router(retrieval_log_router)
 
 
-log = logging.getLogger("agentic-rag")
+log = logging.getLogger("kioku")
 
 
 @app.exception_handler(Exception)

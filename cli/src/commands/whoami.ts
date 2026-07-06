@@ -10,7 +10,7 @@ export async function whoami(opts: Opts): Promise<void> {
   const cfg = readConfig();
   if (!cfg.access_token || !cfg.email) {
     if (opts.json) console.log(JSON.stringify({ signed_in: false }, null, 2));
-    else console.log(kleur.yellow("Not signed in.") + " " + kleur.dim("Run: agentic-rag login"));
+    else console.log(kleur.yellow("Not signed in.") + " " + kleur.dim("Run: kioku login"));
     process.exitCode = 1;
     return;
   }

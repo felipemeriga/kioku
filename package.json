@@ -1,0 +1,28 @@
+{
+  "name": "agentic-rag",
+  "version": "1.0.0",
+  "description": "A personal knowledge base powered by an AI agent that reasons over your documents. Upload PDFs, DOCX, HTML, Markdown, or plain text files, organize them in folders, and ask questions — the agent decides which tools to use (vector search, metadata queries, or web search) to find the best answer.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/felipemeriga/agentic-rag.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/felipemeriga/agentic-rag/issues"
+  },
+  "homepage": "https://github.com/felipemeriga/agentic-rag#readme",
+  "devDependencies": {
+    "@slidev/cli": "^52.15.2",
+    "@slidev/theme-default": "^0.25.0"
+  }
+}

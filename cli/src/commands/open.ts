@@ -1,5 +1,5 @@
 /**
- * `agentic-rag open` — jump to the web UI.
+ * `kioku open` — jump to the web UI.
  *
  * If run inside a wired repo, opens directly to the folder's detail
  * page. Otherwise opens the root URL. Opens the default browser via
@@ -27,7 +27,7 @@ export async function openCmd(target: string | undefined, opts: Opts): Promise<v
   } else {
     // Try to find the current repo's folder from state.
     const repoRoot = resolve(process.cwd());
-    const statePath = join(repoRoot, ".claude", "agentic-rag-state.json");
+    const statePath = join(repoRoot, ".claude", "kioku-state.json");
     if (existsSync(statePath)) {
       try {
         const state = JSON.parse(readFileSync(statePath, "utf8")) as {
@@ -58,7 +58,7 @@ export async function openCmd(target: string | undefined, opts: Opts): Promise<v
  *   otherwise passthrough
  */
 function deriveWebUrl(apiBase: string): string {
-  const override = process.env.AGENTIC_RAG_WEB_URL;
+  const override = process.env.KIOKU_WEB_URL;
   if (override) return override.replace(/\/$/, "");
 
   // Localhost convention: our vite dev server runs on 5173 (or 5174 in this repo).

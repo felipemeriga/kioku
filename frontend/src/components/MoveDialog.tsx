@@ -106,12 +106,12 @@ export default function MoveDialog({
               mb: 0.5,
               border: 1,
               borderStyle: "dashed",
-              borderColor: alpha("#7c3aed", 0.3),
-              "&:hover": { bgcolor: alpha("#7c3aed", 0.08) },
+              borderColor: alpha("#FF2E93", 0.3),
+              "&:hover": { bgcolor: alpha("#FF2E93", 0.08) },
             }}
           >
             <ListItemIcon>
-              <DriveFileMoveIcon sx={{ color: "#7c3aed" }} />
+              <DriveFileMoveIcon sx={{ color: "#FF2E93" }} />
             </ListItemIcon>
             <ListItemText
               primary={currentParentId === null ? "Move to root" : "Move here"}
@@ -126,7 +126,7 @@ export default function MoveDialog({
               sx={{ borderRadius: 2, mx: 0.5, mb: 0.25 }}
             >
               <ListItemIcon>
-                <FolderIcon sx={{ color: "#7c3aed" }} />
+                <FolderIcon sx={{ color: "#FF2E93" }} />
               </ListItemIcon>
               <ListItemText primary={f.name} />
             </ListItemButton>

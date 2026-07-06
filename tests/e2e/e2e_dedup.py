@@ -24,8 +24,8 @@ import httpx
 from dotenv import load_dotenv
 from supabase import create_client
 
-load_dotenv("/Users/feliperamosdasilva/personal_projects/agentic-rag/backend/.env")
-sys.path.insert(0, "/Users/feliperamosdasilva/personal_projects/agentic-rag/backend")
+load_dotenv("/Users/feliperamosdasilva/personal_projects/kioku/backend/.env")
+sys.path.insert(0, "/Users/feliperamosdasilva/personal_projects/kioku/backend")
 
 MEM0_API_KEY = "m0-DOov2IyXkEkeDTYOJPM1RP06YPOeNDn5WLvxT8Oa"
 BACKEND = "http://localhost:8000"

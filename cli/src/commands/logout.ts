@@ -11,5 +11,5 @@ export async function logout(): Promise<void> {
   }
   clearAuth();
   ok(`Signed out ${cfg.email ? kleur.dim("(" + cfg.email + ")") : ""}`);
-  info("Run: agentic-rag login  to sign back in.");
+  info("Run: kioku login  to sign back in.");
 }

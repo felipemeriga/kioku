@@ -16,8 +16,8 @@ from supabase import create_client
 from mcp import ClientSession
 from mcp.client.sse import sse_client
 
-load_dotenv("/Users/feliperamosdasilva/personal_projects/agentic-rag/backend/.env")
-sys.path.insert(0, "/Users/feliperamosdasilva/personal_projects/agentic-rag/backend")
+load_dotenv("/Users/feliperamosdasilva/personal_projects/kioku/backend/.env")
+sys.path.insert(0, "/Users/feliperamosdasilva/personal_projects/kioku/backend")
 
 BACKEND = "http://localhost:8000"
 MCP_URL = "http://localhost:8001/sse"

@@ -129,7 +129,7 @@ async def mint_api_key(
         "scope_folder_name": result.scope_folder_name,
         "mcp_config": {
             "mcpServers": {
-                "agentic-rag": {
+                "kioku": {
                     "url": mcp_url,
                     "headers": {"Authorization": f"Bearer {result.key}"},
                 },

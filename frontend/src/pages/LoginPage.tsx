@@ -114,27 +114,53 @@ export default function LoginPage() {
           </Typography>
         </Box>
 
-        {/* Logo + wordmark */}
-        <Stack direction="row" alignItems="center" spacing={1.5}>
+        {/* Kanji hanko + wordmark */}
+        <Stack direction="row" alignItems="center" spacing={1.75}>
           <Box
-            component="img"
-            src="/logo.svg"
-            alt="Agentic RAG"
-            sx={{ width: 40, height: 40, borderRadius: 1.5, boxShadow: `0 6px 20px ${alpha(brand.violet, 0.55)}` }}
-          />
-          <Typography
             sx={{
-              fontFamily: fonts.display,
-              fontSize: "1.75rem",
-              fontWeight: 700,
-              letterSpacing: "-0.02em",
+              width: 44,
+              height: 44,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              border: `1px solid ${brand.magenta}`,
+              borderRadius: 1,
+              background: `linear-gradient(135deg, ${brand.magenta}22 0%, ${brand.cyan}11 100%)`,
+              boxShadow: `0 0 18px ${alpha(brand.magenta, 0.6)}, inset 0 0 10px ${alpha(brand.magenta, 0.25)}`,
+              fontFamily: fonts.jp,
+              fontWeight: 900,
+              fontSize: "1.6rem",
+              color: brand.magentaGlow,
+              textShadow: `0 0 8px ${brand.magenta}, 0 0 16px ${brand.magenta}aa`,
             }}
           >
-            AGENTIC{" "}
-            <Box component="span" sx={{ color: brand.violet2 }}>
-              RAG
-            </Box>
-          </Typography>
+            記
+          </Box>
+          <Stack spacing={0.25}>
+            <Typography
+              sx={{
+                fontFamily: fonts.jp,
+                fontSize: "0.72rem",
+                letterSpacing: "0.35em",
+                color: brand.cyan,
+                textShadow: `0 0 6px ${brand.cyan}66`,
+                lineHeight: 1,
+              }}
+            >
+              キオク
+            </Typography>
+            <Typography
+              sx={{
+                fontFamily: fonts.display,
+                fontSize: "1.75rem",
+                fontWeight: 700,
+                letterSpacing: "-0.02em",
+                lineHeight: 1.1,
+              }}
+            >
+              Kioku
+            </Typography>
+          </Stack>
         </Stack>
 
         {/* Card */}
@@ -165,8 +191,8 @@ export default function LoginPage() {
           </Typography>
           <Typography sx={{ fontFamily: fonts.body, fontSize: "0.85rem", color: brand.muted, mb: 2.5 }}>
             {isSignUp
-              ? "Sign up to start feeding your personal knowledge agent."
-              : "Sign in to keep feeding your personal knowledge agent."}
+              ? "Sign up to start building your second brain."
+              : "Sign in to your second brain."}
           </Typography>
 
           <Stack spacing={1.75}>

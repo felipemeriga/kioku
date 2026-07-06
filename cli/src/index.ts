@@ -24,13 +24,13 @@ const VERSION = "0.1.0";
 if (process.argv.includes("-V") || process.argv.includes("--version")) {
   const cfgPath =
     process.env.XDG_CONFIG_HOME
-      ? `${process.env.XDG_CONFIG_HOME}/agentic-rag/config.json`
-      : `${process.env.HOME}/.config/agentic-rag/config.json`;
-  console.log(`agentic-rag  ${VERSION}`);
+      ? `${process.env.XDG_CONFIG_HOME}/kioku/config.json`
+      : `${process.env.HOME}/.config/kioku/config.json`;
+  console.log(`kioku  ${VERSION}`);
   console.log(`  node       ${process.version}`);
   console.log(`  platform   ${process.platform}-${process.arch}`);
   console.log(`  config     ${cfgPath}`);
-  const apiBase = process.env.AGENTIC_RAG_API_BASE || "http://localhost:8000";
+  const apiBase = process.env.KIOKU_API_BASE || "http://localhost:8000";
   console.log(`  api base   ${apiBase}`);
   process.exit(0);
 }
@@ -38,9 +38,9 @@ if (process.argv.includes("-V") || process.argv.includes("--version")) {
 const program = new Command();
 
 program
-  .name("agentic-rag")
+  .name("kioku")
   .description(
-    "Wire a local repo to your agentic-rag second-brain — MCP, SessionStart hook, CLAUDE.md.",
+    "Wire a local repo to your kioku second-brain — MCP, SessionStart hook, CLAUDE.md.",
   )
   .version(
     VERSION,
@@ -50,31 +50,31 @@ program
   // Global flags — read early so every command respects them.
   .option("--quiet", "Suppress banner and progress lines")
   .option("--no-color", "Disable ANSI colors (same as NO_COLOR=1)")
-  .option("--api-base <url>", "Override AGENTIC_RAG_API_BASE for this invocation")
+  .option("--api-base <url>", "Override KIOKU_API_BASE for this invocation")
   .hook("preAction", (thisCommand) => {
     const opts = thisCommand.opts();
-    if (opts.quiet) process.env.AGENTIC_RAG_QUIET = "1";
+    if (opts.quiet) process.env.KIOKU_QUIET = "1";
     if (opts.color === false) process.env.NO_COLOR = "1";
-    if (opts.apiBase) process.env.AGENTIC_RAG_API_BASE = opts.apiBase;
+    if (opts.apiBase) process.env.KIOKU_API_BASE = opts.apiBase;
   })
   .addHelpText(
     "after",
     `
 Examples:
-  $ agentic-rag login                      # sign in with email + OTP
-  $ cd ~/repo && agentic-rag init          # wire the current repo
-  $ agentic-rag ls                         # browse your workspace
-  $ agentic-rag briefing                   # view this repo's briefing
-  $ agentic-rag doctor                     # diagnose any issues
+  $ kioku login                      # sign in with email + OTP
+  $ cd ~/repo && kioku init          # wire the current repo
+  $ kioku ls                         # browse your workspace
+  $ kioku briefing                   # view this repo's briefing
+  $ kioku doctor                     # diagnose any issues
 
 Environment:
-  AGENTIC_RAG_API_BASE   Backend REST URL (default: http://localhost:8000)
-  AGENTIC_RAG_MCP_URL    MCP SSE URL (default: derived from API base)
-  AGENTIC_RAG_DEBUG      Verbose logging for hooks and errors
+  KIOKU_API_BASE   Backend REST URL (default: http://localhost:8000)
+  KIOKU_MCP_URL    MCP SSE URL (default: derived from API base)
+  KIOKU_DEBUG      Verbose logging for hooks and errors
   NO_COLOR               Disable ANSI colors
-  AGENTIC_RAG_QUIET      Suppress banner and progress lines
+  KIOKU_QUIET      Suppress banner and progress lines
 
-Docs: https://github.com/felipemeriga/agentic-rag/tree/main/cli
+Docs: https://github.com/felipemeriga/kioku/tree/main/cli
 `,
   );
 
@@ -86,8 +86,8 @@ program
     "after",
     `
 Examples:
-  $ cd ~/my-repo && agentic-rag quickstart
-  $ agentic-rag quickstart --yes           # zero prompts, take all defaults
+  $ cd ~/my-repo && kioku quickstart
+  $ kioku quickstart --yes           # zero prompts, take all defaults
 `,
   )
   .action(async (opts) => {
@@ -107,7 +107,7 @@ program
     "after",
     `
 Examples:
-  $ agentic-rag login              # prompts for email + 6-digit code
+  $ kioku login              # prompts for email + 6-digit code
   # At the code prompt you can type 'resend' or 'r' to send a new one.
 `,
   )
@@ -133,11 +133,11 @@ program
     "after",
     `
 Examples:
-  $ agentic-rag init                              # interactive with smart defaults
-  $ agentic-rag init --yes                        # no prompts, take all defaults
-  $ agentic-rag init --root my-company            # pre-select root
-  $ agentic-rag init --skip-github                # public-only briefing (no repo sync)
-  $ GH_TOKEN=ghp_... agentic-rag init             # env-var token
+  $ kioku init                              # interactive with smart defaults
+  $ kioku init --yes                        # no prompts, take all defaults
+  $ kioku init --root my-company            # pre-select root
+  $ kioku init --skip-github                # public-only briefing (no repo sync)
+  $ GH_TOKEN=ghp_... kioku init             # env-var token
 
 GitHub auth is auto-detected — no prompts unless nothing else works:
   1. --github-token flag
@@ -164,7 +164,7 @@ program
       await sessionStart();
     } catch (err) {
       // never fail a hook — just be quiet
-      if (process.env.AGENTIC_RAG_DEBUG) console.error(err);
+      if (process.env.KIOKU_DEBUG) console.error(err);
     }
   });
 
@@ -178,7 +178,7 @@ program
       await capture();
     } catch (err) {
       // never fail a hook
-      if (process.env.AGENTIC_RAG_DEBUG) console.error(err);
+      if (process.env.KIOKU_DEBUG) console.error(err);
     }
   });
 
@@ -216,10 +216,10 @@ program
     "after",
     `
 Examples:
-  $ agentic-rag ls                # list root folders
-  $ agentic-rag ls personal       # list children of the 'personal' root
-  $ agentic-rag ls cosm/c360-lead # deep path
-  $ agentic-rag ls --json         # JSON for scripting
+  $ kioku ls                # list root folders
+  $ kioku ls personal       # list children of the 'personal' root
+  $ kioku ls cosm/c360-lead # deep path
+  $ kioku ls --json         # JSON for scripting
 `,
   )
   .action(async (path, opts) => {
@@ -241,9 +241,9 @@ program
     "after",
     `
 Examples:
-  $ agentic-rag briefing                          # full 8-section briefing
-  $ agentic-rag briefing --section deployment     # just one section
-  $ agentic-rag briefing --json | jq .sections.overview
+  $ kioku briefing                          # full 8-section briefing
+  $ kioku briefing --section deployment     # just one section
+  $ kioku briefing --json | jq .sections.overview
 `,
   )
   .action(async (opts) => {
@@ -277,9 +277,9 @@ program
     "after",
     `
 Examples:
-  $ agentic-rag open                    # opens the current repo's folder
-  $ agentic-rag open personal           # opens the 'personal' root by id/name
-  $ agentic-rag open --json | jq -r .url
+  $ kioku open                    # opens the current repo's folder
+  $ kioku open personal           # opens the 'personal' root by id/name
+  $ kioku open --json | jq -r .url
 `,
   )
   .action(async (target, opts) => {
@@ -304,9 +304,9 @@ program
     "after",
     `
 Examples:
-  $ agentic-rag search how does deploy work
-  $ agentic-rag search --limit 10 mem0 filter grammar
-  $ agentic-rag search --json 'ruff format' | jq '.hits[0]'
+  $ kioku search how does deploy work
+  $ kioku search --limit 10 mem0 filter grammar
+  $ kioku search --json 'ruff format' | jq '.hits[0]'
 `,
   )
   .action(async (queryParts, opts) => {
@@ -331,7 +331,7 @@ program
     }
   });
 
-// Bare `agentic-rag` (no subcommand) → smart welcome instead of --help.
+// Bare `kioku` (no subcommand) → smart welcome instead of --help.
 // Users don't want to read a full command list to know what to do next.
 if (process.argv.length <= 2) {
   banner();

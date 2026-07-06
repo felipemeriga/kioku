@@ -1,5 +1,5 @@
 /**
- * `agentic-rag doctor` — health checks + fix suggestions.
+ * `kioku doctor` — health checks + fix suggestions.
  *
  * Runs a sequence of probes end-to-end so a broken install is fast to
  * diagnose:
@@ -43,7 +43,7 @@ export async function doctor(): Promise<void> {
     name: "Config file",
     ok: configPresent,
     detail: configPresent ? `Signed in as ${cfg.email}` : "No token stored",
-    hint: configPresent ? undefined : "Run: agentic-rag login",
+    hint: configPresent ? undefined : "Run: kioku login",
   });
 
   // 2. Backend reachable
@@ -62,7 +62,7 @@ export async function doctor(): Promise<void> {
     detail: backendDetail,
     hint: backendOk
       ? undefined
-      : `Backend not responding. Start it, or set AGENTIC_RAG_API_BASE. Current: ${cfg.api_base}`,
+      : `Backend not responding. Start it, or set KIOKU_API_BASE. Current: ${cfg.api_base}`,
   });
 
   // 3. Login token valid — only if config + backend both work
@@ -83,7 +83,7 @@ export async function doctor(): Promise<void> {
           name: "Login token",
           ok: false,
           detail: `Backend returned ${r.status}`,
-          hint: "Session expired. Run: agentic-rag login",
+          hint: "Session expired. Run: kioku login",
         });
       }
     } catch (err) {
@@ -97,7 +97,7 @@ export async function doctor(): Promise<void> {
 
   // 4. MCP reachable — derive URL from backend
   const mcpUrl =
-    process.env.AGENTIC_RAG_MCP_URL ??
+    process.env.KIOKU_MCP_URL ??
     cfg.api_base.replace(/:8000\b/, ":8001").replace(/\/api$/, "") +
       "/health";
   try {
@@ -109,14 +109,14 @@ export async function doctor(): Promise<void> {
       hint:
         r.status === 200
           ? undefined
-          : "MCP server not responding. Start it, or set AGENTIC_RAG_MCP_URL.",
+          : "MCP server not responding. Start it, or set KIOKU_MCP_URL.",
     });
   } catch (err) {
     checks.push({
       name: "MCP server reachable",
       ok: false,
       detail: err instanceof Error ? err.message : String(err),
-      hint: "MCP server not responding on the derived URL. Set AGENTIC_RAG_MCP_URL to override.",
+      hint: "MCP server not responding on the derived URL. Set KIOKU_MCP_URL to override.",
     });
   }
 
@@ -144,7 +144,7 @@ export async function doctor(): Promise<void> {
       ok: false,
       detail: "Not installed — private repos will prompt for a PAT",
       hint: install
-        ? `Install: ${install.label}  (agentic-rag init can do this for you)`
+        ? `Install: ${install.label}  (kioku init can do this for you)`
         : "See https://github.com/cli/cli#installation",
     });
   }
@@ -166,26 +166,26 @@ export async function doctor(): Promise<void> {
   print({
     name: ".mcp.json",
     ok: mcpJson,
-    hint: mcpJson ? undefined : "Run: agentic-rag init",
+    hint: mcpJson ? undefined : "Run: kioku init",
   });
   const settingsPath = join(repoRoot, ".claude", "settings.json");
   const settingsExists = existsSync(settingsPath);
   print({
     name: ".claude/settings.json",
     ok: settingsExists,
-    hint: settingsExists ? undefined : "Run: agentic-rag init",
+    hint: settingsExists ? undefined : "Run: kioku init",
   });
   const claudeMd = existsSync(join(repoRoot, "CLAUDE.md"));
   print({
     name: "CLAUDE.md",
     ok: claudeMd,
-    hint: claudeMd ? undefined : "Run: agentic-rag init",
+    hint: claudeMd ? undefined : "Run: kioku init",
   });
-  const state = existsSync(join(repoRoot, ".claude", "agentic-rag-state.json"));
+  const state = existsSync(join(repoRoot, ".claude", "kioku-state.json"));
   print({
-    name: ".claude/agentic-rag-state.json",
+    name: ".claude/kioku-state.json",
     ok: state,
-    hint: state ? undefined : "Run: agentic-rag init",
+    hint: state ? undefined : "Run: kioku init",
   });
 
   // Summary
@@ -197,7 +197,7 @@ export async function doctor(): Promise<void> {
       `  ${kleur.yellow("!")} ${kleur.bold("Some checks failed above.")}`,
     );
     console.log(
-      `    ${kleur.dim("Follow the fix hints on each line. Re-run `agentic-rag doctor` when done.")}`,
+      `    ${kleur.dim("Follow the fix hints on each line. Re-run `kioku doctor` when done.")}`,
     );
   } else {
     console.log(

@@ -37,12 +37,12 @@ interface InitOptions {
 export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
   const repoRoot = resolve(cwd);
   if (!isLoggedIn()) {
-    warn("Not signed in yet.", "Run: agentic-rag login");
+    warn("Not signed in yet.", "Run: kioku login");
     process.exitCode = 1;
     return;
   }
 
-  section("Wire this repo to agentic-rag");
+  section("Wire this repo to kioku");
   info(`Working directory: ${repoRoot}`);
   const git = detectGit(repoRoot);
   if (!git.isRepo) {
@@ -295,7 +295,7 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
   // Step 5: write .mcp.json
   const mcpEntry = (key.mcp_config as {
     mcpServers: Record<string, { url: string; headers: Record<string, string> }>;
-  }).mcpServers["agentic-rag"];
+  }).mcpServers["kioku"];
   const mcp = writeMcpConfig(repoRoot, mcpEntry);
   ok(`.mcp.json ${mcp.existed ? "updated" : "written"}`);
 

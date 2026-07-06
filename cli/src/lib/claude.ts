@@ -14,8 +14,8 @@ import {
 } from "node:fs";
 import { join, dirname } from "node:path";
 
-const MARKER_BEGIN = "<!-- BEGIN agentic-rag second-brain instructions -->";
-const MARKER_END = "<!-- END agentic-rag second-brain instructions -->";
+const MARKER_BEGIN = "<!-- BEGIN kioku second-brain instructions -->";
+const MARKER_END = "<!-- END kioku second-brain instructions -->";
 
 // ── .mcp.json ─────────────────────────────────────────────────────
 
@@ -43,7 +43,7 @@ export function writeMcpConfig(
       existing = { mcpServers: {} };
     }
   }
-  existing.mcpServers["agentic-rag"] = serverEntry;
+  existing.mcpServers["kioku"] = serverEntry;
   writeFileSync(path, JSON.stringify(existing, null, 2) + "\n");
   return { path, existed };
 }
@@ -62,8 +62,8 @@ interface ClaudeSettings {
   [k: string]: unknown;
 }
 
-const SESSION_START_COMMAND = "agentic-rag session-start";
-const STOP_COMMAND = "agentic-rag capture";
+const SESSION_START_COMMAND = "kioku session-start";
+const STOP_COMMAND = "kioku capture";
 
 interface ClaudeHooksBucket {
   [event: string]: Array<{ type: "command"; command: string; matcher?: string }> | undefined;
@@ -133,7 +133,7 @@ export function writeCaptureState(
 ): { path: string } {
   const dir = join(repoRoot, ".claude");
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  const path = join(dir, "agentic-rag-state.json");
+  const path = join(dir, "kioku-state.json");
   // Preserve any watermarks from prior sessions.
   let existing: Record<string, unknown> = {};
   if (existsSync(path)) {
@@ -152,9 +152,9 @@ export function writeCaptureState(
 
 const CLAUDE_MD_SNIPPET = `${MARKER_BEGIN}
 
-## Agentic RAG second-brain
+## Kioku second-brain
 
-You have an \`agentic-rag\` MCP server wired to this repo. It gives you
+You have an \`kioku\` MCP server wired to this repo. It gives you
 persistent memory across sessions and PC switches.
 
 ### At session start
@@ -235,13 +235,13 @@ export function updateGitignore(repoRoot: string): { path: string; changed: bool
   const entries = [
     ".mcp.json",
     ".claude/settings.local.json",
-    ".claude/agentic-rag-state.json",
-    ".claude/agentic-rag-capture.log",
+    ".claude/kioku-state.json",
+    ".claude/kioku-capture.log",
   ];
   const existing = existsSync(path) ? readFileSync(path, "utf8") : "";
   const missing = entries.filter((e) => !existing.split("\n").some((line) => line.trim() === e));
   if (missing.length === 0) return { path, changed: false };
-  const block = ["", "# agentic-rag CLI", ...missing, ""].join("\n");
+  const block = ["", "# kioku CLI", ...missing, ""].join("\n");
   writeFileSync(path, existing + block);
   return { path, changed: true };
 }

@@ -14,8 +14,8 @@ import asyncio, os, sys, uuid
 from dotenv import load_dotenv
 from supabase import create_client
 
-load_dotenv("/Users/feliperamosdasilva/personal_projects/agentic-rag/backend/.env")
-sys.path.insert(0, "/Users/feliperamosdasilva/personal_projects/agentic-rag/backend")
+load_dotenv("/Users/feliperamosdasilva/personal_projects/kioku/backend/.env")
+sys.path.insert(0, "/Users/feliperamosdasilva/personal_projects/kioku/backend")
 
 PASS, FAIL = [], []
 def check(n, cond, d=""):

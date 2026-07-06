@@ -34,7 +34,7 @@ export async function sessionStart(): Promise<void> {
         { url?: string; headers?: Record<string, string> }
       >;
     };
-    const entry = cfg.mcpServers?.["agentic-rag"];
+    const entry = cfg.mcpServers?.["kioku"];
     if (entry?.headers?.Authorization) {
       apiKey = entry.headers.Authorization.replace(/^Bearer\s+/, "");
     }
@@ -60,7 +60,7 @@ export async function sessionStart(): Promise<void> {
       folders: Array<{ name: string; kind: string; path: string; has_summary: boolean }>;
     };
     // Print a compact context block Claude Code will surface at session start
-    console.log(kleur.dim("── agentic-rag second-brain ──"));
+    console.log(kleur.dim("── kioku second-brain ──"));
     console.log(`Scope: ${scope.scope_name}`);
     console.log(`Folders in scope: ${scope.folders.length}`);
     const repos = scope.folders.filter((f) => f.kind === "repo");
@@ -81,7 +81,7 @@ export async function sessionStart(): Promise<void> {
   } catch (err) {
     // Non-fatal — sessions still start, agent just doesn't see the block.
     console.error(
-      kleur.dim(`agentic-rag: ${err instanceof Error ? err.message : String(err)}`),
+      kleur.dim(`kioku: ${err instanceof Error ? err.message : String(err)}`),
     );
   }
 }

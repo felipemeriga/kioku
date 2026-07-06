@@ -132,7 +132,7 @@ export default function SettingsPage() {
         </Typography>
         <Typography
           sx={{
-            fontFamily: '"Space Grotesk", sans-serif',
+            fontFamily: '"Rubik", sans-serif',
             fontWeight: 700,
             fontSize: "1.75rem",
             letterSpacing: "-0.02em",
@@ -144,7 +144,7 @@ export default function SettingsPage() {
         </Typography>
         <Typography
           sx={{
-            fontFamily: '"Inter", sans-serif',
+            fontFamily: '"Rubik", sans-serif',
             fontSize: "0.9rem",
             color: "text.secondary",
             mt: 0.75,
@@ -233,7 +233,7 @@ export default function SettingsPage() {
                 }}
               >
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                  <KeyIcon sx={{ fontSize: 18, color: "#7c3aed" }} />
+                  <KeyIcon sx={{ fontSize: 18, color: "#FF2E93" }} />
                   <Typography variant="body2" sx={{ fontWeight: 500 }}>
                     {k.name}
                   </Typography>
@@ -343,7 +343,7 @@ export default function SettingsPage() {
           >
             {`{
   "mcpServers": {
-    "agentic-rag": {
+    "kioku": {
       "type": "sse",
       "url": "http://localhost:8001/sse",
       "headers": {

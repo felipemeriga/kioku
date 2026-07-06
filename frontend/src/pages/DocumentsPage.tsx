@@ -797,18 +797,18 @@ export default function DocumentsPage() {
                       overflow: "hidden",
                       bgcolor:
                         dragOverFolderId === folder.id
-                          ? alpha("#7c3aed", 0.12)
+                          ? alpha("#FF2E93", 0.12)
                           : alpha("#1e1e2e", 0.4),
                       border: `1px solid ${
                         dragOverFolderId === folder.id
-                          ? alpha("#7c3aed", 0.5)
+                          ? alpha("#FF2E93", 0.5)
                           : alpha("#ffffff", 0.04)
                       }`,
                       transition: "all 0.15s ease",
                       "&:hover": {
                         transform: "translateY(-1px)",
-                        borderColor: alpha("#7c3aed", 0.25),
-                        boxShadow: `0 4px 16px ${alpha("#7c3aed", 0.1)}`,
+                        borderColor: alpha("#FF2E93", 0.25),
+                        boxShadow: `0 4px 16px ${alpha("#FF2E93", 0.1)}`,
                         "& .folder-card-delete": { opacity: 1 },
                       },
                     }}
@@ -837,7 +837,7 @@ export default function DocumentsPage() {
                     {folder.kind === "repo" ? (
                       <AccountTreeIcon sx={{ fontSize: 36, color: "#06b6d4" }} />
                     ) : (
-                      <FolderIcon sx={{ fontSize: 36, color: "#7c3aed" }} />
+                      <FolderIcon sx={{ fontSize: 36, color: "#FF2E93" }} />
                     )}
                     <Typography
                       variant="caption"
@@ -1028,7 +1028,7 @@ export default function DocumentsPage() {
             borderRadius: 3,
             bgcolor: alpha("#1e1e2e", 0.95),
             border: 1,
-            borderColor: alpha("#7c3aed", 0.3),
+            borderColor: alpha("#FF2E93", 0.3),
             backdropFilter: "blur(12px)",
             zIndex: 1200,
           }}

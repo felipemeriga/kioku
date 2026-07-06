@@ -12,8 +12,8 @@
 import kleur from "kleur";
 
 // NO_COLOR (https://no-color.org/) is the standard opt-out.
-// AGENTIC_RAG_QUIET turns off the banner + info lines but leaves ok/warn/bad.
-// AGENTIC_RAG_NO_COLOR is an app-specific override in case someone wants
+// KIOKU_QUIET turns off the banner + info lines but leaves ok/warn/bad.
+// KIOKU_NO_COLOR is an app-specific override in case someone wants
 // the CLI colored while other tools are muted (or vice versa).
 //
 // Both are read LAZILY at each call — commander's preAction hook sets
@@ -22,13 +22,13 @@ import kleur from "kleur";
 function colorEnabled(): boolean {
   return (
     !process.env.NO_COLOR &&
-    !process.env.AGENTIC_RAG_NO_COLOR &&
+    !process.env.KIOKU_NO_COLOR &&
     process.stdout.isTTY === true
   );
 }
 
 function isQuiet(): boolean {
-  return !!process.env.AGENTIC_RAG_QUIET;
+  return !!process.env.KIOKU_QUIET;
 }
 
 const identity = (s: string) => s;
@@ -66,7 +66,7 @@ export function banner(): void {
   const dot = ORANGE("●");
   const line = DIM("─".repeat(40));
   console.log();
-  console.log(`  ${dot} ${kleur.bold("agentic-rag")}  ${DIM("second-brain for coding agents")}`);
+  console.log(`  ${dot} ${kleur.bold("kioku")} ${DIM("記憶")}  ${DIM("second brain for your repos")}`);
   console.log(`  ${line}`);
   console.log();
 }

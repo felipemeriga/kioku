@@ -1,9 +1,9 @@
 /**
- * `agentic-rag briefing` — view the current repo's briefing right in
+ * `kioku briefing` — view the current repo's briefing right in
  * the terminal. This is the same content Claude Code sees at session
  * start via get_folder_briefing().
  *
- * Reads .claude/agentic-rag-state.json to know which folder to fetch.
+ * Reads .claude/kioku-state.json to know which folder to fetch.
  * Renders each section with a status chip and clean formatting.
  */
 
@@ -42,11 +42,11 @@ const SECTION_TITLES: Record<string, string> = {
 
 export async function briefing(opts: Opts): Promise<void> {
   const repoRoot = resolve(process.cwd());
-  const statePath = join(repoRoot, ".claude", "agentic-rag-state.json");
+  const statePath = join(repoRoot, ".claude", "kioku-state.json");
   if (!existsSync(statePath)) {
     warn(
       "This repo hasn't been initialized.",
-      "Run: agentic-rag init",
+      "Run: kioku init",
     );
     process.exitCode = 1;
     return;
@@ -96,7 +96,7 @@ export async function briefing(opts: Opts): Promise<void> {
 
   console.log();
   info(
-    "Edit a section: agentic-rag briefing --section <name> --json  |  or edit in the web UI.",
+    "Edit a section: kioku briefing --section <name> --json  |  or edit in the web UI.",
   );
 }
 
