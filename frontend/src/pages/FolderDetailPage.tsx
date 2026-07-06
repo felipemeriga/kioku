@@ -128,6 +128,16 @@ export default function FolderDetailPage() {
       .catch((err) => toast.showError(err, "Couldn't load folder metadata."));
   }, [folderId, toast]);
 
+  // Auto-flip tab when the folder kind is known — repo folders show
+  // Briefing, non-repo folders show Summary. Prevents landing on a
+  // hidden tab when navigating to a folder whose kind we didn't know at
+  // mount time.
+  useEffect(() => {
+    if (!folder) return;
+    if (folder.kind === "repo" && tab === "summary") setTab("briefing");
+    if (folder.kind !== "repo" && tab === "briefing") setTab("summary");
+  }, [folder, tab]);
+
   // Load documents
   const loadDocuments = useCallback(async () => {
     if (!folderId) return;
@@ -333,21 +343,27 @@ export default function FolderDetailPage() {
         </Button>
       </Box>
 
+      {/* Tab visibility rule: repo folders show Briefing (the 8-section
+          structured schema); every other folder kind shows Summary (the
+          orientation/rollup schema). The two schemas are structurally
+          different — showing both for repos led to a broken empty
+          Summary tab, so we canonicalize on one per kind. */}
       <Tabs
         value={tab}
         onChange={(_, v) => setTab(v)}
         sx={{ borderBottom: `1px solid ${brand.line}`, px: 2 }}
       >
-        <Tab value="summary" label="Summary" icon={<AutoAwesomeIcon fontSize="small" />} iconPosition="start" />
-        {folder?.kind === "repo" && (
+        {folder?.kind === "repo" ? (
           <Tab value="briefing" label="Briefing" icon={<AccountTreeIcon fontSize="small" />} iconPosition="start" />
+        ) : (
+          <Tab value="summary" label="Summary" icon={<AutoAwesomeIcon fontSize="small" />} iconPosition="start" />
         )}
         <Tab value="documents" label={`Documents (${documents.length})`} icon={<DescriptionIcon fontSize="small" />} iconPosition="start" />
         <Tab value="memory" label={`Memory (${memories.length})`} icon={<Mem0BrandIcon fontSize="small" />} iconPosition="start" />
       </Tabs>
 
       <Box sx={{ p: 3, maxWidth: 960, mx: "auto", width: "100%", flex: 1 }}>
-        {tab === "summary" && (
+        {tab === "summary" && folder?.kind !== "repo" && (
           <FolderSummaryPanel
             folderId={folderId}
             folderName={folder?.name ?? "this folder"}
