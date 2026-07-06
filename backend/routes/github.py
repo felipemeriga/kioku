@@ -22,6 +22,52 @@ def _redis_settings() -> RedisSettings:
     return RedisSettings.from_dsn(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
 
 
+_NEW_MODEL_COLUMNS = (
+    "sync_mode",
+    "local_clone_path",
+    "last_fetched_at",
+    "deploy_key_public",
+    "deploy_key_private_encrypted",
+)
+
+
+def _upsert_config_downgrade_safe(sb, payload: dict) -> dict | None:
+    """Upsert into github_sync_configs, tolerant of pre-migration DBs.
+
+    If the local-clone-era columns (sync_mode, local_clone_path,
+    last_fetched_at, deploy_key_*) don't exist yet, retry the upsert
+    with those keys stripped. Keeps the endpoint working during a
+    partial rollout.
+    """
+    try:
+        r = (
+            sb.table("github_sync_configs")
+            .upsert(payload, on_conflict="user_id,root_folder_id")
+            .execute()
+            .data
+        )
+        return r[0] if r else None
+    except Exception as exc:  # noqa: BLE001
+        msg = str(exc).lower()
+        # Postgres tells us which column it doesn't recognise; if it
+        # matches one of our new-model keys, drop them all and retry.
+        if any(col in msg for col in _NEW_MODEL_COLUMNS):
+            trimmed = {k: v for k, v in payload.items() if k not in _NEW_MODEL_COLUMNS}
+            log.warning(
+                "github/connect: DB missing new-model columns; "
+                "retrying upsert without %s",
+                sorted(set(payload) & set(_NEW_MODEL_COLUMNS)),
+            )
+            r = (
+                sb.table("github_sync_configs")
+                .upsert(trimmed, on_conflict="user_id,root_folder_id")
+                .execute()
+                .data
+            )
+            return r[0] if r else None
+        raise
+
+
 def _validate_folder(sb, folder_id: str, user_id: str) -> None:
     """Only checks ownership. Both root and sub-folders can host GitHub configs."""
     row = (
@@ -70,6 +116,18 @@ async def list_configs(user_id: str = Depends(get_current_user)):
 
 @router.post("/connect")
 async def connect(body: ConnectGitHubRequest, user_id: str = Depends(get_current_user)):
+    """Connect a folder to a PUBLIC GitHub repo.
+
+    UI callers should NOT pass a token — the endpoint clones the repo
+    via HTTPS with no auth. Private/org repos need the deploy-key flow
+    (POST /api/github/prepare-clone → CLI adds the key → POST
+    /finalize-clone). We still accept `token` on the request body for
+    backward compatibility with older CLIs but log a deprecation.
+
+    On success the repo is cloned once to $KIOKU_REPOS_DIR/<owner>-<repo>
+    (default ~/.local/share/kioku/repos). Subsequent briefing generations
+    fetch from that clone — no more per-call API traffic.
+    """
     sb = get_supabase()
     _validate_folder(sb, body.root_folder_id, user_id)
 
@@ -78,27 +136,54 @@ async def connect(body: ConnectGitHubRequest, user_id: str = Depends(get_current
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    # Verify the token + repo access.
-    with GitHubClient(owner=owner, repo=repo, token=body.token or None) as gh:
-        ok, err = gh.ping()
-    if not ok:
-        raise HTTPException(status_code=400, detail=f"GitHub check failed: {err}")
+    from services.github_sync.local_repo import (
+        LocalRepoClient,
+        clone_public,
+        GitError,
+    )
 
+    # Verify + clone. clone_public is idempotent — repeated calls no-op
+    # if the clone already exists.
+    if body.token:
+        import logging as _logging
+        _logging.getLogger(__name__).warning(
+            "github/connect: token supplied for %s/%s — token path is "
+            "deprecated. Public HTTPS clone will be attempted anyway.",
+            owner, repo,
+        )
+    try:
+        clone_path = clone_public(owner, repo, depth=30)
+    except GitError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Couldn't clone {owner}/{repo}: {exc}. "
+                f"If this is a private/org repo, connect via the Kioku CLI "
+                f"which sets up a deploy key."
+            ),
+        )
+
+    # Verify the clone actually holds a git history.
+    ok, err = LocalRepoClient(owner=owner, repo=repo, clone_path=clone_path).ping()
+    if not ok:
+        raise HTTPException(status_code=400, detail=f"Clone check failed: {err}")
+
+    from datetime import datetime, timezone as _tz
     payload = {
         "user_id": user_id,
         "root_folder_id": body.root_folder_id,
         "repo_owner": owner,
         "repo_name": repo,
-        "token_encrypted": encrypt_secret(body.token) if body.token else None,
         "since_days": body.since_days,
         "last_error": None,
+        # New-model fields — column-adds land in the migration; if we're
+        # running against a pre-migration DB, the .upsert below will
+        # ignore unknown keys.
+        "sync_mode": "public",
+        "local_clone_path": str(clone_path),
+        "last_fetched_at": datetime.now(_tz.utc).isoformat(),
     }
-    row = (
-        sb.table("github_sync_configs")
-        .upsert(payload, on_conflict="user_id,root_folder_id")
-        .execute()
-        .data
-    )
+    row = _upsert_config_downgrade_safe(sb, payload)
     # Phase 1: flip the folder into a repo. Defensive — if the migration
     # hasn't landed yet, this update silently no-ops on unknown column and
     # the folder stays kind='folder'.
@@ -108,7 +193,7 @@ async def connect(body: ConnectGitHubRequest, user_id: str = Depends(get_current
         ).eq("user_id", user_id).execute()
     except Exception:  # noqa: BLE001
         pass
-    return row[0] if row else {"ok": True}
+    return row if row else {"ok": True}
 
 
 @router.delete("/configs/{config_id}")
@@ -126,6 +211,15 @@ async def disconnect(
     if not row:
         raise HTTPException(status_code=404, detail="Config not found")
     folder_id = row[0]["root_folder_id"]
+
+    # Nuke the local clone if there is one. Best-effort — if the clone
+    # was on a different host or is already gone, log and continue.
+    try:
+        from services.github_sync.local_repo import remove_clone
+        remove_clone(row[0]["repo_owner"], row[0]["repo_name"])
+    except Exception as exc:  # noqa: BLE001
+        log.warning("github/disconnect: couldn't remove clone: %s", exc)
+
     sb.table("github_sync_configs").delete().eq("id", config_id).eq("user_id", user_id).execute()
     if delete_docs:
         sb.table("documents").delete().eq("user_id", user_id).eq("folder_id", folder_id).in_(

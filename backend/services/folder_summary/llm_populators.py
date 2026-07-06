@@ -229,18 +229,50 @@ def _get_repo_config(sb, folder_id: str, user_id: str) -> dict | None:
     return r[0] if r else None
 
 
-def _github_client_for_folder(sb, folder_id: str, user_id: str) -> GitHubClient | None:
+def _github_client_for_folder(sb, folder_id: str, user_id: str):
+    """Return a client for the repo bound to this folder.
+
+    Priority (matches the new sync architecture):
+      1. Local clone (LocalRepoClient) — preferred; zero API traffic.
+         Kicks in whenever the config row points to a valid clone on
+         disk, regardless of sync_mode.
+      2. PAT-backed GitHubClient — legacy fallback for rows that
+         still have a token_encrypted but never got a local clone.
+      3. None — no config, nothing to do.
+    """
+    from pathlib import Path
+    from services.github_sync.local_repo import LocalRepoClient
+
     cfg = _get_repo_config(sb, folder_id, user_id)
     if not cfg:
         return None
-    token = None
+
+    # Prefer local clone if the row has one and it still exists on disk.
+    clone_path = cfg.get("local_clone_path")
+    if clone_path and Path(clone_path).exists():
+        return LocalRepoClient(
+            owner=cfg["repo_owner"],
+            repo=cfg["repo_name"],
+            clone_path=clone_path,
+        )
+
+    # Legacy PAT path — logs a deprecation warning so we can spot which
+    # configs still need migration to local clones.
     enc = cfg.get("token_encrypted")
     if enc:
+        import logging as _logging
+        _logging.getLogger(__name__).warning(
+            "populator: falling back to PAT-based GitHubClient for "
+            "folder=%s repo=%s/%s — migrate to local clone",
+            folder_id, cfg["repo_owner"], cfg["repo_name"],
+        )
         try:
             token = decrypt_secret(enc)
         except Exception:  # noqa: BLE001
             token = None
-    return GitHubClient(owner=cfg["repo_owner"], repo=cfg["repo_name"], token=token)
+        return GitHubClient(owner=cfg["repo_owner"], repo=cfg["repo_name"], token=token)
+
+    return None
 
 
 def _list_root_files(gh: GitHubClient) -> list[str]:

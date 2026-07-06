@@ -394,11 +394,46 @@ def generate_briefing_for_repo(sb, *, folder_id: str, user_id: str) -> dict:
     Use generate_full_briefing_for_repo (async) for a first-time bootstrap
     or an explicit Full-mode regen — that also runs the 5 LLM populators.
     """
+    _refresh_local_clone(sb, folder_id, user_id)
     briefing = empty_briefing()
     briefing["preferences"] = populate_preferences(sb, folder_id=folder_id, user_id=user_id)
     briefing["activity"] = populate_activity(sb, folder_id=folder_id, user_id=user_id)
     briefing["dependencies"] = populate_dependencies(sb, folder_id=folder_id, user_id=user_id)
     return briefing
+
+
+def _refresh_local_clone(sb, folder_id: str, user_id: str) -> None:
+    """Best-effort `git fetch` for the repo bound to this folder.
+
+    Silent on any failure — populators degrade gracefully to stale data
+    if the fetch times out or the clone is missing. Records
+    `last_fetched_at` on success so the UI can surface staleness.
+    """
+    from pathlib import Path
+    from datetime import datetime, timezone
+    from services.github_sync.local_repo import fetch as _git_fetch
+
+    try:
+        cfg = (
+            sb.table("github_sync_configs").select("id, local_clone_path")
+            .eq("root_folder_id", folder_id).eq("user_id", user_id)
+            .limit(1).execute().data
+        )
+    except Exception:  # noqa: BLE001
+        return
+    if not cfg:
+        return
+    row = cfg[0]
+    clone = row.get("local_clone_path")
+    if not clone or not Path(clone).exists():
+        return
+    if _git_fetch(Path(clone), timeout=30):
+        try:
+            sb.table("github_sync_configs").update({
+                "last_fetched_at": datetime.now(timezone.utc).isoformat(),
+            }).eq("id", row["id"]).execute()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 async def generate_full_briefing_for_repo(sb, *, folder_id: str, user_id: str) -> dict:
@@ -411,6 +446,7 @@ async def generate_full_briefing_for_repo(sb, *, folder_id: str, user_id: str) -
     """
     from services.folder_summary.llm_populators import run_llm_populators  # local: cycle-free
 
+    _refresh_local_clone(sb, folder_id, user_id)
     briefing = empty_briefing()
     # Mechanical populators are cheap — run inline first so the rest of
     # the merge logic sees them in place.
