@@ -1287,9 +1287,47 @@ class ApiKeyAuthMiddleware:
         await self.app(scope, receive, send)
 
 
+def _startup_healthcheck() -> None:
+    """Quick synchronous ping of the dependencies the tools need. Prints
+    a green/yellow line per dependency so operators see connection health
+    at a glance instead of discovering it via a 500 mid-request.
+
+    Failures are non-fatal — the server still starts, so users can
+    diagnose via /health and the printed hints."""
+    print()
+    print("Health check:")
+
+    # Supabase
+    try:
+        sb = get_supabase()
+        r = sb.table("folders").select("id", head=True, count="exact").limit(1).execute()
+        print(f"  ✓ Supabase       {r.count or 0} folders visible")
+    except Exception as exc:  # noqa: BLE001
+        print(f"  ✗ Supabase       {str(exc)[:120]}")
+        print(f"    Hint: check SUPABASE_URL + SUPABASE_SERVICE_KEY in .env")
+
+    # Anthropic
+    try:
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            print("  ✗ Anthropic      ANTHROPIC_API_KEY not set")
+        else:
+            print(f"  ✓ Anthropic      api key present ({os.environ['ANTHROPIC_API_KEY'][:8]}…)")
+    except Exception as exc:  # noqa: BLE001
+        print(f"  ✗ Anthropic      {str(exc)[:120]}")
+
+    # Voyage (embeddings)
+    if not os.environ.get("VOYAGE_API_KEY"):
+        print("  ! Voyage         VOYAGE_API_KEY not set — search will fail")
+    else:
+        print(f"  ✓ Voyage         api key present ({os.environ['VOYAGE_API_KEY'][:8]}…)")
+
+    print()
+
+
 if __name__ == "__main__":
     print(f"Starting MCP server on port {MCP_PORT}...")
     print(f"SSE endpoint: http://localhost:{MCP_PORT}/sse")
+    _startup_healthcheck()
 
     sse_app = mcp.sse_app()
     app = ApiKeyAuthMiddleware(sse_app)
