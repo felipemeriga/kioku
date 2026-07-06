@@ -25,7 +25,23 @@ export interface CliConfig {
   email?: string;
 }
 
-const DEFAULT_API_BASE = process.env.AGENTIC_RAG_API_BASE ?? "http://localhost:8000";
+const DEFAULT_API_BASE = "http://localhost:8000";
+
+/**
+ * Resolve the API base URL with clear precedence, evaluated LAZILY so
+ * env changes made by commander's preAction hook (from --api-base flag)
+ * take effect:
+ *
+ *   1. AGENTIC_RAG_API_BASE env var — set by --api-base flag or shell
+ *   2. api_base persisted in ~/.config/agentic-rag/config.json
+ *   3. DEFAULT_API_BASE (localhost:8000)
+ *
+ * Previously the config-file value ALWAYS won over the env var, which
+ * defeated the whole purpose of --api-base as an override.
+ */
+function resolveApiBase(fromFile: string | undefined): string {
+  return process.env.AGENTIC_RAG_API_BASE || fromFile || DEFAULT_API_BASE;
+}
 
 function configDir(): string {
   const xdg = process.env.XDG_CONFIG_HOME;
@@ -41,15 +57,15 @@ function configPath(): string {
 export function readConfig(): CliConfig {
   const p = configPath();
   if (!existsSync(p)) {
-    return { api_base: DEFAULT_API_BASE };
+    return { api_base: resolveApiBase(undefined) };
   }
   try {
     const raw = readFileSync(p, "utf8");
     const parsed = JSON.parse(raw) as CliConfig;
-    return { ...parsed, api_base: parsed.api_base ?? DEFAULT_API_BASE };
+    return { ...parsed, api_base: resolveApiBase(parsed.api_base) };
   } catch {
     // Corrupted config — start fresh rather than crash.
-    return { api_base: DEFAULT_API_BASE };
+    return { api_base: resolveApiBase(undefined) };
   }
 }
 
