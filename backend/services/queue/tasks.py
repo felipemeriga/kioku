@@ -550,18 +550,26 @@ async def nightly_folder_summary_scan(ctx: dict) -> None:
     Weekly full pass on Sunday (UTC weekday 6); nightly delta pass otherwise.
     Also enqueues a github_sync_task for every folder with a configured
     GitHub integration so the orientation payload sees fresh commit activity.
+
+    Coverage (via list_all_regenerable_folder_pairs):
+      - Folders with completed docs (leaf-summary path).
+      - Repo folders even when doc count is 0 — their briefing pulls
+        in fresh GitHub activity + Mem0 preferences independently of docs.
+      - Container folders that already have a workspace_rollup row so
+        rollups stay in sync with their children.
     """
-    from services.folder_summary import list_folder_ids_with_docs
+    from services.folder_summary.repo import list_all_regenerable_folder_pairs
 
     sb = get_supabase_thread_safe()
-    pairs = await asyncio.to_thread(list_folder_ids_with_docs, sb)
+    pairs = await asyncio.to_thread(list_all_regenerable_folder_pairs, sb)
     now = datetime.now(timezone.utc)
     is_weekly = now.weekday() == 6
     mode = "full" if is_weekly else "auto"
     trigger = "cron_weekly" if is_weekly else "cron_nightly"
 
     logger.info(
-        "nightly_folder_summary_scan: enqueuing %d folders, mode=%s trigger=%s",
+        "nightly_folder_summary_scan: enqueuing %d folders "
+        "(docs + repos + rollups), mode=%s trigger=%s",
         len(pairs),
         mode,
         trigger,

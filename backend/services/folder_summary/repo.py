@@ -280,3 +280,53 @@ def list_folder_ids_with_docs(sb) -> list[dict]:
         seen.add(key)
         pairs.append({"folder_id": row["folder_id"], "user_id": row["user_id"]})
     return pairs
+
+
+def list_all_regenerable_folder_pairs(sb) -> list[dict]:
+    """All (folder_id, user_id) pairs the nightly cron should regenerate.
+
+    Union of:
+      1. Folders with completed docs (leaf-summary path).
+      2. Every folder with kind='repo' — repos still need regen even
+         when doc count is 0 (their briefing pulls in fresh GitHub
+         activity + Mem0 preferences even with an empty doc corpus).
+      3. Container folders that already have a workspace_rollup row —
+         once a workspace has been established, we want its rollup
+         refreshed as its children get regenerated.
+
+    Deduped across all three lists.
+    """
+    pairs: list[dict] = list(list_folder_ids_with_docs(sb))
+    seen: set[tuple[str, str]] = {(p["folder_id"], p["user_id"]) for p in pairs}
+
+    # 2. All repo folders (regardless of doc count).
+    try:
+        repo_rows = (
+            sb.table("folders").select("id, user_id, kind")
+            .eq("kind", "repo").execute().data or []
+        )
+        for r in repo_rows:
+            key = (r["id"], r["user_id"])
+            if key in seen:
+                continue
+            seen.add(key)
+            pairs.append({"folder_id": r["id"], "user_id": r["user_id"]})
+    except Exception:  # noqa: BLE001 — migration for kind col may not have run
+        pass
+
+    # 3. Container folders with an existing workspace_rollup row.
+    try:
+        rollup_rows = (
+            sb.table("folder_summaries").select("folder_id, user_id")
+            .eq("kind", "workspace_rollup").execute().data or []
+        )
+        for r in rollup_rows:
+            key = (r["folder_id"], r["user_id"])
+            if key in seen:
+                continue
+            seen.add(key)
+            pairs.append({"folder_id": r["folder_id"], "user_id": r["user_id"]})
+    except Exception:  # noqa: BLE001
+        pass
+
+    return pairs
