@@ -180,6 +180,33 @@ class SessionCaptureRequest(BaseModel):
     cwd: str | None = None
 
 
+# In-memory rate limiter keyed on (user_id, folder_id). The Stop hook
+# is designed to fire at most every ~2 min under normal use; anything
+# faster than that is a misconfigured client or a runaway loop. We cap
+# at 6 requests per 10 minutes per folder — generous headroom over the
+# CLI's own 5-turn/10-min debounce.
+_CAPTURE_RATE_LIMIT_MAX = 6
+_CAPTURE_RATE_LIMIT_WINDOW_S = 600
+_capture_window: dict[tuple[str, str], list[float]] = {}
+
+
+def _capture_rate_limit(user_id: str, folder_id: str) -> tuple[bool, int]:
+    """Returns (allowed, retry_after_s). Prunes old entries as it goes."""
+    import time as _time
+
+    key = (user_id, folder_id)
+    now = _time.time()
+    window_start = now - _CAPTURE_RATE_LIMIT_WINDOW_S
+    hits = [t for t in _capture_window.get(key, []) if t > window_start]
+    if len(hits) >= _CAPTURE_RATE_LIMIT_MAX:
+        retry = int(hits[0] + _CAPTURE_RATE_LIMIT_WINDOW_S - now) + 1
+        _capture_window[key] = hits
+        return (False, max(1, retry))
+    hits.append(now)
+    _capture_window[key] = hits
+    return (True, 0)
+
+
 @router.post("/session-capture")
 async def session_capture(body: SessionCaptureRequest, request: Request):
     """Called by the CLI's `capture` subcommand (which runs as a
@@ -224,6 +251,21 @@ async def session_capture(body: SessionCaptureRequest, request: Request):
     subtree = _descendant_folder_ids(sb, scope_id, user_id)
     if body.folder_id not in subtree:
         raise HE(status_code=403, detail="folder_id not in api key scope")
+
+    # Rate limit AFTER auth so unauthenticated hammering shows as 401,
+    # not 429 (giving less info to attackers). Legitimate hooks that
+    # somehow fire too fast get a friendly 429 with Retry-After.
+    allowed, retry = _capture_rate_limit(user_id, body.folder_id)
+    if not allowed:
+        raise HE(
+            status_code=429,
+            detail=(
+                f"Capture rate limit exceeded — {_CAPTURE_RATE_LIMIT_MAX} "
+                f"per {_CAPTURE_RATE_LIMIT_WINDOW_S // 60}min per folder. "
+                f"Retry in {retry}s."
+            ),
+            headers={"Retry-After": str(retry)},
+        )
 
     # Mem0 wired?
     from services.mem0_sync import MemoryCategory, get_client_for_folder
