@@ -8,8 +8,6 @@ import {
   Collapse,
   Divider,
   IconButton,
-  Menu,
-  MenuItem,
   Stack,
   Tooltip,
   Typography,
@@ -18,7 +16,6 @@ import {
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import RefreshIcon from "@mui/icons-material/Refresh";
-import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
 import CompareArrowsIcon from "@mui/icons-material/CompareArrows";
 import HistoryIcon from "@mui/icons-material/History";
 import FolderIcon from "@mui/icons-material/Folder";
@@ -335,11 +332,9 @@ export default function FolderSummaryPanel({ folderId, folderName }: Props) {
   );
   const [loading, setLoading] = useState(true);
   const [regenerating, setRegenerating] = useState(false);
-  const [regenMode, setRegenMode] = useState<"auto" | "full" | "delta">("auto");
   const [expanded, setExpanded] = useState(true);
   const [showDiff, setShowDiff] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [modeMenuAnchor, setModeMenuAnchor] = useState<HTMLElement | null>(null);
   const [pollUntil, setPollUntil] = useState<number | null>(null);
 
   const load = useCallback(async () => {
@@ -398,13 +393,11 @@ export default function FolderSummaryPanel({ folderId, folderName }: Props) {
     return () => clearInterval(interval);
   }, [pollUntil, folderId, row, toast]);
 
-  const handleRegenerate = async (mode: "auto" | "full" | "delta") => {
-    setModeMenuAnchor(null);
-    setRegenMode(mode);
+  const handleRegenerate = async (force = false) => {
     setRegenerating(true);
     setError(null);
     try {
-      await regenerateFolderSummary(folderId, mode);
+      await regenerateFolderSummary(folderId, force);
       setPollUntil(Date.now() + 5 * 60 * 1000);
     } catch (err) {
       toast.showError(err, "Couldn't start regeneration.");
@@ -537,86 +530,28 @@ export default function FolderSummaryPanel({ folderId, folderName }: Props) {
           </Typography>
         )}
 
-        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-          <Tooltip title="Regenerate">
-            <span>
-              <IconButton
-                size="small"
-                disabled={regenerating}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleRegenerate(regenMode);
-                }}
-                sx={{ color: brand.muted }}
-              >
-                {regenerating ? (
-                  <CircularProgress size={14} sx={{ color: brand.violet2 }} />
-                ) : (
-                  <RefreshIcon sx={{ fontSize: 16 }} />
-                )}
-              </IconButton>
-            </span>
-          </Tooltip>
-          <IconButton
-            size="small"
-            disabled={regenerating}
-            onClick={(e) => {
-              e.stopPropagation();
-              setModeMenuAnchor(e.currentTarget);
-            }}
-            sx={{ color: brand.muted, p: 0 }}
-          >
-            <ArrowDropDownIcon sx={{ fontSize: 18 }} />
-          </IconButton>
-          <Menu
-            anchorEl={modeMenuAnchor}
-            open={Boolean(modeMenuAnchor)}
-            onClose={() => setModeMenuAnchor(null)}
-            slotProps={{
-              paper: {
-                sx: {
-                  bgcolor: brand.surface,
-                  border: `1px solid ${brand.line}`,
-                  minWidth: 240,
-                },
-              },
-            }}
-          >
-            {[
-              { mode: "auto", label: "Auto", hint: "Skip if nothing changed, else delta" },
-              { mode: "delta", label: "Delta", hint: "Patch only the docs that changed" },
-              { mode: "full", label: "Full rebuild", hint: "Resummarize every doc" },
-            ].map((opt) => (
-              <MenuItem
-                key={opt.mode}
-                onClick={() => handleRegenerate(opt.mode as "auto" | "full" | "delta")}
-                sx={{ display: "block", py: 1 }}
-              >
-                <Typography
-                  sx={{
-                    fontFamily: fonts.body,
-                    fontSize: "0.86rem",
-                    fontWeight: 600,
-                    color: brand.text,
-                    lineHeight: 1.25,
-                  }}
-                >
-                  {opt.label}
-                </Typography>
-                <Typography
-                  sx={{
-                    fontFamily: fonts.body,
-                    fontSize: "0.72rem",
-                    color: brand.muted,
-                    lineHeight: 1.3,
-                  }}
-                >
-                  {opt.hint}
-                </Typography>
-              </MenuItem>
-            ))}
-          </Menu>
-        </Box>
+        {/* Single Regenerate button. Skips silently if nothing changed;
+            rebuilds if content diff-hashes differ. Shift-click forces a
+            rebuild even when the diff is empty. */}
+        <Tooltip title={regenerating ? "Regenerating…" : "Regenerate (shift to force rebuild)"}>
+          <span>
+            <IconButton
+              size="small"
+              disabled={regenerating}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleRegenerate(e.shiftKey);
+              }}
+              sx={{ color: brand.muted }}
+            >
+              {regenerating ? (
+                <CircularProgress size={14} sx={{ color: brand.violet2 }} />
+              ) : (
+                <RefreshIcon sx={{ fontSize: 16 }} />
+              )}
+            </IconButton>
+          </span>
+        </Tooltip>
 
         <IconButton size="small" sx={{ color: brand.muted, p: 0.5 }}>
           <ExpandMoreIcon
@@ -678,7 +613,7 @@ export default function FolderSummaryPanel({ folderId, folderName }: Props) {
                       <AutoAwesomeIcon sx={{ fontSize: 16 }} />
                     )
                   }
-                  onClick={() => handleRegenerate("full")}
+                  onClick={() => handleRegenerate(true)}
                   sx={{
                     bgcolor: brand.violet,
                     "&:hover": { bgcolor: brand.violetDeep },

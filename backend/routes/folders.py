@@ -310,7 +310,11 @@ def _descendant_folder_ids(sb, folder_id: str, user_id: str) -> list[str]:
 
 
 class RegenerateSummaryRequest(BaseModel):
-    mode: str = "auto"  # auto | full | delta
+    # Body is intentionally empty — the endpoint is idempotent and the
+    # task decides internally whether to regen or skip based on content
+    # hashes. `force` bypasses the skip check (used by 'Rebuild anyway'
+    # buttons or when the user knows better than the diff).
+    force: bool = False
 
 
 @router.get("/{folder_id}/summary")
@@ -369,25 +373,30 @@ async def regenerate_folder_summary(
     body: RegenerateSummaryRequest,
     user_id: str = Depends(get_current_user),
 ):
-    """Enqueue a summarize_folder_task and return the arq job id."""
+    """Enqueue a summarize_folder_task and return the arq job id.
+
+    Body is optional. `force: true` bypasses the skip-if-unchanged check
+    (used by the 'Rebuild anyway' UI). Otherwise the task decides
+    internally whether to regen based on content-hash diff.
+    """
     _require_uuid(folder_id)
-    if body.mode not in {"auto", "full", "delta"}:
-        raise HTTPException(status_code=400, detail="mode must be auto|full|delta")
 
     sb = get_supabase()
     folder = get_folder(sb, folder_id, user_id)
     if not folder:
         raise HTTPException(status_code=404, detail="Folder not found")
 
+    # `mode` is always "full" from the task's perspective now — either it
+    # rebuilds or it skips. `force=True` translates to mode="full" which
+    # bypasses the skip check. force=False maps to mode="auto" which lets
+    # the task's own diff detection short-circuit if nothing changed.
+    task_mode = "full" if body.force else "auto"
+
     pool = await create_pool(_redis_settings())
     try:
         # Bucketed job_id: dedups clicks within the same 10-second window
-        # so a user hammering Regenerate collapses to one job, but a
-        # legitimate re-click after content changes still enqueues.
-        # Previous approach used a static job_id, which arq treated as
-        # "reserved" for keep_result seconds (1h default) — meaning the
-        # 2nd click within an hour silently no-op'd (job_id: null in
-        # the response) even after the first job completed.
+        # so hammering Regenerate collapses to one job, but a legitimate
+        # re-click after content changes still enqueues.
         import time as _time
         bucket = int(_time.time()) // 10
         job = await pool.enqueue_job(
@@ -395,15 +404,15 @@ async def regenerate_folder_summary(
             {
                 "folder_id": folder_id,
                 "user_id": user_id,
-                "mode": body.mode,
+                "mode": task_mode,
                 "trigger": "manual",
             },
-            _job_id=f"summarize:{folder_id}:{body.mode}:{bucket}",
+            _job_id=f"summarize:{folder_id}:{task_mode}:{bucket}",
         )
     finally:
         await pool.close()
 
-    return {"ok": True, "job_id": job.job_id if job else None, "mode": body.mode}
+    return {"ok": True, "job_id": job.job_id if job else None, "force": body.force}
 
 
 @router.get("/{folder_id}/breadcrumbs")

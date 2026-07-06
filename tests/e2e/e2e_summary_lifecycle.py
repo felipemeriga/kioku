@@ -194,15 +194,22 @@ async def main():
                   isinstance(body.get("subfolders"), list),
                   f"got subfolders type: {type(body.get('subfolders')).__name__}")
 
-        hr("═══ Cross-kind: invalid mode rejected, bad UUID → 404 ═══")
+        hr("═══ Cross-kind: legacy mode ignored, bad UUID → 404 ═══")
+        # `mode` was removed — the endpoint now takes {force: bool}. Old
+        # clients passing mode should be silently accepted (Pydantic
+        # ignores unknown fields) and use the default (force=false).
         r = await c.post(f"{BACKEND}/api/folders/{leaf_id}/summary/regenerate",
                           json={"mode": "nonsense"})
-        check("invalid mode → 400", r.status_code == 400, r.text[:200])
+        check("legacy 'mode' field silently ignored → 200",
+              r.status_code == 200, r.text[:200])
+        r = await c.post(f"{BACKEND}/api/folders/{leaf_id}/summary/regenerate",
+                          json={"force": True})
+        check("force=true → 200", r.status_code == 200, r.text[:200])
         r = await c.get(f"{BACKEND}/api/folders/not-a-uuid/summary")
         check("bad UUID GET /summary → 404 not 500",
               r.status_code == 404, f"got {r.status_code}: {r.text[:200]}")
         r = await c.post(f"{BACKEND}/api/folders/not-a-uuid/summary/regenerate",
-                          json={"mode": "auto"})
+                          json={"force": False})
         check("bad UUID POST regenerate → 404 not 500",
               r.status_code == 404, f"got {r.status_code}: {r.text[:200]}")
 

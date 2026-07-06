@@ -695,11 +695,11 @@ export async function fetchFolderSummaryHistory(
 
 export async function regenerateFolderSummary(
   folderId: string,
-  mode: "auto" | "full" | "delta" = "auto"
-): Promise<{ ok: boolean; job_id: string | null; mode: string }> {
+  force = false
+): Promise<{ ok: boolean; job_id: string | null; force: boolean }> {
   const res = await apiFetch(`/api/folders/${folderId}/summary/regenerate`, {
     method: "POST",
-    body: JSON.stringify({ mode }),
+    body: JSON.stringify({ force }),
   });
   return res.json();
 }

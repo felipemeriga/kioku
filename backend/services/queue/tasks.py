@@ -547,9 +547,10 @@ async def summarize_folder_task(ctx: dict, payload: dict) -> None:
 async def nightly_folder_summary_scan(ctx: dict) -> None:
     """arq cron entry point. Enumerates active folders and enqueues per-folder tasks.
 
-    Weekly full pass on Sunday (UTC weekday 6); nightly delta pass otherwise.
-    Also enqueues a github_sync_task for every folder with a configured
-    GitHub integration so the orientation payload sees fresh commit activity.
+    One algorithm now: for each regenerable folder, ask the task to
+    check if anything changed since the last summary. If yes → rebuild;
+    if no → skip cheaply. No weekly-full-rebuild-vs-nightly-delta split;
+    the diff detection handles both cases uniformly.
 
     Coverage (via list_all_regenerable_folder_pairs):
       - Folders with completed docs (leaf-summary path).
@@ -562,17 +563,10 @@ async def nightly_folder_summary_scan(ctx: dict) -> None:
 
     sb = get_supabase_thread_safe()
     pairs = await asyncio.to_thread(list_all_regenerable_folder_pairs, sb)
-    now = datetime.now(timezone.utc)
-    is_weekly = now.weekday() == 6
-    mode = "full" if is_weekly else "auto"
-    trigger = "cron_weekly" if is_weekly else "cron_nightly"
-
     logger.info(
         "nightly_folder_summary_scan: enqueuing %d folders "
-        "(docs + repos + rollups), mode=%s trigger=%s",
+        "(docs + repos + rollups)",
         len(pairs),
-        mode,
-        trigger,
     )
     redis = ctx["redis"]
     for pair in pairs:
@@ -581,8 +575,8 @@ async def nightly_folder_summary_scan(ctx: dict) -> None:
             {
                 "folder_id": pair["folder_id"],
                 "user_id": pair["user_id"],
-                "mode": mode,
-                "trigger": trigger,
+                "mode": "auto",  # task's own diff check decides skip vs rebuild
+                "trigger": "cron_nightly",
             },
         )
 

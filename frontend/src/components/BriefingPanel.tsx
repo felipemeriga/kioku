@@ -162,7 +162,7 @@ export default function BriefingPanel({ folderId }: Props) {
           onClick={async () => {
             setRegenerating(true);
             try {
-              await regenerateFolderSummary(folderId, "full");
+              await regenerateFolderSummary(folderId, true);
               toast.showSuccess(
                 "Regeneration queued. Auto-populated sections will refresh; pinned sections stay put.",
               );

@@ -337,18 +337,21 @@ async def main():
             check("J. 5 concurrent regens added AT MOST 2 rows (arq dedup)",
                   added <= 2, f"added={added}")
 
-        hr("K. Invalid modes rejected")
+        hr("K. Body variations — mode is deprecated, force is the new switch")
+        # Legacy: `mode` is silently accepted (Pydantic ignores unknown fields)
         r = await c.post(f"{BACKEND}/api/folders/{ar[0]['id']}/summary/regenerate",
                           json={"mode": "wrong"})
-        check("K.1 invalid mode 'wrong' → 400", r.status_code == 400, r.text[:200])
-        r = await c.post(f"{BACKEND}/api/folders/{ar[0]['id']}/summary/regenerate",
-                          json={"mode": ""})
-        check("K.2 empty mode → 400", r.status_code == 400, r.text[:200])
+        check("K.1 legacy mode='wrong' → 200 (silently ignored)",
+              r.status_code == 200, r.text[:200])
+        # Empty body: defaults to force=false
         r = await c.post(f"{BACKEND}/api/folders/{ar[0]['id']}/summary/regenerate",
                           json={})
-        check("K.3 missing mode field → 4xx",
-              r.status_code in (200, 400, 422),
-              f"got {r.status_code}: {r.text[:200]}")
+        check("K.2 empty body → 200 (force defaults to false)",
+              r.status_code == 200, r.text[:200])
+        # force=true
+        r = await c.post(f"{BACKEND}/api/folders/{ar[0]['id']}/summary/regenerate",
+                          json={"force": True})
+        check("K.3 force=true → 200", r.status_code == 200, r.text[:200])
 
     print()
     print("═" * 74)

@@ -217,20 +217,25 @@ def _run_delta_rollup_sync(
 def _decide_mode(
     requested: str, has_previous: bool, diff: Diff, force_full_if_delta_deep: bool = True
 ) -> str:
-    """Resolve the mode: 'skip' | 'full' | 'delta'."""
+    """Resolve the outcome: 'skip' | 'full'.
+
+    One algorithm now: rebuild from scratch when content changed, skip
+    when nothing changed. `requested` used to accept auto/full/delta but
+    those distinctions never surfaced meaningful UX — delta-patching
+    produced worse summaries than fresh generation, and the mode arg
+    was a mental burden on both the UI and the cron.
+
+    `requested='full'` still forces a rebuild even when the diff is
+    empty — used by the weekly refresh path and by 'Rebuild anyway'
+    buttons where the user knows better than the diff.
+    """
     if requested == "full":
         return "full"
-    if requested == "delta":
-        return "delta" if has_previous else "full"
-    # auto:
     if not has_previous:
         return "full"
     if diff.is_empty:
         return "skip"
-    # A big-percentage change is better rebuilt from scratch than patched.
-    if force_full_if_delta_deep and diff.count >= 20:
-        return "full"
-    return "delta"
+    return "full"
 
 
 async def generate_folder_summary(
@@ -363,35 +368,17 @@ async def generate_folder_summary(
     input_tokens = 0
     output_tokens = 0
 
-    if resolved_mode == "full":
-        doc_summaries, it, ot = await _summarize_documents(docs)
-        input_tokens += it
-        output_tokens += ot
-        rollup, it, ot = await asyncio.to_thread(
-            _run_full_rollup_sync, folder_name, folder_path, doc_summaries
-        )
-        input_tokens += it
-        output_tokens += ot
-    else:  # delta
-        changed_filenames = set(diff.added) | set(diff.modified)
-        changed_docs = [d for d in docs if d["source_filename"] in changed_filenames]
-        change_summaries, it, ot = await _summarize_documents(changed_docs)
-        input_tokens += it
-        output_tokens += ot
-        by_name = {s["filename"]: s for s in change_summaries}
-        added_summaries = [by_name[n] for n in diff.added if n in by_name]
-        modified_summaries = [by_name[n] for n in diff.modified if n in by_name]
-        rollup, it, ot = await asyncio.to_thread(
-            _run_delta_rollup_sync,
-            folder_name,
-            folder_path,
-            (latest or {}).get("content") or {},
-            added_summaries,
-            modified_summaries,
-            diff.removed,
-        )
-        input_tokens += it
-        output_tokens += ot
+    # Single path: full rebuild. Delta-mode was removed — the LLM
+    # produced better summaries when it saw the whole corpus fresh,
+    # and delta added complexity for no user-visible win.
+    doc_summaries, it, ot = await _summarize_documents(docs)
+    input_tokens += it
+    output_tokens += ot
+    rollup, it, ot = await asyncio.to_thread(
+        _run_full_rollup_sync, folder_name, folder_path, doc_summaries
+    )
+    input_tokens += it
+    output_tokens += ot
 
     row = insert_summary(
         sb,
