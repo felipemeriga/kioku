@@ -34,6 +34,8 @@ SUITES=(
   "Persona: Bug hunter:/tmp/e2e_persona_bughunt.py"
   "Dev workflow:/tmp/e2e_dev_workflow.py"
   "Briefing lifecycle:/tmp/e2e_briefing_lifecycle.py"
+  "Recent features (cron scope + replace briefing):/tmp/e2e_recent_features.py"
+  "Cron scope enumerator:/tmp/e2e_cron_scope.py"
   "CLI capture (Stop hook):/tmp/e2e_cli_capture.py"
   "CLI smoothness:/tmp/e2e_cli_smooth.py"
   "CLI GitHub auth ladder:/tmp/e2e_cli_github_auth.py"
