@@ -36,6 +36,7 @@ SUITES=(
   "Briefing lifecycle:/tmp/e2e_briefing_lifecycle.py"
   "Recent features (cron scope + replace briefing):/tmp/e2e_recent_features.py"
   "Cron scope enumerator:/tmp/e2e_cron_scope.py"
+  "GitHub sync via local clones:/tmp/e2e_github_local_clone.py"
   "Summary lifecycle (leaf + repo + workspace):/tmp/e2e_summary_lifecycle.py"
   "Summary deep behaviors (mode transitions + pin preservation):/tmp/e2e_summary_deep.py"
   "Chaos + resilience:/tmp/e2e_chaos.py"
