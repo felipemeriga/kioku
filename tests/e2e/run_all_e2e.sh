@@ -38,6 +38,8 @@ SUITES=(
   "Cron scope enumerator:/tmp/e2e_cron_scope.py"
   "GitHub sync via local clones:/tmp/e2e_github_local_clone.py"
   "Summary lifecycle (leaf + repo + workspace):/tmp/e2e_summary_lifecycle.py"
+  "Ingestion pipeline (upload → embed → search):/tmp/e2e_ingestion_pipeline.py"
+  "MCP tools coverage:/tmp/e2e_mcp_tools.py"
   "Summary deep behaviors (mode transitions + pin preservation):/tmp/e2e_summary_deep.py"
   "Chaos + resilience:/tmp/e2e_chaos.py"
   "Security (injection, secret leaks, IDOR):/tmp/e2e_security.py"
