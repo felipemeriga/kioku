@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, useSearchParams } from "react-router-dom";
+import { safeRedirect } from "../lib/redirect";
 import {
   Alert,
   Box,
@@ -24,8 +25,10 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  const [params] = useSearchParams();
+  const dest = safeRedirect(params.get("redirect"));
   if (!authLoading && session) {
-    return <Navigate to="/" replace />;
+    return <Navigate to={dest} replace />;
   }
 
   const handleSubmit = async (e: FormEvent) => {
