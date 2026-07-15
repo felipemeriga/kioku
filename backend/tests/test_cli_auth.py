@@ -110,13 +110,14 @@ def test_complete_requires_auth():
 
 
 def test_token_poll_unknown_returns_410():
-    r = client.post("/api/cli/auth/device/token", json={"device_code": "bogus"})
+    r = client.post("/api/cli/auth/device/token", json={"device_code": "bogus-000-nonexistent"})
     assert r.status_code == 410
 
 
 def test_start_rate_limited_after_burst(monkeypatch):
     import routes.cli as cli_routes
     monkeypatch.setattr(cli_routes, "_DEVICE_RATE_MAX", 3)
+    monkeypatch.setattr(cli_routes, "_device_hits", {})
     codes = [
         client.post("/api/cli/auth/device/start", json={"hostname": "h", "os": "o"}).status_code
         for _ in range(5)

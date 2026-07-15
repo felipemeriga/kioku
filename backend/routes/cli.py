@@ -62,8 +62,16 @@ _device_hits: dict[str, deque] = {}
 
 
 def _device_rate_limit(ip: str, bucket: str) -> tuple[bool, int]:
-    key = f"{bucket}:{ip}"
+    # Opportunistically drop keys whose deque emptied (one-shot IPs, GC).
     now = _time.time()
+    for k in list(_device_hits):
+        dqk = _device_hits[k]
+        while dqk and now - dqk[0] > _DEVICE_RATE_WINDOW:
+            dqk.popleft()
+        if not dqk:
+            del _device_hits[k]
+
+    key = f"{bucket}:{ip}"
     dq = _device_hits.setdefault(key, deque())
     while dq and now - dq[0] > _DEVICE_RATE_WINDOW:
         dq.popleft()
@@ -114,7 +122,7 @@ async def device_start(body: DeviceStartRequest, request: Request):
 
 
 class DeviceTokenRequest(BaseModel):
-    device_code: str = Field(min_length=1, max_length=200)
+    device_code: str = Field(min_length=8, max_length=200)
 
 
 @router.post("/auth/device/token")
