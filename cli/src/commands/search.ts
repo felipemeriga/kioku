@@ -80,9 +80,12 @@ export async function search(query: string, opts: Opts): Promise<void> {
   }
 
   const base = cfg.api_base;
-  const res = await withSpinner(`Searching "${query}"`, () =>
-    fetch(`${base}/api/cli/search`, { method: "POST", headers, body: JSON.stringify(body) }),
-  );
+  // In --json mode, skip the spinner entirely so stdout is clean JSON.
+  const res = await (opts.json
+    ? fetch(`${base}/api/cli/search`, { method: "POST", headers, body: JSON.stringify(body) })
+    : withSpinner(`Searching "${query}"`, () =>
+        fetch(`${base}/api/cli/search`, { method: "POST", headers, body: JSON.stringify(body) }),
+      ));
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`${res.status} ${res.statusText}: ${text}`);

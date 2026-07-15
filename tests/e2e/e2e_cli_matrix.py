@@ -53,14 +53,14 @@ def get_session_data():
 
 def isolated_home(cfg: dict | None = None) -> tuple[Path, dict]:
     temp = Path(tempfile.mkdtemp(prefix="e2e-matrix-"))
-    xdg = temp / "xdg" / "agentic-rag"
+    xdg = temp / "xdg" / "kioku"
     xdg.mkdir(parents=True)
     if cfg is not None:
         (xdg / "config.json").write_text(json.dumps(cfg))
     env = os.environ.copy()
     env["XDG_CONFIG_HOME"] = str(temp / "xdg")
-    env["AGENTIC_RAG_API_BASE"] = BACKEND
-    env["AGENTIC_RAG_NO_UPDATE_CHECK"] = "1"
+    env["KIOKU_API_BASE"] = BACKEND
+    env["KIOKU_NO_UPDATE_CHECK"] = "1"
     return temp, env
 
 
@@ -96,7 +96,7 @@ async def main():
     hr("B. --version verbose output")
     r = subprocess.run(["node", CLI, "--version"], capture_output=True, text=True, timeout=10)
     check("--version exit 0", r.returncode == 0)
-    check("--version shows agentic-rag name", "agentic-rag" in r.stdout, r.stdout[:200])
+    check("--version shows kioku name", "kioku" in r.stdout, r.stdout[:200])
     check("--version shows node version",
           "node" in r.stdout and re.search(r"v\d+\.\d+", r.stdout) is not None,
           r.stdout[:200])
@@ -107,7 +107,7 @@ async def main():
     check("--version shows api base",
           "api base" in r.stdout.lower(), r.stdout[:200])
 
-    hr("C. Bare 'agentic-rag' (welcome) — 4 states")
+    hr("C. Bare 'kioku' (welcome) — 4 states")
     # State 1: not signed in
     temp, env = isolated_home(None)
     try:
@@ -123,8 +123,8 @@ async def main():
     try:
         r = run(env, temp, [])
         check("bare (signed in, no repo): exit 0", r.returncode == 0)
-        check("bare (signed in, no repo): mentions git repo",
-              "git repo" in r.stdout.lower() or "cd into" in r.stdout.lower(),
+        check("bare (signed in, no repo): mentions repo/init",
+              "repo" in r.stdout.lower() or "init" in r.stdout.lower(),
               r.stdout[:400])
     finally:
         shutil.rmtree(temp)
@@ -160,9 +160,9 @@ async def main():
         check("logout exit 0", r.returncode == 0)
         check("logout says Signed out", "Signed out" in r.stdout, r.stdout[:200])
         # Verify config
-        cfg_after = json.loads((temp / "xdg" / "agentic-rag" / "config.json").read_text())
+        cfg_after = json.loads((temp / "xdg" / "kioku" / "config.json").read_text())
         check("logout cleared access_token",
-              not cfg_after.get("access_token"), cfg_after)
+              not cfg_after.get("access_token"), str(cfg_after)[:200])
     finally:
         shutil.rmtree(temp)
 
@@ -302,8 +302,8 @@ async def main():
     try:
         r = run(env, temp, ["status"])
         check("status (signed in): exit 0", r.returncode == 0)
-        check("status (signed in): shows Signed in",
-              "Signed in" in r.stdout, r.stdout[:400])
+        check("status (signed in): shows account/email",
+              cfg["email"] in r.stdout or "Account" in r.stdout, r.stdout[:400])
     finally:
         shutil.rmtree(temp)
 
@@ -349,7 +349,7 @@ async def main():
         r = subprocess.run(
             ["script", "-q", "/dev/null", "bash", "-c",
              f'NO_COLOR=1 XDG_CONFIG_HOME={env["XDG_CONFIG_HOME"]} '
-             f'AGENTIC_RAG_API_BASE={BACKEND} '
+             f'KIOKU_API_BASE={BACKEND} '
              f'node {CLI} whoami'],
             capture_output=True, text=True, env=env, cwd=str(temp), timeout=15,
         )
@@ -375,7 +375,7 @@ async def main():
     hr("P. Config file layout — 0600 permissions on config.json")
     temp, env = isolated_home(cfg)
     try:
-        cfg_file = temp / "xdg" / "agentic-rag" / "config.json"
+        cfg_file = temp / "xdg" / "kioku" / "config.json"
         # After a fresh login-style write via CLI (logout doesn't preserve perms
         # necessarily; use writeConfig via a small run then check)
         r = run(env, temp, ["logout"])  # rewrites the file

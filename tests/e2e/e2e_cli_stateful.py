@@ -57,13 +57,13 @@ def get_session_data():
 
 def isolated_repo(cfg: dict, remote: str = "https://github.com/felipemeriga/agentic-rag.git") -> tuple[Path, Path, dict]:
     temp = Path(tempfile.mkdtemp(prefix="e2e-stateful-"))
-    xdg = temp / "xdg" / "agentic-rag"
+    xdg = temp / "xdg" / "kioku"
     xdg.mkdir(parents=True)
     (xdg / "config.json").write_text(json.dumps(cfg))
     env = os.environ.copy()
     env["XDG_CONFIG_HOME"] = str(temp / "xdg")
-    env["AGENTIC_RAG_API_BASE"] = BACKEND
-    env["AGENTIC_RAG_NO_UPDATE_CHECK"] = "1"
+    env["KIOKU_API_BASE"] = BACKEND
+    env["KIOKU_NO_UPDATE_CHECK"] = "1"
     repo = temp / "repo"
     repo.mkdir()
     subprocess.run(["git","init","-b","main"], cwd=repo, check=True, capture_output=True)
@@ -104,7 +104,7 @@ async def main():
         check("A.1 init writes settings", (repo / ".claude" / "settings.json").exists())
         check("A.1 init writes CLAUDE.md", (repo / "CLAUDE.md").exists())
         check("A.1 init writes state file",
-              (repo / ".claude" / "agentic-rag-state.json").exists())
+              (repo / ".claude" / "kioku-state.json").exists())
 
         # status
         r = run(env, repo, ["status"])
@@ -193,17 +193,17 @@ async def main():
             r = run(env, repo, ["init", "--yes", "--root", "personal", "--skip-github"])
             check(f"C.{i+1} rerun exit 0", r.returncode == 0, r.stderr[:200])
         md = (repo / "CLAUDE.md").read_text()
-        count = md.count("BEGIN agentic-rag second-brain")
+        count = md.count("BEGIN kioku second-brain")
         check("C.final CLAUDE.md has exactly 1 second-brain block",
               count == 1, f"got {count}")
         # Same for hook — no duplicate SessionStart entries
         settings = json.loads((repo / ".claude" / "settings.json").read_text())
         hooks = settings.get("hooks", {}).get("SessionStart", [])
-        cli_hooks = [h for h in hooks if "agentic-rag" in h.get("command", "")]
+        cli_hooks = [h for h in hooks if "kioku" in h.get("command", "")]
         check("C.final SessionStart hook not duplicated",
               len(cli_hooks) == 1, f"got {len(cli_hooks)}")
         stop_hooks = [h for h in settings.get("hooks", {}).get("Stop", [])
-                      if "agentic-rag" in h.get("command", "")]
+                      if "kioku" in h.get("command", "")]
         check("C.final Stop hook not duplicated",
               len(stop_hooks) == 1, f"got {len(stop_hooks)}")
     finally:
@@ -306,7 +306,7 @@ async def main():
         r = run(env, repo, ["session-start"])
         check("H.1 session-start exit 0", r.returncode == 0, r.stderr[:200])
         check("H.1 session-start shows scope block",
-              "agentic-rag second-brain" in r.stdout, r.stdout[:400])
+              "kioku second-brain" in r.stdout, r.stdout[:400])
         check("H.1 session-start mentions Scope:",
               "Scope:" in r.stdout, r.stdout[:400])
         check("H.1 session-start mentions Tools available",
@@ -321,7 +321,7 @@ async def main():
         r = run(env, repo, ["init", "--yes", "--root", "personal", "--skip-github"])
         assert r.returncode == 0
         # Simulate a 3-turn transcript — should NOT fire (below threshold)
-        env["AGENTIC_RAG_DEBUG"] = "1"
+        env["KIOKU_DEBUG"] = "1"
         transcript = temp / "transcript.jsonl"
         transcript.write_text("\n".join(json.dumps({
             "type": "user" if i % 2 == 0 else "assistant",
@@ -335,7 +335,7 @@ async def main():
         })
         r = run(env, repo, ["capture"], stdin=hook_payload)
         check("I.1 capture below threshold: exit 0", r.returncode == 0)
-        log_path = repo / ".claude" / "agentic-rag-capture.log"
+        log_path = repo / ".claude" / "kioku-capture.log"
         if log_path.exists():
             log = log_path.read_text()
             check("I.1 log says threshold not met",
@@ -359,7 +359,7 @@ async def main():
         check("J.1 all 5 concurrent status calls exit 0",
               all(rc == 0 for rc in results), f"returncodes: {results}")
         # Verify config is still valid JSON
-        cfg_after = json.loads((temp / "xdg" / "agentic-rag" / "config.json").read_text())
+        cfg_after = json.loads((temp / "xdg" / "kioku" / "config.json").read_text())
         check("J.1 config.json still valid after concurrent calls",
               cfg_after.get("access_token", "").startswith("ey")
               or cfg_after.get("access_token") == cfg["access_token"],

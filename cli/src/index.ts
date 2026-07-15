@@ -103,6 +103,16 @@ program
   .command("login")
   .description("Sign in to Kioku")
   .option("--no-browser", "Print the URL instead of opening a browser")
+  .addHelpText(
+    "after",
+    `
+Examples:
+  $ kioku login                      # open browser, wait for authorization
+  $ kioku login --no-browser         # print URL instead (for headless envs)
+
+If you need to resend the magic link, just run kioku login again.
+`,
+  )
   .action(async (opts) => {
     banner();
     try {

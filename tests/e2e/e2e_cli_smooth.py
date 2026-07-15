@@ -48,10 +48,10 @@ def with_login(temp: Path) -> dict:
     xdg = temp / "xdg"; xdg.mkdir()
     env = os.environ.copy()
     env["XDG_CONFIG_HOME"] = str(xdg)
-    env["AGENTIC_RAG_API_BASE"] = BACKEND
+    env["KIOKU_API_BASE"] = BACKEND
     a, r, e, u, em = get_session()
-    (xdg / "agentic-rag").mkdir()
-    (xdg / "agentic-rag" / "config.json").write_text(json.dumps({
+    (xdg / "kioku").mkdir()
+    (xdg / "kioku" / "config.json").write_text(json.dumps({
         "api_base": BACKEND, "access_token": a, "refresh_token": r,
         "expires_at": e, "user_id": u, "email": em,
     }))
