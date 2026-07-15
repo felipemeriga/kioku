@@ -1073,3 +1073,42 @@ export async function listGitHubRepos(
   });
   return res.json();
 }
+
+// ── CLI browser-handoff login ────────────────────────────────────────────
+export interface DeviceInfo {
+  hostname: string | null;
+  os: string | null;
+  valid: boolean;
+  expired: boolean;
+}
+
+export async function deviceInfo(req: string): Promise<DeviceInfo> {
+  // Unauthenticated read — do not use apiFetch (which requires a session).
+  const res = await fetch(`/api/cli/auth/device/info?req=${encodeURIComponent(req)}`);
+  if (!res.ok) throw new Error(`device info failed: ${res.status}`);
+  return res.json();
+}
+
+export async function deviceComplete(requestId: string): Promise<void> {
+  // The backend takes access_token + user id from the verified bearer;
+  // we pass the rest of the session so the CLI receives a full config.
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  await apiFetch("/api/cli/auth/device/complete", {
+    method: "POST",
+    body: JSON.stringify({
+      request_id: requestId,
+      refresh_token: session?.refresh_token ?? null,
+      expires_at: session?.expires_at ?? null,
+      email: session?.user?.email ?? null,
+    }),
+  });
+}
+
+export async function deviceDeny(requestId: string): Promise<void> {
+  await apiFetch("/api/cli/auth/device/deny", {
+    method: "POST",
+    body: JSON.stringify({ request_id: requestId }),
+  });
+}
