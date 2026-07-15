@@ -51,6 +51,7 @@ SUITES=(
   "CLI stateful workflows:/tmp/e2e_cli_stateful.py"
   "CLI pro tier:/tmp/e2e_cli_pro.py"
   "CLI (full lifecycle):/tmp/e2e_cli.py"
+  "CLI browser-handoff login:/tmp/e2e_cli_login.py"
 )
 
 MODE="run"
