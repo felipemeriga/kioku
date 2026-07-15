@@ -23,8 +23,7 @@ from collections import deque
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel, EmailStr, Field
-from supabase import create_client
+from pydantic import BaseModel, Field
 
 from auth import get_current_user
 from db.client import get_supabase
@@ -33,30 +32,12 @@ from services import cli_auth
 router = APIRouter(prefix="/api/cli")
 
 
-def _anon_client():
-    """Anon-key Supabase client — the flow is user-initiated so the
-    permissions of an anon key are appropriate (magic-link, verify OTP)."""
-    url = os.environ["SUPABASE_URL"]
-    # Anon key: read from env; prefer SUPABASE_ANON_KEY if set, fall back to
-    # the publishable key format some setups use.
-    key = os.environ.get("SUPABASE_ANON_KEY") \
-        or os.environ.get("SUPABASE_PUBLISHABLE_KEY")
-    if not key:
-        raise HTTPException(
-            status_code=500,
-            detail=(
-                "SUPABASE_ANON_KEY is not configured server-side. "
-                "The CLI login flow needs it. Add it to backend/.env."
-            ),
-        )
-    return create_client(url, key)
-
-
 # ---------------------------------------------------------------------------
 # Device-auth rate limiter
 # ---------------------------------------------------------------------------
 
-_DEVICE_RATE_MAX = 10          # requests
+_DEVICE_RATE_MAX = 10          # requests per window for /start (burst guard)
+_DEVICE_TOKEN_RATE_MAX = 60    # requests per window for /token (poll headroom)
 _DEVICE_RATE_WINDOW = 60       # seconds, per IP + bucket
 _device_hits: dict[str, deque] = {}
 
@@ -75,15 +56,21 @@ def _device_rate_limit(ip: str, bucket: str) -> tuple[bool, int]:
     dq = _device_hits.setdefault(key, deque())
     while dq and now - dq[0] > _DEVICE_RATE_WINDOW:
         dq.popleft()
-    if len(dq) >= _DEVICE_RATE_MAX:
+    # /token polls every 2s → ~30/min; give it 2× headroom vs. /start.
+    limit = _DEVICE_TOKEN_RATE_MAX if bucket == "token" else _DEVICE_RATE_MAX
+    if len(dq) >= limit:
         return False, int(_DEVICE_RATE_WINDOW - (now - dq[0])) + 1
     dq.append(now)
     return True, 0
 
 
 def _client_ip(request: Request) -> str:
+    # Trusts X-Forwarded-For; assumes a trusted reverse proxy sets it.
+    # The limiter is DoS-dampening, not a security boundary.
     fwd = request.headers.get("x-forwarded-for")
-    return fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else "unknown")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
 
 
 def _frontend_url() -> str:
@@ -341,7 +328,6 @@ async def session_capture(body: SessionCaptureRequest, request: Request):
         4. Save each via the existing Mem0 add path with hard dedup.
     """
     import hashlib
-    import json as _json
     from fastapi import HTTPException as HE
 
     auth = request.headers.get("Authorization") or ""
@@ -382,7 +368,7 @@ async def session_capture(body: SessionCaptureRequest, request: Request):
         )
 
     # Mem0 wired?
-    from services.mem0_sync import MemoryCategory, get_client_for_folder
+    from services.mem0_sync import get_client_for_folder
     from services.mem0_sync.client import MemoryScope
     mem0 = get_client_for_folder(sb, body.folder_id, user_id)
     if mem0 is None:

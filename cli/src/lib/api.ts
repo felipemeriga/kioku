@@ -201,17 +201,29 @@ export interface DevicePollResult {
 }
 
 /** Polls the token endpoint once. Maps HTTP status → poll status.
- *  Uses a raw fetch so 428/403/410 aren't thrown as errors. */
+ *  Uses a raw fetch so 428/403/410 aren't thrown as errors.
+ *  429 and 5xx are treated as transient (keep waiting); the outer
+ *  login loop is bounded by expires_in so this won't spin forever. */
 export async function devicePoll(deviceCode: string): Promise<DevicePollResult> {
   const cfg = readConfig();
-  const res = await fetch(`${cfg.api_base}/api/cli/auth/device/token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ device_code: deviceCode }),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${cfg.api_base}/api/cli/auth/device/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ device_code: deviceCode }),
+    });
+  } catch {
+    // Network/fetch error — keep waiting, don't abort
+    return { status: "pending" };
+  }
   if (res.status === 200) return { status: "authorized", tokens: await res.json() };
   if (res.status === 428) return { status: "pending" };
   if (res.status === 403) return { status: "denied" };
+  if (res.status === 410) return { status: "expired" };
+  // 429 (rate limit) or any 5xx — transient, keep waiting
+  if (res.status === 429 || res.status >= 500) return { status: "pending" };
+  // Unexpected status — treat as expired (terminal)
   return { status: "expired" };
 }
 

@@ -61,7 +61,7 @@ program
     "after",
     `
 Examples:
-  $ kioku login                      # sign in with email + OTP
+  $ kioku login                      # sign in via browser
   $ cd ~/repo && kioku init          # wire the current repo
   $ kioku ls                         # browse your workspace
   $ kioku briefing                   # view this repo's briefing

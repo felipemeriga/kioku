@@ -123,3 +123,28 @@ def test_start_rate_limited_after_burst(monkeypatch):
         for _ in range(5)
     ]
     assert codes.count(429) >= 1  # burst is throttled
+
+
+def test_token_poll_not_rate_limited_within_headroom(monkeypatch):
+    """35 consecutive token polls from the same IP must not trigger 429.
+
+    The /token bucket allows _DEVICE_TOKEN_RATE_MAX (60) per window —
+    well above the ~30 polls/min the CLI makes every 2s. Without this
+    headroom the CLI would get a 429 ~20s into a normal login and
+    incorrectly treat it as 'expired'.
+    """
+    import routes.cli as cli_routes
+    monkeypatch.setattr(cli_routes, "_device_hits", {})
+    # Use a bogus but valid-length device_code — backend returns 410
+    # (unknown), never 429, for all 35 polls.
+    codes = [
+        client.post(
+            "/api/cli/auth/device/token",
+            json={"device_code": "bogus-device-code-for-rate-test"},
+        ).status_code
+        for _ in range(35)
+    ]
+    assert 429 not in codes, (
+        f"Got 429 at poll(s) {[i for i,c in enumerate(codes) if c==429]}; "
+        "token bucket limit is too low"
+    )
