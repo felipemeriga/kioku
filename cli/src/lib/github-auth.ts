@@ -19,6 +19,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { input, password, select, confirm } from "@inquirer/prompts";
 import kleur from "kleur";
 import { info, ok, warn } from "./banner.js";
+import { tryOpenBrowser } from "./browser.js";
 
 export type TokenSource = "gh-cli" | "env" | "pasted" | "none";
 
@@ -305,26 +306,6 @@ async function ghUser(token: string): Promise<string> {
     return "?";
   }
 }
-
-/** Best-effort browser open. macOS: open, Linux: xdg-open, Windows: start. */
-function tryOpenBrowser(url: string): void {
-  const cmd =
-    process.platform === "darwin"
-      ? ["open", url]
-      : process.platform === "win32"
-      ? ["cmd", "/c", "start", url]
-      : ["xdg-open", url];
-  try {
-    execFileSync(cmd[0], cmd.slice(1), {
-      stdio: "ignore",
-      timeout: 2000,
-    });
-  } catch {
-    // No browser (headless server, WSL edge cases). Not worth complaining
-    // — we already printed the URL for copy/paste.
-  }
-}
-
 
 // ── gh CLI install + login detection ────────────────────────────────
 
