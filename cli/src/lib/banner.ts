@@ -5,8 +5,8 @@
  * - "✻" prefix on prompts, "✓" on success, "✗" on error
  * - Muted separators (`─`) and subtle dim text between actions
  *
- * We use kleur (already a dep) — no chalk / boxen / cli-boxes needed
- * so the binary stays small and starts fast.
+ * Feedback primitives use kleur; the richer ui/ toolkit (panels/tables)
+ * adds boxen + cli-table3.
  */
 
 import kleur from "kleur";
