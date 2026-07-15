@@ -102,20 +102,12 @@ Examples:
 
 program
   .command("login")
-  .description("Sign in via email OTP")
-  .addHelpText(
-    "after",
-    `
-Examples:
-  $ kioku login              # prompts for email + 6-digit code
-  # At the code prompt you can type 'resend' or 'r' to send a new one.
-`,
-  )
-  .action(async () => {
+  .description("Sign in to Kioku")
+  .option("--no-browser", "Print the URL instead of opening a browser")
+  .action(async (opts) => {
     banner();
     try {
-
-      await login();
+      await login({ noBrowser: opts.browser === false });
     } catch (err) {
       printError(err);
       process.exitCode = 1;

@@ -173,28 +173,46 @@ async function tryRefreshToken(): Promise<boolean> {
 
 // ── Auth ────────────────────────────────────────────────────────────
 
-export async function sendOtp(email: string): Promise<void> {
-  await apiFetch("/api/cli/otp/send", {
+export async function deviceStart(
+  hostname: string,
+  os: string,
+): Promise<{
+  request_id: string;
+  device_code: string;
+  verification_url: string;
+  interval: number;
+  expires_in: number;
+}> {
+  return apiFetch("/api/cli/auth/device/start", {
     method: "POST",
     auth: false,
-    body: JSON.stringify({ email }),
+    body: JSON.stringify({ hostname, os }),
   });
 }
 
-export async function verifyOtp(
-  email: string,
-  token: string,
-): Promise<{
-  access_token: string;
-  refresh_token: string;
-  expires_at: number;
-  user: { id: string; email: string };
-}> {
-  return apiFetch("/api/cli/otp/verify", {
+export interface DevicePollResult {
+  status: "authorized" | "pending" | "denied" | "expired";
+  tokens?: {
+    access_token: string;
+    refresh_token: string;
+    expires_at: number;
+    user: { id: string; email: string };
+  };
+}
+
+/** Polls the token endpoint once. Maps HTTP status → poll status.
+ *  Uses a raw fetch so 428/403/410 aren't thrown as errors. */
+export async function devicePoll(deviceCode: string): Promise<DevicePollResult> {
+  const cfg = readConfig();
+  const res = await fetch(`${cfg.api_base}/api/cli/auth/device/token`, {
     method: "POST",
-    auth: false,
-    body: JSON.stringify({ email, token }),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ device_code: deviceCode }),
   });
+  if (res.status === 200) return { status: "authorized", tokens: await res.json() };
+  if (res.status === 428) return { status: "pending" };
+  if (res.status === 403) return { status: "denied" };
+  return { status: "expired" };
 }
 
 export async function whoami(): Promise<{
