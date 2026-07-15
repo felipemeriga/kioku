@@ -1,10 +1,12 @@
 """CLI login endpoints.
 
-The CLI needs to authenticate as the user without shipping the Supabase
-anon key. We wrap Supabase's magic-link OTP flow behind two endpoints:
+The CLI authenticates via a browser-handoff device-auth flow:
 
-    POST /api/cli/otp/send    — trigger the OTP email
-    POST /api/cli/otp/verify  — exchange OTP for tokens
+    POST /api/cli/auth/device/start    — CLI starts a pending request
+    GET  /api/cli/auth/device/info     — browser fetches display fields
+    POST /api/cli/auth/device/complete — authenticated browser binds tokens
+    POST /api/cli/auth/device/deny     — authenticated browser denies
+    POST /api/cli/auth/device/token    — CLI polls until authorized/denied
 
 The CLI stores the returned access_token + refresh_token locally and
 uses them via `Authorization: Bearer <access>` on subsequent calls.
@@ -16,14 +18,17 @@ surface needed for that.
 from __future__ import annotations
 
 import os
+import time as _time
+from collections import deque
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, EmailStr, Field
 from supabase import create_client
 
 from auth import get_current_user
 from db.client import get_supabase
+from services import cli_auth
 
 router = APIRouter(prefix="/api/cli")
 
@@ -47,53 +52,154 @@ def _anon_client():
     return create_client(url, key)
 
 
-class SendOtpRequest(BaseModel):
-    email: EmailStr
+# ---------------------------------------------------------------------------
+# Device-auth rate limiter
+# ---------------------------------------------------------------------------
+
+_DEVICE_RATE_MAX = 10          # requests
+_DEVICE_RATE_WINDOW = 60       # seconds, per IP + bucket
+_device_hits: dict[str, deque] = {}
 
 
-@router.post("/otp/send")
-async def send_otp(body: SendOtpRequest):
-    """Trigger Supabase magic-link email. Returns 200 whether or not the
-    email exists (Supabase behavior — prevents enumeration)."""
-    anon = _anon_client()
-    try:
-        anon.auth.sign_in_with_otp({"email": body.email})
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=400, detail=f"Send OTP failed: {exc}")
-    return {"ok": True, "email": body.email}
+def _device_rate_limit(ip: str, bucket: str) -> tuple[bool, int]:
+    key = f"{bucket}:{ip}"
+    now = _time.time()
+    dq = _device_hits.setdefault(key, deque())
+    while dq and now - dq[0] > _DEVICE_RATE_WINDOW:
+        dq.popleft()
+    if len(dq) >= _DEVICE_RATE_MAX:
+        return False, int(_DEVICE_RATE_WINDOW - (now - dq[0])) + 1
+    dq.append(now)
+    return True, 0
 
 
-class VerifyOtpRequest(BaseModel):
-    email: EmailStr
-    token: str = Field(min_length=6, max_length=10)
+def _client_ip(request: Request) -> str:
+    fwd = request.headers.get("x-forwarded-for")
+    return fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else "unknown")
 
 
-@router.post("/otp/verify")
-async def verify_otp(body: VerifyOtpRequest):
-    """Exchange OTP for a session. Returns access + refresh tokens
-    plus the user id/email so the CLI can store + display them."""
-    anon = _anon_client()
-    try:
-        res = anon.auth.verify_otp({
-            "email": body.email,
-            "token": body.token,
-            "type": "email",
-        })
-    except Exception as exc:  # noqa: BLE001
+def _frontend_url() -> str:
+    return os.environ.get("FRONTEND_URL", "http://localhost:5173").rstrip("/")
+
+
+# ---------------------------------------------------------------------------
+# Device-auth endpoints
+# ---------------------------------------------------------------------------
+
+class DeviceStartRequest(BaseModel):
+    hostname: str = Field(default="unknown", max_length=120)
+    os: str = Field(default="unknown", max_length=60)
+
+
+@router.post("/auth/device/start")
+async def device_start(body: DeviceStartRequest, request: Request):
+    allowed, retry = _device_rate_limit(_client_ip(request), "start")
+    if not allowed:
         raise HTTPException(
-            status_code=401,
-            detail=f"Invalid or expired code: {exc}",
+            status_code=429,
+            detail="Too many requests",
+            headers={"Retry-After": str(retry)},
         )
-    if not res.session or not res.user:
-        raise HTTPException(status_code=401, detail="OTP verification failed")
+    try:
+        r = await cli_auth.create_request(body.hostname, body.os)
+    except Exception as exc:  # noqa: BLE001 — Redis down etc.
+        raise HTTPException(status_code=503, detail=f"Auth service unavailable: {exc}")
     return {
-        "access_token": res.session.access_token,
-        "refresh_token": res.session.refresh_token,
-        "expires_at": res.session.expires_at,
-        "user": {
-            "id": res.user.id,
-            "email": res.user.email,
-        },
+        "request_id": r["request_id"],
+        "device_code": r["device_code"],
+        "verification_url": f"{_frontend_url()}/cli-auth?req={r['request_id']}",
+        "interval": 2,
+        "expires_in": r["expires_in"],
+    }
+
+
+class DeviceTokenRequest(BaseModel):
+    device_code: str = Field(min_length=1, max_length=200)
+
+
+@router.post("/auth/device/token")
+async def device_token(body: DeviceTokenRequest, request: Request, response: Response):
+    allowed, retry = _device_rate_limit(_client_ip(request), "token")
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many requests",
+            headers={"Retry-After": str(retry)},
+        )
+    try:
+        result = await cli_auth.consume_by_device_code(body.device_code)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=f"Auth service unavailable: {exc}")
+    status = result["status"]
+    if status == "authorized":
+        return result["tokens"]
+    if status == "pending":
+        raise HTTPException(status_code=428, detail="authorization_pending")
+    if status == "denied":
+        raise HTTPException(status_code=403, detail="access_denied")
+    raise HTTPException(status_code=410, detail="expired_token")
+
+
+class DeviceRequestIdRequest(BaseModel):
+    request_id: str = Field(min_length=8, max_length=200)
+
+
+class DeviceCompleteRequest(BaseModel):
+    request_id: str = Field(min_length=8, max_length=200)
+    refresh_token: str | None = None
+    expires_at: int | None = None
+    email: str | None = None
+
+
+@router.post("/auth/device/complete")
+async def device_complete(
+    body: DeviceCompleteRequest,
+    request: Request,
+    user_id: str = Depends(get_current_user),
+):
+    # access_token comes from the verified bearer header (can't be spoofed)
+    authz = request.headers.get("authorization", "")
+    access_token = authz[7:] if authz.lower().startswith("bearer ") else ""
+    tokens = {
+        "access_token": access_token,
+        "refresh_token": body.refresh_token,
+        "expires_at": body.expires_at,
+        "user": {"id": user_id, "email": body.email},
+    }
+    try:
+        ok = await cli_auth.authorize(body.request_id, tokens)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=f"Auth service unavailable: {exc}")
+    if not ok:
+        raise HTTPException(status_code=410, detail="Request not found or already handled")
+    return {"ok": True}
+
+
+@router.post("/auth/device/deny")
+async def device_deny(
+    body: DeviceRequestIdRequest,
+    user_id: str = Depends(get_current_user),
+):
+    try:
+        await cli_auth.deny(body.request_id)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=f"Auth service unavailable: {exc}")
+    return {"ok": True}
+
+
+@router.get("/auth/device/info")
+async def device_info(req: str):
+    try:
+        rec = await cli_auth.get_by_request_id(req)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=f"Auth service unavailable: {exc}")
+    if not rec:
+        return {"hostname": None, "os": None, "valid": False, "expired": True}
+    return {
+        "hostname": rec["hostname"],
+        "os": rec["os"],
+        "valid": rec["status"] == "pending",
+        "expired": False,
     }
 
 
