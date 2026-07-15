@@ -12,6 +12,7 @@ import { join, resolve } from "node:path";
 import kleur from "kleur";
 import { fetchBriefing, type BriefingSection } from "../lib/api.js";
 import { section as sectionHeading, info, ok, warn } from "../lib/banner.js";
+import { panel } from "../ui/panel.js";
 
 interface Opts {
   json?: boolean;
@@ -102,20 +103,10 @@ export async function briefing(opts: Opts): Promise<void> {
 
 function printSection(key: string, s: BriefingSection): void {
   const title = SECTION_TITLES[key] ?? key;
-  console.log(
-    `  ${kleur.bold(title)}  ${statusChip(s.status)} ${kleur.dim(
-      "· " + provenanceLabel(s.provenance),
-    )}`,
-  );
+  const titleLine = `${title}  ${statusChip(s.status)} ${kleur.dim("· " + provenanceLabel(s.provenance))}`;
   const rendered = renderContent(s.content);
-  if (rendered.trim() === "") {
-    console.log("    " + kleur.dim("(not filled in yet)"));
-  } else {
-    for (const line of rendered.split("\n")) {
-      console.log("    " + line);
-    }
-  }
-  console.log();
+  const body = rendered.trim() === "" ? kleur.dim("(not filled in yet)") : rendered;
+  console.log(panel({ title: titleLine, body }));
 }
 
 function statusChip(status: BriefingSection["status"]): string {

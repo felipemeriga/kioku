@@ -4,7 +4,8 @@ import kleur from "kleur";
 import { deviceStart, devicePoll, whoami } from "../lib/api.js";
 import { readConfig, writeConfig } from "../lib/config.js";
 import { tryOpenBrowser } from "../lib/browser.js";
-import { box, info, section } from "../lib/banner.js";
+import { info, section } from "../lib/banner.js";
+import { panel } from "../ui/panel.js";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -37,11 +38,15 @@ export async function login(opts: { noBrowser?: boolean } = {}): Promise<void> {
       });
       console.log();
       const w = await whoami();
-      box([
-        `${kleur.green("✓")} ${kleur.bold("Signed in")}`,
-        kleur.dim(`  ${t.user.email}`),
-        kleur.dim(`  ${w.root_folders.length} root folder${w.root_folders.length === 1 ? "" : "s"}`),
-      ]);
+      console.log(panel({
+        title: "Signed in",
+        body: [
+          `${kleur.green("✓")} ${kleur.bold("Signed in")}`,
+          kleur.dim(`  ${t.user.email}`),
+          kleur.dim(`  ${w.root_folders.length} root folder${w.root_folders.length === 1 ? "" : "s"}`),
+        ].join("\n"),
+        tone: "success",
+      }));
       console.log();
       info("Next: cd into a repo and run " + kleur.bold("kioku init"));
       return;

@@ -24,7 +24,8 @@ import {
   writeCaptureState,
   writeMcpConfig,
 } from "../lib/claude.js";
-import { bad, box, info, ok, section, step, warn } from "../lib/banner.js";
+import { bad, info, ok, section, step, warn } from "../lib/banner.js";
+import { panel } from "../ui/panel.js";
 
 interface InitOptions {
   yes?: boolean;
@@ -324,12 +325,16 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
   }
 
   console.log();
-  box([
-    `${kleur.green("✓")} ${kleur.bold("This repo is now wired.")}`,
-    kleur.dim(`  Scope: ${w.root_folders.find((f) => f.id === rootId)?.name ?? "(root)"}`),
-    kleur.dim(`  Repo:  ${repoFolder.name}`),
-    kleur.dim("  Open in Claude Code — the hook loads your briefing at session start."),
-  ]);
+  console.log(panel({
+    title: "Repo wired",
+    body: [
+      `${kleur.green("✓")} ${kleur.bold("This repo is now wired.")}`,
+      kleur.dim(`  Scope: ${w.root_folders.find((f) => f.id === rootId)?.name ?? "(root)"}`),
+      kleur.dim(`  Repo:  ${repoFolder.name}`),
+      kleur.dim("  Open in Claude Code — the hook loads your briefing at session start."),
+    ].join("\n"),
+    tone: "success",
+  }));
   console.log();
 }
 
