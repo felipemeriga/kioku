@@ -13,7 +13,6 @@ import { quickstart } from "./commands/quickstart.js";
 import { search } from "./commands/search.js";
 import { sessionStart } from "./commands/session-start.js";
 import { status } from "./commands/status.js";
-import { welcome } from "./commands/welcome.js";
 import { whoami } from "./commands/whoami.js";
 import { banner, printError } from "./lib/banner.js";
 import { checkForUpdate } from "./lib/update-check.js";
@@ -323,16 +322,20 @@ program
     }
   });
 
-// Bare `kioku` (no subcommand) → smart welcome instead of --help.
-// Users don't want to read a full command list to know what to do next.
+// No subcommand + interactive TTY → launch the home menu. Non-TTY (pipes,
+// CI, hooks) falls through to help so scripts never block.
 if (process.argv.length <= 2) {
-  banner();
-  welcome()
-    .then(() => checkForUpdate(VERSION))
-    .catch((err) => {
-      printError(err);
-      process.exitCode = 1;
-    });
+  const { isInteractive } = await import("./ui/theme.js");
+  if (isInteractive()) {
+    (async () => {
+      const { runHome } = await import("./commands/home.js");
+      await runHome();
+      process.exit(0);
+    })();
+  } else {
+    program.outputHelp();
+    process.exit(0);
+  }
 } else {
   program.parseAsync(process.argv).then(() => {
     // Fire-and-forget update check AFTER the main command finishes so
