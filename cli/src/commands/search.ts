@@ -11,6 +11,8 @@ import { join, resolve } from "node:path";
 import kleur from "kleur";
 import { readConfig } from "../lib/config.js";
 import { info, section, warn } from "../lib/banner.js";
+import { renderTable } from "../ui/table.js";
+import { withSpinner } from "../ui/spinner.js";
 
 interface Opts {
   json?: boolean;
@@ -78,11 +80,9 @@ export async function search(query: string, opts: Opts): Promise<void> {
   }
 
   const base = cfg.api_base;
-  const res = await fetch(`${base}/api/cli/search`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-  });
+  const res = await withSpinner(`Searching "${query}"`, () =>
+    fetch(`${base}/api/cli/search`, { method: "POST", headers, body: JSON.stringify(body) }),
+  );
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`${res.status} ${res.statusText}: ${text}`);
@@ -104,32 +104,13 @@ export async function search(query: string, opts: Opts): Promise<void> {
     console.log();
     return;
   }
-  for (let i = 0; i < data.hits.length; i += 1) {
-    const h = data.hits[i];
-    const sim = (h.similarity * 100).toFixed(0);
-    const badge = sourceBadge(h.source);
-    const title = h.filename ? kleur.cyan(h.filename) : kleur.dim("(no file)");
-    const category = h.category ? kleur.dim(" · " + h.category) : "";
-    console.log(
-      `  ${kleur.bold(`${i + 1}.`)}  ${badge}  ${title}${category}  ${kleur.dim(sim + "%")}`,
-    );
-    // Truncated snippet with dim wrapping
-    const snippet = h.content
-      .split("\n")
-      .filter((l) => l.trim())
-      .slice(0, 5)
-      .join("\n");
-    for (const line of snippet.split("\n")) {
-      console.log("       " + kleur.dim(line.trim().slice(0, 100)));
-    }
-    console.log();
-  }
-}
-
-function sourceBadge(s: string): string {
-  const label = s.padEnd(12);
-  if (s === "docs") return kleur.bgMagenta(kleur.black(" docs   "));
-  if (s === "mem0_eternal") return kleur.bgYellow(kleur.black(" preference "));
-  if (s === "mem0_episodic") return kleur.bgCyan(kleur.black(" memory "));
-  return kleur.dim(label);
+  const rows = data.hits.map((h, i) => [
+    String(i + 1),
+    h.source,
+    h.filename ?? "(no file)",
+    `${(h.similarity * 100).toFixed(0)}%`,
+    h.content.split("\n").filter((l) => l.trim())[0]?.trim().slice(0, 60) ?? "",
+  ]);
+  console.log(renderTable(["#", "Source", "File", "Score", "Snippet"], rows));
+  console.log();
 }

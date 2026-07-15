@@ -9,6 +9,8 @@
 import kleur from "kleur";
 import { listChildren, listRootFolders, whoami } from "../lib/api.js";
 import { section, info } from "../lib/banner.js";
+import { renderTable } from "../ui/table.js";
+import { sym } from "../ui/theme.js";
 
 interface Opts {
   json?: boolean;
@@ -98,17 +100,11 @@ export async function ls(pathArg: string | undefined, opts: Opts): Promise<void>
 function printListing(header: string, entries: Entry[]): void {
   section(header);
   if (entries.length === 0) return;
-  const width = Math.max(...entries.map((e) => e.name.length));
-  for (const e of entries) {
-    const icon =
-      e.kind === "repo"
-        ? kleur.cyan("⌥")
-        : kleur.magenta("▸");
-    const name = e.name.padEnd(width);
-    const idBadge = kleur.dim(e.id.slice(0, 8));
-    const kindBadge =
-      e.kind === "repo" ? kleur.dim("repo") : kleur.dim("folder");
-    console.log(`  ${icon}  ${name}  ${idBadge}  ${kindBadge}`);
-  }
+  const rows = entries.map((e) => [
+    e.kind === "repo" ? `${sym.repo} ${e.name}` : `${sym.folder} ${e.name}`,
+    e.kind,
+    e.id.slice(0, 8),
+  ]);
+  console.log(renderTable(["Name", "Kind", "Id"], rows));
   console.log();
 }
