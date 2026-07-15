@@ -6,6 +6,7 @@ import AppLayout from "./components/AppLayout";
 import ErrorBoundary from "./components/ErrorBoundary";
 import ToastProvider from "./components/ToastProvider";
 import LoginPage from "./pages/LoginPage";
+import CliAuthPage from "./pages/CliAuthPage";
 import ChatPage from "./pages/ChatPage";
 import DocumentsPage from "./pages/DocumentsPage";
 import FolderDetailPage from "./pages/FolderDetailPage";
@@ -20,6 +21,7 @@ function App() {
             <ConversationsProvider>
               <Routes>
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/cli-auth" element={<CliAuthPage />} />
             <Route
               path="/"
               element={
