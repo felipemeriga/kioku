@@ -20,6 +20,9 @@ import kleur from "kleur";
 import { readConfig } from "../lib/config.js";
 import { section, info } from "../lib/banner.js";
 import { detectGit } from "../lib/git.js";
+import { renderTable } from "../ui/table.js";
+import { panel } from "../ui/panel.js";
+import { sym } from "../ui/theme.js";
 
 type CheckResult = { name: string; ok: boolean; detail?: string; hint?: string };
 
@@ -151,7 +154,11 @@ export async function doctor(): Promise<void> {
 
   // Print system results
   section("System");
-  for (const c of checks) print(c);
+  console.log(renderTable(
+    ["", "Check", "Detail"],
+    checks.map((c) => [c.ok ? sym.ok : sym.bad, c.name, c.detail ?? ""]),
+  ));
+  for (const c of checks) if (!c.ok && c.hint) console.log(`    ${c.hint}`);
 
   // 6. This repo
   section("This repo");
@@ -193,16 +200,9 @@ export async function doctor(): Promise<void> {
   const bindingFailed = !mcpJson || !settingsExists || !claudeMd;
   console.log();
   if (anyFailed || bindingFailed) {
-    console.log(
-      `  ${kleur.yellow("!")} ${kleur.bold("Some checks failed above.")}`,
-    );
-    console.log(
-      `    ${kleur.dim("Follow the fix hints on each line. Re-run `kioku doctor` when done.")}`,
-    );
+    console.log(panel({ title: "Result", body: "Some checks failed. Follow the fix hints, then re-run kioku doctor.", tone: "warn" }));
   } else {
-    console.log(
-      `  ${kleur.green("✓")} ${kleur.bold("All checks passed.")}${kleur.dim("  Open Claude Code here — you're set.")}`,
-    );
+    console.log(panel({ title: "Result", body: "All checks passed. Open Claude Code here — you're set.", tone: "success" }));
   }
   console.log();
 }
