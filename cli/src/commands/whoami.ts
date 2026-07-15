@@ -1,6 +1,7 @@
 import kleur from "kleur";
 import { readConfig } from "../lib/config.js";
 import { whoami as whoamiApi } from "../lib/api.js";
+import { panel } from "../ui/panel.js";
 
 interface Opts {
   json?: boolean;
@@ -31,5 +32,8 @@ export async function whoami(opts: Opts): Promise<void> {
     );
     return;
   }
-  console.log(cfg.email + " " + kleur.dim("(" + w.user_id.slice(0, 8) + "…)"));
+  console.log(panel({
+    title: "You",
+    body: [`Email    ${cfg.email}`, `User id  ${w.user_id}`, `Folders  ${w.root_folders.length}`].join("\n"),
+  }));
 }

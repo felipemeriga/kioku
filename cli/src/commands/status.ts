@@ -5,24 +5,26 @@ import { readConfig } from "../lib/config.js";
 import { whoami } from "../lib/api.js";
 import { detectGit } from "../lib/git.js";
 import { bad, info, ok, section, warn } from "../lib/banner.js";
+import { panel } from "../ui/panel.js";
 
 export async function status(): Promise<void> {
   const cfg = readConfig();
-  section("Status");
-  info(`API base: ${cfg.api_base}`);
+
+  const lines = [
+    `API      ${cfg.api_base}`,
+    cfg.access_token ? `Account  ${cfg.email}` : "Account  not signed in",
+  ];
+  if (cfg.access_token) {
+    try {
+      const w = await whoami();
+      lines.push(`Folders  ${w.root_folders.length}`);
+    } catch (err) {
+      lines.push(`Auth     check failed — run kioku login`);
+    }
+  }
+  console.log(panel({ title: "Kioku status", body: lines.join("\n"), tone: cfg.access_token ? "default" : "warn" }));
 
   if (!cfg.access_token) {
-    warn("Not signed in.", "Run: kioku login");
-    return;
-  }
-  try {
-    const w = await whoami();
-    ok(`Signed in as ${cfg.email}`, `${w.root_folders.length} root folder${w.root_folders.length === 1 ? "" : "s"}`);
-  } catch (err) {
-    warn(
-      `Auth check failed: ${err instanceof Error ? err.message : err}`,
-      "Try: kioku login",
-    );
     return;
   }
 
