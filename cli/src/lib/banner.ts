@@ -10,39 +10,15 @@
  */
 
 import kleur from "kleur";
+import { colorEnabled, isQuiet, brand as _brand } from "../ui/theme.js";
 
-// NO_COLOR (https://no-color.org/) is the standard opt-out.
-// KIOKU_QUIET turns off the banner + info lines but leaves ok/warn/bad.
-// KIOKU_NO_COLOR is an app-specific override in case someone wants
-// the CLI colored while other tools are muted (or vice versa).
-//
-// Both are read LAZILY at each call — commander's preAction hook sets
-// them just before the command action runs, so a module-load cached
-// value would be stale by the time we print anything.
-function colorEnabled(): boolean {
-  return (
-    !process.env.NO_COLOR &&
-    !process.env.KIOKU_NO_COLOR &&
-    process.stdout.isTTY === true
-  );
-}
+export { brand } from "../ui/theme.js";
 
-function isQuiet(): boolean {
-  return !!process.env.KIOKU_QUIET;
-}
-
-const identity = (s: string) => s;
-
-// Truecolor helper — silently degrades to no-op when colors are off.
-function fg(r: number, g: number, b: number) {
-  return (s: string) =>
-    colorEnabled() ? `\x1b[38;2;${r};${g};${b}m${s}\x1b[39m` : s;
-}
-
-const ORANGE = fg(255, 121, 63);
-const CYAN = fg(148, 214, 219);
-const VIOLET = fg(178, 154, 248);
-const DIM = fg(120, 122, 130);
+// Local aliases for brevity — functions read colorEnabled() lazily on each call.
+const ORANGE = _brand.primary;
+const CYAN = _brand.secondary;
+const VIOLET = _brand.accent;
+const DIM = _brand.muted;
 
 // Sync kleur's own coloring with our flag — re-read on every call site
 // via getter. kleur only checks `enabled` at each color-fn invocation.
@@ -52,13 +28,6 @@ Object.defineProperty(kleur, "enabled", {
   },
   configurable: true,
 });
-
-export const brand = {
-  primary: ORANGE,
-  secondary: CYAN,
-  accent: VIOLET,
-  muted: DIM,
-};
 
 /** Small, restrained banner that only prints on interactive commands. */
 export function banner(): void {
