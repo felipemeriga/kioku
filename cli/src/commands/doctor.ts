@@ -14,7 +14,6 @@
  */
 
 import { existsSync } from "node:fs";
-import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import kleur from "kleur";
 import { readConfig } from "../lib/config.js";
@@ -120,35 +119,6 @@ export async function doctor(): Promise<void> {
       ok: false,
       detail: err instanceof Error ? err.message : String(err),
       hint: "MCP server not responding on the derived URL. Set KIOKU_MCP_URL to override.",
-    });
-  }
-
-  // 5. gh CLI status (optional but STRONGLY recommended — it makes
-  //    private-repo auth zero-friction).
-  const { detectGhState, ghInstallCommand } = await import("../lib/github-auth.js");
-  const ghState = detectGhState();
-  if (ghState === "installed-and-logged-in") {
-    checks.push({
-      name: "gh CLI (recommended)",
-      ok: true,
-      detail: "Installed + authenticated",
-    });
-  } else if (ghState === "installed-not-logged-in") {
-    checks.push({
-      name: "gh CLI (recommended)",
-      ok: false,
-      detail: "Installed but not logged in",
-      hint: "Run: gh auth login  (needed for private-repo sync without pasting a PAT)",
-    });
-  } else {
-    const install = ghInstallCommand();
-    checks.push({
-      name: "gh CLI (recommended)",
-      ok: false,
-      detail: "Not installed — private repos will prompt for a PAT",
-      hint: install
-        ? `Install: ${install.label}  (kioku init can do this for you)`
-        : "See https://github.com/cli/cli#installation",
     });
   }
 

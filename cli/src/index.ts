@@ -125,11 +125,9 @@ If you need to resend the magic link, just run kioku login again.
 
 program
   .command("init")
-  .description("Wire the current repo — MCP, hook, CLAUDE.md, GitHub sync")
+  .description("Wire the current repo — MCP, hook, CLAUDE.md")
   .option("--root <name>", "Pre-select a root folder by name or id")
   .option("--yes", "Skip prompts where a sensible default exists")
-  .option("--github-token <token>", "GitHub token (bypasses tier detection)")
-  .option("--skip-github", "Skip GitHub sync — briefings won't include activity")
   .addHelpText(
     "after",
     `
@@ -137,14 +135,6 @@ Examples:
   $ kioku init                              # interactive with smart defaults
   $ kioku init --yes                        # no prompts, take all defaults
   $ kioku init --root my-company            # pre-select root
-  $ kioku init --skip-github                # public-only briefing (no repo sync)
-  $ GH_TOKEN=ghp_... kioku init             # env-var token
-
-GitHub auth is auto-detected — no prompts unless nothing else works:
-  1. --github-token flag
-  2. gh CLI (\`gh auth token\`)
-  3. GITHUB_TOKEN / GH_TOKEN env var
-  4. Interactive menu (offer to install gh, run gh auth login, or paste a PAT)
 `,
   )
   .action(async (opts) => {

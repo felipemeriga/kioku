@@ -25,8 +25,6 @@ import { panel } from "../ui/panel.js";
 interface InitOptions {
   yes?: boolean;
   root?: string;
-  githubToken?: string;
-  skipGithub?: boolean;
 }
 
 export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
