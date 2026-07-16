@@ -29,7 +29,6 @@ from services.folder_summary.briefing_schema import (
     empty_briefing,
     new_section,
 )
-from services.folder_summary.briefing import generate_briefing_for_repo
 from services.folder_summary.repo import get_folder, get_latest_summary
 
 router = APIRouter(prefix="/api/folders")
@@ -228,57 +227,6 @@ async def update_briefing_section(
         provenance="user_ui",
         updated_by=body.updated_by,
     )
-    _persist_sections(sb, folder_id=folder_id, user_id=user_id, sections=sections)
-    return {"ok": True, "section": sections[section_name]}
-
-
-@router.post("/{folder_id}/briefing/section/{section_name}/reset")
-async def reset_briefing_section(
-    folder_id: str,
-    section_name: str,
-    user_id: str = Depends(get_current_user),
-):
-    """Reset a section to auto — the NEXT regen will overwrite it from the populator.
-    Also runs the populator immediately so the user sees the reset take effect.
-    """
-    if section_name not in SECTION_KEYS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unknown section '{section_name}'. Valid: {SECTION_KEYS}",
-        )
-    sb = get_supabase()
-    _folder_must_be_repo(sb, folder_id, user_id)
-    sections = _current_briefing(sb, folder_id, user_id)
-
-    # Sections that have LLM populators get a fresh Haiku call. Others
-    # (preferences / activity / dependencies) get their mechanical populator.
-    llm_populated = {"overview", "architecture", "important_files",
-                     "how_it_runs", "deployment"}
-    if section_name in llm_populated:
-        from services.folder_summary.llm_populators import (
-            populate_overview, populate_architecture,
-            populate_important_files, populate_how_it_runs,
-            populate_deployment,
-        )
-        populators = {
-            "overview": populate_overview,
-            "architecture": populate_architecture,
-            "important_files": populate_important_files,
-            "how_it_runs": populate_how_it_runs,
-            "deployment": populate_deployment,
-        }
-        sections[section_name] = populators[section_name](
-            sb, folder_id=folder_id, user_id=user_id,
-        )
-    else:
-        refresh = generate_briefing_for_repo(
-            sb, folder_id=folder_id, user_id=user_id,
-        )
-        sections[section_name] = refresh.get(section_name, sections[section_name])
-    sections[section_name]["status"] = "auto"
-    sections[section_name]["provenance"] = "auto"
-    sections[section_name]["updated_by"] = None
-    sections[section_name]["updated_at"] = datetime.now(tz=timezone.utc).isoformat()
     _persist_sections(sb, folder_id=folder_id, user_id=user_id, sections=sections)
     return {"ok": True, "section": sections[section_name]}
 

@@ -386,6 +386,14 @@ async def regenerate_folder_summary(
     if not folder:
         raise HTTPException(status_code=404, detail="Folder not found")
 
+    # Repo briefings are authored in-session by the agent via MCP; backend
+    # generation no longer applies to repo folders.
+    if (folder.get("kind") or "folder") == "repo":
+        raise HTTPException(
+            status_code=400,
+            detail="repo briefings are authored in-session by the agent; nothing to regenerate",
+        )
+
     # `mode` is always "full" from the task's perspective now — either it
     # rebuilds or it skips. `force=True` translates to mode="full" which
     # bypasses the skip check. force=False maps to mode="auto" which lets
