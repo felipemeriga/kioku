@@ -23,13 +23,13 @@ from pydantic import BaseModel, Field
 
 from auth import get_current_user
 from db.client import get_supabase
-from services.folder_summary.briefing import (
+from services.folder_summary.briefing_schema import (
     BRIEFING_SCHEMA_VERSION,
     SECTION_KEYS,
     empty_briefing,
-    generate_briefing_for_repo,
     new_section,
 )
+from services.folder_summary.briefing import generate_briefing_for_repo
 from services.folder_summary.repo import get_folder, get_latest_summary
 
 router = APIRouter(prefix="/api/folders")
