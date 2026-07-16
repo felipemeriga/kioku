@@ -17,6 +17,7 @@ surface needed for that.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import time as _time
 from collections import deque
@@ -675,13 +676,9 @@ def _needs_generation(generated_at: str | None) -> bool:
 
 def _api_key_scope(request: Request) -> tuple[str, str]:
     """(user_id, scope_folder_id) from the Bearer api key. Mirrors scope-info."""
-    import hashlib
-
-    from fastapi import HTTPException as HE
-
     auth = request.headers.get("Authorization") or ""
     if not auth.startswith("Bearer rag_"):
-        raise HE(status_code=401, detail="Bearer api key required")
+        raise HTTPException(status_code=401, detail="Bearer api key required")
     key_hash = hashlib.sha256(auth[len("Bearer "):].encode()).hexdigest()
     sb = get_supabase()
     row = (
@@ -689,13 +686,14 @@ def _api_key_scope(request: Request) -> tuple[str, str]:
         .eq("key_hash", key_hash).limit(1).execute().data
     )
     if not row or not row[0].get("scope_folder_id"):
-        raise HE(status_code=401, detail="Invalid or unscoped api key")
+        raise HTTPException(status_code=401, detail="Invalid or unscoped api key")
     return row[0]["user_id"], row[0]["scope_folder_id"]
 
 
 @router.get("/folder-summary")
 async def folder_summary(request: Request, folder_id: str):
     user_id, _scope = _api_key_scope(request)
+    # scope_folder_id unused — ownership is checked against folders.user_id below
     sb = get_supabase()
     # Ownership check (the api key's user must own the folder).
     owns = (

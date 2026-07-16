@@ -92,6 +92,7 @@ export async function sessionStart(): Promise<void> {
           typeof sec.content === "string"
             ? sec.content
             : JSON.stringify(sec.content, null, 2);
+        if (!body || !body.trim() || body.trim() === "{}" || body.trim() === '""') continue;
         console.log(`\n## ${key}\n${body}`);
       }
     }
