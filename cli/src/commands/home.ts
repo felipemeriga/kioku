@@ -59,9 +59,12 @@ function header(s: HomeState): void {
 }
 
 export async function runHome(): Promise<void> {
+  // The header prints ONCE at the top; each action appends its output below
+  // like a scrolling transcript (Claude-Code style). The loop never redraws
+  // the header — we only refresh state so the menu stays correct.
+  let state = await readState();
+  header(state);
   for (;;) {
-    const state = await readState();
-    header(state);
     const items = buildMenu(state);
     let action: HomeAction;
     try {
@@ -77,5 +80,8 @@ export async function runHome(): Promise<void> {
       printError(err);
     }
     console.log();
+    // Reflect any state change (e.g. login/logout) in the next menu, without
+    // reprinting the header.
+    state = await readState();
   }
 }
