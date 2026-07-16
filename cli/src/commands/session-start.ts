@@ -8,7 +8,6 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import kleur from "kleur";
 
 async function fetchJson(url: string, headers: Record<string, string>) {
   const res = await fetch(url, { headers });
@@ -53,35 +52,58 @@ export async function sessionStart(): Promise<void> {
   // establishing a full MCP session (which is slower and heavier).
   const H = { Authorization: `Bearer ${apiKey}` };
 
+  // Which folder is this repo bound to? init wrote it to kioku-state.json.
+  let folderId: string | undefined;
   try {
-    // Discovery: list folders in the api-key's scope
-    const scope = (await fetchJson(`${base}/api/cli/scope-info`, H)) as {
-      scope_name: string;
-      folders: Array<{ name: string; kind: string; path: string; has_summary: boolean }>;
+    const st = JSON.parse(
+      readFileSync(join(repoRoot, ".claude", "kioku-state.json"), "utf8"),
+    ) as { folder_id?: string };
+    folderId = st.folder_id;
+  } catch {
+    /* not wired to a folder — nothing to inject */
+  }
+  if (!folderId) return;
+
+  const { readLastSessionAt, stampLastSessionAt } = await import("../lib/claude.js");
+  const { composeActivity } = await import("../lib/git-activity.js");
+
+  try {
+    const s = (await fetchJson(
+      `${base}/api/cli/folder-summary?folder_id=${encodeURIComponent(folderId)}`,
+      H,
+    )) as {
+      needs_generation: boolean;
+      sections: Record<string, { content: unknown }> | null;
+      section_order: string[];
     };
-    // Print a compact context block Claude Code will surface at session start
-    console.log(kleur.dim("── kioku second-brain ──"));
-    console.log(`Scope: ${scope.scope_name}`);
-    console.log(`Folders in scope: ${scope.folders.length}`);
-    const repos = scope.folders.filter((f) => f.kind === "repo");
-    if (repos.length > 0) {
+
+    console.log("── kioku second-brain ──");
+    if (s.needs_generation) {
       console.log(
-        `Repos: ${repos.map((r) => r.path).join(", ")}`,
+        "This repo has no current summary. Please read the repository and write these " +
+          `sections: ${s.section_order.join(", ")}. Then save them by calling the ` +
+          "`replace_folder_briefing` MCP tool for this folder. Keep each section concise.",
       );
+    } else if (s.sections) {
+      for (const key of s.section_order) {
+        const sec = s.sections[key];
+        if (!sec) continue;
+        const body =
+          typeof sec.content === "string"
+            ? sec.content
+            : JSON.stringify(sec.content, null, 2);
+        console.log(`\n## ${key}\n${body}`);
+      }
     }
-    console.log(
-      kleur.dim(
-        "Tools available: get_folder_briefing, get_folder_orientation, list_folders_in_scope, save_memory, search_memory, knowledge_base_search",
-      ),
-    );
-    console.log(
-      kleur.dim("Call get_folder_briefing() to load the 8-section briefing."),
-    );
-    console.log(kleur.dim("─────────────────────────────────"));
+
+    // Live git activity — always injected when the repo is a clone, no LLM.
+    const since = readLastSessionAt(repoRoot);
+    const activity = composeActivity(repoRoot, since);
+    if (activity) console.log("\n" + activity);
+    stampLastSessionAt(repoRoot, new Date().toISOString());
+
+    console.log("─────────────────────────────────");
   } catch (err) {
-    // Non-fatal — sessions still start, agent just doesn't see the block.
-    console.error(
-      kleur.dim(`kioku: ${err instanceof Error ? err.message : String(err)}`),
-    );
+    console.error(`kioku: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
