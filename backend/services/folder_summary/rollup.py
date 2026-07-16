@@ -58,7 +58,11 @@ class ChildBriefing:
 
 
 def _get_integration_flags(sb, folder_id: str, user_id: str) -> tuple[bool, bool, bool]:
-    """Cheap: three HEAD counts to check config presence."""
+    """Cheap: HEAD counts to check config presence.
+
+    github_sync_configs has been dropped — GitHub sync is removed.
+    has_github is always False now.
+    """
     def _exists(table: str, col: str) -> bool:
         r = (
             sb.table(table).select("id", count="exact", head=True)
@@ -67,7 +71,7 @@ def _get_integration_flags(sb, folder_id: str, user_id: str) -> tuple[bool, bool
         return (r.count or 0) > 0
     return (
         _exists("mem0_sync_configs", "root_folder_id"),
-        _exists("github_sync_configs", "root_folder_id"),
+        False,  # GitHub sync removed; github_sync_configs table dropped
         _exists("notion_sync_configs", "root_folder_id"),
     )
 

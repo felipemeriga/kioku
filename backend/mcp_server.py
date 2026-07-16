@@ -1181,12 +1181,15 @@ def get_folder_orientation(
             "doc_count": row.get("doc_count"),
             "trigger": row.get("trigger"),
             "mem0_connected": mem0_client is not None,
-            # Read actual config presence, not doc count — a folder can be
-            # connected but have no fresh commits (static repos).
+            # github_sync_configs table has been dropped (GitHub sync removed).
+            # Use folder.kind == "repo" as the source of truth for whether this
+            # is a repo folder (commits may still exist in documents).
             "github_connected": bool(
-                sb.table("github_sync_configs").select("id")
-                .eq("root_folder_id", folder_id).eq("user_id", user_id)
-                .limit(1).execute().data
+                (
+                    sb.table("folders").select("kind")
+                    .eq("id", folder_id).eq("user_id", user_id)
+                    .limit(1).execute().data or [{}]
+                )[0].get("kind") == "repo"
             ),
         },
     }
