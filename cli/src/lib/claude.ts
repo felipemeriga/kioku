@@ -148,6 +148,32 @@ export function writeCaptureState(
   return { path };
 }
 
+export function readLastSessionAt(repoRoot: string): string | undefined {
+  const path = join(repoRoot, ".claude", "kioku-state.json");
+  if (!existsSync(path)) return undefined;
+  try {
+    const s = JSON.parse(readFileSync(path, "utf8")) as { last_session_at?: string };
+    return s.last_session_at;
+  } catch {
+    return undefined;
+  }
+}
+
+export function stampLastSessionAt(repoRoot: string, iso: string): void {
+  const dir = join(repoRoot, ".claude");
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  const path = join(dir, "kioku-state.json");
+  let existing: Record<string, unknown> = {};
+  if (existsSync(path)) {
+    try {
+      existing = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    } catch {
+      existing = {};
+    }
+  }
+  writeFileSync(path, JSON.stringify({ ...existing, last_session_at: iso }, null, 2) + "\n");
+}
+
 // ── CLAUDE.md snippet ────────────────────────────────────────────
 
 const CLAUDE_MD_SNIPPET = `${MARKER_BEGIN}
