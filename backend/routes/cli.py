@@ -657,13 +657,14 @@ async def scope_info(request: Request):
 # ---------------------------------------------------------------------------
 
 SUMMARY_TTL_DAYS = 7
+DOC_TTL_DAYS = 30
 STABLE_SECTION_ORDER = [
     "overview", "architecture", "preferences", "important_files",
     "how_it_runs", "deployment", "dependencies",
 ]
 
 
-def _needs_generation(generated_at: str | None) -> bool:
+def _needs_generation(generated_at: str | None, ttl_days: int = SUMMARY_TTL_DAYS) -> bool:
     """True if there's no summary yet or the latest one is older than the TTL."""
     if not generated_at:
         return True
@@ -671,7 +672,7 @@ def _needs_generation(generated_at: str | None) -> bool:
         ts = datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
     except ValueError:
         return True
-    return datetime.now(timezone.utc) - ts > timedelta(days=SUMMARY_TTL_DAYS)
+    return datetime.now(timezone.utc) - ts > timedelta(days=ttl_days)
 
 
 def _api_key_scope(request: Request) -> tuple[str, str]:
@@ -710,10 +711,28 @@ async def folder_summary(request: Request, folder_id: str):
     )
     generated_at = latest[0]["generated_at"] if latest else None
     sections = (latest[0]["content"] or {}).get("sections") if latest else None
+
+    # Detailed-doc staleness (30-day clock, independent of the concise 7-day).
+    # Defensive: if the repo_documentation table isn't migrated yet, treat the
+    # doc as needing generation rather than 500-ing the hook.
+    doc_generated_at = None
+    try:
+        doc_row = (
+            sb.table("repo_documentation")
+            .select("generated_at")
+            .eq("folder_id", folder_id).eq("user_id", user_id)
+            .order("generated_at", desc=True).limit(1).execute().data
+        )
+        doc_generated_at = doc_row[0]["generated_at"] if doc_row else None
+    except Exception:  # noqa: BLE001 — table may not exist pre-migration
+        doc_generated_at = None
+
     return {
         "folder_id": folder_id,
         "needs_generation": _needs_generation(generated_at),
         "generated_at": generated_at,
         "sections": sections,
         "section_order": STABLE_SECTION_ORDER,
+        "doc_needs_generation": _needs_generation(doc_generated_at, ttl_days=DOC_TTL_DAYS),
+        "doc_generated_at": doc_generated_at,
     }

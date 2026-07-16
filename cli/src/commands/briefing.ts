@@ -28,6 +28,7 @@ const SECTION_ORDER = [
   "deployment",
   "dependencies",
   "activity",
+  "documentation",
 ] as const;
 
 const SECTION_TITLES: Record<string, string> = {
@@ -39,6 +40,7 @@ const SECTION_TITLES: Record<string, string> = {
   deployment: "Deployment",
   dependencies: "Dependencies",
   activity: "Activity",
+  documentation: "Documentation",
 };
 
 export async function briefing(opts: Opts): Promise<void> {

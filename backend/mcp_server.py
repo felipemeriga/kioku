@@ -936,6 +936,137 @@ def replace_folder_briefing(
 
 
 @mcp.tool()
+def save_repo_documentation(
+    content: str,
+    abstract: str,
+    folder: str | None = None,
+) -> str:
+    """Save this repo's DETAILED documentation (large markdown) + a short abstract.
+
+    Call this after producing a thorough architecture document for the repo —
+    ideally by fanning out subagents to scan the codebase (entry points, each
+    major component, data flows, integrations, build/deploy). Stores the full
+    doc for on-demand retrieval via get_repo_documentation, and writes the short
+    `abstract` into the briefing's `documentation` section so it surfaces at
+    every session start. Resets the 30-day documentation freshness clock.
+
+    Args:
+        content: the FULL documentation, markdown. Be comprehensive.
+        abstract: a short 3-8 line summary of the doc.
+        folder: name / slash-path / UUID; omit to target the API key's scope folder.
+    """
+    if not _current_user_id.get():
+        return "Error: Not authenticated."
+    from services.folder_summary.briefing import (
+        BRIEFING_SCHEMA_VERSION, empty_briefing, new_section,
+    )
+    from services.folder_summary.repo import get_folder, get_latest_summary
+    sb = get_supabase()
+    user_id = _current_user_id.get()
+    resolved_id, resolved_name = resolve_focus_folder(
+        sb, scope_folder_id=_current_scope_folder_id.get(), user_id=user_id, focus=folder,
+    )
+    if not resolved_id:
+        return f"Error: {resolved_name}"
+    folder_row = get_folder(sb, resolved_id, user_id)
+    if not folder_row or (folder_row.get("kind") or "folder") != "repo":
+        return f"Error: '{resolved_name}' is not a repo folder."
+    if not (content or "").strip():
+        return "Error: content is empty."
+
+    # 1. Persist the full doc (latest row per folder = current).
+    try:
+        sb.table("repo_documentation").insert({
+            "folder_id": resolved_id, "user_id": user_id,
+            "content": content, "abstract": abstract or "",
+        }).execute()
+    except Exception as exc:  # noqa: BLE001
+        return (
+            "Error saving documentation (is the repo_documentation table "
+            f"migrated?): {str(exc)[:200]}"
+        )
+
+    # 2. Write the abstract into the `documentation` briefing section so it
+    #    injects each session, with a pointer to the full doc.
+    latest = get_latest_summary(sb, resolved_id, user_id)
+    current = (
+        (latest or {}).get("sections")
+        or ((latest or {}).get("content") or {}).get("sections")
+        or empty_briefing()
+    )
+    pointer = "\n\nFull architecture docs available — call get_repo_documentation."
+    current["documentation"] = new_section(
+        (abstract or "").strip() + pointer,
+        status="auto", provenance="agent_mcp", updated_by="agent_mcp",
+    )
+    payload = {
+        "folder_id": resolved_id, "user_id": user_id, "kind": "briefing",
+        "trigger": "mcp_edit",
+        "content": {"__briefing_v": BRIEFING_SCHEMA_VERSION, "sections": current},
+        "previous_content": None, "included_hashes": [], "doc_count": 0,
+        "changed_files": {}, "input_tokens": 0, "output_tokens": 0, "duration_ms": 0,
+        "briefing_schema_version": BRIEFING_SCHEMA_VERSION, "sections": current,
+    }
+    for _ in range(4):
+        try:
+            sb.table("folder_summaries").insert(payload).execute()
+            break
+        except Exception as exc:  # noqa: BLE001
+            msg = str(exc)
+            downgraded = False
+            if "kind_check" in msg and payload.get("kind") != "full":
+                payload["kind"] = "full"; downgraded = True
+            if "trigger_check" in msg and payload.get("trigger") != "manual":
+                payload["trigger"] = "manual"; downgraded = True
+            if ("briefing_schema_version" in msg or "sections" in msg) \
+                    and "briefing_schema_version" in payload:
+                payload.pop("briefing_schema_version", None)
+                payload.pop("sections", None); downgraded = True
+            if not downgraded:
+                break
+    return json.dumps(
+        {"ok": True, "doc_chars": len(content), "abstract_saved": True},
+        ensure_ascii=False,
+    )
+
+
+@mcp.tool()
+def get_repo_documentation(folder: str | None = None) -> str:
+    """Return this repo's FULL detailed documentation (large markdown).
+
+    This is the on-demand deep dive that the injected `documentation` abstract
+    points to. Returns the most recently saved doc for the repo.
+
+    Args:
+        folder: name / slash-path / UUID; omit to target the API key's scope folder.
+    """
+    if not _current_user_id.get():
+        return "Error: Not authenticated."
+    sb = get_supabase()
+    user_id = _current_user_id.get()
+    resolved_id, resolved_name = resolve_focus_folder(
+        sb, scope_folder_id=_current_scope_folder_id.get(), user_id=user_id, focus=folder,
+    )
+    if not resolved_id:
+        return f"Error: {resolved_name}"
+    try:
+        row = (
+            sb.table("repo_documentation").select("content, generated_at")
+            .eq("folder_id", resolved_id).eq("user_id", user_id)
+            .order("generated_at", desc=True).limit(1).execute().data
+        )
+    except Exception as exc:  # noqa: BLE001
+        return f"Error reading documentation: {str(exc)[:200]}"
+    if not row:
+        return (
+            f"No documentation saved yet for '{resolved_name}'. Generate a "
+            "thorough architecture doc (fan out subagents to scan the repo), "
+            "then call save_repo_documentation(content, abstract)."
+        )
+    return row[0]["content"]
+
+
+@mcp.tool()
 def update_folder_briefing_section(
     section: str,
     content: str,

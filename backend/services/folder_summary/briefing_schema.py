@@ -28,6 +28,7 @@ SECTION_KEYS: list[str] = [
     "deployment",
     "dependencies",
     "activity",
+    "documentation",
 ]
 
 

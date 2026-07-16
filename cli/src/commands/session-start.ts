@@ -75,6 +75,7 @@ export async function sessionStart(): Promise<void> {
       needs_generation: boolean;
       sections: Record<string, { content: unknown }> | null;
       section_order: string[];
+      doc_needs_generation?: boolean;
     };
 
     console.log("── kioku second-brain ──");
@@ -85,7 +86,9 @@ export async function sessionStart(): Promise<void> {
           "`replace_folder_briefing` MCP tool for this folder. Keep each section concise.",
       );
     } else if (s.sections) {
-      for (const key of s.section_order) {
+      // Inject the stable sections + the `documentation` abstract (the full
+      // deep doc stays out of the prompt — fetched on demand via MCP).
+      for (const key of [...s.section_order, "documentation"]) {
         const sec = s.sections[key];
         if (!sec) continue;
         const body =
@@ -94,6 +97,16 @@ export async function sessionStart(): Promise<void> {
             : JSON.stringify(sec.content, null, 2);
         if (!body || !body.trim() || body.trim() === "{}" || body.trim() === '""') continue;
         console.log(`\n## ${key}\n${body}`);
+      }
+      // Deep-doc offer — only once the concise summary already exists, so a
+      // fresh repo isn't asked for an expensive scan on its first session.
+      if (s.doc_needs_generation) {
+        console.log(
+          "\nThis repo's deep documentation is missing or over 30 days old. When you're " +
+            "ready, say \"generate the docs\" and I'll scan the repository — fanning out " +
+            "subagents across its main areas — write a structured architecture document, " +
+            "and save it via the `save_repo_documentation` MCP tool.",
+        );
       }
     }
 
