@@ -95,6 +95,45 @@ Also removed pre-existing unused imports discovered during ruff run:
 
 ---
 
+---
+
+## Enriched-CLI Final Fixes — 2026-07-15
+
+Commit: `5d4e08a chore(cli): fix stale banner comment, delete orphaned welcome, DRY search fetch`
+Branch: feat/notion-sync
+
+### Change 1 — Stale banner comment (cli/src/lib/banner.ts line 8-9)
+
+Old: "We use kleur (already a dep) — no chalk / boxen / cli-boxes needed so the binary stays small and starts fast."
+New: "Feedback primitives use kleur; the richer ui/ toolkit (panels/tables) adds boxen + cli-table3."
+
+### Change 2 — Delete orphaned welcome.ts
+
+Grep result: `grep -rn "welcome" cli/src ../tests/e2e` found exactly one match:
+- `tests/e2e/e2e_cli_matrix.py:110: hr("C. Bare 'kioku' (welcome) — 4 states")`
+  This is a human-readable section header comment, not an import or command invocation.
+- Zero references in `cli/src/` (outside welcome.ts itself).
+- No `welcome.test.ts` found.
+
+**Decision: DELETED** — `git rm cli/src/commands/welcome.ts` (122 lines removed).
+
+### Change 3 — DRY search fetch (cli/src/commands/search.ts lines 82-88)
+
+Hoisted the duplicated `fetch(...)` call into `const doFetch = () => fetch(...)`, then:
+- `--json` branch: `await doFetch()` (no spinner)
+- default branch: `await withSpinner("Searching ...", doFetch)` (with spinner)
+Behavior identical; both branches still use the same method/headers/body.
+
+### Verify results
+
+| Check | Command | Result |
+|---|---|---|
+| Build | `npm run build` | Zero errors (tsc clean) |
+| no-arg / non-TTY | `node dist/index.js \| head -3` | Prints "Usage: kioku [options] [command]", exit 0 |
+| search --json (no spinner) | `node dist/index.js search "x" --json` | Auth guard fires (no .mcp.json), no "· Searching" line on stdout, exit 0 |
+
+---
+
 ## Remaining ruff issues (pre-existing, not in scope)
 
 These were present before this changeset and are not E501/F401:

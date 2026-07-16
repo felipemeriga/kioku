@@ -7,8 +7,7 @@
  *   2. Backend reachable at api_base
  *   3. Login token still valid (whoami)
  *   4. MCP SSE endpoint reachable
- *   5. `gh` CLI status (optional but nice to know)
- *   6. Per-repo binding files (.mcp.json / hook / state / CLAUDE.md)
+ *   5. Per-repo binding files (.mcp.json / hook / state / CLAUDE.md)
  *
  * Every failure prints a one-line fix.
  */

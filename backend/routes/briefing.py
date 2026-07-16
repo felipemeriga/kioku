@@ -51,7 +51,7 @@ def _folder_must_be_repo(sb, folder_id: str, user_id: str) -> dict:
     if (folder.get("kind") or "folder") != "repo":
         raise HTTPException(
             status_code=400,
-            detail="Briefings are only for repo folders. Connect a GitHub repo first.",
+            detail="Briefings are only for repo folders. This folder is not a repo.",
         )
     return folder
 
@@ -122,7 +122,7 @@ async def briefing_schema():
                     "recent_prs": ["{...}"],
                     "recent_learnings": ["{...}"],
                 },
-                "notes": "Auto-populated from GitHub sync + Mem0. Don't pin — it goes stale.",
+                "notes": "Live git activity from the local clone (CLI-injected) + Mem0. Don't pin — it goes stale.",
             },
         },
     }

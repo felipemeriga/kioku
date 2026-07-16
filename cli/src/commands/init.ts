@@ -47,7 +47,7 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
   info(
     git.remoteUrl
       ? `Detected remote: ${git.owner}/${git.repo}`
-      : "No remote configured — GitHub sync will be skipped.",
+      : "No remote configured.",
   );
 
   // Step 1: pick a root folder.

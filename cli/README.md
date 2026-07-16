@@ -169,7 +169,7 @@ If anything fails, the fix hint appears under it: `Run: kioku login`, `Start the
 
 **Per-repo**: everything in `.mcp.json`, `.claude/*.json`, `CLAUDE.md`. No secrets outside `.mcp.json` (which is gitignored).
 
-**Server-side**: GitHub tokens are encrypted via the backend's `services/crypto.py` and stored in `github_sync_configs.token_encrypted`. The CLI never persists them locally — it hands them over once and forgets.
+**Server-side**: Folder metadata and documents are stored server-side. The CLI never persists secrets locally.
 
 ## Troubleshooting
 

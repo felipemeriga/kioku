@@ -1002,57 +1002,6 @@ export async function fetchDocumentContent(
   return res.json();
 }
 
-// --- GitHub integration ---
-
-export interface GitHubConfig {
-  id: string;
-  root_folder_id: string;
-  root_folder_name: string;
-  repo_owner: string;
-  repo_name: string;
-  since_days: number;
-  has_token: boolean;
-  last_synced_at: string | null;
-  last_error: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export async function fetchGitHubConfigs(): Promise<GitHubConfig[]> {
-  const res = await apiFetch("/api/github/configs");
-  return res.json();
-}
-
-export async function connectGitHub(input: {
-  root_folder_id: string;
-  repo_url: string;
-  since_days?: number;
-}): Promise<GitHubConfig> {
-  const res = await apiFetch("/api/github/connect", {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
-  return res.json();
-}
-
-export async function disconnectGitHub(
-  configId: string,
-  deleteDocs = false
-): Promise<void> {
-  await apiFetch(
-    `/api/github/configs/${configId}?delete_docs=${deleteDocs}`,
-    { method: "DELETE" }
-  );
-}
-
-export async function syncGitHubNow(
-  configId: string
-): Promise<{ ok: boolean; job_id: string | null }> {
-  const res = await apiFetch(`/api/github/configs/${configId}/sync`, {
-    method: "POST",
-  });
-  return res.json();
-}
 
 export interface GitHubRepoOption {
   owner: string;

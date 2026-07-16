@@ -20,7 +20,6 @@ import CompareArrowsIcon from "@mui/icons-material/CompareArrows";
 import HistoryIcon from "@mui/icons-material/History";
 import FolderIcon from "@mui/icons-material/Folder";
 import {
-  GitHubBrandIcon,
   Mem0BrandIcon,
   NotionBrandIcon,
 } from "./BrandIcons";
@@ -233,7 +232,6 @@ function SubfolderCard({
         </Typography>
         <IntegrationDots
           mem0={sub.has_mem0}
-          github={sub.has_github}
           notion={sub.has_notion}
         />
       </Stack>
@@ -285,16 +283,13 @@ function SubfolderCard({
 
 function IntegrationDots({
   mem0,
-  github,
   notion,
 }: {
   mem0: boolean;
-  github: boolean;
   notion: boolean;
 }) {
   const items = [
     { active: mem0, icon: <Mem0BrandIcon sx={{ fontSize: 12 }} />, label: "Mem0" },
-    { active: github, icon: <GitHubBrandIcon sx={{ fontSize: 12 }} />, label: "GitHub" },
     { active: notion, icon: <NotionBrandIcon sx={{ fontSize: 12 }} />, label: "Notion" },
   ];
   return (

@@ -269,24 +269,6 @@ CREATE TABLE IF NOT EXISTS "public"."folders" (
 ALTER TABLE "public"."folders" OWNER TO "postgres";
 
 
-CREATE TABLE IF NOT EXISTS "public"."github_sync_configs" (
-    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
-    "user_id" "uuid" NOT NULL,
-    "root_folder_id" "uuid" NOT NULL,
-    "repo_owner" "text" NOT NULL,
-    "repo_name" "text" NOT NULL,
-    "token_encrypted" "text",
-    "since_days" integer DEFAULT 14 NOT NULL,
-    "last_synced_at" timestamp with time zone,
-    "last_error" "text",
-    "created_at" timestamp with time zone DEFAULT "now"(),
-    "updated_at" timestamp with time zone DEFAULT "now"(),
-    CONSTRAINT "github_sync_configs_since_days_check" CHECK ((("since_days" >= 1) AND ("since_days" <= 365)))
-);
-
-
-ALTER TABLE "public"."github_sync_configs" OWNER TO "postgres";
-
 
 CREATE TABLE IF NOT EXISTS "public"."ingestion_jobs" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
@@ -457,15 +439,6 @@ ALTER TABLE ONLY "public"."folders"
 
 
 
-ALTER TABLE ONLY "public"."github_sync_configs"
-    ADD CONSTRAINT "github_sync_configs_folder_unique" UNIQUE ("user_id", "root_folder_id");
-
-
-
-ALTER TABLE ONLY "public"."github_sync_configs"
-    ADD CONSTRAINT "github_sync_configs_pkey" PRIMARY KEY ("id");
-
-
 
 ALTER TABLE ONLY "public"."ingestion_jobs"
     ADD CONSTRAINT "ingestion_jobs_pkey" PRIMARY KEY ("id");
@@ -559,9 +532,6 @@ CREATE INDEX "idx_documents_root_folder_id" ON "public"."documents" USING "btree
 
 
 
-CREATE INDEX "idx_github_sync_configs_user_id" ON "public"."github_sync_configs" USING "btree" ("user_id");
-
-
 
 CREATE UNIQUE INDEX "idx_ingestion_jobs_active_source" ON "public"."ingestion_jobs" USING "btree" ("kind", "source_ref") WHERE ("status" = ANY (ARRAY['queued'::"text", 'running'::"text"]));
 
@@ -601,9 +571,6 @@ CREATE OR REPLACE TRIGGER "context_updated_at" BEFORE UPDATE ON "public"."contex
 
 CREATE OR REPLACE TRIGGER "conversations_updated_at" BEFORE UPDATE ON "public"."conversations" FOR EACH ROW EXECUTE FUNCTION "public"."update_updated_at"();
 
-
-
-CREATE OR REPLACE TRIGGER "github_sync_configs_updated_at" BEFORE UPDATE ON "public"."github_sync_configs" FOR EACH ROW EXECUTE FUNCTION "public"."update_updated_at"();
 
 
 
@@ -681,15 +648,6 @@ ALTER TABLE ONLY "public"."folders"
 ALTER TABLE ONLY "public"."folders"
     ADD CONSTRAINT "folders_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
 
-
-
-ALTER TABLE ONLY "public"."github_sync_configs"
-    ADD CONSTRAINT "github_sync_configs_folder_fk" FOREIGN KEY ("root_folder_id") REFERENCES "public"."folders"("id") ON DELETE CASCADE;
-
-
-
-ALTER TABLE ONLY "public"."github_sync_configs"
-    ADD CONSTRAINT "github_sync_configs_user_fk" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
 
 
 
@@ -776,9 +734,6 @@ CREATE POLICY "Users manage own folders" ON "public"."folders" USING (("auth"."u
 
 
 
-CREATE POLICY "Users manage own github configs" ON "public"."github_sync_configs" USING (("auth"."uid"() = "user_id")) WITH CHECK (("auth"."uid"() = "user_id"));
-
-
 
 CREATE POLICY "Users manage own ingestion jobs" ON "public"."ingestion_jobs" USING (("auth"."uid"() = "user_id")) WITH CHECK (("auth"."uid"() = "user_id"));
 
@@ -825,8 +780,6 @@ ALTER TABLE "public"."folder_summaries" ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE "public"."folders" ENABLE ROW LEVEL SECURITY;
 
-
-ALTER TABLE "public"."github_sync_configs" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."ingestion_jobs" ENABLE ROW LEVEL SECURITY;
@@ -942,11 +895,6 @@ GRANT ALL ON TABLE "public"."folders" TO "anon";
 GRANT ALL ON TABLE "public"."folders" TO "authenticated";
 GRANT ALL ON TABLE "public"."folders" TO "service_role";
 
-
-
-GRANT ALL ON TABLE "public"."github_sync_configs" TO "anon";
-GRANT ALL ON TABLE "public"."github_sync_configs" TO "authenticated";
-GRANT ALL ON TABLE "public"."github_sync_configs" TO "service_role";
 
 
 
