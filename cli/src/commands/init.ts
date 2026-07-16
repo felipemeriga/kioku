@@ -1,21 +1,16 @@
 import { basename, resolve } from "node:path";
-import { execFileSync } from "node:child_process";
 import { input, select, confirm } from "@inquirer/prompts";
 import kleur from "kleur";
 import {
-  connectGitHub,
   createFolder,
-  finalizeGithubClone,
   listChildren,
   mintScopedApiKey,
-  prepareGithubClone,
   updateFolder,
   whoami,
   type Folder,
 } from "../lib/api.js";
 import { isLoggedIn } from "../lib/config.js";
 import { detectGit } from "../lib/git.js";
-import { detectRepoVisibility } from "../lib/github-auth.js";
 import {
   installSessionStartHook,
   installStopHook,
@@ -46,7 +41,8 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
   info(`Working directory: ${repoRoot}`);
   const git = detectGit(repoRoot);
   if (!git.isRepo) {
-    bad("Not a git repo.", "Run `git init` first, or cd into one.");
+    bad("kioku init must be run inside a cloned git repository.",
+        "cd into your repo's working copy and re-run.");
     process.exitCode = 1;
     return;
   }
@@ -224,48 +220,6 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
     ok("Folder marked as repo");
   }
 
-  // Step 3: GitHub connect (if we have a remote).
-  //
-  // Two paths:
-  //   - PUBLIC repo → backend clones via HTTPS, no auth needed.
-  //   - PRIVATE/org repo → deploy key flow:
-  //       1. backend generates Ed25519 keypair, returns public
-  //       2. CLI adds public key via `gh repo deploy-key add`
-  //       3. backend attempts SSH clone with the private key
-  //
-  // PATs are no longer stored server-side — token flag is accepted for
-  // backward compat but the backend downgrades it to a public clone.
-  if (git.owner && git.repo && !opts.skipGithub) {
-    const shouldWire = opts.yes || await confirm({
-      message: `Sync this repo with GitHub (${git.owner}/${git.repo})?`,
-      default: true,
-    });
-    if (shouldWire) {
-      const vis = await detectRepoVisibility(git.owner, git.repo);
-      try {
-        if (vis.visibility === "public") {
-          info(`${git.owner}/${git.repo} is public — cloning via HTTPS.`);
-          await step("Connecting to GitHub (public)", () =>
-            connectGitHub({
-              root_folder_id: repoFolder.id,
-              repo_url: `${git.owner}/${git.repo}`,
-              since_days: 30,
-            }),
-          );
-          ok("GitHub sync configured via public clone");
-        } else {
-          // Private/unknown → deploy key flow. Requires local `gh` auth.
-          await connectViaDeployKey(git.owner, git.repo, repoFolder.id, !!opts.yes);
-        }
-      } catch (err) {
-        warn(
-          `GitHub sync couldn't be wired: ${err instanceof Error ? err.message : String(err)}`,
-          "Retry with: kioku init --yes  (or open the web UI for a public repo).",
-        );
-      }
-    }
-  }
-
   // Step 4: mint an api key scoped to the ROOT (so Claude Code can drill
   // sibling repos in this workspace).
   const key = await step("Minting API key", () =>
@@ -336,91 +290,4 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
     tone: "success",
   }));
   console.log();
-}
-
-
-/**
- * Deploy-key connect flow for private/org repos.
- *
- *   1. POST /api/github/prepare-clone → backend generates Ed25519 keypair,
- *      stores private encrypted, returns public.
- *   2. CLI adds the public key via `gh repo deploy-key add`. If `gh` isn't
- *      authenticated or the org restricts deploy-key writes, we fall back
- *      to printing manual instructions.
- *   3. POST /api/github/finalize-clone → backend attempts SSH clone with
- *      the stored private key. On failure the config keeps the keypair
- *      so the user can retry after fixing whatever went wrong.
- *
- * Why deploy keys over PATs / GitHub Apps: read-only, per-repo, don't
- * expire, and rarely blocked by org policies that force 1-day PATs.
- */
-async function connectViaDeployKey(
-  owner: string,
-  repo: string,
-  folderId: string,
-  nonInteractive: boolean,
-): Promise<void> {
-  info(`${owner}/${repo} appears private — setting up a deploy key.`);
-
-  const prep = await step("Generating deploy keypair", () =>
-    prepareGithubClone({
-      root_folder_id: folderId,
-      repo_url: `${owner}/${repo}`,
-      since_days: 30,
-    }),
-  );
-
-  // Try to install the public key automatically via gh. If gh isn't
-  // available or the API call fails (e.g. no admin rights on the repo),
-  // fall through to printing manual instructions.
-  let installed = false;
-  try {
-    execFileSync(
-      "gh",
-      [
-        "repo",
-        "deploy-key",
-        "add",
-        "-",
-        "--repo",
-        `${owner}/${repo}`,
-        "--title",
-        "Kioku sync (read-only)",
-      ],
-      { input: prep.public_key, stdio: ["pipe", "pipe", "pipe"], timeout: 15000 },
-    );
-    installed = true;
-    ok("Deploy key installed via gh CLI");
-  } catch (err) {
-    warn(
-      `Couldn't auto-install deploy key: ${err instanceof Error ? err.message : String(err)}`,
-    );
-    console.log();
-    console.log(kleur.dim("  Add it manually:"));
-    console.log(kleur.dim(`    1. https://github.com/${owner}/${repo}/settings/keys`));
-    console.log(kleur.dim("    2. Add deploy key with title 'Kioku sync (read-only)'"));
-    console.log(kleur.dim("    3. Paste this public key:"));
-    console.log();
-    console.log("    " + prep.public_key);
-    console.log();
-    if (!nonInteractive) {
-      await confirm({
-        message: "Press enter when the key is installed to continue",
-        default: true,
-      });
-      installed = true;
-    }
-  }
-
-  if (!installed) {
-    warn(
-      "Skipping clone attempt — install the deploy key and rerun `kioku init --yes` to finish.",
-    );
-    return;
-  }
-
-  await step("Cloning via deploy key", () =>
-    finalizeGithubClone({ config_id: prep.config_id }),
-  );
-  ok("GitHub sync configured via deploy key");
 }
