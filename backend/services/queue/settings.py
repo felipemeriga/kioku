@@ -22,7 +22,6 @@ load_dotenv()
 
 from services.queue.tasks import (  # noqa: E402 — env must load before task imports
     embed_and_store_batch_task,
-    github_sync_task,
     ingest_document_task,
     ingest_notion_page_task,
     nightly_folder_summary_scan,
@@ -51,7 +50,6 @@ class WorkerSettings:
         ingest_notion_page_task,
         notion_sync_task,
         summarize_folder_task,
-        github_sync_task,
     ]
     cron_jobs = [
         cron(
