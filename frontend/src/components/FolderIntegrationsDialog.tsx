@@ -22,7 +22,6 @@ import {
   Typography,
 } from "@mui/material";
 import {
-  GitHubBrandIcon,
   Mem0BrandIcon,
   NotionBrandIcon,
 } from "./BrandIcons";
@@ -33,22 +32,17 @@ import LinkOffIcon from "@mui/icons-material/LinkOff";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import { useNavigate } from "react-router-dom";
 import {
-  disconnectGitHub,
   disconnectMem0,
   disconnectNotion,
-  fetchGitHubConfigs,
   fetchMem0Configs,
   fetchNotionConfigs,
-  syncGitHubNow,
   syncNotionNow,
   type Folder,
-  type GitHubConfig,
   type Mem0Config,
   type NotionConfig,
 } from "../lib/api";
-import { messageFromError, useToast } from "./ToastProvider";
+import { useToast } from "./ToastProvider";
 import { Mem0ConnectDialog } from "./Mem0IntegrationSection";
-import { GitHubConnectDialog } from "./GitHubIntegrationSection";
 import { NotionConnectDialog } from "./NotionIntegrationSection";
 
 interface Props {
@@ -57,7 +51,7 @@ interface Props {
   onClose: () => void;
 }
 
-type IntegrationKey = "mem0" | "notion" | "github";
+type IntegrationKey = "mem0" | "notion";
 
 export default function FolderIntegrationsDialog({
   open,
@@ -68,7 +62,6 @@ export default function FolderIntegrationsDialog({
   const navigate = useNavigate();
   const [mem0, setMem0] = useState<Mem0Config | null>(null);
   const [notion, setNotion] = useState<NotionConfig | null>(null);
-  const [github, setGithub] = useState<GitHubConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [connectOpen, setConnectOpen] = useState<IntegrationKey | null>(null);
 
@@ -93,14 +86,12 @@ export default function FolderIntegrationsDialog({
     if (!folderId) return;
     setLoading(true);
     try {
-      const [m, n, g] = await Promise.all([
+      const [m, n] = await Promise.all([
         fetchMem0Configs().catch(() => [] as Mem0Config[]),
         fetchNotionConfigs().catch(() => [] as NotionConfig[]),
-        fetchGitHubConfigs().catch(() => [] as GitHubConfig[]),
       ]);
       setMem0(m.find((c) => c.root_folder_id === folderId) ?? null);
       setNotion(n.find((c) => c.root_folder_id === folderId) ?? null);
-      setGithub(g.find((c) => c.root_folder_id === folderId) ?? null);
     } catch (err) {
       toast.showError(err, "Couldn't load integrations.");
     } finally {
@@ -116,7 +107,6 @@ export default function FolderIntegrationsDialog({
   const handleDisconnect = async (kind: IntegrationKey) => {
     try {
       if (kind === "mem0" && mem0) await disconnectMem0(mem0.id);
-      if (kind === "github" && github) await disconnectGitHub(github.id, false);
       if (kind === "notion" && notion) await disconnectNotion(notion.id, false);
       await refresh();
       toast.showSuccess(`${kind} disconnected.`);
@@ -127,10 +117,7 @@ export default function FolderIntegrationsDialog({
 
   const handleSync = async (kind: IntegrationKey) => {
     try {
-      if (kind === "github" && github) {
-        await syncGitHubNow(github.id);
-        toast.showSuccess("GitHub sync queued.");
-      } else if (kind === "notion" && notion) {
+      if (kind === "notion" && notion) {
         await syncNotionNow(notion.id);
         toast.showSuccess("Notion sync queued.");
       }
@@ -206,27 +193,6 @@ export default function FolderIntegrationsDialog({
               loading={loading}
             />
 
-            <IntegrationCard
-              icon={<GitHubBrandIcon fontSize="small" />}
-              title="GitHub activity"
-              description="Recent commits, PRs, and issues from a GitHub repo — metadata only."
-              connected={!!github}
-              statusDetail={
-                github
-                  ? `${github.repo_owner}/${github.repo_name}` +
-                    (github.last_synced_at
-                      ? ` · last sync ${new Date(
-                          github.last_synced_at
-                        ).toLocaleString()}`
-                      : " · never synced")
-                  : null
-              }
-              errorDetail={github?.last_error ?? null}
-              onConnect={() => setConnectOpen("github")}
-              onSync={github ? () => handleSync("github") : undefined}
-              onDisconnect={() => handleDisconnect("github")}
-              loading={loading}
-            />
           </Stack>
         </DialogContent>
         <DialogActions sx={{ justifyContent: "space-between", px: 3, pb: 2 }}>
@@ -258,17 +224,6 @@ export default function FolderIntegrationsDialog({
               setConnectOpen(null);
               await refresh();
               toast.showSuccess("Mem0 connected.");
-            }}
-          />
-          <GitHubConnectDialog
-            open={connectOpen === "github"}
-            rootFolders={fakeRootFolders}
-            fixedFolderId={folder.id}
-            onClose={() => setConnectOpen(null)}
-            onConnected={async () => {
-              setConnectOpen(null);
-              await refresh();
-              toast.showSuccess("GitHub connected.");
             }}
           />
           <NotionConnectDialog

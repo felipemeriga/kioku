@@ -33,11 +33,9 @@ import LockIcon from "@mui/icons-material/Lock";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import SaveIcon from "@mui/icons-material/Save";
 import CloseIcon from "@mui/icons-material/Close";
-import RefreshIcon from "@mui/icons-material/Refresh";
 import {
   BRIEFING_SECTIONS,
   fetchBriefing,
-  regenerateFolderSummary,
   resetBriefingSection,
   updateBriefingSection,
   type BriefingResponse,
@@ -92,7 +90,6 @@ export default function BriefingPanel({ folderId }: Props) {
   const [editingSection, setEditingSection] = useState<BriefingSectionKey | null>(
     null,
   );
-  const [regenerating, setRegenerating] = useState(false);
 
   const refresh = async () => {
     try {
@@ -126,58 +123,19 @@ export default function BriefingPanel({ folderId }: Props) {
 
   return (
     <Stack spacing={2}>
-      <Box
-        sx={{
-          display: "flex",
-          alignItems: "flex-start",
-          justifyContent: "space-between",
-          gap: 2,
-        }}
-      >
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography
-            sx={{ fontFamily: fonts.display, fontSize: "1.4rem", color: brand.text }}
-          >
-            Briefing · {data.folder.name}
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Session-start context for coding agents. Auto-populated where possible;
-            edit any section to pin it — auto-regen will respect your edit.
-          </Typography>
-          <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
-            Auto-regen: nightly (delta) + weekly full on Sunday. Pinned sections are preserved.
-          </Typography>
-        </Box>
-        <Button
-          size="small"
-          variant="outlined"
-          startIcon={
-            regenerating ? (
-              <CircularProgress size={14} />
-            ) : (
-              <RefreshIcon fontSize="small" />
-            )
-          }
-          disabled={regenerating}
-          onClick={async () => {
-            setRegenerating(true);
-            try {
-              await regenerateFolderSummary(folderId, true);
-              toast.showSuccess(
-                "Regeneration queued. Auto-populated sections will refresh; pinned sections stay put.",
-              );
-              // Poll once after a short delay to reflect the new row
-              setTimeout(() => void refresh(), 4000);
-            } catch (err) {
-              toast.showError(err, "Couldn't queue regeneration.");
-            } finally {
-              setRegenerating(false);
-            }
-          }}
-          sx={{ textTransform: "none", whiteSpace: "nowrap" }}
+      <Box>
+        <Typography
+          sx={{ fontFamily: fonts.display, fontSize: "1.4rem", color: brand.text }}
         >
-          {regenerating ? "Queuing…" : "Regenerate now"}
-        </Button>
+          Briefing · {data.folder.name}
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          Session-start context for coding agents. Auto-populated where possible;
+          edit any section to pin it — auto-regen will respect your edit.
+        </Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
+          Auto-regen: nightly (delta) + weekly full on Sunday. Pinned sections are preserved.
+        </Typography>
       </Box>
 
       {BRIEFING_SECTIONS.map((key) => (
