@@ -20,6 +20,7 @@ from __future__ import annotations
 import os
 import time as _time
 from collections import deque
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -647,4 +648,74 @@ async def scope_info(request: Request):
             ],
             key=lambda x: x["path"],
         ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Folder summary endpoint
+# ---------------------------------------------------------------------------
+
+SUMMARY_TTL_DAYS = 7
+STABLE_SECTION_ORDER = [
+    "overview", "architecture", "preferences", "important_files",
+    "how_it_runs", "deployment", "dependencies",
+]
+
+
+def _needs_generation(generated_at: str | None) -> bool:
+    """True if there's no summary yet or the latest one is older than the TTL."""
+    if not generated_at:
+        return True
+    try:
+        ts = datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    return datetime.now(timezone.utc) - ts > timedelta(days=SUMMARY_TTL_DAYS)
+
+
+def _api_key_scope(request: Request) -> tuple[str, str]:
+    """(user_id, scope_folder_id) from the Bearer api key. Mirrors scope-info."""
+    import hashlib
+
+    from fastapi import HTTPException as HE
+
+    auth = request.headers.get("Authorization") or ""
+    if not auth.startswith("Bearer rag_"):
+        raise HE(status_code=401, detail="Bearer api key required")
+    key_hash = hashlib.sha256(auth[len("Bearer "):].encode()).hexdigest()
+    sb = get_supabase()
+    row = (
+        sb.table("api_keys").select("user_id, scope_folder_id")
+        .eq("key_hash", key_hash).limit(1).execute().data
+    )
+    if not row or not row[0].get("scope_folder_id"):
+        raise HE(status_code=401, detail="Invalid or unscoped api key")
+    return row[0]["user_id"], row[0]["scope_folder_id"]
+
+
+@router.get("/folder-summary")
+async def folder_summary(request: Request, folder_id: str):
+    user_id, _scope = _api_key_scope(request)
+    sb = get_supabase()
+    # Ownership check (the api key's user must own the folder).
+    owns = (
+        sb.table("folders").select("id")
+        .eq("id", folder_id).eq("user_id", user_id).limit(1).execute().data
+    )
+    if not owns:
+        raise HTTPException(status_code=404, detail="Folder not found")
+    latest = (
+        sb.table("folder_summaries")
+        .select("content, generated_at")
+        .eq("folder_id", folder_id).eq("user_id", user_id)
+        .order("generated_at", desc=True).limit(1).execute().data
+    )
+    generated_at = latest[0]["generated_at"] if latest else None
+    sections = (latest[0]["content"] or {}).get("sections") if latest else None
+    return {
+        "folder_id": folder_id,
+        "needs_generation": _needs_generation(generated_at),
+        "generated_at": generated_at,
+        "sections": sections,
+        "section_order": STABLE_SECTION_ORDER,
     }
