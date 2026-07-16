@@ -52,6 +52,7 @@ SUITES=(
   "CLI pro tier:/tmp/e2e_cli_pro.py"
   "CLI (full lifecycle):/tmp/e2e_cli.py"
   "CLI browser-handoff login:/tmp/e2e_cli_login.py"
+  "Local summary lifecycle:/tmp/e2e_local_summary.py"
 )
 
 MODE="run"
