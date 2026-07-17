@@ -64,3 +64,15 @@
 - FULL distill→Mem0 path ✓ (against the Mem0-wired agentic-rag folder, owner-matched): capture returned count=3, correctly categorized preference/decision/issue, each saved to Mem0 (status SUCCEEDED, proper folder scoping + dedup metadata). Cleaned up: 3 test memories deleted, test api-key revoked.
 - Token hygiene finding: the CLI's cached UI access_token expires ~1h; out-of-band curl with $TOK fails once expired, but `kioku init`/whoami auto-refresh via refresh_token → Supabase /auth/v1/token (verified: init on todo-api-pf refreshed the token + minted). So CLI ops are unaffected; only my raw-curl UI checks need the CLI to refresh first.
 - Also inited todo-api-pf (fresh) as the refresh/mint live-test. NO bugs found. Stack healthy throughout (after iter7 restart).
+
+## Iteration 9 (STALENESS / TTL regeneration — the auto-regen deadline contract)
+- Validated _needs_generation (SUMMARY_TTL_DAYS=7) end-to-end by backdating restful-rust's folder_summaries.generated_at and hitting /api/cli/folder-summary (needs_generation is derived at READ time):
+  - baseline (fresh) → False ✓
+  - 8 days old → True ✓ (TTL exceeded → would re-trigger autogen)
+  - 6 days old → False ✓ (within TTL)
+  - 7d+1min → True ✓ (boundary correct)
+  - originals restored → False ✓ (clean, no data pollution).
+- Confirms the "regenerate only when the 7-day deadline is reached" design.
+- UI /briefing data path re-verified: all 8 sections render.
+- doc migration STILL NOT APPLIED: repo_documentation table missing (PGRST205). The endpoint's doc_needs_generation=True is just the try/except default when the table is absent; it does NOT mean the doc flow works. save_repo_documentation would fail until the user applies supabase/migrations/20260716130000_repo_documentation.sql. (Can't apply via PostgREST client — needs psql/SQL editor / supabase db push.)
+- NO bugs found. Stack healthy.
