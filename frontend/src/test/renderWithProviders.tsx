@@ -4,6 +4,7 @@ import { CssBaseline } from "@mui/material";
 import { MemoryRouter } from "react-router-dom";
 import type { ReactElement } from "react";
 import theme from "../theme";
+import ToastProvider from "../components/ToastProvider";
 
 interface Options extends Omit<RenderOptions, "wrapper"> {
   initialEntries?: string[];
@@ -18,7 +19,7 @@ export function renderWithProviders(
       <MemoryRouter initialEntries={initialEntries}>
         <ThemeProvider theme={theme}>
           <CssBaseline />
-          {children}
+          <ToastProvider>{children}</ToastProvider>
         </ThemeProvider>
       </MemoryRouter>
     );
