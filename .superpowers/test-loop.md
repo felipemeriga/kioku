@@ -251,3 +251,12 @@
 - Against a folder WITH ingested documents (agentic-rag, 8d8847cf) → knowledge_base_search('ingestion pipeline') returned 5392 chars of GROUNDED content (real PR #16 doc). RAG retrieval path works end-to-end. ✓
 - search_memory('preferences') → graceful "No memories matched." (that folder's test memories were deleted in iter8). ✓
 - Confirms the search feature works when content exists and degrades gracefully when empty; the deep-doc/search separation is by design. NO bug. Test key cleaned up. Stack healthy.
+
+## Iteration 30 (REGRESSION BATTERY — confirm all 6 loop fixes still hold)
+- iter6  repo-scoped key reads own folder → 200 ✓
+- iter14 fresh .mcp.json carries type:sse ✓
+- iter19 malformed folder_id → 404 ✓
+- iter21 cross-scope read blocked → 403 ✓
+- iter23 concurrent-init createOrAttach present in build ✓
+- iter25 doctor "API key valid" check present + passes on healthy repo ✓
+- Test suites: CLI 11/11 pass, backend 105 passed. ZERO regressions. Stack healthy.
