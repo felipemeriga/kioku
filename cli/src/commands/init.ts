@@ -2,6 +2,7 @@ import { basename, resolve } from "node:path";
 import { input, select, confirm } from "@inquirer/prompts";
 import kleur from "kleur";
 import {
+  ApiError,
   createFolder,
   listChildren,
   mintScopedApiKey,
@@ -25,6 +26,26 @@ import { panel } from "../ui/panel.js";
 interface InitOptions {
   yes?: boolean;
   root?: string;
+}
+
+/** Create a folder, but tolerate a concurrent creator. Two `kioku init` runs
+ *  (or a race with the UI) can both pass the listChildren check and then race
+ *  on createFolder; the backend's unique-name constraint makes the loser get a
+ *  409. Treat that as "attach to the folder the winner just created" instead of
+ *  aborting init. */
+async function createOrAttach(name: string, parentId: string): Promise<Folder> {
+  try {
+    return await createFolder(name, parentId);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 409) {
+      const siblings = await listChildren(parentId);
+      const hit = siblings.find(
+        (f) => f.name.toLowerCase() === name.toLowerCase(),
+      );
+      if (hit) return hit;
+    }
+    throw err;
+  }
 }
 
 export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
@@ -174,11 +195,11 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
     );
   } else if (opts.yes && !nameMatch) {
     info(`Creating folder "${desiredName}"…`);
-    repoFolder = await createFolder(desiredName, rootId!);
+    repoFolder = await createOrAttach(desiredName, rootId!);
   } else if (!nameMatch && children.length === 0) {
     // Empty root — obvious answer: create the folder now, no picker.
     info(`Creating folder "${desiredName}"…`);
-    repoFolder = await createFolder(desiredName, rootId!);
+    repoFolder = await createOrAttach(desiredName, rootId!);
   } else {
     const choice = await select<string>({
       message: "Which folder does this repo bind to?",
@@ -203,14 +224,14 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
     });
     if (choice === "__create__") {
       info(`Creating folder "${desiredName}"…`);
-      repoFolder = await createFolder(desiredName, rootId!);
+      repoFolder = await createOrAttach(desiredName, rootId!);
     } else if (choice === "__create_named__") {
       const name = await input({
         message: "New folder name:",
         default: desiredName,
       });
       info(`Creating folder "${name}"…`);
-      repoFolder = await createFolder(name.trim(), rootId!);
+      repoFolder = await createOrAttach(name.trim(), rootId!);
     } else {
       repoFolder = children.find((f) => f.id === choice)!;
       info(`Attaching to "${repoFolder.name}"`);
