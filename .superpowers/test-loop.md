@@ -414,3 +414,9 @@
 - drop.py POST /drop (api-key auth, multipart upload): validation works — bad bearer → auth error, unsupported extension → 400. (Real ingestion not triggered.) No bug.
 - NOTED follow-up (not fixed): a valid-but-NONEXISTENT conversation_id would also crash the generator (FK violation on messages.conversation_id insert) — separate from the malformed case; needs an ownership check before streaming. Lower priority (normal clients create the conversation first).
 - All route files now swept for the malformed-id class. Stack healthy.
+
+## Iteration 52 (core-flow regression after 51 iters of backend changes)
+- Returned to the literal loop task (full init→autogen→verify) as a regression check that the extensive backend input-validation work + many restarts didn't break the core pipeline.
+- finance-advisor-ai (Go + SQL, WhatsApp finance assistant): init (type:sse ✓, activity showed ahead/behind tracking "ahead 0, behind 4") → autogen (~70s) → grounded 8-section briefing ("WhatsApp-based personal finance assistant ... an LLM turns free-text into expenses").
+- needs_generation=False, 8 sections in CLI folder-summary AND UI /briefing.
+- Core pipeline healthy end-to-end after 51 iterations of changes. NO bug. Stack healthy.
