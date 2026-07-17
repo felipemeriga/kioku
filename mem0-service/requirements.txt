@@ -1,0 +1,8 @@
+fastapi==0.115.*
+uvicorn[standard]==0.32.*
+mem0ai==0.1.*
+sentence-transformers==3.*
+psycopg[binary]==3.*
+pgvector==0.3.*
+pydantic==2.*
+pydantic-settings==2.*
