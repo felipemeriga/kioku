@@ -30,6 +30,7 @@ log = logging.getLogger(__name__)
 
 def _validate_folder(sb, folder_id: str, user_id: str) -> None:
     """Only checks ownership. Both root and sub-folders can host Mem0 configs."""
+    require_uuid(folder_id, "Folder not found")
     row = (
         sb.table("folders")
         .select("id")
@@ -44,6 +45,7 @@ def _validate_folder(sb, folder_id: str, user_id: str) -> None:
 
 
 def _load_client(sb, folder_id: str, user_id: str) -> Mem0AppClient:
+    require_uuid(folder_id, "No Mem0 integration for this folder")
     client = get_client_for_folder(sb, folder_id, user_id)
     if client is None:
         raise HTTPException(status_code=404, detail="No Mem0 integration for this folder")

@@ -17,6 +17,8 @@ async def list_context(
     user_id: str = Depends(get_current_user),
 ):
     """List active context entries, optionally filtered by scope."""
+    if root_folder_id:
+        require_uuid(root_folder_id, "Folder not found")
     sb = get_supabase()
     query = (
         sb.table("context")
@@ -36,6 +38,7 @@ async def clear_context(
     user_id: str = Depends(get_current_user),
 ):
     """Clear all context entries for a scope."""
+    require_uuid(root_folder_id, "Folder not found")
     sb = get_supabase()
     sb.table("context").delete().eq("user_id", user_id).eq(
         "root_folder_id", root_folder_id
