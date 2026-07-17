@@ -432,3 +432,13 @@
 - Tested each with redirected (non-TTY) stdout → ALL emit PURE JSON (json.load succeeds).
 - Confirms the iter53 isTTY guard (in the shared checkForUpdate) fixed the update-line pollution GLOBALLY — every --json command at once — and no other pollutant (banner/spinner/header) leaks into any command's --json output.
 - NO new bug. No code change. Stack healthy.
+
+## Iteration 55 (FRONTEND build + tests — BOTH were broken; found + fixed)
+- The frontend was the big untested surface. Ran the PRODUCTION build (npm run build = tsc -b && vite build) — the dev server doesn't strict-typecheck so this was never validated.
+- BUG 1: production build BROKEN — tsc -b exit 2, 4 type errors (deploy would fail):
+  - DocumentsPage: loadSubFolders dropped 'kind' in its map → folder.kind (passed to integrations dialog) didn't type-check. Fixed: preserve kind through subFolders type + map.
+  - FolderDetailPage: openDoc loading placeholder missing DocumentContent's viewable_as/file_url/bucket. Fixed: added (viewable_as:'text', urls null).
+  - CliAuthPage.test: useAuth mock factory inferred non-null session → 'session:null' case failed. Fixed: annotated factory return session-nullable.
+  - Verified: tsc -b clean, npm run build succeeds + vite emits the bundle.
+- BUG 2: 8 frontend tests failing ('useToast must be used inside <ToastProvider>') — the shared renderWithProviders helper wrapped Router+Theme but NOT ToastProvider, so ChatArea/ChatInput/ContextPanel (which use useToast) failed. Fixed: added ToastProvider to the helper. Verified: 41/41 tests pass (was 8 failing).
+- Two commits. Both real, high-value (broken build + broken tests). Stack healthy.
