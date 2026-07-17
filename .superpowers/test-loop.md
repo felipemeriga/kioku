@@ -333,3 +333,9 @@
 - BUG (missed in iter38): replace_folder_briefing docstring said "one of the 8 section names" (I'd fixed '8-section' but not '8 section'). Fixed → reference get_folder_briefing_schema for the authoritative list + shapes (avoids a brittle count; valid set is 9, agent authors the stable ones). MCP restarted.
 - Final sweep: no remaining numeric section counts in docstrings. Doc-accuracy seam fully swept over iters 35/38/39/40.
 - Stack healthy.
+
+## Iteration 41 (notes CRUD — previously-untested feature)
+- Exercised save_note / list_notes / delete_note via MCP (never tested before).
+- save_note requires title+content (clear validation — my first call missed title, got a proper "title Field required" error, not a crash).
+- Round-trip ✓: save_note(title,content) → "Note saved (id ...)"; list_notes shows it (formatted: **title** (id, date) content); delete_note(note_id) → "Note deleted."; list_notes after → gone.
+- Notes are a separate store (not Mem0), so unaffected by the Mem0 quota. Test note cleaned up. NO bug. Stack healthy.
