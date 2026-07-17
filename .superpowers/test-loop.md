@@ -450,3 +450,9 @@
 - Verified MY loop changes are lint-clean: routes/_validation.py "All checks passed"; the errors in files I touched are pre-existing (long lines etc.), not my short guard additions.
 - DECISION: did NOT bulk-fix. It's pre-existing cosmetic/quality debt (not functional bugs), and a large mechanical cleanup is churny + out of scope for the bug-hunting loop + risks noisy diffs. Documented as a human quality-pass follow-up: `ruff check --fix` (24 auto), clean stale eslint-disable directives, and move useToast to its own file (react-refresh rule).
 - NO code change. NO functional bug. Stack healthy.
+
+## Iteration 57 (MCP SSE auth middleware edge cases)
+- Probed the MCP server's ApiKeyAuthMiddleware (:8001/sse) with bad credentials — always used valid keys before.
+- no auth → 401; malformed bearer → 401; non-rag bearer → 401; revoked-looking rag_ key → 401; public /health → 200.
+- MCP server stayed healthy after the bad-auth probes (no crash/hang). No 22P02 risk (key lookup is by key_hash text, not a uuid column).
+- Auth surface is robust. NO bug. No code change. Stack healthy.
