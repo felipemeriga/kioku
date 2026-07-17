@@ -6,13 +6,67 @@
  * back to a friendly message if the CLI hasn't been initialized here.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, statSync, openSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { spawn } from "node:child_process";
 
 async function fetchJson(url: string, headers: Record<string, string>) {
   const res = await fetch(url, { headers });
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   return res.json();
+}
+
+type AutogenStatus = "launched" | "pending" | "unavailable";
+
+/**
+ * Kick off a DETACHED, headless `claude -p` that generates this repo's summary
+ * in the background (on the user's subscription, via MCP) when none exists —
+ * so the summary is produced automatically without the user prompting and
+ * without hijacking the interactive session.
+ *
+ * Guards:
+ *  - KIOKU_NO_AUTOGEN (set on the spawned child) prevents infinite recursion:
+ *    the background `claude` also runs this SessionStart hook, but must NOT
+ *    spawn another generator.
+ *  - a debounce lock (.claude/kioku-autogen.lock, 30 min) stops repeated
+ *    launches across sessions.
+ *  - bypassPermissions so the unattended run doesn't block on tool prompts.
+ */
+function maybeAutogenSummary(repoRoot: string, sectionOrder: string[]): AutogenStatus {
+  if (process.env.KIOKU_NO_AUTOGEN) return "unavailable"; // recursion guard
+  const lockPath = join(repoRoot, ".claude", "kioku-autogen.lock");
+  const DEBOUNCE_MS = 30 * 60 * 1000;
+  try {
+    if (existsSync(lockPath) && Date.now() - statSync(lockPath).mtimeMs < DEBOUNCE_MS) {
+      return "pending"; // a recent run is (or was) in flight
+    }
+  } catch {
+    /* ignore */
+  }
+  const prompt =
+    "Generate this repository's kioku briefing now. Read the repo (fan out " +
+    "subagents if helpful) and write these sections concisely: " +
+    `${sectionOrder.join(", ")}. Then save them by calling the ` +
+    "replace_folder_briefing MCP tool for this folder. Do not ask questions — " +
+    "just produce and save the briefing.";
+  try {
+    writeFileSync(lockPath, new Date().toISOString() + "\n");
+    const logFd = openSync(join(repoRoot, ".claude", "kioku-autogen.log"), "a");
+    const child = spawn(
+      "claude",
+      ["-p", prompt, "--permission-mode", "bypassPermissions"],
+      {
+        cwd: repoRoot,
+        env: { ...process.env, KIOKU_NO_AUTOGEN: "1" },
+        detached: true,
+        stdio: ["ignore", logFd, logFd],
+      },
+    );
+    child.unref();
+    return "launched";
+  } catch {
+    return "unavailable"; // `claude` CLI missing or spawn failed
+  }
 }
 
 export async function sessionStart(): Promise<void> {
@@ -80,11 +134,22 @@ export async function sessionStart(): Promise<void> {
 
     console.log("── kioku second-brain ──");
     if (s.needs_generation) {
-      console.log(
-        "This repo has no current summary. Please read the repository and write these " +
-          `sections: ${s.section_order.join(", ")}. Then save them by calling the ` +
-          "`replace_folder_briefing` MCP tool for this folder. Keep each section concise.",
-      );
+      // Auto-generate in the background so it happens without prompting. The
+      // spawned `claude` (KIOKU_NO_AUTOGEN=1) falls into the "unavailable"
+      // branch below and gets the write-instruction as its actual task.
+      const status = maybeAutogenSummary(repoRoot, s.section_order);
+      if (status === "launched" || status === "pending") {
+        console.log(
+          "This repo has no summary yet — kioku is generating one in the background " +
+            "(scanning the repo on your Claude subscription). It'll appear next session.",
+        );
+      } else {
+        console.log(
+          "This repo has no current summary. Please read the repository and write these " +
+            `sections: ${s.section_order.join(", ")}. Then save them by calling the ` +
+            "`replace_folder_briefing` MCP tool for this folder. Keep each section concise.",
+        );
+      }
     } else if (s.sections) {
       // Inject the stable sections + the `documentation` abstract (the full
       // deep doc stays out of the prompt — fetched on demand via MCP).

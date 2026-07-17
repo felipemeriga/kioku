@@ -305,6 +305,8 @@ export function updateGitignore(repoRoot: string): { path: string; changed: bool
     ".claude/settings.local.json",
     ".claude/kioku-state.json",
     ".claude/kioku-capture.log",
+    ".claude/kioku-autogen.lock",
+    ".claude/kioku-autogen.log",
   ];
   const existing = existsSync(path) ? readFileSync(path, "utf8") : "";
   const missing = entries.filter((e) => !existing.split("\n").some((line) => line.trim() === e));
