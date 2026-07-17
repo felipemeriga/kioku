@@ -1,5 +1,5 @@
 import { basename, resolve } from "node:path";
-import { input, select, confirm } from "@inquirer/prompts";
+import { input, select } from "@inquirer/prompts";
 import kleur from "kleur";
 import {
   ApiError,
@@ -343,34 +343,26 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
           section_order?: string[];
         })
       : null;
-    if (summary?.needs_generation) {
-      const go =
-        opts.yes ||
-        (await confirm({
-          message:
-            "Generate the briefing now? Opens Claude Code here and generates it " +
-            "as the first task (wait ~2–5 min, then keep coding in the same session).",
-          default: true,
-        }));
-      if (go && process.stdin.isTTY && process.stdout.isTTY) {
-        info("Opening Claude Code — it'll generate the briefing as its first task…");
-        console.log();
-        const { spawnSync } = await import("node:child_process");
-        // Interactive Claude Code, generation as the first user message.
-        // KIOKU_NO_AUTOGEN=1 tells the SessionStart hook this session is already
-        // handling generation, so it doesn't inject the instruction twice.
-        spawnSync("claude", [generateInstruction(summary.section_order ?? [])], {
+    if (summary?.needs_generation && process.stdin.isTTY && process.stdout.isTTY) {
+      info("Opening Claude Code — generating the briefing as its first task…");
+      console.log();
+      const { spawnSync } = await import("node:child_process");
+      // Interactive Claude Code, generation as the first user message.
+      // --dangerously-skip-permissions so it runs without stopping on tool
+      // approvals; KIOKU_NO_AUTOGEN=1 tells the SessionStart hook this session
+      // is already handling generation, so it doesn't inject the task twice.
+      spawnSync(
+        "claude",
+        [
+          "--dangerously-skip-permissions",
+          generateInstruction(summary.section_order ?? []),
+        ],
+        {
           cwd: repoRoot,
           stdio: "inherit",
           env: { ...process.env, KIOKU_NO_AUTOGEN: "1" },
-        });
-      } else if (go) {
-        // No interactive terminal (e.g. scripted `--yes`) — can't open Claude
-        // Code here. Tell the user how to generate it.
-        info("Open Claude Code in this repo to generate the briefing as its first task.");
-      } else {
-        info("Skipped. Open Claude Code here anytime — it'll offer to generate the briefing.");
-      }
+        },
+      );
     }
   } catch {
     // Backend unreachable or `claude` not on PATH — skip the launch; opening
