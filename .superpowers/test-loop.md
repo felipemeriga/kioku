@@ -326,3 +326,10 @@
 - BUG: get_folder_briefing returned "Briefings are only available for GitHub-synced folders" for non-repo folders (mcp_server.py:800) — GitHub sync was removed; repo folders are now made via `kioku init` on a clone. Fixed the Claude-facing message → "for repo folders (run kioku init in a cloned repo)". MCP restarted to serve it.
 - Left alone (intentional): the github_connected metadata field in get_folder_orientation — unused by the frontend, and a code comment documents it as a deliberate repurpose to mean kind=="repo" (backward-compat). Not misleading any consumer.
 - Stack healthy.
+
+## Iteration 40 (comprehensive MCP tool-description audit)
+- Dumped all 20 MCP tool descriptions (what Claude reads) + regex-scanned for stale content (github-sync, section counts, root-scoped, etc.).
+- "root-scoped" refs (list_folders_in_scope, get_folder_briefing, get_folder_orientation): NOT stale — they accurately describe root-scoped-key behavior, which still works (repo-scoping is just the new default from iter6). Left as-is.
+- BUG (missed in iter38): replace_folder_briefing docstring said "one of the 8 section names" (I'd fixed '8-section' but not '8 section'). Fixed → reference get_folder_briefing_schema for the authoritative list + shapes (avoids a brittle count; valid set is 9, agent authors the stable ones). MCP restarted.
+- Final sweep: no remaining numeric section counts in docstrings. Doc-accuracy seam fully swept over iters 35/38/39/40.
+- Stack healthy.
