@@ -186,3 +186,14 @@
 - Fix (commit): folder_summary now enforces folder_id ∈ key's scope subtree (via _descendant_folder_ids, same as capture), returning 403 otherwise. Fast path: reading the scope folder itself skips the walk; a root-scoped key still reaches its whole subtree.
 - Verified: own→200; repo-scoped key→sibling repo→403 (was 200); root-scoped key→child repo→200 (backward-compatible); root→root→200. 7 backend tests pass.
 - Stack healthy.
+
+## Iteration 22 (AUTHZ AUDIT — confirm iter21 was the only scope gap)
+- After the iter21 folder-summary fix, audited every other api-key-authed folder-access path for the same cross-scope bug class (passing a SIBLING repo's UUID):
+  - get_folder_briefing(folder=<sibling UUID>) → "Error: Folder '...' is not inside your scope." ✓
+  - save_repo_documentation(folder=<sibling UUID>) → blocked ✓
+  - update_folder_briefing_section(folder=<sibling UUID>) → blocked ✓
+    (all via resolve_focus_folder, which requires UUID ∈ scope subtree)
+  - session-capture out-of-scope folder_id → HTTP 403 ✓
+  - revoke_api_key with bogus/non-owned key id → HTTP 404 (user_id filter) ✓
+- CONCLUSION: iter21 (folder-summary) was the ONLY endpoint missing scope enforcement; the MCP tools, capture, and key revocation were always correct. Isolation now complete + consistent across the api-key surface.
+- NO new bugs. No code change (audit). Stack healthy.
