@@ -86,3 +86,12 @@
 - Observation (not a bug): each update_folder_briefing_section call writes a new full-content row (versioned history). Rows accumulate per section-update; folder-summary always reads latest so it's correct, but there's no pruning.
 - Cleanup: deleted the test row; restful-rust reverted to its real briefing (8 sections, 1 row, needs_generation=False). No pollution left.
 - NO bugs found. Stack healthy.
+
+## Iteration 11 (ACTIVITY INJECTION — "live git changes since last session" delta)
+- Tested composeActivity/gitActivity (cli/src/lib/git-activity.ts) against a controlled temp git repo (4 commits at fixed dates day4..day1 + 1 untracked file):
+  - NO since → all 4 commits (newest first) + "?? dirty.txt" working change ✓
+  - since=2026-07-11T18:00 → correctly returns ONLY day2+day1 (excludes day4 @07-10 and day3 @07-11T12:00, includes day2 @07-12 and day1 @07-13). Since-boundary filtering exact ✓
+  - branch name shown ✓
+- Watermark round-trip (restful-rust) ✓ — session-start reads last_session_at, injects activity, then stamps a fresh last_session_at (advanced 02:14→03:24).
+- No-new-activity case ✓ — a 2nd session-start right after shows Branch + Uncommitted working changes but OMITS the empty "Recent commits" list (nothing since the fresh watermark). Correct.
+- NO bugs found. Stack healthy.
