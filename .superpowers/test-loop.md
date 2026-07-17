@@ -304,3 +304,12 @@
 - Negative check: calling with the OLD wrong param query= → "Error executing tool ... 1 validation error" REJECTED. Confirms the iter35 mismatch was real (old CLAUDE.md doc would have failed) and the fix is correct.
 - Note: query_documents_metadata works despite Mem0 quota exhaustion (it hits Postgres documents table, not Mem0).
 - NO new bug — iter35 fix validated end-to-end. Stack healthy.
+
+## Iteration 37 (FINDING flagged, not blindly fixed: pins don't survive regen)
+- CLAUDE.md claims "Pinned sections survive auto-regen." Tested empirically (image-to-ascii, snapshot/restore): pinned a section (update_folder_briefing_section pin=True), then simulated a regen via replace_folder_briefing → the pinned content was OVERWRITTEN (survived=False, overwritten=True). Restored cleanly.
+- Root cause: replace_folder_briefing's merge does `current[key] = new_section(content, ...)` for EVERY provided section with NO check of the existing section's pin status. The background autogen calls replace_folder_briefing with all 7 sections, so it overwrites any user-pinned section.
+- WHY NOT auto-fixed here (design decision for the user): the correct fix is 2-part and has migration implications, so it's not a safe blind change:
+  1. replace_folder_briefing must SKIP sections currently status="pinned" (preserve user pins).
+  2. BUT the autogen currently writes with pin_all=True (default), so it pins everything → if we skip pinned, a re-autogen would skip ALL sections and never refresh. So the autogen's generateInstruction must call replace_folder_briefing with pin_all=FALSE (autogen content = "auto", regenerable; only explicit user pins are protected).
+  3. MIGRATION: existing repos already have autogen sections marked status="pinned" (from the current default) — after the fix they'd be frozen (never regen). Needs a one-time downgrade of autogen-authored pins to "auto", or the fix only helps new repos.
+- RECOMMENDATION to user: decide whether to (a) implement the 2-part fix + migration to make pins truly protective, or (b) soften the CLAUDE.md claim. I did NOT change code (touches designed pin semantics + migration). NO code change. Stack healthy.
