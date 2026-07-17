@@ -394,3 +394,9 @@
 - Verified: limit=-1/0/999999 → 422; limit=5 + default → 200; backend suite 105 passed.
 - Follow-up noted: mem0 list endpoints have unbounded limit params too, but couldn't be cleanly tested (Mem0 quota exhausted); some go to Mem0's API not Postgres. Worth bounding when quota allows testing. Also: folders.py has its own _require_uuid (3rd local copy — DRY candidate w/ routes/_validation).
 - Stack healthy.
+
+## Iteration 49 (DRY concern resolved SAFELY by verification, not risky refactor)
+- 3 local uuid-guard copies exist: cli.py _is_uuid (uuid.UUID), notion.py _is_uuid (uuid.UUID), folders.py _require_uuid (REGEX _UUID_RE), plus the shared routes/_validation (uuid.UUID).
+- The real risk of duplicated guards is DIVERGENCE. Verified behavioral consistency: tested the regex vs uuid.UUID implementations across 10 edge cases (malformed/empty/SQL-ish/no-hyphens/non-hex/trailing/valid) → 0 mismatches. The copies agree exactly.
+- DECISION: did NOT consolidate. It would be aesthetic-only (copies work + are consistent) and carries subtle-regression risk (regex vs uuid.UUID edge cases) not worth taking in an unattended loop (iter31-32 lesson). Left as a documented human-refactor task: replace the 3 local copies with routes/_validation.{is_uuid,require_uuid}.
+- NO code change. NO bug. Stack healthy.
