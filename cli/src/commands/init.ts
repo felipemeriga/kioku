@@ -157,9 +157,10 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
   );
 
   let repoFolder: Folder;
-  if (nameMatch && (opts.yes || nameMatch.kind === "repo")) {
-    // Silent attach when either --yes is set OR the match is already a
-    // repo (there's no other reasonable interpretation than 'reuse it').
+  if (nameMatch && opts.yes) {
+    // Non-interactive only: with --yes we silent-attach to the name match.
+    // Interactively we always fall through to the picker so the user can
+    // choose to reuse the existing folder or create a new one.
     repoFolder = nameMatch;
     info(
       `Attaching to existing ${nameMatch.kind === "repo" ? "repo" : "folder"} "${repoFolder.name}"`,
