@@ -11,7 +11,6 @@ summary per child.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import time
 from dataclasses import dataclass
@@ -58,19 +57,38 @@ class ChildBriefing:
 
 
 def _get_integration_flags(sb, folder_id: str, user_id: str) -> tuple[bool, bool, bool]:
-    """Cheap: HEAD counts to check config presence.
+    """Cheap presence checks.
 
-    github_sync_configs has been dropped — GitHub sync is removed.
-    has_github is always False now.
+    has_mem0: memory is auto-on for repo folders now (self-hosted mem0), so this
+    is just "is this folder a repo" — not a mem0_sync_configs lookup anymore.
+    has_github: always False (GitHub sync removed; github_sync_configs dropped).
+    has_notion: HEAD count on notion_sync_configs.
     """
+
     def _exists(table: str, col: str) -> bool:
         r = (
-            sb.table(table).select("id", count="exact", head=True)
-            .eq(col, folder_id).eq("user_id", user_id).execute()
+            sb.table(table)
+            .select("id", count="exact", head=True)
+            .eq(col, folder_id)
+            .eq("user_id", user_id)
+            .execute()
         )
         return (r.count or 0) > 0
+
+    def _is_repo() -> bool:
+        r = (
+            sb.table("folders")
+            .select("kind")
+            .eq("id", folder_id)
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+            .data
+        )
+        return bool(r) and (r[0].get("kind") or "folder") == "repo"
+
     return (
-        _exists("mem0_sync_configs", "root_folder_id"),
+        _is_repo(),  # memory auto-on for repos
         False,  # GitHub sync removed; github_sync_configs table dropped
         _exists("notion_sync_configs", "root_folder_id"),
     )
@@ -92,9 +110,7 @@ def _gather_children(sb, folder_id: str, user_id: str) -> list[ChildBriefing]:
         summary_id = (latest or {}).get("id")
         # doc_count directly on the child (not subtree — we already recurse).
         direct = count_direct_docs(sb, child_id, user_id)
-        has_mem0, has_github, has_notion = _get_integration_flags(
-            sb, child_id, user_id
-        )
+        has_mem0, has_github, has_notion = _get_integration_flags(sb, child_id, user_id)
         briefings.append(
             ChildBriefing(
                 folder_id=child_id,
@@ -182,12 +198,16 @@ async def generate_workspace_rollup(
         if latest is None:
             log.info(
                 "workspace_rollup: bootstrapping child summary for %s/%s",
-                folder_name, sub["name"],
+                folder_name,
+                sub["name"],
             )
             try:
                 await generate_folder_summary(
-                    sb, folder_id=sub["id"], user_id=user_id,
-                    mode="full", trigger=f"rollup_bootstrap:{trigger}",
+                    sb,
+                    folder_id=sub["id"],
+                    user_id=user_id,
+                    mode="full",
+                    trigger=f"rollup_bootstrap:{trigger}",
                 )
             except Exception:  # noqa: BLE001
                 log.exception(
@@ -205,7 +225,8 @@ async def generate_workspace_rollup(
         if current_snapshots == previous_snapshots:
             log.info(
                 "workspace_rollup: skipping %s — no child summary changes since %s",
-                folder_name, latest_parent.get("generated_at"),
+                folder_name,
+                latest_parent.get("generated_at"),
             )
             return SummaryOutcome(
                 kind="skip",
@@ -229,21 +250,26 @@ async def generate_workspace_rollup(
         }
         row = insert_summary(
             sb,
-            folder_id=folder_id, user_id=user_id,
-            kind="seed", trigger=trigger,
+            folder_id=folder_id,
+            user_id=user_id,
+            kind="seed",
+            trigger=trigger,
             content=seed_summary,
             previous_content=(latest_parent or {}).get("content"),
             included_hashes=[],
             doc_count=0,
             changed_files={"added": [], "removed": [], "modified": []},
-            input_tokens=0, output_tokens=0,
+            input_tokens=0,
+            output_tokens=0,
             duration_ms=int((time.perf_counter() - started) * 1000),
         )
         return SummaryOutcome(kind="seed", row=row, diff=None)
 
     log.info(
         "workspace_rollup: folder=%s children=%d mode=%s",
-        folder_path or folder_name, len(briefings), mode,
+        folder_path or folder_name,
+        len(briefings),
+        mode,
     )
 
     prompt_briefings = [_briefing_for_prompt(b) for b in briefings]
@@ -256,13 +282,16 @@ async def generate_workspace_rollup(
     # via migration; also passed via the new column path below.
     row = _insert_workspace_rollup(
         sb,
-        folder_id=folder_id, user_id=user_id, trigger=trigger,
+        folder_id=folder_id,
+        user_id=user_id,
+        trigger=trigger,
         content=rollup,
         previous_content=(latest_parent or {}).get("content"),
         subfolder_snapshots=current_snapshots,
         doc_count=sum(b.doc_count for b in briefings),
         subfolder_count=len(briefings),
-        input_tokens=input_tokens, output_tokens=output_tokens,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
         duration_ms=int((time.perf_counter() - started) * 1000),
     )
     return SummaryOutcome(kind="workspace_rollup", row=row, diff=None)

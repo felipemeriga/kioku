@@ -296,6 +296,9 @@ CREATE TABLE IF NOT EXISTS "public"."ingestion_jobs" (
 ALTER TABLE "public"."ingestion_jobs" OWNER TO "postgres";
 
 
+-- DEPRECATED (self-hosted mem0): no longer written or read. Memory is auto-on
+-- for repo folders via the self-hosted mem0 service; the hosted "paste your API
+-- key" config model is gone. Retained read-only for one release, then droppable.
 CREATE TABLE IF NOT EXISTS "public"."mem0_sync_configs" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "user_id" "uuid" NOT NULL,
