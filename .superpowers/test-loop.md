@@ -221,3 +221,11 @@
 - Fix (commit): added an "API key valid" check that calls folder-summary with the actual .mcp.json key; a 401/403 → "✗ API key valid — rejected (HTTP 401)" + "run: kioku init" and fails the summary. Only a confirmed rejection fails (missing key/state doesn't double-report). CLI rebuilt; 11/11 tests pass.
 - Verified: valid→✓ + all pass; revoked→✗ rejected + "Some checks failed"; restored→✓.
 - Stack healthy.
+
+## Iteration 26 (hook robustness under backend-down — no bug; small UX polish)
+- Critical untested property: the SessionStart + Stop hooks run every Claude Code session — do they degrade gracefully when the backend is unreachable? Simulated by pointing a test repo's .mcp.json url at a dead port (:9999).
+- session-start ✓ — exits 0 in ~0.12s (no hang, no block). Was printing terse "kioku: fetch failed".
+- capture (Stop hook) ✓ — exits 0 in ~0.59s, silent (never fails a hook, as designed).
+- So the important robustness holds (fast, exit 0, non-blocking). NO bug.
+- Small UX polish (commit): session-start now prints "kioku: backend unreachable — skipping briefing this session (your session is unaffected)." for the common connection-refused/DNS/timeout case instead of "fetch failed" — since it appears in the user's session every start when self-hosting and the backend is briefly down. Still exits 0. 11/11 tests pass.
+- Stack healthy.
