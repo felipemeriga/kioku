@@ -309,6 +309,16 @@ export default function DocumentsPage() {
     loadSubFolders();
   }, [loadSubFolders]);
 
+  // Keep the folder grid in sync with folder changes made elsewhere — most
+  // importantly a delete from the sidebar tree, which dispatches
+  // `folders-changed`. Without this, a folder deleted in the sidebar lingered
+  // in the grid on the right until a manual refresh.
+  useEffect(() => {
+    const handler = () => loadSubFolders();
+    window.addEventListener("folders-changed", handler);
+    return () => window.removeEventListener("folders-changed", handler);
+  }, [loadSubFolders]);
+
   // Load breadcrumbs for the current folder. Non-critical — falling back to
   // empty means the breadcrumb strip shows just Home. Surfaced only via toast
   // if the failure is not a network transient (network is common while
