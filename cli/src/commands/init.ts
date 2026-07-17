@@ -226,11 +226,18 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
     ok("Folder marked as repo");
   }
 
-  // Step 4: mint an api key scoped to the ROOT (so Claude Code can drill
-  // sibling repos in this workspace).
+  // Step 4: mint an api key scoped to THIS REPO's folder (not the root).
+  //
+  // The api_keys table has a unique constraint on (user_id, scope_folder_id)
+  // and minting deletes any prior key for the same scope. If we scoped to the
+  // root, every repo under that root would share one scope — so initializing a
+  // second repo would revoke the first repo's key, silently breaking its
+  // .mcp.json (401). Scoping per-repo gives each repo its own key that survives
+  // sibling inits; re-initializing the same repo cleanly rotates only its own
+  // key. (Cross-repo drilling via a single root-scoped key is a v2 concern.)
   const key = await step("Minting API key", () =>
     mintScopedApiKey({
-      scope_folder_id: rootId!,
+      scope_folder_id: repoFolder.id,
       name: `cli-${desiredName}-${new Date().toISOString().slice(0, 10)}`,
     }),
   );

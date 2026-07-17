@@ -237,10 +237,10 @@ If you want to reload the briefing manually:
 - \`get_folder_briefing()\` — 8-section briefing for this repo
   (overview, architecture, preferences, important_files, how_it_runs,
    deployment, dependencies, activity)
-- \`get_folder_orientation()\` — broader workspace context if the
-  api key is root-scoped (drills across sibling repos)
-- \`list_folders_in_scope()\` — see what other folders/repos exist
-  under this scope
+- \`get_folder_orientation()\` — broader context for this repo's
+  folder subtree
+- \`list_folders_in_scope()\` — see what folders exist under this
+  repo's scope
 
 ### When you learn something worth keeping
 
