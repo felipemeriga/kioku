@@ -109,9 +109,16 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
     const ownerMatch = ownerLower
       ? w.root_folders.find((f) => f.name.toLowerCase() === ownerLower)
       : undefined;
-    if (ownerMatch && opts.yes) {
-      rootId = ownerMatch.id;
-      info(`Using root "${ownerMatch.name}" (matches your GitHub owner)`);
+    if (opts.yes) {
+      // --yes must never block on a prompt: prefer the owner match, else the
+      // first root. Use --root to pick a specific one non-interactively.
+      const pick = ownerMatch ?? w.root_folders[0];
+      rootId = pick.id;
+      info(
+        ownerMatch
+          ? `Using root "${pick.name}" (matches your GitHub owner)`
+          : `Using root "${pick.name}" (default — pass --root to choose another)`,
+      );
     } else {
       rootId = await select<string>({
         message: "Which root does this repo belong to?",
