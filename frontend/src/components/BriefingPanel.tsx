@@ -97,7 +97,16 @@ export default function BriefingPanel({ folderId }: Props) {
       setData(res);
       setError(null);
     } catch (err) {
-      setError(messageFromError(err));
+      const msg = messageFromError(err);
+      // A non-repo folder legitimately has no briefing (the endpoint 400s with
+      // "…only for repo folders"). That's not an error to surface — render
+      // nothing so this panel can be dropped on any folder view safely.
+      if (/not a repo|only for repo/i.test(msg)) {
+        setData(null);
+        setError(null);
+      } else {
+        setError(msg);
+      }
     } finally {
       setLoading(false);
     }

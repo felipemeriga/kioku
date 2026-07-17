@@ -52,6 +52,7 @@ import DocumentCard from "../components/DocumentCard";
 import MoveDialog from "../components/MoveDialog";
 import IngestionDrawer from "../components/IngestionDrawer";
 import FolderSummaryPanel from "../components/FolderSummaryPanel";
+import BriefingPanel from "../components/BriefingPanel";
 import FolderIntegrationsDialog from "../components/FolderIntegrationsDialog";
 import { useToast, messageFromError } from "../components/ToastProvider";
 import { brand, fonts } from "../theme";
@@ -724,6 +725,13 @@ export default function DocumentsPage() {
               }
             />
           )}
+
+          {/* Repo folders carry an agent-authored briefing (overview,
+              architecture, important files, …). Render it here too — the
+              sidebar routes to this Documents view, and without this a repo's
+              briefing was only visible on the /folder/:id detail page. Renders
+              nothing for non-repo folders. */}
+          {currentFolderId && <BriefingPanel folderId={currentFolderId} />}
 
           {error && (
             <Alert severity="error" sx={{ mb: 2 }}>
