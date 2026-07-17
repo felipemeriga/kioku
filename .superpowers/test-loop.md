@@ -168,3 +168,14 @@
 - Fix (commit): added _is_uuid guard in folder_summary → returns 404 for any non-UUID (consistent with well-formed-but-nonexistent). Verified: not-a-uuid/garbage/SQL-ish strings → 404; real folder still 200. Added regression test; 5/5 folder-summary tests pass. Backend restarted.
 - Checked other endpoints: UI /api/folders/{id}/briefing already 404s on non-UUID (not affected); session-capture does its scope check in Python (safe). Bug was isolated to CLI folder-summary.
 - Stack healthy.
+
+## Iteration 20 (MCP tool error branches + capture rate-limit — robustness)
+- Continued the error-probing angle (iter19 found a bug there).
+- MCP tool bad-input probes (all return graceful "Error:" strings, no exceptions/session drops):
+  - update_folder_briefing_section bad section → "Error: Unknown section ... Valid: [...]"
+  - save_repo_documentation empty content → "Error: content is empty."
+  - get_folder_briefing / update / get_repo_documentation with a non-existent folder → "Error: No folder named '...' in your scope."
+  - replace_folder_briefing non-object → "Error: sections must be a JSON object ..."
+  - replace_folder_briefing invalid JSON → "Error: sections argument must be valid JSON: ..."
+- Capture rate-limit ✓ — 6 captures/window succeed, then HTTP 429 with Retry-After:597. Graceful: the CLI watermark only advances on a successful SAVE, so a rate-limited capture is not lost (next one captures the accumulated delta).
+- NO bugs found. All error branches robust. Stack healthy.
