@@ -47,3 +47,12 @@
 - Considered: (A) additive keys — BLOCKED (unique constraint; DDL needs the un-appliable migration). (B) root-scope + client key cache — stateful, staleness edge cases. (C) repo-scope the key — chosen: clean, migration-free, respects the constraint. validate_scope_folder allows sub-folder scopes; _descendant_folder_ids is inclusive so a repo-scoped key reads its own briefing.
 - Fix (commit 01e3b7b): init.ts scope_folder_id rootId→repoFolder.id + CLAUDE.md orientation note updated. CLI rebuilt; 11/11 CLI tests pass.
 - Regression-verified: 2 repos under 1 root both keep valid keys (200) after sequential inits (was 401 for the first). Restored Chat/Emberblast/restful-rust via re-init — all load full briefings (7-8 sections). Cross-repo drill via single root key deferred to v2 (already was).
+
+## Iteration 7 (repo: kubernetes-go-grpc / shuza — GO + validate write path under repo-scoped key)
+- Purpose: confirm a REPO-scoped key (iter6 fix) can WRITE a briefing via MCP replace_folder_briefing (prior repos were generated pre-fix with root keys). Also adds Go as a language.
+- init --yes ✓ — key confirmed REPO-scoped (scope_folder_id == repo folder_id ccf8a7c5, not the root).
+- key hygiene ✓ — 7 keys total, each a distinct scope, ZERO scopes with >1 key (repo-scoping = clean 1-key-per-repo, no sprawl).
+- session-start ✓ — launched autogen, injected live Go git activity (branch master, real commits).
+- INFRA EVENT: backend (:8000) + MCP (:8001) background tasks were KILLED mid-run (frontend survived). Restarted both from backend/.venv (uvicorn main:app :8000; python mcp_server.py :8001) — health green again. The in-flight claude -p autogen (PID 29529) survived the MCP outage; re-polling for write completion after restore.
+- autogen write completion ✓ — repo-scoped key WROTE the briefing via MCP replace_folder_briefing (needs_generation=False). All 8 sections filled, grounded Go content ("Go gRPC microservices … deploy to Kubernetes", real paths). API + UI both show 8 sections. CONFIRMS iter6 fix works for the WRITE path, not just reads.
+- RESULT: repo-scoped keys fully validated E2E (read + write) on a Go repo. Service outage recovered (backend+MCP restarted). NO new bugs.
