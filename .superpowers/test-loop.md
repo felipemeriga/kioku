@@ -237,3 +237,11 @@
 - Block SANDWICHED (user content BEFORE and AFTER our block) → both survive an update, order preserved (before<block<after), 1 block ✓
 - .gitignore → user entries (node_modules, custom-user-entry.log) preserved, our entries added exactly once (idempotent) ✓
 - NO bug. Marker-based before+SNIPPET+after logic is correct in all positions. No code change. Stack healthy.
+
+## Iteration 28 (hook robustness to corrupt/malformed state files)
+- The hooks read .mcp.json + kioku-state.json every session; tested malformed inputs:
+  - A. truncated/corrupt .mcp.json → session-start & capture both exit 0 ✓
+  - B. garbage kioku-state.json → both exit 0 ✓
+  - C. empty .mcp.json → both exit 0 ✓
+  - D. valid JSON but no 'kioku' server entry → both exit 0 ✓
+- All degrade gracefully (JSON.parse try/catch guards). No crash, clean exit in every case. NO bug. Stack healthy.
