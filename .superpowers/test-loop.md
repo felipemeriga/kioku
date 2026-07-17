@@ -103,3 +103,13 @@
 - Wired correctly: folder-summary queryable (needs_generation=True, fresh), and the minted key is scoped to the REPO folder (iter6 fix holds through the interactive path too).
 - NO bugs found. Stack healthy.
 - REMAINING untested: only the deep-doc documentation flow (still blocked on repo_documentation migration).
+
+## Iteration 13 (direct MCP write tools — replace_folder_briefing + scope tools)
+- doc migration STILL not applied (repo_documentation table missing). Can't apply DDL via PostgREST client — needs user's psql/SQL editor.
+- Via live MCP session (image-to-ascii repo-scoped key):
+  - get_folder_briefing_schema ✓ — returned the 9-section schema + authoring notes.
+  - replace_folder_briefing ✓ — wrote all 7 stable sections in one call → {ok:true, replaced:[7]}. This is the exact tool the background autogen uses; here exercised directly (a full "trigger summary via the tool path + verify" cycle without the slow autogen).
+  - list_folders_in_scope ✓ — returns ONLY the repo's own folder subtree (scope_folder_id=28d6b3b5), confirming repo-scoping limits visibility correctly.
+  - get_folder_orientation ✓ — 7183 chars, mentions image-to-ascii.
+- Verified: folder-summary needs_generation→False, 8 sections, overview.purpose stored correctly; UI /briefing shows all 8. 
+- NO bugs found. Stack healthy.
