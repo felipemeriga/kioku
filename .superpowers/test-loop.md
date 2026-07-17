@@ -141,3 +141,14 @@
 - Cleaned up the test doc (deleted repo_documentation row + the doc-added folder_summaries row) so the repo reverts to its real autogen briefing (8 sections) with no dangling documentation section.
 - NO bugs found. Stack healthy.
 - MILESTONE: ALL kioku features now validated end-to-end. Two high-impact bugs found+fixed over the loop (iter6 multi-repo key revocation; iter14 .mcp.json missing type:sse).
+
+## Iteration 17 (REAL agent-authored deep-doc generation — not a stub)
+- Launched a real deep-doc generation (claude -p, bypassPermissions, KIOKU_NO_AUTOGEN) on defi-lending-contract: "fan out subagents, write a structured architecture doc, save via save_repo_documentation".
+- Completed in ~180s. Result is genuinely high quality:
+  - 19,786 chars (vs the iter16 hand-authored 533-char stub).
+  - Deeply grounded: real file src/DeFiLending.sol, real concepts (depositIndex, UUPS, ERC1967, liquidation, forge), with LINE-NUMBER citations ("Events (lines 39–43)").
+  - Structured: High-Level Overview / Component Map / Core Contract (Inheritance, State Layout, Events, Function Reference, Key Formulas).
+  - The scan flagged a REAL security finding: a committed npm auth token in .npmrc — plus design risks (exact-amount repayment, no liquidation incentive, owner-only manual liquidation).
+- Verified: doc_needs_generation=False; abstract injected in the documentation section + retrieval pointer; get_repo_documentation returns the full doc; UI /briefing shows all 9 sections incl. documentation.
+- Left the doc in place (accurate real content, unlike the iter16 stub). NO bugs. Stack healthy.
+- SECURITY NOTE for the user: the deep-doc scan surfaced a committed npm auth token in defi-lending-contract/.npmrc — worth rotating/removing.
