@@ -202,6 +202,17 @@ export async function sessionStart(): Promise<void> {
 
     console.log("─────────────────────────────────");
   } catch (err) {
-    console.error(`kioku: ${err instanceof Error ? err.message : String(err)}`);
+    // This runs on EVERY Claude Code session start, so a self-hoster whose
+    // backend is momentarily down would otherwise see a cryptic "fetch failed"
+    // each time. Give the common unreachable case a clear, reassuring message;
+    // always exit cleanly so the hook never disrupts the session.
+    const msg = err instanceof Error ? err.message : String(err);
+    const unreachable =
+      /fetch failed|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|getaddrinfo|network|timed? ?out/i.test(msg);
+    console.error(
+      unreachable
+        ? "kioku: backend unreachable — skipping briefing this session (your session is unaffected)."
+        : `kioku: ${msg}`,
+    );
   }
 }
