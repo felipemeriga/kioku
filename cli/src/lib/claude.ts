@@ -106,30 +106,60 @@ function ensureHook(
   return !already || raw.length !== groups.length;
 }
 
+/** Remove a specific command hook (both the correct group shape and the legacy
+ *  `{type,command}`-directly form) from a settings file. Used to migrate kioku's
+ *  hooks OUT of the committed settings.json. No-op if the file/hook is absent.
+ *  Never creates the file. Returns true if it changed. */
+function removeHookFromFile(path: string, event: string, command: string): boolean {
+  if (!existsSync(path)) return false;
+  const settings = loadSettings(path);
+  const arr = settings.hooks?.[event];
+  if (!Array.isArray(arr)) return false;
+  const before = JSON.stringify(arr);
+  const cleaned = (arr as unknown[]).filter((g) => {
+    if (!g || typeof g !== "object") return false;
+    const o = g as { type?: string; command?: string; hooks?: HookEntry[] };
+    if (o.type === "command") return o.command !== command; // legacy malformed
+    if (Array.isArray(o.hooks)) return !o.hooks.some((h) => h.command === command);
+    return true; // unknown shape — leave it
+  }) as HookGroup[];
+  if (JSON.stringify(cleaned) === before) return false;
+  settings.hooks![event] = cleaned;
+  writeFileSync(path, JSON.stringify(settings, null, 2) + "\n");
+  return true;
+}
+
+/** Install a personal command hook. Writes to the per-user, gitignored
+ *  `.claude/settings.local.json` (NOT the committed settings.json, which is
+ *  team-shared), and migrates any prior copy out of settings.json. */
+function installHook(
+  repoRoot: string,
+  event: string,
+  command: string,
+): { path: string; addedHook: boolean } {
+  const dir = join(repoRoot, ".claude");
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  const path = join(dir, "settings.local.json");
+  const settings = loadSettings(path);
+  const added = ensureHook(settings, event, command);
+  writeFileSync(path, JSON.stringify(settings, null, 2) + "\n");
+  // Migration: strip any old copy from the committed settings.json.
+  removeHookFromFile(join(dir, "settings.json"), event, command);
+  return { path, addedHook: added };
+}
+
 export function installSessionStartHook(repoRoot: string): {
   path: string;
   addedHook: boolean;
 } {
-  const dir = join(repoRoot, ".claude");
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  const path = join(dir, "settings.json");
-  const settings = loadSettings(path);
-  const added = ensureHook(settings, "SessionStart", SESSION_START_COMMAND);
-  writeFileSync(path, JSON.stringify(settings, null, 2) + "\n");
-  return { path, addedHook: added };
+  return installHook(repoRoot, "SessionStart", SESSION_START_COMMAND);
 }
 
 export function installStopHook(repoRoot: string): {
   path: string;
   addedHook: boolean;
 } {
-  const dir = join(repoRoot, ".claude");
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  const path = join(dir, "settings.json");
-  const settings = loadSettings(path);
-  const added = ensureHook(settings, "Stop", STOP_COMMAND);
-  writeFileSync(path, JSON.stringify(settings, null, 2) + "\n");
-  return { path, addedHook: added };
+  return installHook(repoRoot, "Stop", STOP_COMMAND);
 }
 
 /** Write the per-repo state file. Contains the folder_id the CLI bound

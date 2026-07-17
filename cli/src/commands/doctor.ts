@@ -12,7 +12,7 @@
  * Every failure prints a one-line fix.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import kleur from "kleur";
 import { readConfig } from "../lib/config.js";
@@ -144,12 +144,25 @@ export async function doctor(): Promise<void> {
     ok: mcpJson,
     hint: mcpJson ? undefined : "Run: kioku init",
   });
-  const settingsPath = join(repoRoot, ".claude", "settings.json");
-  const settingsExists = existsSync(settingsPath);
+  // kioku's SessionStart/Stop hooks live in the per-user settings.local.json.
+  const localSettingsPath = join(repoRoot, ".claude", "settings.local.json");
+  let hookInstalled = false;
+  try {
+    if (existsSync(localSettingsPath)) {
+      const s = JSON.parse(readFileSync(localSettingsPath, "utf8")) as {
+        hooks?: { SessionStart?: Array<{ hooks?: Array<{ command?: string }> }> };
+      };
+      hookInstalled = !!s.hooks?.SessionStart?.some((g) =>
+        g.hooks?.some((h) => (h.command ?? "").includes("kioku")),
+      );
+    }
+  } catch {
+    /* leave false */
+  }
   print({
-    name: ".claude/settings.json",
-    ok: settingsExists,
-    hint: settingsExists ? undefined : "Run: kioku init",
+    name: "SessionStart hook (settings.local.json)",
+    ok: hookInstalled,
+    hint: hookInstalled ? undefined : "Run: kioku init",
   });
   const claudeMd = existsSync(join(repoRoot, "CLAUDE.md"));
   print({
@@ -166,7 +179,7 @@ export async function doctor(): Promise<void> {
 
   // Summary
   const anyFailed = checks.some((c) => !c.ok && !c.name.includes("optional"));
-  const bindingFailed = !mcpJson || !settingsExists || !claudeMd;
+  const bindingFailed = !mcpJson || !hookInstalled || !claudeMd;
   console.log();
   if (anyFailed || bindingFailed) {
     console.log(panel({ title: "Result", body: "Some checks failed. Follow the fix hints, then re-run kioku doctor.", tone: "warn" }));

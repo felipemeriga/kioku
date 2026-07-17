@@ -30,7 +30,9 @@ export async function status(): Promise<void> {
 
   const repoRoot = resolve(process.cwd());
   const mcpPath = join(repoRoot, ".mcp.json");
-  const hookPath = join(repoRoot, ".claude", "settings.json");
+  // kioku's hooks live in the per-user settings.local.json (not the committed
+  // settings.json).
+  const hookPath = join(repoRoot, ".claude", "settings.local.json");
   const claudeMdPath = join(repoRoot, "CLAUDE.md");
   const git = detectGit(repoRoot);
 
@@ -45,18 +47,18 @@ export async function status(): Promise<void> {
   if (existsSync(hookPath)) {
     try {
       const s = JSON.parse(readFileSync(hookPath, "utf8")) as {
-        hooks?: { SessionStart?: Array<{ command: string }> };
+        hooks?: { SessionStart?: Array<{ hooks?: Array<{ command?: string }> }> };
       };
-      const has = s.hooks?.SessionStart?.some((h) =>
-        h.command.includes("kioku"),
+      const has = s.hooks?.SessionStart?.some((g) =>
+        g.hooks?.some((h) => (h.command ?? "").includes("kioku")),
       );
       if (has) ok("SessionStart hook installed");
-      else warn("SessionStart hook not set");
+      else warn("SessionStart hook not set", "Run: kioku init");
     } catch {
-      warn(".claude/settings.json unreadable");
+      warn(".claude/settings.local.json unreadable");
     }
   } else {
-    warn(".claude/settings.json missing");
+    warn("SessionStart hook not set", "Run: kioku init");
   }
   if (existsSync(claudeMdPath)) ok("CLAUDE.md present");
   else warn("CLAUDE.md missing");
