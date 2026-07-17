@@ -359,3 +359,12 @@
 - routes/: no async service fn called without await. Clean.
 - CONCLUSION: the iter43 async/await bug was ISOLATED — no other broken tools/endpoints of that class. Fix was complete.
 - NO new bug. No code change. Stack healthy.
+
+## Iteration 45 (NOTION SYNC — the branch's namesake feature, never tested before; BUG FOUND + FIXED)
+- Discovered the whole Notion-sync subsystem (routes/notion.py, services/notion_sync/*, 7 test files, NotionIntegrationSection.tsx) — the feat/notion-sync branch's core feature, untested by the loop until now.
+- Notion unit tests: 22 passed. User HAS 1 Notion config connected (GET /api/notion/configs → 200, 1 config).
+- Error-path testing of /api/notion endpoints found a BUG (same class as iter19): a MALFORMED (non-UUID) config_id → HTTP 500 (Postgres 22P02 on the uuid column) on /configs/{id}/sync, /reconcile, and DELETE /configs/{id}. Valid-but-nonexistent UUIDs correctly 404.
+- Fix (commit): added _is_uuid guard in notion.py, applied to _enqueue_sync (covers sync+reconcile) and disconnect → 404 for malformed ids. Backend restarted; 12 tests pass.
+- Verified: malformed id → 404 on all 3 endpoints; non-existent valid UUID → 404; GET /configs still 200; no-auth → 401.
+- NOT tested (needs live Notion OAuth beyond the connected config / would trigger real syncs): actual sync/reconcile execution, page ingestion, block→markdown conversion (covered by unit tests though).
+- Stack healthy.
