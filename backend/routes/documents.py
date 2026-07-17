@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from auth import get_current_user
 from db.client import get_supabase
+from routes._validation import require_uuid
 from services.ingestion import (
     EXTENSION_TO_TYPE,
     check_duplicate,
@@ -221,6 +222,8 @@ async def list_documents(
     user_id: str = Depends(get_current_user),
 ):
     """List user's uploaded documents, grouped by source filename, optionally filtered by folder."""
+    if folder_id:
+        require_uuid(folder_id, "Folder not found")
     sb = get_supabase()
     query = (
         sb.table("documents")
@@ -321,6 +324,8 @@ async def get_document_content(
     stored (image, PDF, audio…), a short-lived signed URL the browser can
     embed in an <img> / <iframe> / <audio> tag inline.
     """
+    if folder_id:
+        require_uuid(folder_id, "Folder not found")
     sb = get_supabase()
     q = (
         sb.table("documents")
