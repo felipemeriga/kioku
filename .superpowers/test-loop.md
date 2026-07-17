@@ -426,3 +426,9 @@
 - BUG: `kioku search --json` emitted valid JSON but the "⇧ Update available" notification printed to STDOUT after it → corrupts machine-readable output (json.load/jq fail on the trailing line). checkForUpdate runs after every command; maybeNotify used console.log (stdout). Same class as the earlier search --json spinner-pollution fix.
 - Fix (commit): guard maybeNotify on process.stdout.isTTY — interactive terminals still see the notice, piped/redirected/--json consumers get clean stdout. Verified: search --json > file now parses as pure JSON; 11/11 CLI tests pass.
 - Stack healthy.
+
+## Iteration 54 (verify the iter53 --json fix is comprehensive across all --json commands)
+- Commands supporting --json: ls, briefing, search, whoami, open.
+- Tested each with redirected (non-TTY) stdout → ALL emit PURE JSON (json.load succeeds).
+- Confirms the iter53 isTTY guard (in the shared checkForUpdate) fixed the update-line pollution GLOBALLY — every --json command at once — and no other pollutant (banner/spinner/header) leaks into any command's --json output.
+- NO new bug. No code change. Stack healthy.
