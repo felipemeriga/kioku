@@ -232,7 +232,7 @@ program
     "after",
     `
 Examples:
-  $ kioku briefing                          # full 8-section briefing
+  $ kioku briefing                          # full 9-section briefing
   $ kioku briefing --section deployment     # just one section
   $ kioku briefing --json | jq .sections.overview
 `,

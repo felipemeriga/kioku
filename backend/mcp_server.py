@@ -707,7 +707,7 @@ def list_folders_in_scope() -> str:
             "get_folder_orientation(folder='<name>') to focus on any of these. "
             "The 'folder' argument accepts a name ('c360-lead'), a slash-path "
             "('cosm/c360-lead'), or a UUID. Repo folders have the strict "
-            "8-section briefing; regular folders have a freeform summary."
+            "9-section briefing; regular folders have a freeform summary."
         ),
     }, indent=2, ensure_ascii=False)
 
@@ -768,7 +768,7 @@ def get_folder_briefing(folder: str | None = None) -> str:
         # Focus on the repo you're working in
         get_folder_briefing(folder='c360-lead')
 
-    Returns the full 8-section briefing (status, content, provenance,
+    Returns the full 9-section briefing (status, content, provenance,
     updated_at, updated_by per section) plus a hint reminding you to
     call update_folder_briefing_section to write back new facts.
 
@@ -828,7 +828,7 @@ def replace_folder_briefing(
     pin_all: bool = True,
     folder: str | None = None,
 ) -> str:
-    """Replace the ENTIRE briefing in one call — all 8 sections at once.
+    """Replace the ENTIRE briefing in one call — all the stable sections at once (activity is injected live; documentation is set via save_repo_documentation).
 
     Use when you want to overwrite the whole briefing (e.g. after doing
     a big investigation that touched every area). Call
@@ -1214,7 +1214,7 @@ def get_folder_orientation(
             - changes: files added/removed/modified in the KB since the previous summary
             - commits: recent GitHub activity (empty if no GitHub integration)
         - subfolders: (workspace_rollup folders only) structured index of children
-        - briefing: (repo folders only) the 8-section briefing
+        - briefing: (repo folders only) the 9-section briefing
         - metadata: last_generated_at, kind, doc_count
     """
     if not _current_user_id.get():
@@ -1348,7 +1348,7 @@ def get_folder_orientation(
         except Exception:  # noqa: BLE001
             pass  # Don't fail orientation on rollup-index assembly errors.
 
-    # For repo folders, add the strict 8-section briefing so a coding
+    # For repo folders, add the strict 9-section briefing so a coding
     # agent has structured facts to work with immediately + can update
     # any section via update_folder_briefing_section.
     sections = row.get("sections") or (row.get("content") or {}).get("sections")
