@@ -144,6 +144,53 @@ export async function doctor(): Promise<void> {
     ok: mcpJson,
     hint: mcpJson ? undefined : "Run: kioku init",
   });
+  // Validate that the .mcp.json api key actually AUTHENTICATES — file
+  // existence isn't enough. A key can be revoked (re-initing a sibling repo
+  // under the same scope, or from the UI) while the file stays put; then
+  // Claude Code's SessionStart hook + every MCP tool 401 silently. Only flag
+  // a confirmed rejection so a missing key/state doesn't double-report.
+  let keyRejected = false;
+  if (mcpJson) {
+    let keyOk = false;
+    let keyDetail = "";
+    try {
+      const mcp = JSON.parse(readFileSync(join(repoRoot, ".mcp.json"), "utf8")) as {
+        mcpServers?: Record<string, { headers?: Record<string, string> }>;
+      };
+      const auth = mcp.mcpServers?.["kioku"]?.headers?.Authorization;
+      let folderId: string | undefined;
+      try {
+        folderId = (
+          JSON.parse(
+            readFileSync(join(repoRoot, ".claude", "kioku-state.json"), "utf8"),
+          ) as { folder_id?: string }
+        ).folder_id;
+      } catch {
+        /* no state file */
+      }
+      if (auth && folderId) {
+        const r = await timedFetch(
+          `${cfg.api_base}/api/cli/folder-summary?folder_id=${encodeURIComponent(folderId)}`,
+          { headers: { Authorization: auth } },
+        );
+        keyOk = r.status === 200;
+        keyRejected = r.status === 401 || r.status === 403;
+        keyDetail = keyOk ? "authenticates OK" : `rejected (HTTP ${r.status})`;
+      } else {
+        keyOk = true; // nothing to validate — don't false-alarm
+        keyDetail = "skipped (no key or folder_id)";
+      }
+    } catch (err) {
+      keyOk = true; // network/parse error → not a key problem; other checks cover it
+      keyDetail = err instanceof Error ? err.message : String(err);
+    }
+    print({
+      name: "API key valid",
+      ok: keyOk,
+      detail: keyDetail,
+      hint: keyRejected ? "Key revoked or invalid — run: kioku init" : undefined,
+    });
+  }
   // kioku's SessionStart/Stop hooks live in the per-user settings.local.json.
   const localSettingsPath = join(repoRoot, ".claude", "settings.local.json");
   let hookInstalled = false;
@@ -179,7 +226,7 @@ export async function doctor(): Promise<void> {
 
   // Summary
   const anyFailed = checks.some((c) => !c.ok && !c.name.includes("optional"));
-  const bindingFailed = !mcpJson || !hookInstalled || !claudeMd;
+  const bindingFailed = !mcpJson || !hookInstalled || !claudeMd || keyRejected;
   console.log();
   if (anyFailed || bindingFailed) {
     console.log(panel({ title: "Result", body: "Some checks failed. Follow the fix hints, then re-run kioku doctor.", tone: "warn" }));
