@@ -113,3 +113,11 @@
   - get_folder_orientation ✓ — 7183 chars, mentions image-to-ascii.
 - Verified: folder-summary needs_generation→False, 8 sections, overview.purpose stored correctly; UI /briefing shows all 8. 
 - NO bugs found. Stack healthy.
+
+## Iteration 14 (BUG FOUND + FIXED — HIGH IMPACT: .mcp.json missing type:sse broke ALL kioku MCP tools)
+- Full E2E on a Solidity DeFi repo (defi-lending-contract). init + activity fine, but the autogen claude -p EXITED WITHOUT WRITING (needs_generation stayed True).
+- Root cause (from the autogen's own log): `.mcp.json` kioku entry was `{url,headers}` with NO `"type"`. Claude Code parses a typeless entry as a stdio server ("command: expected string, received undefined") and SILENTLY SKIPS kioku → none of its MCP tools register → the autogen couldn't call get_folder_briefing_schema/replace_folder_briefing, and every in-session tool call would fail too. (Likely surfaced by a Claude Code version bump mid-loop — earlier autogens on the same format had succeeded.)
+- Fix (commit): backend mint mcp_config now emits `"type":"sse"` (cli.py), AND the CLI writeMcpConfig forces `{type:"sse", ...}` on write so re-running `init` REPAIRS older repos. 11/11 CLI tests pass; backend restarted.
+- Verified E2E: re-init writes type:sse; fresh backend mint includes it; relaunched autogen WROTE the briefing via MCP in ~70s (needs_generation→False) — grounded Solidity content ("UUPS-upgradeable ... DeFi lending pool ... USDC collateral"), 8 sections in folder-summary + UI.
+- Repaired all 6 other wired repos' .mcp.json (Chat/Emberblast/kubernetes-go-grpc/todo-api-pf/image-to-ascii/defi-lending-cli → type=sse).
+- Stack healthy.
