@@ -10,10 +10,12 @@ import theme from "../theme";
 import { renderWithProviders } from "../test/renderWithProviders";
 import CliAuthPage from "./CliAuthPage";
 
-const mockUseAuth = vi.fn(() => ({
-  session: { user: { email: "me@example.com" } },
-  loading: false,
-}));
+const mockUseAuth = vi.fn(
+  (): { session: { user: { email: string } } | null; loading: boolean } => ({
+    session: { user: { email: "me@example.com" } },
+    loading: false,
+  }),
+);
 vi.mock("../hooks/useAuth", () => ({
   useAuth: () => mockUseAuth(),
 }));

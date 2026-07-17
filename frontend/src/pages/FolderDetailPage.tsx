@@ -191,6 +191,10 @@ export default function FolderDetailPage() {
       status: null,
       created_at: null,
       content: "",
+      // Loading placeholder — real values arrive from fetchDocumentContent below.
+      viewable_as: "text",
+      file_url: null,
+      bucket: null,
     });
     try {
       const doc = await fetchDocumentContent(filename, folderId);

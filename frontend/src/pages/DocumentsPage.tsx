@@ -286,7 +286,9 @@ export default function DocumentsPage() {
     setDragOver(false);
   }, []);
 
-  const [subFolders, setSubFolders] = useState<{ id: string; name: string }[]>(
+  const [subFolders, setSubFolders] = useState<
+    { id: string; name: string; kind?: "folder" | "repo" }[]
+  >(
     []
   );
 
@@ -295,7 +297,7 @@ export default function DocumentsPage() {
   const loadSubFolders = useCallback(() => {
     fetchFolders(currentFolderId)
       .then((data) =>
-        setSubFolders(data.map((f) => ({ id: f.id, name: f.name })))
+        setSubFolders(data.map((f) => ({ id: f.id, name: f.name, kind: f.kind })))
       )
       .catch((err) => {
         // eslint-disable-next-line no-console
