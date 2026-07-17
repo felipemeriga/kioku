@@ -179,3 +179,10 @@
   - replace_folder_briefing invalid JSON → "Error: sections argument must be valid JSON: ..."
 - Capture rate-limit ✓ — 6 captures/window succeed, then HTTP 429 with Retry-After:597. Graceful: the CLI watermark only advances on a successful SAVE, so a rate-limited capture is not lost (next one captures the accumulated delta).
 - NO bugs found. All error branches robust. Stack healthy.
+
+## Iteration 21 (SECURITY: api-key scope enforcement on folder-summary — BUG FOUND + FIXED)
+- Tested scope isolation of repo-scoped keys (iter6). Found: GET /api/cli/folder-summary checked only OWNERSHIP (folders.user_id), NOT scope containment — so repo A's key returned HTTP 200 with repo B's full briefing (sibling repos readable). Inconsistent with session-capture + MCP tools (which enforce scope); a leftover from the pre-iter6 root-scoped era.
+- Impact: a leaked repo api key (lives in .mcp.json) could read ALL the user's briefings, not just its repo — defeating repo-scoping isolation.
+- Fix (commit): folder_summary now enforces folder_id ∈ key's scope subtree (via _descendant_folder_ids, same as capture), returning 403 otherwise. Fast path: reading the scope folder itself skips the walk; a root-scoped key still reaches its whole subtree.
+- Verified: own→200; repo-scoped key→sibling repo→403 (was 200); root-scoped key→child repo→200 (backward-compatible); root→root→200. 7 backend tests pass.
+- Stack healthy.
