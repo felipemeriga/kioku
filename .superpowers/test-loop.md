@@ -407,3 +407,10 @@
 - Fix (commit): require_uuid guard (only-when-provided) on both list_documents + get_document_content.
 - Verified: both → 404 on malformed folder_id; list + valid-folder filter → 200; backend suite 105 passed.
 - Stack healthy. NOTE: upload/ingestion (POST /upload) not exercised (needs multipart file + would trigger real embedding/ingestion); its logic is partially covered by chunker/embeddings unit tests.
+
+## Iteration 51 (last untested route files: chat.py + drop.py; BUG in chat)
+- chat.py POST /chat: malformed conversation_id → the id reached the uuid column inside stream_rag_response (rag.py insert into messages) → 22P02 → CRASHED the SSE generator. Client got a silent empty stream (HTTP 200 with no body); server logged a traceback. Malformed-uuid class in the streaming path.
+- Fix (commit): require_uuid guard in the chat endpoint BEFORE the StreamingResponse → clean 404. Verified: malformed conv_id → 404; no 22P02 in log; suite 105 passed.
+- drop.py POST /drop (api-key auth, multipart upload): validation works — bad bearer → auth error, unsupported extension → 400. (Real ingestion not triggered.) No bug.
+- NOTED follow-up (not fixed): a valid-but-NONEXISTENT conversation_id would also crash the generator (FK violation on messages.conversation_id insert) — separate from the malformed case; needs an ownership check before streaming. Lower priority (normal clients create the conversation first).
+- All route files now swept for the malformed-id class. Stack healthy.
