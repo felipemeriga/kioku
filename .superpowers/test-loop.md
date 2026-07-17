@@ -352,3 +352,10 @@
 - BUG 2 (revealed after fixing 1): RAGAS returns None for an uncomputable metric (e.g. empty context); the '{score:.3f}' formatting then raised 'unsupported format string passed to NoneType'. Fix: _fmt() helper prints 'N/A' for non-numeric scores (both the aggregate + per-question loops).
 - Verified end-to-end: tool now retrieves, generates an answer ("...two distinct ingestion pipelines..."), reports scores (faithfulness=N/A, answer_relevancy=0.611, context_precision=0.804). MCP restarted; stack healthy. Test key cleaned up.
 - MILESTONE: all 20 MCP tools now hands-on validated. This one being fully broken shows the "actually call every tool" approach pays off.
+
+## Iteration 44 (audit the iter43 bug CLASS: sync-calls-async-without-await)
+- After finding evaluate_retrieval's missing-await bug, systematically audited the whole backend for the same class: every `async def` in services/ cross-checked against its call sites in mcp_server.py and routes/.
+- mcp_server.py: only 2 async service fns are called (evaluate_rag_pipeline, fanout_search) — BOTH awaited (evaluate was the iter43 fix). Clean.
+- routes/: no async service fn called without await. Clean.
+- CONCLUSION: the iter43 async/await bug was ISOLATED — no other broken tools/endpoints of that class. Fix was complete.
+- NO new bug. No code change. Stack healthy.
