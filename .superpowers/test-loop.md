@@ -152,3 +152,11 @@
 - Verified: doc_needs_generation=False; abstract injected in the documentation section + retrieval pointer; get_repo_documentation returns the full doc; UI /briefing shows all 9 sections incl. documentation.
 - Left the doc in place (accurate real content, unlike the iter16 stub). NO bugs. Stack healthy.
 - SECURITY NOTE for the user: the deep-doc scan surfaced a committed npm auth token in defi-lending-contract/.npmrc — worth rotating/removing.
+
+## Iteration 18 (FULL golden-path lifecycle on a polyglot C++/gRPC/React repo)
+- cpp-grpc-react-boilerplate (fresh): full real-user lifecycle in one pass.
+- init ✓ — .mcp.json has type:sse (iter14 fix confirmed on a fresh init).
+- 7-section autogen ✓ (~180s) — grounded, identified the 3-tier "React app talking to a C++ gRPC service" architecture. 8 sections.
+- real deep-doc ✓ (~190s) — 18,424 chars, grounded across tiers (mentions gRPC, React, .proto). Abstract in documentation section.
+- ALL 9 sections present; needs_generation=False AND doc_needs_generation=False; verified in CLI folder-summary AND UI /briefing (9 sections).
+- Proves the whole lifecycle works E2E on a fresh polyglot repo after both bug fixes (iter6 key-scoping, iter14 type:sse). NO bugs. Stack healthy.
