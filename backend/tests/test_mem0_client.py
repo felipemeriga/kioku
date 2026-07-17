@@ -53,8 +53,6 @@ def test_add_duplicate_backfills_existing_id(monkeypatch):
 
 
 def test_add_degrades_on_transport_error(monkeypatch):
-    fake = _patch_http(monkeypatch)
-
     def boom(*a, **k):
         raise RuntimeError("connection refused")
 
