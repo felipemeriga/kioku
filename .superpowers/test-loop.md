@@ -368,3 +368,11 @@
 - Verified: malformed id → 404 on all 3 endpoints; non-existent valid UUID → 404; GET /configs still 200; no-auth → 401.
 - NOT tested (needs live Notion OAuth beyond the connected config / would trigger real syncs): actual sync/reconcile execution, page ingestion, block→markdown conversion (covered by unit tests though).
 - Stack healthy.
+
+## Iteration 46 (SYSTEMATIC AUDIT + fix: malformed-id → 500 was WIDESPREAD)
+- Followed up the iter19+iter45 pattern with a repo-wide sweep: enumerated every id-path-param endpoint and hit each with a malformed id (not-a-uuid).
+- Found the bug class in 10+ endpoints across 6 routers → HTTP 500: api-keys revoke; conversations get/rename/delete; context delete; notes delete; ingestion-jobs get; mem0 disconnect/deduplicate/verify/list-memories/delete-memory. (folders/briefing already 404/422.)
+- Fix (commit): new shared routes/_validation.py (is_uuid + require_uuid→404), guard added to all affected endpoints. Backend restarted; full suite 105 passed.
+- Verified: re-sweep — ALL previously-500 endpoints now return 404 on a malformed id; valid endpoints (GET /conversations, /notes, /mem0/configs) still 200.
+- Follow-up (optional DRY): iter19 (cli.py) + iter45 (notion.py) have local _is_uuid copies that could migrate to routes/_validation.require_uuid.
+- Stack healthy.
