@@ -68,6 +68,18 @@ function FolderTreeNode({
     }
   }, [folder.id, folder.name]);
 
+  // Keep an expanded node's children in sync when folders change elsewhere
+  // (e.g. a nested subfolder was deleted). Without this, only the root list
+  // refreshed on `folders-changed`, so deleted subfolders lingered in the
+  // parent's cached children until collapse/refresh.
+  useEffect(() => {
+    const handler = () => {
+      if (loaded) void loadChildren();
+    };
+    window.addEventListener("folders-changed", handler);
+    return () => window.removeEventListener("folders-changed", handler);
+  }, [loaded, loadChildren]);
+
   const handleToggle = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!loaded) await loadChildren();
