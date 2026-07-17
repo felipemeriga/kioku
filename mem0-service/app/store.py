@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import hashlib
 import re
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
+import psycopg
 from mem0 import Memory
 
 from app.config import settings
@@ -79,12 +81,32 @@ def build_metadata(
     }
 
 
+def _with_search_path(url: str, schema: str) -> str:
+    """Pin the connection's search_path to `<schema>,public` so mem0's table is
+    created in the mem0 schema while the `vector` type (in public on Supabase)
+    stays resolvable."""
+    parts = urlparse(url)
+    query = dict(parse_qsl(parts.query))
+    query["options"] = f"-csearch_path={schema},public"
+    return urlunparse(parts._replace(query=urlencode(query)))
+
+
+def _ensure_schema() -> None:
+    """Idempotently create the mem0 schema (and the vector extension if missing)
+    before mem0 tries to create its table."""
+    with psycopg.connect(settings.database_url, autocommit=True) as conn:
+        conn.execute(f'CREATE SCHEMA IF NOT EXISTS "{settings.mem0_schema}"')
+        conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+
+
 def _mem0_config() -> dict:
     return {
         "vector_store": {
             "provider": "pgvector",
             "config": {
-                "connection_string": settings.database_url,
+                "connection_string": _with_search_path(
+                    settings.database_url, settings.mem0_schema
+                ),
                 "collection_name": "memories",
                 "embedding_model_dims": settings.embedder_dims,
             },
@@ -109,7 +131,11 @@ class MemoryStore:
 
     def __init__(self, memory: Memory | None = None):
         # `memory` injectable for tests; built from config otherwise.
-        self._m = memory if memory is not None else Memory.from_config(_mem0_config())
+        if memory is not None:
+            self._m = memory
+        else:
+            _ensure_schema()
+            self._m = Memory.from_config(_mem0_config())
 
     def _scope_filters(self, user_id: str, folder_id: str) -> dict:
         return {"user_id": user_id, "agent_id": folder_id}
