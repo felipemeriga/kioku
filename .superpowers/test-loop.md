@@ -376,3 +376,12 @@
 - Verified: re-sweep — ALL previously-500 endpoints now return 404 on a malformed id; valid endpoints (GET /conversations, /notes, /mem0/configs) still 200.
 - Follow-up (optional DRY): iter19 (cli.py) + iter45 (notion.py) have local _is_uuid copies that could migrate to routes/_validation.require_uuid.
 - Stack healthy.
+
+## Iteration 47 (extend the malformed-id sweep to QUERY params + body)
+- iter46 did path params; swept QUERY-param + POST-body ids next.
+- QUERY-param root_folder_id → 500 (bug) on: GET /notes, GET /context, DELETE /context/clear, GET /mem0/memories/rules, GET /mem0/memories/recent.
+- POST-body ids (POST /notes, POST /notion/configs with malformed root_folder_id) → 400 (already graceful, no fix needed).
+- Fix (commit): require_uuid guard — only-when-provided for the optional list filters (notes/context), and via the shared mem0 _validate_folder + _load_client helpers (covers rules/recent + future folder-validating endpoints in one place).
+- Verified: all query-param endpoints now 404; no-filter list_notes/list_context still 200; backend suite 105 passed.
+- The malformed-id → 500 class (path + query) is now comprehensively closed across the API.
+- Stack healthy.
