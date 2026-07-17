@@ -280,3 +280,9 @@
 - Post-experiment cleanup verified: stack healthy, NO stray :8010 process, git tree clean (0 uncommitted), api_keys queryable (13 rows, no dangling lock from the -9 kills). Environment is clean after iter31-32.
 - Clean init+verify on tweet-locator (fresh): detected haykadamyan/tweet-locator, wired folder+key+hooks; .mcp.json has type:sse; folder-summary needs_generation=True + 7 stable sections; doctor "✓ API key valid — authenticates OK" + "All checks passed."
 - All this loop's fixes confirmed working together on a fresh repo (type:sse, repo-scoped key, doctor key-validation). NO bug. Stack healthy.
+
+## Iteration 34 (full happy-path pipeline regression on a fresh JS repo)
+- Completed the literal loop cycle on tweet-locator (Next.js + Express, JS): init → autogen (~80s) → grounded briefing → verify.
+- overview grounded: "A Next.js + Express web app that searches geolocated tweets: pick a spot on a Google Map ..." ✓
+- needs_generation=False, 8 sections in CLI folder-summary AND UI /briefing (9th=documentation not generated, expected).
+- Confirms the whole init→autogen→briefing→folder-summary+UI pipeline still works end-to-end after all 33 prior iterations of changes. NO bug. Stack healthy.
