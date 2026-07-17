@@ -78,6 +78,10 @@ function maybeNotify(current: string, latest: string | null): void {
   if (compareSemver(latest, current) <= 0) return;
   // Subtle bottom-of-output line. Skip if quiet.
   if (process.env.KIOKU_QUIET) return;
+  // Only for an interactive terminal — otherwise this stdout line corrupts
+  // machine-readable output (e.g. `kioku search --json | jq`, or any piped /
+  // redirected command). Non-TTY consumers must get clean stdout.
+  if (!process.stdout.isTTY) return;
   console.log();
   console.log(
     `  ${kleur.yellow("⇧")} ${kleur.dim(
