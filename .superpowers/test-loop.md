@@ -286,3 +286,15 @@
 - overview grounded: "A Next.js + Express web app that searches geolocated tweets: pick a spot on a Google Map ..." ✓
 - needs_generation=False, 8 sections in CLI folder-summary AND UI /briefing (9th=documentation not generated, expected).
 - Confirms the whole init→autogen→briefing→folder-summary+UI pipeline still works end-to-end after all 33 prior iterations of changes. NO bug. Stack healthy.
+
+## Iteration 35 (BUG FOUND + FIXED: CLAUDE.md documents wrong MCP tool param names)
+- Testing save_memory MCP tool → validation error "content Field required". The injected CLAUDE.md (written by kioku init into every repo) documented tool calls with WRONG argument names:
+  - save_memory(text, category=...)        → actual param is 'content'
+  - query_documents_metadata(query)         → actual param is 'question'
+  A Claude session following those instructions verbatim would get a validation error and the call fails.
+- Audited all 8 tools in the snippet: the rest already matched (get_folder_briefing(folder), search_memory(query), knowledge_base_search(query), update_folder_briefing_section(section,content,pin), list_folders_in_scope(), get_folder_orientation()).
+- Fix (commit): corrected save_memory→content and query_documents_metadata→question in cli/src/lib/claude.ts. CLI rebuilt; 11/11 tests pass. Verified save_memory(content=...) → {ok:true} saves fine.
+- OPERATIONAL FINDING (flag to user): the Mem0 CLOUD QUOTA is EXHAUSTED — RateLimitError "quota_used 1000/1000, resets 2026-08-01". Mem0-backed features (capture saves, save_memory, memory search) will be limited until reset/upgrade.
+- Graceful degradation CONFIRMED: session-capture returns HTTP 200 (not 500) even with Mem0 quota exhausted — the Stop hook won't break.
+- Minor: one SM2-TEST-b7 memory saved during the test couldn't be deleted (Mem0 search is quota-blocked); it'll linger in the agentic-rag folder until quota resets. Low impact.
+- Stack healthy.
