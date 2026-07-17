@@ -313,3 +313,9 @@
   2. BUT the autogen currently writes with pin_all=True (default), so it pins everything → if we skip pinned, a re-autogen would skip ALL sections and never refresh. So the autogen's generateInstruction must call replace_folder_briefing with pin_all=FALSE (autogen content = "auto", regenerable; only explicit user pins are protected).
   3. MIGRATION: existing repos already have autogen sections marked status="pinned" (from the current default) — after the fix they'd be frozen (never regen). Needs a one-time downgrade of autogen-authored pins to "auto", or the fix only helps new repos.
 - RECOMMENDATION to user: decide whether to (a) implement the 2-part fix + migration to make pins truly protective, or (b) soften the CLAUDE.md claim. I did NOT change code (touches designed pin semantics + migration). NO code change. Stack healthy.
+
+## Iteration 38 (doc-accuracy: stale "8-section" → 9 across docstrings + CLAUDE.md + help)
+- CLAUDE.md described get_folder_briefing() as an "8-section briefing" omitting the documentation section (SECTION_KEYS has 9). Fixed (commit).
+- Found MORE stale "8-section" refs: 4 MCP tool docstrings in mcp_server.py (get_folder_briefing/orientation — these ARE the tool descriptions Claude reads), replace_folder_briefing's docstring, and the `kioku briefing` CLI help. Fixed all → 9-section; reworded replace_folder_briefing to note it writes the STABLE sections (activity live, documentation via save_repo_documentation).
+- CLI rebuilt (11/11 tests pass), mcp_server.py syntax OK, MCP :8001 restarted to serve the corrected tool descriptions. Verified post-restart: tools list works + get_folder_briefing description now says "9-section".
+- Doc/behavior now consistent. Stack healthy.
