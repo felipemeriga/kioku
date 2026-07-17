@@ -298,3 +298,9 @@
 - Graceful degradation CONFIRMED: session-capture returns HTTP 200 (not 500) even with Mem0 quota exhausted — the Stop hook won't break.
 - Minor: one SM2-TEST-b7 memory saved during the test couldn't be deleted (Mem0 search is quota-blocked); it'll linger in the agentic-rag folder until quota resets. Low impact.
 - Stack healthy.
+
+## Iteration 36 (hands-on validate the iter35 CLAUDE.md param fix)
+- Called query_documents_metadata(question='What documents exist?') hands-on → 1647 chars, real text-to-SQL over the documents table (SELECT DISTINCT ON (source_filename) ... WHERE user_id=... AND root_folder_id=...). Works with the CORRECTED 'question' param.
+- Negative check: calling with the OLD wrong param query= → "Error executing tool ... 1 validation error" REJECTED. Confirms the iter35 mismatch was real (old CLAUDE.md doc would have failed) and the fix is correct.
+- Note: query_documents_metadata works despite Mem0 quota exhaustion (it hits Postgres documents table, not Mem0).
+- NO new bug — iter35 fix validated end-to-end. Stack healthy.
