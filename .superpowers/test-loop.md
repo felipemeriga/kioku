@@ -206,3 +206,10 @@
 - Verified with fix: 3 concurrent inits on a fresh repo (discord-bot) ALL succeed (was 1 abort); final state 1 folder, 1 valid key, .mcp.json type:sse, folder-summary 200.
 - Residual (not fixed, didn't manifest): the backend key-mint delete-then-insert for the same (user,scope) is theoretically racy (could 23505 on perfect interleave) but did not error under 3x concurrency and resolves to a single valid key. Deeper backend change; deferred.
 - Stack healthy.
+
+## Iteration 24 (mint-race residual from iter23 — probed directly)
+- Fired 10 concurrent POST /api/api-keys for the SAME (user, scope): ALL 200, final state exactly 1 key. The delete-then-insert did NOT produce a 23505/500.
+- WHY it's safe: single uvicorn worker + SYNCHRONOUS Supabase client → no `await` between create_api_key's delete and insert, so each request's delete+insert is effectively atomic vs. other requests. The event loop can't interleave mid-mint.
+- DEPLOYMENT NOTE (for the future other-host deploy): under multiple workers/processes (e.g. gunicorn -w N) this atomicity is lost — concurrent same-scope mints across workers could 23505 → 500. Harden then (catch 23505 + retry, or an upsert/transaction). Not fixed now: doesn't manifest single-worker, final state always consistent.
+- Cleanup: the 10 test mints revoked restful-rust's .mcp.json key (401); re-init restored it (200).
+- NO bug. No code change. Stack healthy.
