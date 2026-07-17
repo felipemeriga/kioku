@@ -400,3 +400,10 @@
 - The real risk of duplicated guards is DIVERGENCE. Verified behavioral consistency: tested the regex vs uuid.UUID implementations across 10 edge cases (malformed/empty/SQL-ish/no-hyphens/non-hex/trailing/valid) → 0 mismatches. The copies agree exactly.
 - DECISION: did NOT consolidate. It would be aesthetic-only (copies work + are consistent) and carries subtle-regression risk (regex vs uuid.UUID edge cases) not worth taking in an unattended loop (iter31-32 lesson). Left as a documented human-refactor task: replace the 3 local copies with routes/_validation.{is_uuid,require_uuid}.
 - NO code change. NO bug. Stack healthy.
+
+## Iteration 50 (untested route file: documents.py — malformed folder_id class extends here)
+- Tested documents.py (upload/list/content/download/move/delete + ingestion-status) — untested route file until now. Uses {filename} path params (DB text match, NOT filesystem paths → no traversal risk).
+- BUG (iter47 class, not swept in documents.py): GET /documents?folder_id=<non-uuid> and GET /documents/{filename}/content?folder_id=<non-uuid> → 500 (.eq folder_id on uuid col). Others were graceful: download 404, move 422, delete 200, ingestion-status has no id param.
+- Fix (commit): require_uuid guard (only-when-provided) on both list_documents + get_document_content.
+- Verified: both → 404 on malformed folder_id; list + valid-folder filter → 200; backend suite 105 passed.
+- Stack healthy. NOTE: upload/ingestion (POST /upload) not exercised (needs multipart file + would trigger real embedding/ingestion); its logic is partially covered by chunker/embeddings unit tests.
