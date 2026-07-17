@@ -339,3 +339,9 @@
 - save_note requires title+content (clear validation — my first call missed title, got a proper "title Field required" error, not a crash).
 - Round-trip ✓: save_note(title,content) → "Note saved (id ...)"; list_notes shows it (formatted: **title** (id, date) content); delete_note(note_id) → "Note deleted."; list_notes after → gone.
 - Notes are a separate store (not Mem0), so unaffected by the Mem0 quota. Test note cleaned up. NO bug. Stack healthy.
+
+## Iteration 42 (context tools — previously-untested feature)
+- Exercised set_context / get_context / list_context / clear_context via MCP (never tested).
+- Round-trip ✓: set_context(key,value) → "Context set"; get_context(key) → value round-trips; list_context → shows "**key**: value (expires: 2026-07-24)" — note context has a 7-day TTL; clear_context(key) → "Context cleared"; get after → "No context found."
+- Params clear (set: key+value required; get/clear: key). Test context cleared. NO bug. Stack healthy.
+- Untested tools now down to just evaluate_retrieval.
