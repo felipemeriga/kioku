@@ -76,3 +76,13 @@
 - UI /briefing data path re-verified: all 8 sections render.
 - doc migration STILL NOT APPLIED: repo_documentation table missing (PGRST205). The endpoint's doc_needs_generation=True is just the try/except default when the table is absent; it does NOT mean the doc flow works. save_repo_documentation would fail until the user applies supabase/migrations/20260716130000_repo_documentation.sql. (Can't apply via PostgREST client — needs psql/SQL editor / supabase db push.)
 - NO bugs found. Stack healthy.
+
+## Iteration 10 (LIVE MCP tool interface — the real Claude Code ↔ kioku path)
+- Connected a real MCP client over SSE (http://localhost:8001/sse) with the restful-rust REPO-scoped key (iter6 fix works over MCP too, not just REST).
+- list_tools ✓ — get_folder_briefing, update_folder_briefing_section, replace_folder_briefing all exposed.
+- get_folder_briefing ✓ — returned the full 9575-char briefing (all sections).
+- update_folder_briefing_section(section='preferences', pin=True) ✓ — returned "Updated section 'preferences' (status=pinned)". Persisted correctly: creates a NEW versioned folder_summaries row (provenance=agent_mcp), which becomes the latest so folder-summary/get_folder_briefing reflect it.
+- PIN verified ✓ — the section envelope stores status='pinned' (NOT a `pinned` bool; my first check looked at the wrong field → false alarm, no bug).
+- Observation (not a bug): each update_folder_briefing_section call writes a new full-content row (versioned history). Rows accumulate per section-update; folder-summary always reads latest so it's correct, but there's no pruning.
+- Cleanup: deleted the test row; restful-rust reverted to its real briefing (8 sections, 1 row, needs_generation=False). No pollution left.
+- NO bugs found. Stack healthy.
