@@ -22,13 +22,13 @@ const MARKER_END = "<!-- END kioku second-brain instructions -->";
 export interface McpConfig {
   mcpServers: Record<
     string,
-    { url: string; headers?: Record<string, string>; command?: string; args?: string[] }
+    { type?: string; url: string; headers?: Record<string, string>; command?: string; args?: string[] }
   >;
 }
 
 export function writeMcpConfig(
   repoRoot: string,
-  serverEntry: { url: string; headers: Record<string, string> },
+  serverEntry: { url: string; headers: Record<string, string>; type?: string },
 ): { path: string; existed: boolean } {
   const path = join(repoRoot, ".mcp.json");
   let existing: McpConfig = { mcpServers: {} };
@@ -43,7 +43,11 @@ export function writeMcpConfig(
       existing = { mcpServers: {} };
     }
   }
-  existing.mcpServers["kioku"] = serverEntry;
+  // Force type:"sse" — Claude Code needs it to load a remote MCP server;
+  // without it the entry is parsed as stdio and skipped. Writing it here (not
+  // just trusting the backend) means re-running `init` repairs older repos
+  // whose .mcp.json predates this fix.
+  existing.mcpServers["kioku"] = { type: "sse", ...serverEntry };
   writeFileSync(path, JSON.stringify(existing, null, 2) + "\n");
   return { path, existed };
 }

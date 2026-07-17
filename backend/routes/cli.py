@@ -233,6 +233,12 @@ async def mint_api_key(
         "mcp_config": {
             "mcpServers": {
                 "kioku": {
+                    # "type": "sse" is REQUIRED — without it Claude Code parses
+                    # the entry as a stdio server ("command: expected string,
+                    # received undefined") and silently skips kioku, so none of
+                    # its MCP tools register (breaking the briefing autogen and
+                    # every in-session tool call).
+                    "type": "sse",
                     "url": mcp_url,
                     "headers": {"Authorization": f"Bearer {result.key}"},
                 },
