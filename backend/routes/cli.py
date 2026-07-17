@@ -714,10 +714,24 @@ def _api_key_scope(request: Request) -> tuple[str, str]:
     return row[0]["user_id"], row[0]["scope_folder_id"]
 
 
+def _is_uuid(s: str) -> bool:
+    """A folder_id that isn't a well-formed UUID can never match a real folder.
+    Guard before it reaches a uuid DB column, where Postgres raises 22P02
+    ('invalid input syntax for type uuid') and surfaces as an uncaught 500."""
+    import uuid as _uuid
+    try:
+        _uuid.UUID(str(s))
+        return True
+    except (ValueError, AttributeError, TypeError):
+        return False
+
+
 @router.get("/folder-summary")
 async def folder_summary(request: Request, folder_id: str):
     user_id, _scope = _api_key_scope(request)
     # scope_folder_id unused — ownership is checked against folders.user_id below
+    if not _is_uuid(folder_id):
+        raise HTTPException(status_code=404, detail="Folder not found")
     sb = get_supabase()
     # Ownership check (the api key's user must own the folder).
     owns = (
