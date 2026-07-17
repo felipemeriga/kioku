@@ -737,8 +737,15 @@ def get_folder_briefing_schema() -> str:
             "important_files": "3-8 files an agent would open first. list of {path, role, why}.",
             "how_it_runs": "Requirements list + local_dev setup string.",
             "deployment": "Environments list, how_to_deploy, ci_cd_notes.",
-            "dependencies": "Auto-populated from manifests. Prefer regen over editing.",
-            "activity": "Auto-populated from GitHub sync + Mem0. Do NOT pin — it goes stale.",
+            "dependencies": "Notable dependencies from the manifests (name + why it matters).",
+            "activity": (
+                "Injected LIVE from the local git clone by the CLI each session "
+                "(branch, recent commits, working state). Do NOT author or pin it here."
+            ),
+            "documentation": (
+                "Short abstract of the deep architecture doc. Authored via the "
+                "save_repo_documentation tool (which also stores the full doc), not here."
+            ),
         },
     }
     return json.dumps(schema, indent=2, ensure_ascii=False)

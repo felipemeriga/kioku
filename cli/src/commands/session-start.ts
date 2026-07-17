@@ -16,6 +16,34 @@ async function fetchJson(url: string, headers: Record<string, string>) {
   return res.json();
 }
 
+/** The detailed instruction used both as the background `claude -p` task and as
+ *  the interactive fallback. Grounded, process-oriented, and points at the
+ *  schema tool so per-section shapes stay defined in one place (the backend). */
+function generateInstruction(sectionOrder: string[]): string {
+  return [
+    "Generate the kioku briefing for THIS repository. It is injected into the",
+    "system prompt at the start of every future Claude Code session here, so it",
+    "must be accurate and grounded in the real code — not generic.",
+    "",
+    "Do this:",
+    "1. Call the `get_folder_briefing_schema` MCP tool to get the exact expected",
+    "   shape + authoring notes for each section.",
+    "2. Explore the repository thoroughly. Fan out subagents in parallel to cover",
+    "   distinct areas: entry points & configuration; the core components/modules",
+    "   and their responsibilities; data flow and key control paths; how it",
+    "   builds/runs/tests; and how it deploys (CI/CD).",
+    `3. Write these ${sectionOrder.length} sections, each grounded in the actual`,
+    `   code with REAL file paths, following the schema shapes: ${sectionOrder.join(", ")}.`,
+    "   Do NOT write `activity` (injected live from the local git clone) or",
+    "   `documentation` (a separate deep-doc flow).",
+    "4. Save all sections in ONE call to `replace_folder_briefing` — a JSON object",
+    "   mapping each section name to its content.",
+    "",
+    "Be dense and skimmable — orientation, not exhaustive docs. Do not ask",
+    "questions; produce and save the briefing.",
+  ].join("\n");
+}
+
 type AutogenStatus = "launched" | "pending" | "unavailable";
 
 /**
@@ -43,12 +71,7 @@ function maybeAutogenSummary(repoRoot: string, sectionOrder: string[]): AutogenS
   } catch {
     /* ignore */
   }
-  const prompt =
-    "Generate this repository's kioku briefing now. Read the repo (fan out " +
-    "subagents if helpful) and write these sections concisely: " +
-    `${sectionOrder.join(", ")}. Then save them by calling the ` +
-    "replace_folder_briefing MCP tool for this folder. Do not ask questions — " +
-    "just produce and save the briefing.";
+  const prompt = generateInstruction(sectionOrder);
   try {
     writeFileSync(lockPath, new Date().toISOString() + "\n");
     const logFd = openSync(join(repoRoot, ".claude", "kioku-autogen.log"), "a");
@@ -144,11 +167,7 @@ export async function sessionStart(): Promise<void> {
             "(scanning the repo on your Claude subscription). It'll appear next session.",
         );
       } else {
-        console.log(
-          "This repo has no current summary. Please read the repository and write these " +
-            `sections: ${s.section_order.join(", ")}. Then save them by calling the ` +
-            "`replace_folder_briefing` MCP tool for this folder. Keep each section concise.",
-        );
+        console.log(generateInstruction(s.section_order));
       }
     } else if (s.sections) {
       // Inject the stable sections + the `documentation` abstract (the full
