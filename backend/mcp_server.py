@@ -628,7 +628,7 @@ def clear_context(key: str = "") -> str:
 
 
 @mcp.tool()
-def evaluate_retrieval(questions: str) -> str:
+async def evaluate_retrieval(questions: str) -> str:
     """Evaluate the RAG pipeline quality using RAGAS metrics.
 
     Runs test questions through retrieval + generation and scores with
@@ -655,17 +655,22 @@ def evaluate_retrieval(questions: str) -> str:
     if not test_questions:
         return "Error: No questions provided."
 
-    result = evaluate_rag_pipeline(
+    result = await evaluate_rag_pipeline(
         test_questions=test_questions,
         user_id=_current_user_id.get(),
         root_folder_id=_current_scope_folder_id.get(),
     )
 
-    # Format results
+    # Format results. RAGAS returns None for a metric it can't compute (e.g.
+    # empty retrieved context), so guard the float formatting — otherwise
+    # `{score:.3f}` raises "unsupported format string passed to NoneType".
+    def _fmt(score) -> str:
+        return f"{score:.3f}" if isinstance(score, (int, float)) else "N/A"
+
     lines = ["## RAGAS Evaluation Results\n"]
     lines.append("### Aggregate Scores")
     for metric, score in result["aggregate"].items():
-        lines.append(f"- **{metric}**: {score:.3f}")
+        lines.append(f"- **{metric}**: {_fmt(score)}")
 
     lines.append(f"\n### Per-Question Details ({result['num_questions']} questions)")
     for detail in result["details"]:
@@ -673,7 +678,7 @@ def evaluate_retrieval(questions: str) -> str:
         lines.append(f"**A:** {detail['response'][:200]}...")
         lines.append(f"**Contexts retrieved:** {detail['num_contexts']}")
         for metric, score in detail["scores"].items():
-            lines.append(f"  - {metric}: {score:.3f}")
+            lines.append(f"  - {metric}: {_fmt(score)}")
 
     return "\n".join(lines)
 
