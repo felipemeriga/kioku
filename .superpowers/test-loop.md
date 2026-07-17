@@ -245,3 +245,9 @@
   - C. empty .mcp.json → both exit 0 ✓
   - D. valid JSON but no 'kioku' server entry → both exit 0 ✓
 - All degrade gracefully (JSON.parse try/catch guards). No crash, clean exit in every case. NO bug. Stack healthy.
+
+## Iteration 29 (knowledge_base_search / search_memory — the RAG-search core, untested until now)
+- knowledge_base_search callable via MCP; for a briefing-only repo (cpp) → "No relevant content found" (CORRECT: repo folders have no ingested docs; the deep-doc is on-demand via get_repo_documentation, not indexed into the search corpus).
+- Against a folder WITH ingested documents (agentic-rag, 8d8847cf) → knowledge_base_search('ingestion pipeline') returned 5392 chars of GROUNDED content (real PR #16 doc). RAG retrieval path works end-to-end. ✓
+- search_memory('preferences') → graceful "No memories matched." (that folder's test memories were deleted in iter8). ✓
+- Confirms the search feature works when content exists and degrades gracefully when empty; the deep-doc/search separation is by design. NO bug. Test key cleaned up. Stack healthy.
