@@ -213,3 +213,11 @@
 - DEPLOYMENT NOTE (for the future other-host deploy): under multiple workers/processes (e.g. gunicorn -w N) this atomicity is lost — concurrent same-scope mints across workers could 23505 → 500. Harden then (catch 23505 + retry, or an upsert/transaction). Not fixed now: doesn't manifest single-worker, final state always consistent.
 - Cleanup: the 10 test mints revoked restful-rust's .mcp.json key (401); re-init restored it (200).
 - NO bug. No code change. Stack healthy.
+
+## Iteration 25 (doctor diagnostic accuracy — BUG FOUND + FIXED)
+- Tested doctor's failure DETECTION (only ever seen all-green before).
+- Missing-file detection ✓ — removing .mcp.json → "✗ .mcp.json"; removing CLAUDE.md → "✗ CLAUDE.md". Works.
+- BUG (diagnostic gap): revoked the repo's .mcp.json api key → doctor STILL said "All checks passed". None of its checks validate the key: "MCP reachable" pings an UNAUTHENTICATED health endpoint, ".mcp.json" only checks file existence, "Login token" uses the SESSION token (not the .mcp.json key). So doctor gives a false all-clear while Claude Code's hook + all MCP tools would 401 silently.
+- Fix (commit): added an "API key valid" check that calls folder-summary with the actual .mcp.json key; a 401/403 → "✗ API key valid — rejected (HTTP 401)" + "run: kioku init" and fails the summary. Only a confirmed rejection fails (missing key/state doesn't double-report). CLI rebuilt; 11/11 tests pass.
+- Verified: valid→✓ + all pass; revoked→✗ rejected + "Some checks failed"; restored→✓.
+- Stack healthy.
