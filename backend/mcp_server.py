@@ -797,8 +797,8 @@ def get_folder_briefing(folder: str | None = None) -> str:
     if (folder_row.get("kind") or "folder") != "repo":
         return (
             f"'{resolved_name}' is not a repo. Briefings are only available "
-            "for GitHub-synced folders. Use get_folder_orientation for a "
-            "generic summary instead."
+            "for repo folders (run `kioku init` in a cloned repo). Use "
+            "get_folder_orientation for a generic summary instead."
         )
     latest = get_latest_summary(sb, resolved_id, user_id)
     sections = None
