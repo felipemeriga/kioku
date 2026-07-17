@@ -260,3 +260,10 @@
 - iter23 concurrent-init createOrAttach present in build ✓
 - iter25 doctor "API key valid" check present + passes on healthy repo ✓
 - Test suites: CLI 11/11 pass, backend 105 passed. ZERO regressions. Stack healthy.
+
+## Iteration 31 (multi-worker mint race: REPRODUCED real bug; attempted fix reverted)
+- Reproduced the iter24 residual under a temp 4-worker uvicorn (:8010, same DB): 15 concurrent same-scope mints → 4×200, 11×500 (23505 unique-constraint violations). CONFIRMED real bug for the planned multi-worker deploy.
+- Attempted fix: replace delete-then-insert with an atomic upsert (INSERT ... ON CONFLICT DO UPDATE). Single upsert works, BUT under high same-key concurrency the 4 workers HUNG (ON CONFLICT DO UPDATE waits on the conflicting row's lock; combined with the sync/blocking Supabase client it tied up the whole worker pool → :8010 unresponsive). That's WORSE than a fast 500.
+- REVERTED the change (won't ship an unverified fix that regressed in my own test). Codebase back to known-good delete-then-insert. Cleaned test keys; restored restful-rust (folder-summary 200). Main :8000 stack never touched, healthy throughout.
+- CORRECTED recommendation for deploy time: use retry-on-23505 (delete+insert, catch the 23505, retry — fail-fast, never waits on a lock), NOT upsert (which hangs here). Or a pg advisory lock keyed on (user,scope). Must be tested under real multi-worker + connection pooling before shipping.
+- NET: valuable — race is real (reproduced) and the "obvious" upsert fix is a trap. No code shipped. Stack healthy.
