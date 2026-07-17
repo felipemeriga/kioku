@@ -16,6 +16,19 @@ from services.queue.settings import _redis_settings
 router = APIRouter(prefix="/api/notion", tags=["notion"])
 
 
+def _is_uuid(s: str) -> bool:
+    """A config_id that isn't a well-formed UUID can never match a real config.
+    Guard before it reaches the uuid DB column, where Postgres raises 22P02 and
+    surfaces as an uncaught 500 (returns 404 for a malformed id, like a
+    well-formed-but-nonexistent one)."""
+    import uuid as _uuid
+    try:
+        _uuid.UUID(str(s))
+        return True
+    except (ValueError, AttributeError, TypeError):
+        return False
+
+
 class ConnectRequest(BaseModel):
     root_folder_id: str
     notion_page_id: str
@@ -87,6 +100,8 @@ async def disconnect(
     delete_docs: bool = False,
     user_id: str = Depends(get_current_user),
 ):
+    if not _is_uuid(config_id):
+        raise HTTPException(status_code=404, detail="Config not found")
     sb = get_supabase()
     cfg_rows = (
         sb.table("notion_sync_configs")
@@ -115,6 +130,8 @@ async def disconnect(
 
 
 async def _enqueue_sync(config_id: str, user_id: str, full_reconcile: bool) -> dict:
+    if not _is_uuid(config_id):
+        raise HTTPException(status_code=404, detail="Config not found")
     sb = get_supabase()
     rows = (
         sb.table("notion_sync_configs")
