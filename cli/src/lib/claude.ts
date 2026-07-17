@@ -50,24 +50,25 @@ export function writeMcpConfig(
 
 // ── .claude/settings.json — SessionStart hook ─────────────────────
 
+// Claude Code hooks schema: each event maps to an array of GROUPS, and each
+// group is { matcher?, hooks: [ { type: "command", command } ] }. Writing the
+// command entry directly into the event array (no `hooks` wrapper) makes Claude
+// Code reject the whole settings file ("Expected array, but received undefined").
+interface HookEntry {
+  type: "command";
+  command: string;
+}
+interface HookGroup {
+  matcher?: string;
+  hooks: HookEntry[];
+}
 interface ClaudeSettings {
-  hooks?: {
-    SessionStart?: Array<{
-      type: "command";
-      command: string;
-      matcher?: string;
-    }>;
-    [k: string]: unknown;
-  };
+  hooks?: { [event: string]: HookGroup[] | undefined };
   [k: string]: unknown;
 }
 
 const SESSION_START_COMMAND = "kioku session-start";
 const STOP_COMMAND = "kioku capture";
-
-interface ClaudeHooksBucket {
-  [event: string]: Array<{ type: "command"; command: string; matcher?: string }> | undefined;
-}
 
 function loadSettings(path: string): ClaudeSettings {
   if (!existsSync(path)) return {};
@@ -79,19 +80,30 @@ function loadSettings(path: string): ClaudeSettings {
   }
 }
 
+/** Idempotently install a command hook in the correct group shape, and drop any
+ *  malformed entries (e.g. the old `{type,command}`-directly form a prior CLI
+ *  version wrote) so Claude Code doesn't reject the file. */
 function ensureHook(
   settings: ClaudeSettings,
   event: string,
   command: string,
-  matcher: string = "*",
 ): boolean {
   if (!settings.hooks) settings.hooks = {};
-  const bucket = settings.hooks as ClaudeHooksBucket;
-  if (!bucket[event]) bucket[event] = [];
-  const hooks = bucket[event]!;
-  const already = hooks.some((h) => h.command === command);
-  if (!already) hooks.push({ type: "command", command, matcher });
-  return !already;
+  const bucket = settings.hooks;
+  const raw = Array.isArray(bucket[event]) ? (bucket[event] as unknown[]) : [];
+  // Keep only well-formed groups (an object with a `hooks` array); this drops
+  // the legacy malformed entries this tool used to write.
+  const groups = raw.filter(
+    (g): g is HookGroup =>
+      !!g && typeof g === "object" && Array.isArray((g as HookGroup).hooks),
+  );
+  bucket[event] = groups;
+  const already = groups.some((g) =>
+    g.hooks.some((h) => h.command === command),
+  );
+  if (!already) groups.push({ hooks: [{ type: "command", command }] });
+  // Return true if we changed anything (added the hook OR pruned bad entries).
+  return !already || raw.length !== groups.length;
 }
 
 export function installSessionStartHook(repoRoot: string): {
