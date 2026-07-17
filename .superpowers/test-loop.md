@@ -420,3 +420,9 @@
 - finance-advisor-ai (Go + SQL, WhatsApp finance assistant): init (type:sse ✓, activity showed ahead/behind tracking "ahead 0, behind 4") → autogen (~70s) → grounded 8-section briefing ("WhatsApp-based personal finance assistant ... an LLM turns free-text into expenses").
 - needs_generation=False, 8 sections in CLI folder-summary AND UI /briefing.
 - Core pipeline healthy end-to-end after 51 iterations of changes. NO bug. Stack healthy.
+
+## Iteration 53 (untested CLI commands; BUG in --json output pollution)
+- Exercised untested read CLI commands: whoami, status, ls, briefing, search — all render correctly. (briefing shows "Overview PINNED · you (UI)" — consistent with iter37: autogen writes sections pinned.)
+- BUG: `kioku search --json` emitted valid JSON but the "⇧ Update available" notification printed to STDOUT after it → corrupts machine-readable output (json.load/jq fail on the trailing line). checkForUpdate runs after every command; maybeNotify used console.log (stdout). Same class as the earlier search --json spinner-pollution fix.
+- Fix (commit): guard maybeNotify on process.stdout.isTTY — interactive terminals still see the notice, piped/redirected/--json consumers get clean stdout. Verified: search --json > file now parses as pure JSON; 11/11 CLI tests pass.
+- Stack healthy.
