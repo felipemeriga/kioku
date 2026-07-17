@@ -275,3 +275,8 @@
 - STOPPING multi-worker experiments in the loop: each repro needs a temp 4-worker instance, and killing it (-9) risks leaving dangling locks that pollute the next test — not safe/productive to iterate on here.
 - DEFINITIVE STATE for deploy time: the multi-worker mint race is REAL (reproduced cleanly in iter31: 11/15 → 500). The fix (retry-on-23505 or a pg advisory lock on (user,scope)) must be designed AND tested against the real deploy infra (proper async client / connection pooling / pgbouncer), not the dev single-sync-client setup. Do NOT use INSERT..ON CONFLICT (iter31: lock-wait hang).
 - Stack healthy.
+
+## Iteration 33 (back to disciplined basics — clean env check + fresh init+verify)
+- Post-experiment cleanup verified: stack healthy, NO stray :8010 process, git tree clean (0 uncommitted), api_keys queryable (13 rows, no dangling lock from the -9 kills). Environment is clean after iter31-32.
+- Clean init+verify on tweet-locator (fresh): detected haykadamyan/tweet-locator, wired folder+key+hooks; .mcp.json has type:sse; folder-summary needs_generation=True + 7 stable sections; doctor "✓ API key valid — authenticates OK" + "All checks passed."
+- All this loop's fixes confirmed working together on a fresh repo (type:sse, repo-scoped key, doctor key-validation). NO bug. Stack healthy.
