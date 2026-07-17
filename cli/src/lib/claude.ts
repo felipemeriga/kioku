@@ -250,10 +250,10 @@ If you want to reload the briefing manually:
 
 Persist it. It'll survive the session, the PC, the team:
 
-- \`save_memory(text, category='preference')\` — eternal rules of thumb
+- \`save_memory(content, category='preference')\` — eternal rules of thumb
   (\"never use Co-Authored-By\", \"backend uses uv\"). Prepended to
   every future briefing.
-- \`save_memory(text, category='finding' | 'decision' | 'issue' | 'session')\`
+- \`save_memory(content, category='finding' | 'decision' | 'issue' | 'session')\`
   — episodic learnings. Show up in \`recent_activity\`.
 - \`update_folder_briefing_section(section, content, pin=True)\` — for
   structured facts about the repo (deploy steps, important files,
@@ -265,7 +265,7 @@ Persist it. It'll survive the session, the PC, the team:
   scope subtree. Grounded, cited.
 - \`search_memory(query)\` — Mem0 only, faster for preference-style
   lookups.
-- \`query_documents_metadata(query)\` — structured questions about
+- \`query_documents_metadata(question)\` — structured questions about
   what documents exist ("show me all PDFs added this week").
 
 ### Convention
