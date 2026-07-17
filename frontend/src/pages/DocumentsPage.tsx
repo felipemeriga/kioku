@@ -53,6 +53,7 @@ import MoveDialog from "../components/MoveDialog";
 import IngestionDrawer from "../components/IngestionDrawer";
 import FolderSummaryPanel from "../components/FolderSummaryPanel";
 import BriefingPanel from "../components/BriefingPanel";
+import DocumentationPanel from "../components/DocumentationPanel";
 import FolderIntegrationsDialog from "../components/FolderIntegrationsDialog";
 import { useToast, messageFromError } from "../components/ToastProvider";
 import { brand, fonts } from "../theme";
@@ -873,6 +874,7 @@ export default function DocumentsPage() {
             />
           )}
           {currentFolderId && <BriefingPanel folderId={currentFolderId} />}
+          {currentFolderId && <DocumentationPanel folderId={currentFolderId} />}
 
           {/* Documents grid */}
           {filteredDocs.length > 0 && (

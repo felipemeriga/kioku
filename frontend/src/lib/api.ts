@@ -208,6 +208,19 @@ export async function fetchBriefing(folderId: string): Promise<BriefingResponse>
   return res.json();
 }
 
+export interface RepoDocumentation {
+  content: string;
+  abstract: string | null;
+  generated_at: string;
+}
+
+export async function fetchDocumentation(
+  folderId: string
+): Promise<{ documentation: RepoDocumentation | null }> {
+  const res = await apiFetch(`/api/folders/${folderId}/documentation`);
+  return res.json();
+}
+
 export async function updateBriefingSection(
   folderId: string,
   section: BriefingSectionKey,

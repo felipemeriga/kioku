@@ -50,6 +50,7 @@ import { useNavigate, useParams } from "react-router-dom";
 
 import FolderSummaryPanel from "../components/FolderSummaryPanel";
 import BriefingPanel from "../components/BriefingPanel";
+import DocumentationPanel from "../components/DocumentationPanel";
 import FolderIntegrationsDialog from "../components/FolderIntegrationsDialog";
 import { useToast } from "../components/ToastProvider";
 import {
@@ -375,7 +376,10 @@ export default function FolderDetailPage() {
         )}
 
         {tab === "briefing" && folder?.kind === "repo" && (
-          <BriefingPanel folderId={folderId} />
+          <>
+            <BriefingPanel folderId={folderId} />
+            <DocumentationPanel folderId={folderId} />
+          </>
         )}
 
         {tab === "documents" && (

@@ -143,6 +143,31 @@ async def read_briefing(folder_id: str, user_id: str = Depends(get_current_user)
     }
 
 
+@router.get("/{folder_id}/documentation")
+async def read_documentation(
+    folder_id: str, user_id: str = Depends(get_current_user)
+):
+    """The latest detailed architecture doc (the 'complete overview' deep-doc)
+    for a repo folder. Returns {documentation: null} if none has been generated
+    yet (or the table isn't migrated)."""
+    sb = get_supabase()
+    _folder_must_be_repo(sb, folder_id, user_id)
+    try:
+        rows = (
+            sb.table("repo_documentation")
+            .select("content, abstract, generated_at")
+            .eq("folder_id", folder_id)
+            .eq("user_id", user_id)
+            .order("generated_at", desc=True)
+            .limit(1)
+            .execute()
+            .data
+        )
+    except Exception:  # noqa: BLE001 — table may not be migrated yet
+        rows = []
+    return {"documentation": rows[0] if rows else None}
+
+
 class UpdateSectionRequest(BaseModel):
     content: Any  # section-shape depends on section; validated softly
     status: str = "pinned"  # 'pinned' | 'auto' | 'hybrid'
