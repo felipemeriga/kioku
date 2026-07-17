@@ -385,3 +385,12 @@
 - Verified: all query-param endpoints now 404; no-filter list_notes/list_context still 200; backend suite 105 passed.
 - The malformed-id → 500 class (path + query) is now comprehensively closed across the API.
 - Stack healthy.
+
+## Iteration 48 (numeric param bounds — new validation class; BUG FOUND + FIXED)
+- Varied from the id class to NUMERIC bounds: tested endpoints with limit/days/threshold params using negative/zero/huge values.
+- retrieval-log (limit=-1/0/huge, since_days=-5) → all 200 (Supabase tolerates them). limit=abc → 422 (type validation). Clean.
+- BUG: GET /folders/{id}/summary/history?limit=-1 → 500. get_summary_history does .limit(limit) → Postgres LIMIT -1 → raises → uncaught 500. (limit=0/huge were 200; only negative broke.)
+- Fix (commit): bound the param with Query(ge=1, le=100) → 422 for out-of-range. Frontend passes limit=10 (default, no explicit >100 call sites) → no client impact.
+- Verified: limit=-1/0/999999 → 422; limit=5 + default → 200; backend suite 105 passed.
+- Follow-up noted: mem0 list endpoints have unbounded limit params too, but couldn't be cleanly tested (Mem0 quota exhausted); some go to Mem0's API not Postgres. Worth bounding when quota allows testing. Also: folders.py has its own _require_uuid (3rd local copy — DRY candidate w/ routes/_validation).
+- Stack healthy.
