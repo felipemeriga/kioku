@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from auth import get_current_user
 from db.client import get_supabase
+from routes._validation import require_uuid
 
 router = APIRouter(prefix="/api/context")
 
@@ -48,6 +49,7 @@ async def delete_context_entry(
     user_id: str = Depends(get_current_user),
 ):
     """Delete a context entry."""
+    require_uuid(context_id, "Context entry not found")
     sb = get_supabase()
     result = sb.table("context").delete().eq("id", context_id).eq("user_id", user_id).execute()
     if not result.data:

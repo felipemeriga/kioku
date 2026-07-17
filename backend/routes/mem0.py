@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from auth import get_current_user
 from db.client import get_supabase
+from routes._validation import require_uuid
 from services.crypto import encrypt_secret
 from services.embeddings import embed_query
 from services.mem0_sync import (
@@ -147,6 +148,7 @@ async def connect(body: ConnectMem0Request, user_id: str = Depends(get_current_u
 
 @router.delete("/configs/{config_id}")
 async def disconnect(config_id: str, user_id: str = Depends(get_current_user)):
+    require_uuid(config_id, "Config not found")
     sb = get_supabase()
     sb.table("mem0_sync_configs").delete().eq("id", config_id).eq("user_id", user_id).execute()
     return {"ok": True}
@@ -170,6 +172,7 @@ async def deduplicate(
     dry_run=true returns the plan. semantic=false skips pass 2 (faster,
     stricter). similarity_threshold in [0, 1].
     """
+    require_uuid(config_id, "Config not found")
     sb = get_supabase()
     row = (
         sb.table("mem0_sync_configs").select("*")
@@ -189,6 +192,7 @@ async def deduplicate(
 
 @router.post("/configs/{config_id}/verify")
 async def verify_config(config_id: str, user_id: str = Depends(get_current_user)):
+    require_uuid(config_id, "Config not found")
     sb = get_supabase()
     row = (
         sb.table("mem0_sync_configs")
@@ -278,6 +282,7 @@ async def list_folder_memories(
     if you need. Response includes memory content, metadata, and Mem0's
     own timestamps so the UI can group / sort.
     """
+    require_uuid(config_id, "Config not found")
     sb = get_supabase()
     row = (
         sb.table("mem0_sync_configs").select("*")
@@ -313,6 +318,7 @@ async def delete_memory(
     memory_id: str,
     user_id: str = Depends(get_current_user),
 ):
+    require_uuid(config_id, "Config not found")
     sb = get_supabase()
     row = (
         sb.table("mem0_sync_configs").select("*")

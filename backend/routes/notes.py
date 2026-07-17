@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from auth import get_current_user
 from db.client import get_supabase
+from routes._validation import require_uuid
 
 router = APIRouter(prefix="/api/notes")
 
@@ -28,6 +29,7 @@ async def delete_note(
     user_id: str = Depends(get_current_user),
 ):
     """Delete a note."""
+    require_uuid(note_id, "Note not found")
     sb = get_supabase()
     result = sb.table("notes").delete().eq("id", note_id).eq("user_id", user_id).execute()
     if not result.data:

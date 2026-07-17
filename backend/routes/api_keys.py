@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from auth import get_current_user
 from db.client import get_supabase
+from routes._validation import require_uuid
 from services.scope import validate_scope_folder
 
 router = APIRouter(prefix="/api/api-keys")
@@ -136,6 +137,7 @@ async def revoke_api_key(
     user_id: str = Depends(get_current_user),
 ):
     """Revoke a specific API key by ID."""
+    require_uuid(key_id, "API key not found")
     sb = get_supabase()
     result = sb.table("api_keys").delete().eq("id", key_id).eq("user_id", user_id).execute()
     if not result.data:
