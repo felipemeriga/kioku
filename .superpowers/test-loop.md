@@ -442,3 +442,11 @@
   - Verified: tsc -b clean, npm run build succeeds + vite emits the bundle.
 - BUG 2: 8 frontend tests failing ('useToast must be used inside <ToastProvider>') — the shared renderWithProviders helper wrapped Router+Theme but NOT ToastProvider, so ChatArea/ChatInput/ContextPanel (which use useToast) failed. Fixed: added ToastProvider to the helper. Verified: 41/41 tests pass (was 8 failing).
 - Two commits. Both real, high-value (broken build + broken tests). Stack healthy.
+
+## Iteration 56 (lint gates — both fail on PRE-EXISTING debt; my changes clean)
+- Extended the iter55 quality-gate approach to LINT (build+tests done).
+- Frontend `npm run lint`: FAILS (exit 1) — 2 errors (react-refresh/only-export-components in ToastProvider.tsx, which exports useToast alongside the component) + 11 warnings (mostly stale/unused eslint-disable no-console directives + 1 exhaustive-deps).
+- Backend `ruff check`: 42 errors, all STYLE/quality (I001 import-sort ×13, E501 line-length ×11, F401 unused-import ×9, E402/E702/F841/F541). NO syntax errors (my initial 'E001' concern was a regex mis-parse). 24 are `ruff --fix` auto-fixable.
+- Verified MY loop changes are lint-clean: routes/_validation.py "All checks passed"; the errors in files I touched are pre-existing (long lines etc.), not my short guard additions.
+- DECISION: did NOT bulk-fix. It's pre-existing cosmetic/quality debt (not functional bugs), and a large mechanical cleanup is churny + out of scope for the bug-hunting loop + risks noisy diffs. Documented as a human quality-pass follow-up: `ruff check --fix` (24 auto), clean stale eslint-disable directives, and move useToast to its own file (react-refresh rule).
+- NO code change. NO functional bug. Stack healthy.
