@@ -319,3 +319,10 @@
 - Found MORE stale "8-section" refs: 4 MCP tool docstrings in mcp_server.py (get_folder_briefing/orientation — these ARE the tool descriptions Claude reads), replace_folder_briefing's docstring, and the `kioku briefing` CLI help. Fixed all → 9-section; reworded replace_folder_briefing to note it writes the STABLE sections (activity live, documentation via save_repo_documentation).
 - CLI rebuilt (11/11 tests pass), mcp_server.py syntax OK, MCP :8001 restarted to serve the corrected tool descriptions. Verified post-restart: tools list works + get_folder_briefing description now says "9-section".
 - Doc/behavior now consistent. Stack healthy.
+
+## Iteration 39 (doc-accuracy: stale removed-feature ref in a Claude-facing message)
+- Audited CLAUDE.md + MCP tool docstrings for references to the REMOVED GitHub-sync subsystem.
+- CLAUDE.md clean (my earlier grep hits were false positives — 'sync' in existsSync/writeFileSync). Cross-check: every tool mentioned in CLAUDE.md has a real MCP def.
+- BUG: get_folder_briefing returned "Briefings are only available for GitHub-synced folders" for non-repo folders (mcp_server.py:800) — GitHub sync was removed; repo folders are now made via `kioku init` on a clone. Fixed the Claude-facing message → "for repo folders (run kioku init in a cloned repo)". MCP restarted to serve it.
+- Left alone (intentional): the github_connected metadata field in get_folder_orientation — unused by the frontend, and a code comment documents it as a deliberate repurpose to mean kind=="repo" (backward-compat). Not misleading any consumer.
+- Stack healthy.
