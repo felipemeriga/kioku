@@ -4,7 +4,7 @@ import os
 import re
 
 from arq.connections import RedisSettings, create_pool
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from auth import get_current_user
@@ -356,7 +356,9 @@ async def get_folder_summary(
 @router.get("/{folder_id}/summary/history")
 async def get_folder_summary_history(
     folder_id: str,
-    limit: int = 10,
+    # Bound the limit — an unbounded negative value reaches Postgres as
+    # `LIMIT -1` and raises, surfacing as an uncaught 500.
+    limit: int = Query(default=10, ge=1, le=100),
     user_id: str = Depends(get_current_user),
 ):
     _require_uuid(folder_id)
