@@ -160,3 +160,11 @@
 - real deep-doc ✓ (~190s) — 18,424 chars, grounded across tiers (mentions gRPC, React, .proto). Abstract in documentation section.
 - ALL 9 sections present; needs_generation=False AND doc_needs_generation=False; verified in CLI folder-summary AND UI /briefing (9 sections).
 - Proves the whole lifecycle works E2E on a fresh polyglot repo after both bug fixes (iter6 key-scoping, iter14 type:sse). NO bugs. Stack healthy.
+
+## Iteration 19 (ERROR-PATH / input-validation sweep — BUG FOUND + FIXED)
+- Cheap non-LLM robustness sweep of REST + MCP error branches (varied away from happy paths, all proven).
+- REST folder-summary probes: bogus valid-UUID→404 ✓, missing folder_id→422 ✓, no auth→401 ✓, garbage key→401 ✓, BUT malformed non-UUID folder_id→500 ✗ (BUG).
+- Root cause: non-UUID folder_id flowed into the folders ownership query on a uuid column → Postgres 22P02 'invalid input syntax for type uuid' → uncaught → 500.
+- Fix (commit): added _is_uuid guard in folder_summary → returns 404 for any non-UUID (consistent with well-formed-but-nonexistent). Verified: not-a-uuid/garbage/SQL-ish strings → 404; real folder still 200. Added regression test; 5/5 folder-summary tests pass. Backend restarted.
+- Checked other endpoints: UI /api/folders/{id}/briefing already 404s on non-UUID (not affected); session-capture does its scope check in Python (safe). Bug was isolated to CLI folder-summary.
+- Stack healthy.
