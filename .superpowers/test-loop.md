@@ -267,3 +267,11 @@
 - REVERTED the change (won't ship an unverified fix that regressed in my own test). Codebase back to known-good delete-then-insert. Cleaned test keys; restored restful-rust (folder-summary 200). Main :8000 stack never touched, healthy throughout.
 - CORRECTED recommendation for deploy time: use retry-on-23505 (delete+insert, catch the 23505, retry — fail-fast, never waits on a lock), NOT upsert (which hangs here). Or a pg advisory lock keyed on (user,scope). Must be tested under real multi-worker + connection pooling before shipping.
 - NET: valuable — race is real (reproduced) and the "obvious" upsert fix is a trap. No code shipped. Stack healthy.
+
+## Iteration 32 (multi-worker mint hardening — attempted retry fix, UNVERIFIED, reverted; stopping)
+- Implemented retry-on-23505 in create_api_key (delete+insert, catch 23505, retry with backoff; fail-fast, no lock wait).
+- Verification under temp 4-worker :8010 HUNG (2-min timeout) at 15 AND at 3 concurrent. BUT this is likely CONFOUNDED: the prior iteration's 4-worker instance was killed with `kill -9`, which doesn't cleanly close DB connections — a hard-killed transaction can hold row locks on the (user,scope) rows until Postgres times it out, blocking all subsequent delete/insert there. So the "retry hangs at 3" result is unreliable (may be a leftover lock, not the retry).
+- DECISION: reverted the retry change (unverified — did not pass a clean test). Codebase back to known-good delete-then-insert. Main :8000 unaffected (restful-rust re-init mint → 200, so no dangling lock on prod). Clean tree except ledger.
+- STOPPING multi-worker experiments in the loop: each repro needs a temp 4-worker instance, and killing it (-9) risks leaving dangling locks that pollute the next test — not safe/productive to iterate on here.
+- DEFINITIVE STATE for deploy time: the multi-worker mint race is REAL (reproduced cleanly in iter31: 11/15 → 500). The fix (retry-on-23505 or a pg advisory lock on (user,scope)) must be designed AND tested against the real deploy infra (proper async client / connection pooling / pgbouncer), not the dev single-sync-client setup. Do NOT use INSERT..ON CONFLICT (iter31: lock-wait hang).
+- Stack healthy.
