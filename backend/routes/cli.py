@@ -664,13 +664,30 @@ STABLE_SECTION_ORDER = [
 ]
 
 
+def _parse_iso(ts: str) -> datetime | None:
+    """Parse a Postgres/ISO timestamp robustly. Postgres emits fractional
+    seconds with any digit count (e.g. '.4716'), but Python 3.10's
+    fromisoformat only accepts exactly 3 or 6 digits — normalize to 6."""
+    s = ts.strip().replace("Z", "+00:00")
+    if "." in s:
+        head, _, tail = s.partition(".")
+        i = 0
+        while i < len(tail) and tail[i].isdigit():
+            i += 1
+        frac, rest = tail[:i], tail[i:]
+        s = f"{head}.{(frac + '000000')[:6]}{rest}"
+    try:
+        return datetime.fromisoformat(s)
+    except ValueError:
+        return None
+
+
 def _needs_generation(generated_at: str | None, ttl_days: int = SUMMARY_TTL_DAYS) -> bool:
     """True if there's no summary yet or the latest one is older than the TTL."""
     if not generated_at:
         return True
-    try:
-        ts = datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
-    except ValueError:
+    ts = _parse_iso(generated_at)
+    if ts is None:
         return True
     return datetime.now(timezone.utc) - ts > timedelta(days=ttl_days)
 
