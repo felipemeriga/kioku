@@ -345,3 +345,10 @@
 - Round-trip ✓: set_context(key,value) → "Context set"; get_context(key) → value round-trips; list_context → shows "**key**: value (expires: 2026-07-24)" — note context has a 7-day TTL; clear_context(key) → "Context cleared"; get after → "No context found."
 - Params clear (set: key+value required; get/clear: key). Test context cleared. NO bug. Stack healthy.
 - Untested tools now down to just evaluate_retrieval.
+
+## Iteration 43 (evaluate_retrieval — LAST untested tool, was FULLY BROKEN: 2 bugs found + fixed)
+- Exercised evaluate_retrieval (RAGAS eval) hands-on — the final untested MCP tool. It errored on EVERY valid call.
+- BUG 1: evaluate_rag_pipeline is `async def` but evaluate_retrieval (sync tool) called it WITHOUT await → 'coroutine object is not subscriptable' when indexing result["aggregate"]. Fix: made evaluate_retrieval `async def` + `await` (FastMCP supports async tools; knowledge_base_search already is one).
+- BUG 2 (revealed after fixing 1): RAGAS returns None for an uncomputable metric (e.g. empty context); the '{score:.3f}' formatting then raised 'unsupported format string passed to NoneType'. Fix: _fmt() helper prints 'N/A' for non-numeric scores (both the aggregate + per-question loops).
+- Verified end-to-end: tool now retrieves, generates an answer ("...two distinct ingestion pipelines..."), reports scores (faithfulness=N/A, answer_relevancy=0.611, context_precision=0.804). MCP restarted; stack healthy. Test key cleaned up.
+- MILESTONE: all 20 MCP tools now hands-on validated. This one being fully broken shows the "actually call every tool" approach pays off.
