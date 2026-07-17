@@ -715,24 +715,6 @@ export default function DocumentsPage() {
             )}
           </Stack>
 
-          {currentFolderId && (
-            <FolderSummaryPanel
-              folderId={currentFolderId}
-              folderName={
-                breadcrumbs.length > 0
-                  ? breadcrumbs[breadcrumbs.length - 1].name
-                  : "This folder"
-              }
-            />
-          )}
-
-          {/* Repo folders carry an agent-authored briefing (overview,
-              architecture, important files, …). Render it here too — the
-              sidebar routes to this Documents view, and without this a repo's
-              briefing was only visible on the /folder/:id detail page. Renders
-              nothing for non-repo folders. */}
-          {currentFolderId && <BriefingPanel folderId={currentFolderId} />}
-
           {error && (
             <Alert severity="error" sx={{ mb: 2 }}>
               {error}
@@ -875,6 +857,22 @@ export default function DocumentsPage() {
               </Box>
             </Box>
           )}
+
+          {/* Folder summary/orientation + the repo briefing (overview,
+              architecture, important files, …), placed BELOW the folder grid
+              so subfolders sit at the top of a repo view. BriefingPanel renders
+              nothing for non-repo folders. */}
+          {currentFolderId && (
+            <FolderSummaryPanel
+              folderId={currentFolderId}
+              folderName={
+                breadcrumbs.length > 0
+                  ? breadcrumbs[breadcrumbs.length - 1].name
+                  : "This folder"
+              }
+            />
+          )}
+          {currentFolderId && <BriefingPanel folderId={currentFolderId} />}
 
           {/* Documents grid */}
           {filteredDocs.length > 0 && (
