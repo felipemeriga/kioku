@@ -229,3 +229,11 @@
 - So the important robustness holds (fast, exit 0, non-blocking). NO bug.
 - Small UX polish (commit): session-start now prints "kioku: backend unreachable — skipping briefing this session (your session is unaffected)." for the common connection-refused/DNS/timeout case instead of "fetch failed" — since it appears in the user's session every start when self-hosting and the backend is briefly down. Still exits 0. 11/11 tests pass.
 - Stack healthy.
+
+## Iteration 27 (file-mutation safety: CLAUDE.md / .gitignore content preservation)
+- High-severity area (user-file corruption) — tested updateClaudeMd/updateGitignore against crafted user content.
+- Append (existing CLAUDE.md w/ user rules) → user content preserved + our block added once ✓
+- Update in place (re-run) → user content preserved, no duplicate block ✓
+- Block SANDWICHED (user content BEFORE and AFTER our block) → both survive an update, order preserved (before<block<after), 1 block ✓
+- .gitignore → user entries (node_modules, custom-user-entry.log) preserved, our entries added exactly once (idempotent) ✓
+- NO bug. Marker-based before+SNIPPET+after logic is correct in all positions. No code change. Stack healthy.
