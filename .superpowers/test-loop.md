@@ -129,3 +129,15 @@
   - type:sse → "kioku ... (SSE) - Pending approval" (loads correctly)
 - Confirms the iter14 fix resolves the bug at Claude Code's config-parser level, not just via a direct Python MCP client. .mcp.json restored. NO new bugs. Stack healthy.
 - (Note: agentic-rag prod SSE + plugin:github show "Failed to connect" in claude mcp list — unrelated deployed servers, not this work.)
+
+## Iteration 16 (DEEP-DOC DOCUMENTATION FLOW — last blocked feature, migration now applied)
+- User applied the repo_documentation migration → table exists.
+- Full doc flow via MCP (defi-lending-contract, repo-scoped key):
+  - save_repo_documentation(content, abstract) ✓ → {ok:true, doc_chars:533, abstract_saved:true}; inserted 1 repo_documentation row + wrote the `documentation` briefing section.
+  - get_repo_documentation() ✓ → returned the full doc (LendingPool.sol + UUPS content).
+  - folder-summary ✓ → doc_needs_generation flipped True→False, doc_generated_at set; `documentation` section present with the abstract.
+  - session-start injection ✓ → prints "## documentation\n<abstract>\n\nFull architecture docs available — call get_repo_documentation." and the stale-doc OFFER is correctly SUPPRESSED while fresh.
+  - staleness ✓ → after deleting the doc, doc_needs_generation reverts to True.
+- Cleaned up the test doc (deleted repo_documentation row + the doc-added folder_summaries row) so the repo reverts to its real autogen briefing (8 sections) with no dangling documentation section.
+- NO bugs found. Stack healthy.
+- MILESTONE: ALL kioku features now validated end-to-end. Two high-impact bugs found+fixed over the loop (iter6 multi-repo key revocation; iter14 .mcp.json missing type:sse).
