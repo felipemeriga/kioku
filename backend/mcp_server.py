@@ -836,9 +836,10 @@ def replace_folder_briefing(
 
     Args:
         sections: JSON string with a top-level object where each key is
-            one of the 8 section names and each value is that section's
-            content shape. Partial replaces are allowed — missing keys
-            are left alone and merge with the existing briefing.
+            one of the section names (call get_folder_briefing_schema for
+            the list + each section's content shape) and each value is that
+            section's content shape. Partial replaces are allowed — missing
+            keys are left alone and merge with the existing briefing.
         pin_all: If True (default), every provided section is marked
             pinned so auto-regen won't overwrite the changes. Set False
             for 'suggestion' behavior.
