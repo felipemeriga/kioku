@@ -197,3 +197,12 @@
   - revoke_api_key with bogus/non-owned key id → HTTP 404 (user_id filter) ✓
 - CONCLUSION: iter21 (folder-summary) was the ONLY endpoint missing scope enforcement; the MCP tools, capture, and key revocation were always correct. Isolation now complete + consistent across the api-key surface.
 - NO new bugs. No code change (audit). Stack healthy.
+
+## Iteration 23 (CONCURRENT-INIT race — BUG FOUND + FIXED)
+- Ran 3 concurrent `kioku init --yes` on the same fresh repo (socket-flow, remote name 'simple-websocket').
+- BUG: one init aborted with "✗ 409 Conflict: A folder named 'simple-websocket' already exists at this parent" + exit 1. All 3 pass listChildren (no folder yet), then race on createFolder; the backend's unique-name constraint 409s the losers.
+- Post-race state WAS consistent (backend prevented a duplicate folder; final key valid, folder-summary 200, 1 folder, 1 key) — so no corruption, but a scripted/double init fails ugly.
+- Fix (commit): createOrAttach() wraps the repo-binding createFolder calls — on a 409 it re-lists and attaches to the winner's folder instead of aborting. CLI rebuilt; 11/11 tests pass.
+- Verified with fix: 3 concurrent inits on a fresh repo (discord-bot) ALL succeed (was 1 abort); final state 1 folder, 1 valid key, .mcp.json type:sse, folder-summary 200.
+- Residual (not fixed, didn't manifest): the backend key-mint delete-then-insert for the same (user,scope) is theoretically racy (could 23505 on perfect interleave) but did not error under 3x concurrency and resolves to a single valid key. Deeper backend change; deferred.
+- Stack healthy.
