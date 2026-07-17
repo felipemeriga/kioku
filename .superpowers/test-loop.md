@@ -95,3 +95,11 @@
 - Watermark round-trip (restful-rust) ✓ — session-start reads last_session_at, injects activity, then stamps a fresh last_session_at (advanced 02:14→03:24).
 - No-new-activity case ✓ — a 2nd session-start right after shows Branch + Uncommitted working changes but OMITS the empty "Recent commits" list (nothing since the fresh watermark). Correct.
 - NO bugs found. Stack healthy.
+
+## Iteration 12 (INTERACTIVE folder picker — last untested user-facing feature)
+- Drove `kioku init --root clone-test-1783355081` (NO --yes) via a Python PTY on the fresh image-to-ascii repo (pre-created a matching child folder 28d6b3b5 so the name-match default is deterministic).
+- Picker ✓ — rendered "? Which folder does this repo bind to?" with the top/default option "image-to-ascii (matches your repo name — recommended)" + nav hint "↑↓ navigate • ⏎ select".
+- Sending Enter selected the recommended name-match → "Attaching to 'image-to-ascii'" → attached to the EXISTING folder 28d6b3b5 (exact id match), NOT a new one. Validates the "select an existing folder" interactive path.
+- Wired correctly: folder-summary queryable (needs_generation=True, fresh), and the minted key is scoped to the REPO folder (iter6 fix holds through the interactive path too).
+- NO bugs found. Stack healthy.
+- REMAINING untested: only the deep-doc documentation flow (still blocked on repo_documentation migration).
