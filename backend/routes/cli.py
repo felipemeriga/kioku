@@ -728,8 +728,7 @@ def _is_uuid(s: str) -> bool:
 
 @router.get("/folder-summary")
 async def folder_summary(request: Request, folder_id: str):
-    user_id, _scope = _api_key_scope(request)
-    # scope_folder_id unused — ownership is checked against folders.user_id below
+    user_id, scope_folder_id = _api_key_scope(request)
     if not _is_uuid(folder_id):
         raise HTTPException(status_code=404, detail="Folder not found")
     sb = get_supabase()
@@ -740,6 +739,16 @@ async def folder_summary(request: Request, folder_id: str):
     )
     if not owns:
         raise HTTPException(status_code=404, detail="Folder not found")
+    # Scope enforcement: a scoped api key may only read within its scope
+    # subtree — consistent with session-capture and the MCP tools, and it
+    # limits the blast radius if a key leaks (a repo-scoped key can't read
+    # sibling repos' briefings). Fast path: reading the scope folder itself
+    # (the normal session-start case) skips the subtree walk. A root-scoped
+    # key still reaches every repo beneath it.
+    if folder_id != scope_folder_id:
+        from mcp_server import _descendant_folder_ids
+        if folder_id not in _descendant_folder_ids(sb, scope_folder_id, user_id):
+            raise HTTPException(status_code=403, detail="folder_id not in api key scope")
     latest = (
         sb.table("folder_summaries")
         .select("content, generated_at")
