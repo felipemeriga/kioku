@@ -6,9 +6,8 @@
  * back to a friendly message if the CLI hasn't been initialized here.
  */
 
-import { existsSync, readFileSync, writeFileSync, statSync, openSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { spawn } from "node:child_process";
 
 async function fetchJson(url: string, headers: Record<string, string>) {
   const res = await fetch(url, { headers });
@@ -16,10 +15,12 @@ async function fetchJson(url: string, headers: Record<string, string>) {
   return res.json();
 }
 
-/** The detailed instruction used both as the background `claude -p` task and as
- *  the interactive fallback. Grounded, process-oriented, and points at the
- *  schema tool so per-section shapes stay defined in one place (the backend). */
-function generateInstruction(sectionOrder: string[]): string {
+/** The detailed generation instruction. `kioku init` hands it to a freshly
+ *  launched interactive Claude Code session as its first task; the SessionStart
+ *  hook injects it into a session that opens without a briefing. Grounded,
+ *  process-oriented, and points at the schema tool so per-section shapes stay
+ *  defined in one place (the backend). */
+export function generateInstruction(sectionOrder: string[]): string {
   return [
     "Generate the COMPLETE kioku knowledge for THIS repository: the concise",
     "briefing AND a detailed architecture document. Both are grounded in the",
@@ -55,54 +56,6 @@ function generateInstruction(sectionOrder: string[]): string {
     "Be dense and grounded. Do not ask questions; produce and save BOTH the",
     "briefing (with activity) and the detailed documentation.",
   ].join("\n");
-}
-
-type AutogenStatus = "launched" | "pending" | "unavailable";
-
-/**
- * Kick off a DETACHED, headless `claude -p` that generates this repo's summary
- * in the background (on the user's subscription, via MCP) when none exists —
- * so the summary is produced automatically without the user prompting and
- * without hijacking the interactive session.
- *
- * Guards:
- *  - KIOKU_NO_AUTOGEN (set on the spawned child) prevents infinite recursion:
- *    the background `claude` also runs this SessionStart hook, but must NOT
- *    spawn another generator.
- *  - a debounce lock (.claude/kioku-autogen.lock, 30 min) stops repeated
- *    launches across sessions.
- *  - bypassPermissions so the unattended run doesn't block on tool prompts.
- */
-function maybeAutogenSummary(repoRoot: string, sectionOrder: string[]): AutogenStatus {
-  if (process.env.KIOKU_NO_AUTOGEN) return "unavailable"; // recursion guard
-  const lockPath = join(repoRoot, ".claude", "kioku-autogen.lock");
-  const DEBOUNCE_MS = 30 * 60 * 1000;
-  try {
-    if (existsSync(lockPath) && Date.now() - statSync(lockPath).mtimeMs < DEBOUNCE_MS) {
-      return "pending"; // a recent run is (or was) in flight
-    }
-  } catch {
-    /* ignore */
-  }
-  const prompt = generateInstruction(sectionOrder);
-  try {
-    writeFileSync(lockPath, new Date().toISOString() + "\n");
-    const logFd = openSync(join(repoRoot, ".claude", "kioku-autogen.log"), "a");
-    const child = spawn(
-      "claude",
-      ["-p", prompt, "--permission-mode", "bypassPermissions"],
-      {
-        cwd: repoRoot,
-        env: { ...process.env, KIOKU_NO_AUTOGEN: "1" },
-        detached: true,
-        stdio: ["ignore", logFd, logFd],
-      },
-    );
-    child.unref();
-    return "launched";
-  } catch {
-    return "unavailable"; // `claude` CLI missing or spawn failed
-  }
 }
 
 export async function sessionStart(): Promise<void> {
@@ -170,16 +123,20 @@ export async function sessionStart(): Promise<void> {
 
     console.log("── kioku second-brain ──");
     if (s.needs_generation) {
-      // Auto-generate in the background so it happens without prompting. The
-      // spawned `claude` (KIOKU_NO_AUTOGEN=1) falls into the "unavailable"
-      // branch below and gets the write-instruction as its actual task.
-      const status = maybeAutogenSummary(repoRoot, s.section_order);
-      if (status === "launched" || status === "pending") {
+      if (process.env.KIOKU_NO_AUTOGEN) {
+        // A launcher (e.g. `kioku init`) already handed this session the
+        // generation instruction as its first task — don't duplicate it here.
         console.log(
-          "This repo has no summary yet — kioku is generating one in the background " +
-            "(scanning the repo on your Claude subscription). It'll appear next session.",
+          "This repo has no kioku briefing yet — generating it now as the first task.",
         );
       } else {
+        // No background/detached generation: make it the session's FIRST task by
+        // injecting the instruction as context, so the summary + activity + deep
+        // doc are produced in this session before anything else.
+        console.log(
+          "This repo has no kioku briefing yet. Generate it now as your FIRST " +
+            "task, before responding to anything else:\n",
+        );
         console.log(generateInstruction(s.section_order));
       }
     } else if (s.sections) {

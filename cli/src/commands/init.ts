@@ -22,6 +22,7 @@ import {
 } from "../lib/claude.js";
 import { bad, info, ok, section, step, warn } from "../lib/banner.js";
 import { panel } from "../ui/panel.js";
+import { generateInstruction } from "./session-start.js";
 
 interface InitOptions {
   yes?: boolean;
@@ -319,9 +320,60 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
       `${kleur.green("✓")} ${kleur.bold("This repo is now wired.")}`,
       kleur.dim(`  Scope: ${w.root_folders.find((f) => f.id === rootId)?.name ?? "(root)"}`),
       kleur.dim(`  Repo:  ${repoFolder.name}`),
-      kleur.dim("  Open in Claude Code — the hook loads your briefing at session start."),
     ].join("\n"),
     tone: "success",
   }));
   console.log();
+
+  // Step 9: generate the briefing NOW by opening Claude Code here with the
+  // generation as its first task. The user waits once while it scans the repo
+  // (briefing + activity + the detailed doc), then keeps coding in a session
+  // that already has the summary. No detached background process — it adds no
+  // value for this very first session, which is exactly when you want the
+  // briefing ready.
+  try {
+    const restBase = new URL(mcpEntry.url).origin.replace(/:8001$/, ":8000");
+    const res = await fetch(
+      `${restBase}/api/cli/folder-summary?folder_id=${encodeURIComponent(repoFolder.id)}`,
+      { headers: { Authorization: `Bearer ${key.key}` } },
+    );
+    const summary = res.ok
+      ? ((await res.json()) as {
+          needs_generation?: boolean;
+          section_order?: string[];
+        })
+      : null;
+    if (summary?.needs_generation) {
+      const go =
+        opts.yes ||
+        (await confirm({
+          message:
+            "Generate the briefing now? Opens Claude Code here and generates it " +
+            "as the first task (wait ~2–5 min, then keep coding in the same session).",
+          default: true,
+        }));
+      if (go && process.stdin.isTTY && process.stdout.isTTY) {
+        info("Opening Claude Code — it'll generate the briefing as its first task…");
+        console.log();
+        const { spawnSync } = await import("node:child_process");
+        // Interactive Claude Code, generation as the first user message.
+        // KIOKU_NO_AUTOGEN=1 tells the SessionStart hook this session is already
+        // handling generation, so it doesn't inject the instruction twice.
+        spawnSync("claude", [generateInstruction(summary.section_order ?? [])], {
+          cwd: repoRoot,
+          stdio: "inherit",
+          env: { ...process.env, KIOKU_NO_AUTOGEN: "1" },
+        });
+      } else if (go) {
+        // No interactive terminal (e.g. scripted `--yes`) — can't open Claude
+        // Code here. Tell the user how to generate it.
+        info("Open Claude Code in this repo to generate the briefing as its first task.");
+      } else {
+        info("Skipped. Open Claude Code here anytime — it'll offer to generate the briefing.");
+      }
+    }
+  } catch {
+    // Backend unreachable or `claude` not on PATH — skip the launch; opening
+    // Claude Code later still prompts for generation via the SessionStart hook.
+  }
 }
