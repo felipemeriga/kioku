@@ -121,3 +121,11 @@
 - Verified E2E: re-init writes type:sse; fresh backend mint includes it; relaunched autogen WROTE the briefing via MCP in ~70s (needs_generation→False) — grounded Solidity content ("UUPS-upgradeable ... DeFi lending pool ... USDC collateral"), 8 sections in folder-summary + UI.
 - Repaired all 6 other wired repos' .mcp.json (Chat/Emberblast/kubernetes-go-grpc/todo-api-pf/image-to-ascii/defi-lending-cli → type=sse).
 - Stack healthy.
+
+## Iteration 15 (verify iter14 fix through Claude Code's OWN MCP loader)
+- `claude mcp list` in a repaired repo shows: `kioku: http://localhost:8001/sse (SSE) - ⏸ Pending approval` — correctly loaded as an SSE server (pre-fix it was "Skipped — invalid config"). "Pending approval" is the normal new-server gate; the autogen bypasses it via --permission-mode bypassPermissions (which is why iter14's autogen succeeded).
+- Airtight before/after contrast through the real parser (temp-strip type, then restore):
+  - typeless → "[Warning] [kioku] mcpServers.kioku: Skipped — invalid MCP server config ... command: expected string, received undefined" (the exact bug)
+  - type:sse → "kioku ... (SSE) - Pending approval" (loads correctly)
+- Confirms the iter14 fix resolves the bug at Claude Code's config-parser level, not just via a direct Python MCP client. .mcp.json restored. NO new bugs. Stack healthy.
+- (Note: agentic-rag prod SSE + plugin:github show "Failed to connect" in claude mcp list — unrelated deployed servers, not this work.)
