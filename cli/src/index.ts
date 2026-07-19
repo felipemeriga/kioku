@@ -21,10 +21,9 @@ const VERSION = "0.1.0";
 
 // Verbose --version — intercept before commander shows the plain number.
 if (process.argv.includes("-V") || process.argv.includes("--version")) {
-  const cfgPath =
-    process.env.XDG_CONFIG_HOME
-      ? `${process.env.XDG_CONFIG_HOME}/kioku/config.json`
-      : `${process.env.HOME}/.config/kioku/config.json`;
+  const cfgPath = process.env.XDG_CONFIG_HOME
+    ? `${process.env.XDG_CONFIG_HOME}/kioku/config.json`
+    : `${process.env.HOME}/.config/kioku/config.json`;
   console.log(`kioku  ${VERSION}`);
   console.log(`  node       ${process.version}`);
   console.log(`  platform   ${process.platform}-${process.arch}`);
@@ -39,13 +38,9 @@ const program = new Command();
 program
   .name("kioku")
   .description(
-    "Wire a local repo to your kioku second-brain — MCP, SessionStart hook, CLAUDE.md.",
+    "Wire a local repo to your kioku second-brain — MCP, SessionStart hook, CLAUDE.md."
   )
-  .version(
-    VERSION,
-    "-V, --version",
-    "Show version + runtime info",
-  )
+  .version(VERSION, "-V, --version", "Show version + runtime info")
   // Global flags — read early so every command respects them.
   .option("--quiet", "Suppress banner and progress lines")
   .option("--no-color", "Disable ANSI colors (same as NO_COLOR=1)")
@@ -74,7 +69,7 @@ Environment:
   KIOKU_QUIET      Suppress banner and progress lines
 
 Docs: https://github.com/felipemeriga/kioku/tree/main/cli
-`,
+`
   );
 
 program
@@ -87,7 +82,7 @@ program
 Examples:
   $ cd ~/my-repo && kioku quickstart
   $ kioku quickstart --yes           # zero prompts, take all defaults
-`,
+`
   )
   .action(async (opts) => {
     banner();
@@ -111,7 +106,7 @@ Examples:
   $ kioku login --no-browser         # print URL instead (for headless envs)
 
 If you need to resend the magic link, just run kioku login again.
-`,
+`
   )
   .action(async (opts) => {
     banner();
@@ -128,6 +123,7 @@ program
   .description("Wire the current repo — MCP, hook, CLAUDE.md")
   .option("--root <name>", "Pre-select a root folder by name or id")
   .option("--yes", "Skip prompts where a sensible default exists")
+  .option("--force", "Regenerate the briefing even if one already exists")
   .addHelpText(
     "after",
     `
@@ -135,7 +131,8 @@ Examples:
   $ kioku init                              # interactive with smart defaults
   $ kioku init --yes                        # no prompts, take all defaults
   $ kioku init --root my-company            # pre-select root
-`,
+  $ kioku init --force                      # regenerate an existing briefing
+`
   )
   .action(async (opts) => {
     banner();
@@ -162,7 +159,7 @@ program
 program
   .command("capture")
   .description(
-    "Distill session learnings and save to Mem0 (used by the Stop hook)",
+    "Distill session learnings and save to Mem0 (used by the Stop hook)"
   )
   .action(async () => {
     try {
@@ -201,7 +198,9 @@ program
 
 program
   .command("ls [path]")
-  .description("Browse your workspace — list roots, or list a folder's children")
+  .description(
+    "Browse your workspace — list roots, or list a folder's children"
+  )
   .option("--json", "Machine-readable JSON output")
   .addHelpText(
     "after",
@@ -211,7 +210,7 @@ Examples:
   $ kioku ls personal       # list children of the 'personal' root
   $ kioku ls cosm/c360-lead # deep path
   $ kioku ls --json         # JSON for scripting
-`,
+`
   )
   .action(async (path, opts) => {
     if (!opts.json) banner();
@@ -225,7 +224,9 @@ Examples:
 
 program
   .command("briefing")
-  .description("View this repo's briefing — the same content Claude sees at session start")
+  .description(
+    "View this repo's briefing — the same content Claude sees at session start"
+  )
   .option("--section <name>", "Show only one section")
   .option("--json", "Machine-readable JSON output")
   .addHelpText(
@@ -235,7 +236,7 @@ Examples:
   $ kioku briefing                          # full 9-section briefing
   $ kioku briefing --section deployment     # just one section
   $ kioku briefing --json | jq .sections.overview
-`,
+`
   )
   .action(async (opts) => {
     if (!opts.json) banner();
@@ -271,7 +272,7 @@ Examples:
   $ kioku open                    # opens the current repo's folder
   $ kioku open personal           # opens the 'personal' root by id/name
   $ kioku open --json | jq -r .url
-`,
+`
   )
   .action(async (target, opts) => {
     if (!opts.json) banner();
@@ -286,7 +287,7 @@ Examples:
 program
   .command("search <query...>")
   .description(
-    "Search the knowledge base + memory — same tool Claude Code uses",
+    "Search the knowledge base + memory — same tool Claude Code uses"
   )
   .option("--json", "Machine-readable JSON output")
   .option("--limit <n>", "How many hits to return (1-25, default 5)")
@@ -298,7 +299,7 @@ Examples:
   $ kioku search how does deploy work
   $ kioku search --limit 10 mem0 filter grammar
   $ kioku search --json 'ruff format' | jq '.hits[0]'
-`,
+`
   )
   .action(async (queryParts, opts) => {
     if (!opts.json) banner();

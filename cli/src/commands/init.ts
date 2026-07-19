@@ -1,5 +1,5 @@
 import { basename, resolve } from "node:path";
-import { input, select } from "@inquirer/prompts";
+import { confirm, input, select } from "@inquirer/prompts";
 import kleur from "kleur";
 import {
   ApiError,
@@ -27,6 +27,16 @@ import { generateInstruction } from "./session-start.js";
 interface InitOptions {
   yes?: boolean;
   root?: string;
+  force?: boolean;
+}
+
+/** Compact "2h ago" style relative time for the last-generated hint. */
+function relTime(iso: string): string {
+  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
 }
 
 /** Create a folder, but tolerate a concurrent creator. Two `kioku init` runs
@@ -41,7 +51,7 @@ async function createOrAttach(name: string, parentId: string): Promise<Folder> {
     if (err instanceof ApiError && err.status === 409) {
       const siblings = await listChildren(parentId);
       const hit = siblings.find(
-        (f) => f.name.toLowerCase() === name.toLowerCase(),
+        (f) => f.name.toLowerCase() === name.toLowerCase()
       );
       if (hit) return hit;
     }
@@ -61,15 +71,17 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
   info(`Working directory: ${repoRoot}`);
   const git = detectGit(repoRoot);
   if (!git.isRepo) {
-    bad("kioku init must be run inside a cloned git repository.",
-        "cd into your repo's working copy and re-run.");
+    bad(
+      "kioku init must be run inside a cloned git repository.",
+      "cd into your repo's working copy and re-run."
+    );
     process.exitCode = 1;
     return;
   }
   info(
     git.remoteUrl
       ? `Detected remote: ${git.owner}/${git.repo}`
-      : "No remote configured.",
+      : "No remote configured."
   );
 
   // Step 1: pick a root folder.
@@ -88,11 +100,12 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
 
   if (opts.root) {
     const hit = w.root_folders.find(
-      (f) => f.name.toLowerCase() === opts.root!.toLowerCase() || f.id === opts.root,
+      (f) =>
+        f.name.toLowerCase() === opts.root!.toLowerCase() || f.id === opts.root
     );
     if (!hit) {
       throw new Error(
-        `No root folder named "${opts.root}". Run without --root to pick from the list.`,
+        `No root folder named "${opts.root}". Run without --root to pick from the list.`
       );
     }
     rootId = hit.id;
@@ -104,7 +117,8 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
       const created = await createFolder(name, null);
       rootId = created.id;
       w.root_folders.push({
-        id: created.id, name: created.name,
+        id: created.id,
+        name: created.name,
         kind: (created.kind as "folder" | "repo") ?? "folder",
         parent_id: null,
       });
@@ -117,7 +131,8 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
       const created = await createFolder(chosenName.trim(), null);
       rootId = created.id;
       w.root_folders.push({
-        id: created.id, name: created.name,
+        id: created.id,
+        name: created.name,
         kind: (created.kind as "folder" | "repo") ?? "folder",
         parent_id: null,
       });
@@ -139,7 +154,7 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
       info(
         ownerMatch
           ? `Using root "${pick.name}" (matches your GitHub owner)`
-          : `Using root "${pick.name}" (default — pass --root to choose another)`,
+          : `Using root "${pick.name}" (default — pass --root to choose another)`
       );
     } else {
       rootId = await select<string>({
@@ -150,8 +165,7 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
             name:
               (ownerMatch && f.id === ownerMatch.id
                 ? `${f.name}  ${kleur.dim("(matches your GitHub owner)")}`
-                : f.name) +
-              (f.kind === "repo" ? kleur.dim(" (repo)") : ""),
+                : f.name) + (f.kind === "repo" ? kleur.dim(" (repo)") : ""),
             value: f.id,
           })),
           { name: kleur.dim("+ create a new root"), value: "__create__" },
@@ -165,8 +179,10 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
         const created = await createFolder(name.trim(), null);
         rootId = created.id;
         w.root_folders.push({
-          id: created.id, name: created.name,
-          kind: "folder", parent_id: null,
+          id: created.id,
+          name: created.name,
+          kind: "folder",
+          parent_id: null,
         });
       }
     }
@@ -182,7 +198,7 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
   const desiredName = git.repo ?? basename(repoRoot);
   const children = await listChildren(rootId!);
   const nameMatch = children.find(
-    (f) => f.name.toLowerCase() === desiredName.toLowerCase(),
+    (f) => f.name.toLowerCase() === desiredName.toLowerCase()
   );
 
   let repoFolder: Folder;
@@ -192,7 +208,9 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
     // choose to reuse the existing folder or create a new one.
     repoFolder = nameMatch;
     info(
-      `Attaching to existing ${nameMatch.kind === "repo" ? "repo" : "folder"} "${repoFolder.name}"`,
+      `Attaching to existing ${
+        nameMatch.kind === "repo" ? "repo" : "folder"
+      } "${repoFolder.name}"`
     );
   } else if (opts.yes && !nameMatch) {
     info(`Creating folder "${desiredName}"…`);
@@ -207,20 +225,32 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
       choices: [
         // Fast option — the auto-match, if any, on top with a hint.
         ...(nameMatch
-          ? [{
-              name: `${nameMatch.name}  ${kleur.dim("(matches your repo name — recommended)")}`,
-              value: nameMatch.id,
-            }]
+          ? [
+              {
+                name: `${nameMatch.name}  ${kleur.dim(
+                  "(matches your repo name — recommended)"
+                )}`,
+                value: nameMatch.id,
+              },
+            ]
           : []),
         // Other existing children — attach and mark as repo
         ...children
           .filter((f) => !nameMatch || f.id !== nameMatch.id)
           .map((f) => ({
-            name: `${f.name}${f.kind === "repo" ? kleur.dim("  (already a repo)") : ""}`,
+            name: `${f.name}${
+              f.kind === "repo" ? kleur.dim("  (already a repo)") : ""
+            }`,
             value: f.id,
           })),
-        { name: kleur.dim(`+ create new folder "${desiredName}"`), value: "__create__" },
-        { name: kleur.dim("+ create new folder with different name"), value: "__create_named__" },
+        {
+          name: kleur.dim(`+ create new folder "${desiredName}"`),
+          value: "__create__",
+        },
+        {
+          name: kleur.dim("+ create new folder with different name"),
+          value: "__create_named__",
+        },
       ],
     });
     if (choice === "__create__") {
@@ -261,13 +291,18 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
     mintScopedApiKey({
       scope_folder_id: repoFolder.id,
       name: `cli-${desiredName}-${new Date().toISOString().slice(0, 10)}`,
-    }),
+    })
   );
 
   // Step 5: write .mcp.json
-  const mcpEntry = (key.mcp_config as {
-    mcpServers: Record<string, { url: string; headers: Record<string, string> }>;
-  }).mcpServers["kioku"];
+  const mcpEntry = (
+    key.mcp_config as {
+      mcpServers: Record<
+        string,
+        { url: string; headers: Record<string, string> }
+      >;
+    }
+  ).mcpServers["kioku"];
   const mcp = writeMcpConfig(repoRoot, mcpEntry);
   ok(`.mcp.json ${mcp.existed ? "updated" : "written"}`);
 
@@ -276,7 +311,7 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
   ok(
     hook.addedHook
       ? "SessionStart hook installed"
-      : "SessionStart hook already present",
+      : "SessionStart hook already present"
   );
 
   // Step 6b: Stop hook — captures session learnings to Mem0 every 10 min
@@ -285,12 +320,13 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
   ok(
     stop.addedHook
       ? "Stop hook installed  " + kleur.dim("(captures learnings to Mem0)")
-      : "Stop hook already present",
+      : "Stop hook already present"
   );
 
   // Step 6c: state file the Stop hook uses to know which folder to save to
   //          and how much of the transcript has been captured already.
-  const rootName = w.root_folders.find((f) => f.id === rootId)?.name ?? "(root)";
+  const rootName =
+    w.root_folders.find((f) => f.id === rootId)?.name ?? "(root)";
   writeCaptureState(repoRoot, {
     folder_id: repoFolder.id,
     folder_name: repoFolder.name,
@@ -304,7 +340,7 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
       ? "CLAUDE.md created"
       : md.action === "appended"
       ? "CLAUDE.md — second-brain instructions appended"
-      : "CLAUDE.md — second-brain instructions updated",
+      : "CLAUDE.md — second-brain instructions updated"
   );
 
   // Step 8: .gitignore
@@ -314,15 +350,21 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
   }
 
   console.log();
-  console.log(panel({
-    title: "Repo wired",
-    body: [
-      `${kleur.green("✓")} ${kleur.bold("This repo is now wired.")}`,
-      kleur.dim(`  Scope: ${w.root_folders.find((f) => f.id === rootId)?.name ?? "(root)"}`),
-      kleur.dim(`  Repo:  ${repoFolder.name}`),
-    ].join("\n"),
-    tone: "success",
-  }));
+  console.log(
+    panel({
+      title: "Repo wired",
+      body: [
+        `${kleur.green("✓")} ${kleur.bold("This repo is now wired.")}`,
+        kleur.dim(
+          `  Scope: ${
+            w.root_folders.find((f) => f.id === rootId)?.name ?? "(root)"
+          }`
+        ),
+        kleur.dim(`  Repo:  ${repoFolder.name}`),
+      ].join("\n"),
+      tone: "success",
+    })
+  );
   console.log();
 
   // Step 9: generate the briefing NOW by opening Claude Code here with the
@@ -334,16 +376,52 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
   try {
     const restBase = new URL(mcpEntry.url).origin.replace(/:8001$/, ":8000");
     const res = await fetch(
-      `${restBase}/api/cli/folder-summary?folder_id=${encodeURIComponent(repoFolder.id)}`,
-      { headers: { Authorization: `Bearer ${key.key}` } },
+      `${restBase}/api/cli/folder-summary?folder_id=${encodeURIComponent(
+        repoFolder.id
+      )}`,
+      { headers: { Authorization: `Bearer ${key.key}` } }
     );
     const summary = res.ok
       ? ((await res.json()) as {
           needs_generation?: boolean;
+          generated_at?: string | null;
           section_order?: string[];
         })
       : null;
-    if (summary?.needs_generation && process.stdin.isTTY && process.stdout.isTTY) {
+
+    const isTTY = process.stdin.isTTY && process.stdout.isTTY;
+    // A briefing "exists" if it has ever been generated (regardless of
+    // staleness). Key on generated_at, not needs_generation, so a repo that
+    // already has a briefing prompts to regenerate instead of silently
+    // skipping (or silently regenerating once it goes stale).
+    const hasBriefing = Boolean(summary?.generated_at);
+
+    let shouldGenerate = false;
+    if (summary) {
+      if (!hasBriefing) {
+        // No briefing yet — generate it as the session's first task. Only in an
+        // interactive terminal (we launch Claude Code with stdio inherited).
+        shouldGenerate = isTTY;
+      } else if (opts.force) {
+        shouldGenerate = true;
+      } else if (isTTY && !opts.yes) {
+        // Briefing already exists — ask before spending tokens regenerating.
+        shouldGenerate = await confirm({
+          message: `This repo already has a briefing (generated ${relTime(
+            summary.generated_at!
+          )}). Regenerate it?`,
+          default: false,
+        });
+        if (!shouldGenerate) {
+          info(
+            "Keeping the existing briefing. Re-run with --force to regenerate."
+          );
+        }
+      }
+      // Existing briefing under --yes / non-TTY without --force: skip quietly.
+    }
+
+    if (shouldGenerate) {
       info("Opening Claude Code — generating the briefing as its first task…");
       console.log();
       const { spawnSync } = await import("node:child_process");
@@ -355,13 +433,13 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
         "claude",
         [
           "--dangerously-skip-permissions",
-          generateInstruction(summary.section_order ?? []),
+          generateInstruction(summary?.section_order ?? []),
         ],
         {
           cwd: repoRoot,
           stdio: "inherit",
           env: { ...process.env, KIOKU_NO_AUTOGEN: "1" },
-        },
+        }
       );
     }
   } catch {
