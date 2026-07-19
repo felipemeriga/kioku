@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from arq import create_pool
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -14,6 +16,7 @@ from services.queue.jobs import create_job, get_active_job
 from services.queue.settings import _redis_settings
 
 router = APIRouter(prefix="/api/notion", tags=["notion"])
+log = logging.getLogger(__name__)
 
 
 def _is_uuid(s: str) -> bool:
@@ -22,6 +25,7 @@ def _is_uuid(s: str) -> bool:
     surfaces as an uncaught 500 (returns 404 for a malformed id, like a
     well-formed-but-nonexistent one)."""
     import uuid as _uuid
+
     try:
         _uuid.UUID(str(s))
         return True
@@ -91,6 +95,17 @@ async def connect(body: ConnectRequest, user_id: str = Depends(get_current_user)
         )
     except Exception as exc:
         raise HTTPException(status_code=409, detail=f"Config exists or invalid: {exc}") from exc
+
+    # Kick off the first sync immediately so the folder starts populating right
+    # after connecting — instead of waiting for the scheduler's next tick. A
+    # full reconcile pulls the whole page tree. Best effort: if the queue is
+    # down, the periodic scheduler still picks it up (last_full_sync_at is None
+    # → immediately due).
+    try:
+        await _enqueue_sync(inserted["id"], user_id, full_reconcile=True)
+    except Exception as exc:  # noqa: BLE001 — never fail connect on a queue hiccup
+        log.warning("initial notion sync enqueue failed for %s: %s", inserted["id"], exc)
+
     return inserted
 
 
