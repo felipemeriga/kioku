@@ -1,19 +1,12 @@
-"""Folder CRUD + summary endpoints for organizing documents."""
+"""Folder CRUD endpoints for organizing documents."""
 
-import os
 import re
 
-from arq.connections import RedisSettings, create_pool
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from auth import get_current_user
 from db.client import get_supabase
-from services.folder_summary.repo import (
-    get_folder,
-    get_latest_summary,
-    get_summary_history,
-)
 
 router = APIRouter(prefix="/api/folders")
 
@@ -30,10 +23,6 @@ _UUID_RE = re.compile(
 def _require_uuid(folder_id: str) -> None:
     if not _UUID_RE.match(folder_id):
         raise HTTPException(status_code=404, detail="Folder not found")
-
-
-def _redis_settings() -> RedisSettings:
-    return RedisSettings.from_dsn(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
 
 
 class CreateFolderRequest(BaseModel):
@@ -322,127 +311,6 @@ def _descendant_folder_ids(sb, folder_id: str, user_id: str) -> list[str]:
         result.extend(next_ids)
         frontier = next_ids
     return result
-
-
-class RegenerateSummaryRequest(BaseModel):
-    # Body is intentionally empty — the endpoint is idempotent and the
-    # task decides internally whether to regen or skip based on content
-    # hashes. `force` bypasses the skip check (used by 'Rebuild anyway'
-    # buttons or when the user knows better than the diff).
-    force: bool = False
-
-
-@router.get("/{folder_id}/summary")
-async def get_folder_summary(
-    folder_id: str,
-    user_id: str = Depends(get_current_user),
-):
-    """Latest folder summary + minimal metadata for the panel."""
-    _require_uuid(folder_id)
-    sb = get_supabase()
-    folder = get_folder(sb, folder_id, user_id)
-    if not folder:
-        raise HTTPException(status_code=404, detail="Folder not found")
-
-    latest = get_latest_summary(sb, folder_id, user_id)
-
-    # For container / workspace-rollup summaries, hand the frontend the
-    # structured subfolder index so the Folder Detail page can render the
-    # workspace grid without a second round-trip.
-    subfolders_index = None
-    if latest and latest.get("kind") == "workspace_rollup":
-        try:
-            from services.folder_summary.rollup import (
-                build_workspace_orientation_payload,
-            )
-
-            subfolders_index = build_workspace_orientation_payload(
-                sb,
-                folder_id=folder_id,
-                user_id=user_id,
-                latest_row=latest,
-            )["subfolders"]
-        except Exception:  # noqa: BLE001
-            pass
-
-    return {
-        "folder": folder,
-        "summary": latest,
-        "subfolders": subfolders_index,
-    }
-
-
-@router.get("/{folder_id}/summary/history")
-async def get_folder_summary_history(
-    folder_id: str,
-    # Bound the limit — an unbounded negative value reaches Postgres as
-    # `LIMIT -1` and raises, surfacing as an uncaught 500.
-    limit: int = Query(default=10, ge=1, le=100),
-    user_id: str = Depends(get_current_user),
-):
-    _require_uuid(folder_id)
-    sb = get_supabase()
-    folder = get_folder(sb, folder_id, user_id)
-    if not folder:
-        raise HTTPException(status_code=404, detail="Folder not found")
-    return get_summary_history(sb, folder_id, user_id, limit=limit)
-
-
-@router.post("/{folder_id}/summary/regenerate")
-async def regenerate_folder_summary(
-    folder_id: str,
-    body: RegenerateSummaryRequest,
-    user_id: str = Depends(get_current_user),
-):
-    """Enqueue a summarize_folder_task and return the arq job id.
-
-    Body is optional. `force: true` bypasses the skip-if-unchanged check
-    (used by the 'Rebuild anyway' UI). Otherwise the task decides
-    internally whether to regen based on content-hash diff.
-    """
-    _require_uuid(folder_id)
-
-    sb = get_supabase()
-    folder = get_folder(sb, folder_id, user_id)
-    if not folder:
-        raise HTTPException(status_code=404, detail="Folder not found")
-
-    # Repo briefings are authored in-session by the agent via MCP; backend
-    # generation no longer applies to repo folders.
-    if (folder.get("kind") or "folder") == "repo":
-        raise HTTPException(
-            status_code=400,
-            detail="repo briefings are authored in-session by the agent; nothing to regenerate",
-        )
-
-    # `mode` is always "full" from the task's perspective now — either it
-    # rebuilds or it skips. `force=True` translates to mode="full" which
-    # bypasses the skip check. force=False maps to mode="auto" which lets
-    # the task's own diff detection short-circuit if nothing changed.
-    task_mode = "full" if body.force else "auto"
-
-    pool = await create_pool(_redis_settings())
-    try:
-        # Bucketed job_id: dedups clicks within the same 10-second window
-        # so hammering Regenerate collapses to one job, but a legitimate
-        # re-click after content changes still enqueues.
-        import time as _time
-
-        bucket = int(_time.time()) // 10
-        job = await pool.enqueue_job(
-            "summarize_folder_task",
-            {
-                "folder_id": folder_id,
-                "user_id": user_id,
-                "mode": task_mode,
-                "trigger": "manual",
-            },
-            _job_id=f"summarize:{folder_id}:{task_mode}:{bucket}",
-        )
-    finally:
-        await pool.close()
-
-    return {"ok": True, "job_id": job.job_id if job else None, "force": body.force}
 
 
 @router.get("/{folder_id}/breadcrumbs")

@@ -1539,26 +1539,6 @@ def get_folder_orientation(
         },
     }
 
-    # If this is a workspace rollup (container folder), attach the
-    # structured subfolders[] index so the agent can drill into any child
-    # without another orientation call. The 'summary' block still carries
-    # the synthesized workspace briefing.
-    if row.get("kind") == "workspace_rollup":
-        try:
-            from services.folder_summary.rollup import (
-                build_workspace_orientation_payload,
-            )
-
-            extra = build_workspace_orientation_payload(
-                sb,
-                folder_id=folder_id,
-                user_id=user_id,
-                latest_row=row,
-            )
-            payload["subfolders"] = extra["subfolders"]
-        except Exception:  # noqa: BLE001
-            pass  # Don't fail orientation on rollup-index assembly errors.
-
     # For repo folders, add the strict 9-section briefing so a coding
     # agent has structured facts to work with immediately + can update
     # any section via update_folder_briefing_section.

@@ -3,10 +3,10 @@
  *
  *   /folder/:folderId
  *
- * Three stacked sections:
- *   1) Folder orientation (the composed summary panel, full width).
- *   2) Documents in this folder subtree — click a card, view content in a drawer.
- *   3) Mem0 memories for this folder, grouped by scope (rules / episodic).
+ * Tabs:
+ *   - Briefing (repo folders only) + the detailed architecture doc.
+ *   - Documents in this folder subtree — click a card, view content in a drawer.
+ *   - Mem0 memories for this folder, grouped by scope (rules / episodic).
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -40,7 +40,6 @@ import CloseIcon from "@mui/icons-material/Close";
 import DeleteIcon from "@mui/icons-material/Delete";
 import DescriptionIcon from "@mui/icons-material/Description";
 import { Mem0BrandIcon } from "../components/BrandIcons";
-import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import AddIcon from "@mui/icons-material/Add";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
@@ -48,7 +47,6 @@ import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import { useNavigate, useParams } from "react-router-dom";
 
-import FolderSummaryPanel from "../components/FolderSummaryPanel";
 import BriefingPanel from "../components/BriefingPanel";
 import DocumentationPanel from "../components/DocumentationPanel";
 import FolderIntegrationsDialog from "../components/FolderIntegrationsDialog";
@@ -93,9 +91,9 @@ export default function FolderDetailPage() {
   const [loadingDocs, setLoadingDocs] = useState(false);
   const [selectedDoc, setSelectedDoc] = useState<DocumentContent | null>(null);
   const [loadingDoc, setLoadingDoc] = useState(false);
-  const [tab, setTab] = useState<
-    "summary" | "briefing" | "documents" | "memory"
-  >("summary");
+  const [tab, setTab] = useState<"briefing" | "documents" | "memory">(
+    "documents"
+  );
 
   // Load folder metadata
   useEffect(() => {
@@ -129,15 +127,14 @@ export default function FolderDetailPage() {
       .catch((err) => toast.showError(err, "Couldn't load folder metadata."));
   }, [folderId, toast]);
 
-  // Auto-flip tab when the folder kind is known — repo folders show
-  // Briefing, non-repo folders show Summary. Prevents landing on a
-  // hidden tab when navigating to a folder whose kind we didn't know at
-  // mount time.
+  // Repo folders default to the Briefing tab; other folders have no briefing,
+  // so they open on Documents. Runs when a (new) folder loads — not on every
+  // tab click — so the user's tab choice within a folder is preserved.
   useEffect(() => {
     if (!folder) return;
-    if (folder.kind === "repo" && tab === "summary") setTab("briefing");
-    if (folder.kind !== "repo" && tab === "briefing") setTab("summary");
-  }, [folder, tab]);
+    setTab(folder.kind === "repo" ? "briefing" : "documents");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [folder?.id, folder?.kind]);
 
   // Load documents
   const loadDocuments = useCallback(async () => {
@@ -165,7 +162,10 @@ export default function FolderDetailPage() {
       const cfg = configs.find((c) => c.root_folder_id === folderId) ?? null;
       setMem0Config(cfg);
       if (cfg) {
-        const res = await listFolderMemories(cfg.id, { scope: "any", limit: 200 });
+        const res = await listFolderMemories(cfg.id, {
+          scope: "any",
+          limit: 200,
+        });
         setMemories(res.memories);
       } else {
         setMemories([]);
@@ -333,7 +333,9 @@ export default function FolderDetailPage() {
           sx={{ fontFamily: fonts.mono, height: 22 }}
         />
         <Chip
-          label={mem0Config ? `${memories.length} memories` : "Mem0 not connected"}
+          label={
+            mem0Config ? `${memories.length} memories` : "Mem0 not connected"
+          }
           size="small"
           color={mem0Config ? "primary" : "default"}
           sx={{ fontFamily: fonts.mono, height: 22 }}
@@ -348,33 +350,36 @@ export default function FolderDetailPage() {
         </Button>
       </Box>
 
-      {/* Tab visibility rule: repo folders show Briefing (the 8-section
-          structured schema); every other folder kind shows Summary (the
-          orientation/rollup schema). The two schemas are structurally
-          different — showing both for repos led to a broken empty
-          Summary tab, so we canonicalize on one per kind. */}
+      {/* Repo folders get a Briefing tab (the 8-section structured schema);
+          other folders have no summary/briefing — only repos do now. */}
       <Tabs
         value={tab}
         onChange={(_, v) => setTab(v)}
         sx={{ borderBottom: `1px solid ${brand.line}`, px: 2 }}
       >
-        {folder?.kind === "repo" ? (
-          <Tab value="briefing" label="Briefing" icon={<AccountTreeIcon fontSize="small" />} iconPosition="start" />
-        ) : (
-          <Tab value="summary" label="Summary" icon={<AutoAwesomeIcon fontSize="small" />} iconPosition="start" />
+        {folder?.kind === "repo" && (
+          <Tab
+            value="briefing"
+            label="Briefing"
+            icon={<AccountTreeIcon fontSize="small" />}
+            iconPosition="start"
+          />
         )}
-        <Tab value="documents" label={`Documents (${documents.length})`} icon={<DescriptionIcon fontSize="small" />} iconPosition="start" />
-        <Tab value="memory" label={`Memory (${memories.length})`} icon={<Mem0BrandIcon fontSize="small" />} iconPosition="start" />
+        <Tab
+          value="documents"
+          label={`Documents (${documents.length})`}
+          icon={<DescriptionIcon fontSize="small" />}
+          iconPosition="start"
+        />
+        <Tab
+          value="memory"
+          label={`Memory (${memories.length})`}
+          icon={<Mem0BrandIcon fontSize="small" />}
+          iconPosition="start"
+        />
       </Tabs>
 
       <Box sx={{ p: 3, maxWidth: 960, mx: "auto", width: "100%", flex: 1 }}>
-        {tab === "summary" && folder?.kind !== "repo" && (
-          <FolderSummaryPanel
-            folderId={folderId}
-            folderName={folder?.name ?? "this folder"}
-          />
-        )}
-
         {tab === "briefing" && folder?.kind === "repo" && (
           <>
             <BriefingPanel folderId={folderId} />
@@ -453,7 +458,14 @@ function DocumentsSection({
 }) {
   if (loading && documents.length === 0) {
     return (
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, color: brand.muted }}>
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          gap: 1.5,
+          color: brand.muted,
+        }}
+      >
         <CircularProgress size={16} sx={{ color: brand.violet2 }} />
         <Typography sx={{ fontFamily: fonts.body, fontSize: "0.9rem" }}>
           Loading documents…
@@ -524,7 +536,11 @@ function DocumentsSection({
             sx={{ fontFamily: fonts.mono, height: 20, fontSize: "0.65rem" }}
           />
           <Typography
-            sx={{ fontFamily: fonts.mono, fontSize: "0.7rem", color: brand.muted }}
+            sx={{
+              fontFamily: fonts.mono,
+              fontSize: "0.7rem",
+              color: brand.muted,
+            }}
           >
             {new Date(d.created_at).toLocaleDateString()}
           </Typography>
@@ -575,7 +591,14 @@ function MemoryTab({
   }
   if (loading && eternal.length === 0 && episodic.length === 0) {
     return (
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, color: brand.muted }}>
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          gap: 1.5,
+          color: brand.muted,
+        }}
+      >
         <CircularProgress size={16} sx={{ color: brand.violet2 }} />
         <Typography sx={{ fontFamily: fonts.body, fontSize: "0.9rem" }}>
           Loading memories…
@@ -627,7 +650,12 @@ function MemoryGroup({
 }) {
   return (
     <Box>
-      <Stack direction="row" alignItems="baseline" spacing={1.5} sx={{ mb: 1.25 }}>
+      <Stack
+        direction="row"
+        alignItems="baseline"
+        spacing={1.5}
+        sx={{ mb: 1.25 }}
+      >
         <Typography
           sx={{
             fontFamily: fonts.display,
@@ -662,7 +690,13 @@ function MemoryGroup({
         </Typography>
       </Stack>
       {items.length === 0 && (
-        <Typography sx={{ fontFamily: fonts.body, fontSize: "0.85rem", color: brand.muted }}>
+        <Typography
+          sx={{
+            fontFamily: fonts.body,
+            fontSize: "0.85rem",
+            color: brand.muted,
+          }}
+        >
           None yet.
         </Typography>
       )}
@@ -704,7 +738,11 @@ function MemoryCard({
       }}
     >
       <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Stack direction="row" spacing={0.75} sx={{ mb: 0.5, flexWrap: "wrap" }}>
+        <Stack
+          direction="row"
+          spacing={0.75}
+          sx={{ mb: 0.5, flexWrap: "wrap" }}
+        >
           <Chip
             label={m.category ?? "?"}
             size="small"
@@ -861,11 +899,17 @@ function DocumentDrawerBody({
       </Box>
       <Box sx={{ px: 2, py: 1, borderBottom: `1px solid ${brand.line}` }}>
         <Typography
-          sx={{ fontFamily: fonts.mono, fontSize: "0.7rem", color: brand.muted }}
+          sx={{
+            fontFamily: fonts.mono,
+            fontSize: "0.7rem",
+            color: brand.muted,
+          }}
         >
           {doc.viewable_as} · {doc.source_type} · {doc.chunk_count} chunks
           {doc.status ? ` · ${doc.status}` : ""}
-          {doc.created_at ? ` · ${new Date(doc.created_at).toLocaleString()}` : ""}
+          {doc.created_at
+            ? ` · ${new Date(doc.created_at).toLocaleString()}`
+            : ""}
         </Typography>
       </Box>
       <Box sx={{ flex: 1, overflow: "auto", position: "relative" }}>
@@ -949,7 +993,12 @@ function DocumentRenderer({
   } else if (viewable_as === "video") {
     primary = file_url ? (
       <Box sx={{ p: 2 }}>
-        <Box component="video" controls src={file_url} sx={{ width: "100%", maxHeight: "80vh" }} />
+        <Box
+          component="video"
+          controls
+          src={file_url}
+          sx={{ width: "100%", maxHeight: "80vh" }}
+        />
       </Box>
     ) : (
       <NoOriginalFallback msg="Original video not available." />
@@ -1082,7 +1131,7 @@ function MarkdownRender({ content }: { content: string }) {
     Promise.all([import("react-markdown"), import("remark-gfm")]).then(
       ([md, gfm]) => {
         if (!cancelled) setState({ Renderer: md.default, gfm: gfm.default });
-      },
+      }
     );
     return () => {
       cancelled = true;
@@ -1101,9 +1150,24 @@ function MarkdownRender({ content }: { content: string }) {
         fontFamily: fonts.body,
         fontSize: "0.92rem",
         lineHeight: 1.6,
-        "& h1": { fontFamily: fonts.display, fontSize: "1.35rem", mb: 1, mt: 2 },
-        "& h2": { fontFamily: fonts.display, fontSize: "1.15rem", mb: 0.75, mt: 2 },
-        "& h3": { fontFamily: fonts.display, fontSize: "1.02rem", mb: 0.5, mt: 1.5 },
+        "& h1": {
+          fontFamily: fonts.display,
+          fontSize: "1.35rem",
+          mb: 1,
+          mt: 2,
+        },
+        "& h2": {
+          fontFamily: fonts.display,
+          fontSize: "1.15rem",
+          mb: 0.75,
+          mt: 2,
+        },
+        "& h3": {
+          fontFamily: fonts.display,
+          fontSize: "1.02rem",
+          mb: 0.5,
+          mt: 1.5,
+        },
         "& p": { my: 1 },
         "& ul, & ol": { pl: 3, my: 1 },
         "& li": { mb: 0.25 },
@@ -1122,7 +1186,11 @@ function MarkdownRender({ content }: { content: string }) {
           overflow: "auto",
           "& code": { bgcolor: "transparent", p: 0 },
         },
-        "& a": { color: brand.cyan, textDecoration: "none", "&:hover": { textDecoration: "underline" } },
+        "& a": {
+          color: brand.cyan,
+          textDecoration: "none",
+          "&:hover": { textDecoration: "underline" },
+        },
         "& blockquote": {
           borderLeft: `3px solid ${brand.violet2}`,
           pl: 2,
@@ -1144,12 +1212,28 @@ const CATEGORY_OPTIONS: {
   label: string;
   hint: string;
 }[] = [
-  { value: "decision", label: "Decision", hint: "an architectural / design choice" },
-  { value: "finding", label: "Finding", hint: "an empirical fact you discovered" },
+  {
+    value: "decision",
+    label: "Decision",
+    hint: "an architectural / design choice",
+  },
+  {
+    value: "finding",
+    label: "Finding",
+    hint: "an empirical fact you discovered",
+  },
   { value: "issue", label: "Issue", hint: "a bug, limitation, or workaround" },
-  { value: "preference", label: "Preference", hint: "how you like to work (usually eternal)" },
+  {
+    value: "preference",
+    label: "Preference",
+    hint: "how you like to work (usually eternal)",
+  },
   { value: "session", label: "Session", hint: "summary of a working session" },
-  { value: "note", label: "Note", hint: "freeform — prefer a more specific category" },
+  {
+    value: "note",
+    label: "Note",
+    hint: "freeform — prefer a more specific category",
+  },
 ];
 
 function AddMemoryDialog({
@@ -1205,7 +1289,9 @@ function AddMemoryDialog({
       onClose={onClose}
       fullWidth
       maxWidth="sm"
-      PaperProps={{ sx: { bgcolor: brand.surface, border: `1px solid ${brand.line}` } }}
+      PaperProps={{
+        sx: { bgcolor: brand.surface, border: `1px solid ${brand.line}` },
+      }}
     >
       <DialogTitle sx={{ fontFamily: fonts.display }}>Add memory</DialogTitle>
       <DialogContent>

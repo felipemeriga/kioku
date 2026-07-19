@@ -42,7 +42,7 @@ function normalizeDetail(detail: unknown): string {
       .map((d: unknown) => {
         if (typeof d === "string") return d;
         if (d && typeof d === "object" && "msg" in d) {
-          const m = (d as { msg?: unknown; loc?: unknown[] });
+          const m = d as { msg?: unknown; loc?: unknown[] };
           const loc =
             Array.isArray(m.loc) && m.loc.length > 0
               ? `${m.loc.filter((x) => x !== "body").join(".")}: `
@@ -111,8 +111,7 @@ export async function apiFetch(path: string, options: RequestInit = {}) {
     throw new ApiError({
       status: 0,
       isNetwork: true,
-      userMessage:
-        "Network error — check your connection and try again.",
+      userMessage: "Network error — check your connection and try again.",
       detail: err instanceof Error ? err.message : String(err),
     });
   }
@@ -203,7 +202,9 @@ export interface BriefingResponse {
   last_generated_at: string | null;
 }
 
-export async function fetchBriefing(folderId: string): Promise<BriefingResponse> {
+export async function fetchBriefing(
+  folderId: string
+): Promise<BriefingResponse> {
   const res = await apiFetch(`/api/folders/${folderId}/briefing`);
   return res.json();
 }
@@ -226,29 +227,35 @@ export async function updateBriefingSection(
   section: BriefingSectionKey,
   content: unknown,
   status: BriefingSectionStatus = "pinned",
-  updatedBy?: string,
+  updatedBy?: string
 ): Promise<{ ok: boolean; section: BriefingSection }> {
-  const res = await apiFetch(`/api/folders/${folderId}/briefing/section/${section}`, {
-    method: "PATCH",
-    body: JSON.stringify({ content, status, updated_by: updatedBy }),
-  });
+  const res = await apiFetch(
+    `/api/folders/${folderId}/briefing/section/${section}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ content, status, updated_by: updatedBy }),
+    }
+  );
   return res.json();
 }
 
 export async function resetBriefingSection(
   folderId: string,
-  section: BriefingSectionKey,
+  section: BriefingSectionKey
 ): Promise<{ ok: boolean; section: BriefingSection }> {
-  const res = await apiFetch(`/api/folders/${folderId}/briefing/section/${section}/reset`, {
-    method: "POST",
-  });
+  const res = await apiFetch(
+    `/api/folders/${folderId}/briefing/section/${section}/reset`,
+    {
+      method: "POST",
+    }
+  );
   return res.json();
 }
 
 /** Clear the whole briefing + detailed doc for a repo folder so it
  *  regenerates on the next `kioku init`. */
 export async function clearBriefing(
-  folderId: string,
+  folderId: string
 ): Promise<{ ok: boolean }> {
   const res = await apiFetch(`/api/folders/${folderId}/briefing`, {
     method: "DELETE",
@@ -315,7 +322,7 @@ export async function streamChat(
   filters?: ChatFilters,
   onStage?: (event: StageEvent) => void,
   fastMode?: boolean,
-  onError?: (err: ApiError) => void,
+  onError?: (err: ApiError) => void
 ): Promise<void> {
   // A stream is "clean" only if it emits a data.done frame. Anything else —
   // TCP drop, backend timeout, JSON parse loss — should raise, not silently
@@ -325,9 +332,13 @@ export async function streamChat(
   try {
     headers = await getAuthHeaders();
   } catch (err) {
-    const e = err instanceof ApiError ? err : new ApiError({
-      status: 401, userMessage: "You're not signed in.",
-    });
+    const e =
+      err instanceof ApiError
+        ? err
+        : new ApiError({
+            status: 401,
+            userMessage: "You're not signed in.",
+          });
     onError?.(e);
     throw e;
   }
@@ -347,7 +358,8 @@ export async function streamChat(
     });
   } catch (err) {
     const e = new ApiError({
-      status: 0, isNetwork: true,
+      status: 0,
+      isNetwork: true,
       userMessage: "Network error — the chat request never reached the server.",
       detail: err instanceof Error ? err.message : String(err),
     });
@@ -359,8 +371,12 @@ export async function streamChat(
     let detailStr = "";
     try {
       const body = await response.json();
-      detailStr = normalizeDetail((body as { detail?: unknown })?.detail ?? body);
-    } catch { /* non-JSON body */ }
+      detailStr = normalizeDetail(
+        (body as { detail?: unknown })?.detail ?? body
+      );
+    } catch {
+      /* non-JSON body */
+    }
     if (response.status === 401) void handleAuthExpiry();
     const e = new ApiError({
       status: response.status,
@@ -373,7 +389,8 @@ export async function streamChat(
   const reader = response.body?.getReader();
   if (!reader) {
     const e = new ApiError({
-      status: 500, userMessage: "The server returned an empty chat response.",
+      status: 500,
+      userMessage: "The server returned an empty chat response.",
     });
     onError?.(e);
     throw e;
@@ -404,7 +421,9 @@ export async function streamChat(
           if (data.error) {
             const e = new ApiError({
               status: 500,
-              userMessage: normalizeDetail(data.error) || "The model returned an error mid-response.",
+              userMessage:
+                normalizeDetail(data.error) ||
+                "The model returned an error mid-response.",
             });
             onError?.(e);
             throw e;
@@ -426,7 +445,8 @@ export async function streamChat(
   } catch (err) {
     if (err instanceof ApiError) throw err;
     const e = new ApiError({
-      status: 0, isNetwork: true,
+      status: 0,
+      isNetwork: true,
       userMessage: "The chat connection dropped before the answer finished.",
       detail: err instanceof Error ? err.message : String(err),
     });
@@ -437,7 +457,8 @@ export async function streamChat(
   // Stream closed cleanly BUT with no data.done — treat as a truncated response.
   if (!sawDone) {
     const e = new ApiError({
-      status: 0, isNetwork: true,
+      status: 0,
+      isNetwork: true,
       userMessage: "The response ended before the answer was complete.",
     });
     onError?.(e);
@@ -513,7 +534,8 @@ export async function uploadDocument(
     });
   } catch (err) {
     throw new ApiError({
-      status: 0, isNetwork: true,
+      status: 0,
+      isNetwork: true,
       userMessage: `Network error while uploading “${file.name}”.`,
       detail: err instanceof Error ? err.message : String(err),
     });
@@ -523,14 +545,18 @@ export async function uploadDocument(
     let detailStr = "";
     try {
       const body = await response.json();
-      detailStr = normalizeDetail((body as { detail?: unknown })?.detail ?? body);
-    } catch { /* non-JSON */ }
+      detailStr = normalizeDetail(
+        (body as { detail?: unknown })?.detail ?? body
+      );
+    } catch {
+      /* non-JSON */
+    }
     if (response.status === 401) void handleAuthExpiry();
     throw new ApiError({
       status: response.status,
       userMessage: friendlyForStatus(
         response.status,
-        detailStr || `Upload failed for “${file.name}”.`,
+        detailStr || `Upload failed for “${file.name}”.`
       ),
     });
   }
@@ -629,103 +655,6 @@ export async function fetchBreadcrumbs(
   folderId: string
 ): Promise<Breadcrumb[]> {
   const res = await apiFetch(`/api/folders/${folderId}/breadcrumbs`);
-  return res.json();
-}
-
-// --- Folder Summaries ---
-
-export interface FolderSummaryContent {
-  title: string;
-  purpose: string;
-  overview: string;
-  themes: { name: string; description: string }[];
-  key_documents: { filename: string; role: string }[];
-  key_facts: string[];
-  entities: string[];
-  gotchas: string[];
-}
-
-export interface FolderSummaryRow {
-  id: string;
-  folder_id: string;
-  generated_at: string;
-  /** 'workspace_rollup' is used for container folders whose summary is
-   *  synthesized from direct-child summaries rather than doc summaries. */
-  kind: "full" | "delta" | "seed" | "workspace_rollup";
-  trigger: string | null;
-  content: FolderSummaryContent;
-  previous_content: FolderSummaryContent | null;
-  changed_files: {
-    added?: string[];
-    removed?: string[];
-    modified?: string[];
-    subfolder_count?: number;
-    subfolder_snapshots?: Record<string, string>;
-  };
-  doc_count: number;
-  input_tokens: number | null;
-  output_tokens: number | null;
-  duration_ms: number | null;
-}
-
-export interface WorkspaceSubfolderCard {
-  id: string;
-  name: string;
-  purpose: string;
-  overview: string;
-  key_facts: string[];
-  doc_count: number;
-  has_mem0: boolean;
-  has_github: boolean;
-  has_notion: boolean;
-  has_summary: boolean;
-}
-
-export interface FolderSummaryResponse {
-  folder: { id: string; name: string; parent_id: string | null };
-  summary: FolderSummaryRow | null;
-  /** Populated only when summary.kind === 'workspace_rollup'. Direct
-   *  subfolder cards for the workspace grid. */
-  subfolders: WorkspaceSubfolderCard[] | null;
-}
-
-export interface FolderSummaryHistoryRow {
-  id: string;
-  generated_at: string;
-  kind: "full" | "delta" | "seed" | "workspace_rollup";
-  trigger: string | null;
-  doc_count: number;
-  changed_files: { added: string[]; removed: string[]; modified: string[] };
-  input_tokens: number | null;
-  output_tokens: number | null;
-  duration_ms: number | null;
-}
-
-export async function fetchFolderSummary(
-  folderId: string
-): Promise<FolderSummaryResponse> {
-  const res = await apiFetch(`/api/folders/${folderId}/summary`);
-  return res.json();
-}
-
-export async function fetchFolderSummaryHistory(
-  folderId: string,
-  limit = 10
-): Promise<FolderSummaryHistoryRow[]> {
-  const res = await apiFetch(
-    `/api/folders/${folderId}/summary/history?limit=${limit}`
-  );
-  return res.json();
-}
-
-export async function regenerateFolderSummary(
-  folderId: string,
-  force = false
-): Promise<{ ok: boolean; job_id: string | null; force: boolean }> {
-  const res = await apiFetch(`/api/folders/${folderId}/summary/regenerate`, {
-    method: "POST",
-    body: JSON.stringify({ force }),
-  });
   return res.json();
 }
 
@@ -848,10 +777,9 @@ export async function disconnectNotion(
   configId: string,
   deleteDocs: boolean
 ): Promise<void> {
-  await apiFetch(
-    `/api/notion/configs/${configId}?delete_docs=${deleteDocs}`,
-    { method: "DELETE" }
-  );
+  await apiFetch(`/api/notion/configs/${configId}?delete_docs=${deleteDocs}`, {
+    method: "DELETE",
+  });
 }
 
 export async function syncNotionNow(
@@ -1027,7 +955,6 @@ export async function fetchDocumentContent(
   return res.json();
 }
 
-
 export interface GitHubRepoOption {
   owner: string;
   name: string;
@@ -1058,7 +985,9 @@ export interface DeviceInfo {
 
 export async function deviceInfo(req: string): Promise<DeviceInfo> {
   // Unauthenticated read — do not use apiFetch (which requires a session).
-  const res = await fetch(`/api/cli/auth/device/info?req=${encodeURIComponent(req)}`);
+  const res = await fetch(
+    `/api/cli/auth/device/info?req=${encodeURIComponent(req)}`
+  );
   if (!res.ok) throw new Error(`device info failed: ${res.status}`);
   return res.json();
 }

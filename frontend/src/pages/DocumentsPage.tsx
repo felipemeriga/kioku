@@ -53,7 +53,6 @@ import type { Breadcrumb } from "../lib/api";
 import DocumentCard from "../components/DocumentCard";
 import MoveDialog from "../components/MoveDialog";
 import IngestionDrawer from "../components/IngestionDrawer";
-import FolderSummaryPanel from "../components/FolderSummaryPanel";
 import BriefingPanel from "../components/BriefingPanel";
 import DocumentationPanel from "../components/DocumentationPanel";
 import FolderIntegrationsDialog from "../components/FolderIntegrationsDialog";
@@ -944,22 +943,9 @@ export default function DocumentsPage() {
             </Box>
           )}
 
-        {/* Folder summary/orientation + the repo briefing (overview,
-              architecture, important files, …), placed BELOW the folder grid
-              so subfolders sit at the top of a repo view. BriefingPanel renders
-              nothing for non-repo folders. */}
-        {/* Non-repo folders keep the plain orientation card. Repos surface
-              their generated knowledge on the Briefing tab instead. */}
-        {currentFolderId && !currentFolderIsRepo && (
-          <FolderSummaryPanel
-            folderId={currentFolderId}
-            folderName={
-              breadcrumbs.length > 0
-                ? breadcrumbs[breadcrumbs.length - 1].name
-                : "This folder"
-            }
-          />
-        )}
+        {/* Repos surface their generated knowledge on the Briefing tab,
+              placed BELOW the folder grid so subfolders sit at the top. Non-repo
+              folders have no summary/briefing — only repos do now. */}
         {currentFolderIsRepo && folderTab === "briefing" && currentFolderId && (
           <>
             <BriefingPanel folderId={currentFolderId} />

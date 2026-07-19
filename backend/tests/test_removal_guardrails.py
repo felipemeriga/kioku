@@ -1,6 +1,7 @@
-"""Guardrails for the github-sync removal. These MUST stay green through
-every removal task: the replace_briefing save path (Plan A depends on it)
-and doc-folder summarization must survive."""
+"""Guardrails for the briefing save path. The replace_briefing helpers that
+repo briefings depend on must survive future refactors. (The non-repo folder
+summary engine was removed — only repos have briefings now.)"""
+
 import importlib
 
 
@@ -15,9 +16,6 @@ def test_briefing_schema_helpers_importable():
     assert "overview" in SECTION_KEYS and "activity" in SECTION_KEYS
 
 
-def test_app_imports_and_doc_summary_entrypoint_present():
+def test_app_imports():
     main = importlib.import_module("main")
     assert main.app is not None
-    # Doc-folder summarization entrypoint stays.
-    from services.folder_summary import generate_folder_summary
-    assert callable(generate_folder_summary)
