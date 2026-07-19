@@ -30,14 +30,22 @@ export function generateInstruction(sectionOrder: string[]): string {
     "Do this:",
     "1. Call the `get_folder_briefing_schema` MCP tool to get the exact expected",
     "   shape + authoring notes for each section.",
-    "2. Explore the repository thoroughly. Fan out subagents in parallel to cover",
+    "2. Call the `read_folder_documents` MCP tool. If this folder already has",
+    "   uploaded documents (external docs, specs, architecture notes), they",
+    "   describe the broader ecosystem this repo is part of — treat them as",
+    "   authoritative context and fold relevant details into BOTH the briefing",
+    "   and the detailed doc. The repo's code alone often doesn't capture the",
+    "   whole ecosystem. (It returns a short 'nothing to fold in' note if empty.)",
+    "3. Explore the repository thoroughly. Fan out subagents in parallel to cover",
     "   distinct areas: entry points & configuration; the core components/modules",
     "   and their responsibilities; data flow and key control paths; how it",
     "   builds/runs/tests; and how it deploys (CI/CD). Reuse this exploration for",
     "   both the briefing and the detailed doc below.",
-    `3. Write these ${sectionOrder.length} concise sections, each grounded in the`,
-    `   actual code with REAL file paths, following the schema shapes: ${sectionOrder.join(", ")}.`,
-    "4. ALSO fill the `activity` section so the web UI shows it — make it",
+    `4. Write these ${sectionOrder.length} concise sections, each grounded in the`,
+    `   actual code with REAL file paths, following the schema shapes: ${sectionOrder.join(
+      ", "
+    )}.`,
+    "5. ALSO fill the `activity` section so the web UI shows it — make it",
     "   genuinely useful, not a one-liner. Read a good chunk of history",
     "   (`git log` for roughly the last ~30-50 commits or ~2-3 months) and write:",
     "     - `summary` = a 4-8 sentence NARRATIVE of the themes and direction of",
@@ -47,10 +55,10 @@ export function generateInstruction(sectionOrder: string[]): string {
     "   Group related commits into themes; do NOT paste a raw commit list. (Claude",
     "   Code sessions still get live git activity separately — this is the stored",
     "   web-UI section.)",
-    "5. Save the concise sections + activity in ONE call to",
+    "6. Save the concise sections + activity in ONE call to",
     "   `replace_folder_briefing` — a JSON object mapping each section name to its",
     "   content.",
-    "6. Then produce the DETAILED documentation — a comprehensive, structured",
+    "7. Then produce the DETAILED documentation — a comprehensive, structured",
     "   markdown architecture document: a COMPLETE overview of the whole repo",
     "   (purpose; subsystems/crates and their responsibilities; data & control",
     "   flows; key files with their roles; build/run/test; deployment & CI; and",
@@ -104,7 +112,7 @@ export async function sessionStart(): Promise<void> {
   let folderId: string | undefined;
   try {
     const st = JSON.parse(
-      readFileSync(join(repoRoot, ".claude", "kioku-state.json"), "utf8"),
+      readFileSync(join(repoRoot, ".claude", "kioku-state.json"), "utf8")
     ) as { folder_id?: string };
     folderId = st.folder_id;
   } catch {
@@ -112,13 +120,17 @@ export async function sessionStart(): Promise<void> {
   }
   if (!folderId) return;
 
-  const { readLastSessionAt, stampLastSessionAt } = await import("../lib/claude.js");
+  const { readLastSessionAt, stampLastSessionAt } = await import(
+    "../lib/claude.js"
+  );
   const { composeActivity } = await import("../lib/git-activity.js");
 
   try {
     const s = (await fetchJson(
-      `${base}/api/cli/folder-summary?folder_id=${encodeURIComponent(folderId)}`,
-      H,
+      `${base}/api/cli/folder-summary?folder_id=${encodeURIComponent(
+        folderId
+      )}`,
+      H
     )) as {
       needs_generation: boolean;
       sections: Record<string, { content: unknown }> | null;
@@ -132,7 +144,7 @@ export async function sessionStart(): Promise<void> {
         // A launcher (e.g. `kioku init`) already handed this session the
         // generation instruction as its first task — don't duplicate it here.
         console.log(
-          "This repo has no kioku briefing yet — generating it now as the first task.",
+          "This repo has no kioku briefing yet — generating it now as the first task."
         );
       } else {
         // No background/detached generation: make it the session's FIRST task by
@@ -140,7 +152,7 @@ export async function sessionStart(): Promise<void> {
         // doc are produced in this session before anything else.
         console.log(
           "This repo has no kioku briefing yet. Generate it now as your FIRST " +
-            "task, before responding to anything else:\n",
+            "task, before responding to anything else:\n"
         );
         console.log(generateInstruction(s.section_order));
       }
@@ -154,7 +166,13 @@ export async function sessionStart(): Promise<void> {
           typeof sec.content === "string"
             ? sec.content
             : JSON.stringify(sec.content, null, 2);
-        if (!body || !body.trim() || body.trim() === "{}" || body.trim() === '""') continue;
+        if (
+          !body ||
+          !body.trim() ||
+          body.trim() === "{}" ||
+          body.trim() === '""'
+        )
+          continue;
         console.log(`\n## ${key}\n${body}`);
       }
       // Deep-doc offer — only once the concise summary already exists, so a
@@ -162,9 +180,9 @@ export async function sessionStart(): Promise<void> {
       if (s.doc_needs_generation) {
         console.log(
           "\nThis repo's deep documentation is missing or over 30 days old. When you're " +
-            "ready, say \"generate the docs\" and I'll scan the repository — fanning out " +
+            'ready, say "generate the docs" and I\'ll scan the repository — fanning out ' +
             "subagents across its main areas — write a structured architecture document, " +
-            "and save it via the `save_repo_documentation` MCP tool.",
+            "and save it via the `save_repo_documentation` MCP tool."
         );
       }
     }
@@ -183,11 +201,13 @@ export async function sessionStart(): Promise<void> {
     // always exit cleanly so the hook never disrupts the session.
     const msg = err instanceof Error ? err.message : String(err);
     const unreachable =
-      /fetch failed|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|getaddrinfo|network|timed? ?out/i.test(msg);
+      /fetch failed|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|getaddrinfo|network|timed? ?out/i.test(
+        msg
+      );
     console.error(
       unreachable
         ? "kioku: backend unreachable — skipping briefing this session (your session is unaffected)."
-        : `kioku: ${msg}`,
+        : `kioku: ${msg}`
     );
   }
 }

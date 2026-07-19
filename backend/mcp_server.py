@@ -20,7 +20,6 @@ from services.evaluation import evaluate_rag_pipeline
 from services.mem0_sync import MemoryCategory, get_client_for_folder
 from services.mem0_sync.client import MemoryScope
 from services.mem0_sync.fanout import fanout_search
-from services.search import search_documents
 from services.text_to_sql import generate_and_execute_sql
 
 MCP_PORT = int(os.environ.get("MCP_PORT", "8001"))
@@ -56,9 +55,13 @@ def _descendant_folder_ids(sb, root_id: str, user_id: str) -> list[str]:
     frontier = [root_id]
     while frontier:
         r = (
-            sb.table("folders").select("id")
-            .in_("parent_id", frontier).eq("user_id", user_id).execute()
-            .data or []
+            sb.table("folders")
+            .select("id")
+            .in_("parent_id", frontier)
+            .eq("user_id", user_id)
+            .execute()
+            .data
+            or []
         )
         next_ids = [row["id"] for row in r]
         if not next_ids:
@@ -69,7 +72,11 @@ def _descendant_folder_ids(sb, root_id: str, user_id: str) -> list[str]:
 
 
 def resolve_focus_folder(
-    sb, *, scope_folder_id: str, user_id: str, focus: str | None,
+    sb,
+    *,
+    scope_folder_id: str,
+    user_id: str,
+    focus: str | None,
 ) -> tuple[str, str] | tuple[None, str]:
     """Resolve an optional focus arg to (folder_id, folder_name).
 
@@ -93,9 +100,13 @@ def resolve_focus_folder(
     subtree_ids = _descendant_folder_ids(sb, scope_folder_id, user_id)
     if not focus:
         row = (
-            sb.table("folders").select("id, name")
-            .eq("id", scope_folder_id).eq("user_id", user_id)
-            .limit(1).execute().data
+            sb.table("folders")
+            .select("id, name")
+            .eq("id", scope_folder_id)
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+            .data
         )
         if not row:
             return (None, "Scope folder not found.")
@@ -107,8 +118,13 @@ def resolve_focus_folder(
         if focus not in subtree_ids:
             return (None, f"Folder {focus!r} is not inside your scope.")
         row = (
-            sb.table("folders").select("id, name")
-            .eq("id", focus).eq("user_id", user_id).limit(1).execute().data
+            sb.table("folders")
+            .select("id, name")
+            .eq("id", focus)
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+            .data
         )
         if not row:
             return (None, f"Folder {focus!r} not found.")
@@ -122,10 +138,14 @@ def resolve_focus_folder(
 
     # Load candidate rows in the subtree with matching name.
     rows = (
-        sb.table("folders").select("id, name, parent_id")
-        .in_("id", subtree_ids).eq("user_id", user_id)
-        .ilike("name", target_name).execute()
-        .data or []
+        sb.table("folders")
+        .select("id, name, parent_id")
+        .in_("id", subtree_ids)
+        .eq("user_id", user_id)
+        .ilike("name", target_name)
+        .execute()
+        .data
+        or []
     )
     # Case-insensitive strict match on the leaf name
     exact = [r for r in rows if r["name"].lower() == target_name]
@@ -143,8 +163,12 @@ def resolve_focus_folder(
             cur = fid
             for _ in range(30):
                 rr = (
-                    sb.table("folders").select("name, parent_id")
-                    .eq("id", cur).eq("user_id", user_id).limit(1).execute()
+                    sb.table("folders")
+                    .select("name, parent_id")
+                    .eq("id", cur)
+                    .eq("user_id", user_id)
+                    .limit(1)
+                    .execute()
                     .data
                 )
                 if not rr:
@@ -154,11 +178,12 @@ def resolve_focus_folder(
                     break
                 cur = rr[0]["parent_id"]
             return list(reversed(names))
+
         matches = []
         wanted = [p.lower() for p in parts]
         for cand in exact:
             path = [n.lower() for n in ancestry_names(cand["id"])]
-            if path[-len(wanted):] == wanted:
+            if path[-len(wanted) :] == wanted:
                 matches.append(cand)
         if len(matches) == 1:
             return (matches[0]["id"], matches[0]["name"])
@@ -170,8 +195,7 @@ def resolve_focus_folder(
         else:
             return (
                 None,
-                f"Ambiguous focus {focus!r} — matches {len(matches)} folders. "
-                f"Try a longer path.",
+                f"Ambiguous focus {focus!r} — matches {len(matches)} folders. Try a longer path.",
             )
     return (
         None,
@@ -181,7 +205,10 @@ def resolve_focus_folder(
 
 
 def _folder_tree_under_scope(
-    sb, *, scope_folder_id: str, user_id: str,
+    sb,
+    *,
+    scope_folder_id: str,
+    user_id: str,
 ) -> list[dict]:
     """List all folders under scope with {id, name, kind, path, has_briefing}.
 
@@ -192,9 +219,13 @@ def _folder_tree_under_scope(
     if not subtree_ids:
         return []
     rows = (
-        sb.table("folders").select("id, name, parent_id, kind")
-        .in_("id", subtree_ids).eq("user_id", user_id).execute()
-        .data or []
+        sb.table("folders")
+        .select("id, name, parent_id, kind")
+        .in_("id", subtree_ids)
+        .eq("user_id", user_id)
+        .execute()
+        .data
+        or []
     )
     by_id = {r["id"]: r for r in rows}
 
@@ -213,9 +244,13 @@ def _folder_tree_under_scope(
 
     # Which folders have a briefing/summary row?
     with_summaries = (
-        sb.table("folder_summaries").select("folder_id")
-        .in_("folder_id", subtree_ids).eq("user_id", user_id).execute()
-        .data or []
+        sb.table("folder_summaries")
+        .select("folder_id")
+        .in_("folder_id", subtree_ids)
+        .eq("user_id", user_id)
+        .execute()
+        .data
+        or []
     )
     summarized = {r["folder_id"] for r in with_summaries}
 
@@ -321,51 +356,62 @@ def save_memory(
         return json.dumps({"ok": False, "error": "Not authenticated. Provide a valid API key."})
     folder_id = _current_scope_folder_id.get()
     if not folder_id:
-        return json.dumps({
-            "ok": False,
-            "error": "This API key has no scope folder; cannot infer agent_id.",
-            "fix": "Mint an API key scoped to a folder in Settings.",
-        })
+        return json.dumps(
+            {
+                "ok": False,
+                "error": "This API key has no scope folder; cannot infer agent_id.",
+                "fix": "Mint an API key scoped to a folder in Settings.",
+            }
+        )
     # Explicit category check — refuse (don't silently substitute 'note').
     if not category or category not in MemoryCategory.all():
-        return json.dumps({
-            "ok": False,
-            "error": f"category is required and must be one of {list(MemoryCategory.all())}.",
-            "got": category,
-        })
+        return json.dumps(
+            {
+                "ok": False,
+                "error": f"category is required and must be one of {list(MemoryCategory.all())}.",
+                "got": category,
+            }
+        )
     if scope not in (MemoryScope.ETERNAL, MemoryScope.EPISODIC):
-        return json.dumps({
-            "ok": False,
-            "error": "scope must be 'eternal' or 'episodic'.",
-            "got": scope,
-        })
+        return json.dumps(
+            {
+                "ok": False,
+                "error": "scope must be 'eternal' or 'episodic'.",
+                "got": scope,
+            }
+        )
     if not content or not content.strip():
         return json.dumps({"ok": False, "error": "content is required."})
 
     client = get_client_for_folder(get_supabase(), folder_id, _current_user_id.get())
     if client is None:
-        return json.dumps({
-            "ok": False,
-            "error": "No Mem0 integration configured for this folder.",
-            "fix": "Connect Mem0 for this folder in the app's Settings page.",
-        })
+        return json.dumps(
+            {
+                "ok": False,
+                "error": "No Mem0 integration configured for this folder.",
+                "fix": "Connect Mem0 for this folder in the app's Settings page.",
+            }
+        )
     tag_list = [t.strip() for t in (tags or "").split(",") if t.strip()]
     result = client.add(
         content, scope=scope, category=category, tags=tag_list, written_by="claude-code"
     )
     if not result.get("ok"):
         return json.dumps({"ok": False, "error": result.get("error") or "Mem0 write failed."})
-    return json.dumps({
-        "ok": True,
-        "duplicate": result.get("duplicate", False),
-        "existing_id": result.get("existing_id"),
-        "scope": scope,
-        "category": category,
-        "tags": tag_list,
-        "user_id": _current_user_id.get(),
-        "agent_id": folder_id,
-        "mem0_result": result.get("raw"),
-    }, default=str)
+    return json.dumps(
+        {
+            "ok": True,
+            "duplicate": result.get("duplicate", False),
+            "existing_id": result.get("existing_id"),
+            "scope": scope,
+            "category": category,
+            "tags": tag_list,
+            "user_id": _current_user_id.get(),
+            "agent_id": folder_id,
+            "mem0_result": result.get("raw"),
+        },
+        default=str,
+    )
 
 
 @mcp.tool()
@@ -702,19 +748,25 @@ def list_folders_in_scope() -> str:
         return "Error: This API key has no folder scope."
     sb = get_supabase()
     tree = _folder_tree_under_scope(
-        sb, scope_folder_id=scope, user_id=_current_user_id.get(),
+        sb,
+        scope_folder_id=scope,
+        user_id=_current_user_id.get(),
     )
-    return json.dumps({
-        "scope_folder_id": scope,
-        "folders": tree,
-        "hint": (
-            "Call get_folder_briefing(folder='<name>') or "
-            "get_folder_orientation(folder='<name>') to focus on any of these. "
-            "The 'folder' argument accepts a name ('c360-lead'), a slash-path "
-            "('cosm/c360-lead'), or a UUID. Repo folders have the strict "
-            "9-section briefing; regular folders have a freeform summary."
-        ),
-    }, indent=2, ensure_ascii=False)
+    return json.dumps(
+        {
+            "scope_folder_id": scope,
+            "folders": tree,
+            "hint": (
+                "Call get_folder_briefing(folder='<name>') or "
+                "get_folder_orientation(folder='<name>') to focus on any of these. "
+                "The 'folder' argument accepts a name ('c360-lead'), a slash-path "
+                "('cosm/c360-lead'), or a UUID. Repo folders have the strict "
+                "9-section briefing; regular folders have a freeform summary."
+            ),
+        },
+        indent=2,
+        ensure_ascii=False,
+    )
 
 
 @mcp.tool()
@@ -727,8 +779,10 @@ def get_folder_briefing_schema() -> str:
     when you learn something the user hasn't captured yet.
     """
     from services.folder_summary.briefing import (
-        BRIEFING_SCHEMA_VERSION, SECTION_KEYS,
+        BRIEFING_SCHEMA_VERSION,
+        SECTION_KEYS,
     )
+
     schema = {
         "version": BRIEFING_SCHEMA_VERSION,
         "sections": SECTION_KEYS,
@@ -786,13 +840,17 @@ def get_folder_briefing(folder: str | None = None) -> str:
         return "Error: No folder scope on this API key."
     from services.folder_summary.briefing import empty_briefing
     from services.folder_summary.repo import (
-        get_folder, get_latest_summary,
+        get_folder,
+        get_latest_summary,
     )
+
     sb = get_supabase()
     user_id = _current_user_id.get()
     resolved_id, resolved_name = resolve_focus_folder(
-        sb, scope_folder_id=_current_scope_folder_id.get(),
-        user_id=user_id, focus=folder,
+        sb,
+        scope_folder_id=_current_scope_folder_id.get(),
+        user_id=user_id,
+        focus=folder,
     )
     if not resolved_id:
         return f"Error: {resolved_name}"
@@ -808,9 +866,7 @@ def get_folder_briefing(folder: str | None = None) -> str:
     latest = get_latest_summary(sb, resolved_id, user_id)
     sections = None
     if latest:
-        sections = latest.get("sections") or (
-            (latest.get("content") or {}).get("sections")
-        )
+        sections = latest.get("sections") or ((latest.get("content") or {}).get("sections"))
     payload = {
         "folder": folder_row.get("name"),
         "sections": sections or empty_briefing(),
@@ -856,16 +912,23 @@ def replace_folder_briefing(
     if not _current_user_id.get():
         return "Error: Not authenticated."
     from services.folder_summary.briefing import (
-        BRIEFING_SCHEMA_VERSION, SECTION_KEYS, empty_briefing, new_section,
+        BRIEFING_SCHEMA_VERSION,
+        SECTION_KEYS,
+        empty_briefing,
+        new_section,
     )
     from services.folder_summary.repo import (
-        get_folder, get_latest_summary,
+        get_folder,
+        get_latest_summary,
     )
+
     sb = get_supabase()
     user_id = _current_user_id.get()
     resolved_id, resolved_name = resolve_focus_folder(
-        sb, scope_folder_id=_current_scope_folder_id.get(),
-        user_id=user_id, focus=folder,
+        sb,
+        scope_folder_id=_current_scope_folder_id.get(),
+        user_id=user_id,
+        focus=folder,
     )
     if not resolved_id:
         return f"Error: {resolved_name}"
@@ -923,11 +986,14 @@ def replace_folder_briefing(
     for _ in range(4):
         try:
             sb.table("folder_summaries").insert(payload).execute()
-            return json.dumps({
-                "ok": True,
-                "replaced": list(payload_sections.keys()),
-                "total_sections": len(current),
-            }, ensure_ascii=False)
+            return json.dumps(
+                {
+                    "ok": True,
+                    "replaced": list(payload_sections.keys()),
+                    "total_sections": len(current),
+                },
+                ensure_ascii=False,
+            )
         except Exception as exc:  # noqa: BLE001
             last_err = exc
             msg = str(exc)
@@ -938,8 +1004,9 @@ def replace_folder_briefing(
             if "trigger_check" in msg and payload.get("trigger") != "manual":
                 payload["trigger"] = "manual"
                 downgraded = True
-            if ("briefing_schema_version" in msg or "sections" in msg) \
-                    and "briefing_schema_version" in payload:
+            if (
+                "briefing_schema_version" in msg or "sections" in msg
+            ) and "briefing_schema_version" in payload:
                 payload.pop("briefing_schema_version", None)
                 payload.pop("sections", None)
                 downgraded = True
@@ -971,13 +1038,19 @@ def save_repo_documentation(
     if not _current_user_id.get():
         return "Error: Not authenticated."
     from services.folder_summary.briefing import (
-        BRIEFING_SCHEMA_VERSION, empty_briefing, new_section,
+        BRIEFING_SCHEMA_VERSION,
+        empty_briefing,
+        new_section,
     )
     from services.folder_summary.repo import get_folder, get_latest_summary
+
     sb = get_supabase()
     user_id = _current_user_id.get()
     resolved_id, resolved_name = resolve_focus_folder(
-        sb, scope_folder_id=_current_scope_folder_id.get(), user_id=user_id, focus=folder,
+        sb,
+        scope_folder_id=_current_scope_folder_id.get(),
+        user_id=user_id,
+        focus=folder,
     )
     if not resolved_id:
         return f"Error: {resolved_name}"
@@ -989,10 +1062,14 @@ def save_repo_documentation(
 
     # 1. Persist the full doc (latest row per folder = current).
     try:
-        sb.table("repo_documentation").insert({
-            "folder_id": resolved_id, "user_id": user_id,
-            "content": content, "abstract": abstract or "",
-        }).execute()
+        sb.table("repo_documentation").insert(
+            {
+                "folder_id": resolved_id,
+                "user_id": user_id,
+                "content": content,
+                "abstract": abstract or "",
+            }
+        ).execute()
     except Exception as exc:  # noqa: BLE001
         return (
             "Error saving documentation (is the repo_documentation table "
@@ -1010,15 +1087,25 @@ def save_repo_documentation(
     pointer = "\n\nFull architecture docs available — call get_repo_documentation."
     current["documentation"] = new_section(
         (abstract or "").strip() + pointer,
-        status="auto", provenance="agent_mcp", updated_by="agent_mcp",
+        status="auto",
+        provenance="agent_mcp",
+        updated_by="agent_mcp",
     )
     payload = {
-        "folder_id": resolved_id, "user_id": user_id, "kind": "briefing",
+        "folder_id": resolved_id,
+        "user_id": user_id,
+        "kind": "briefing",
         "trigger": "mcp_edit",
         "content": {"__briefing_v": BRIEFING_SCHEMA_VERSION, "sections": current},
-        "previous_content": None, "included_hashes": [], "doc_count": 0,
-        "changed_files": {}, "input_tokens": 0, "output_tokens": 0, "duration_ms": 0,
-        "briefing_schema_version": BRIEFING_SCHEMA_VERSION, "sections": current,
+        "previous_content": None,
+        "included_hashes": [],
+        "doc_count": 0,
+        "changed_files": {},
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "duration_ms": 0,
+        "briefing_schema_version": BRIEFING_SCHEMA_VERSION,
+        "sections": current,
     }
     for _ in range(4):
         try:
@@ -1028,13 +1115,17 @@ def save_repo_documentation(
             msg = str(exc)
             downgraded = False
             if "kind_check" in msg and payload.get("kind") != "full":
-                payload["kind"] = "full"; downgraded = True
+                payload["kind"] = "full"
+                downgraded = True
             if "trigger_check" in msg and payload.get("trigger") != "manual":
-                payload["trigger"] = "manual"; downgraded = True
-            if ("briefing_schema_version" in msg or "sections" in msg) \
-                    and "briefing_schema_version" in payload:
+                payload["trigger"] = "manual"
+                downgraded = True
+            if (
+                "briefing_schema_version" in msg or "sections" in msg
+            ) and "briefing_schema_version" in payload:
                 payload.pop("briefing_schema_version", None)
-                payload.pop("sections", None); downgraded = True
+                payload.pop("sections", None)
+                downgraded = True
             if not downgraded:
                 break
     return json.dumps(
@@ -1058,15 +1149,23 @@ def get_repo_documentation(folder: str | None = None) -> str:
     sb = get_supabase()
     user_id = _current_user_id.get()
     resolved_id, resolved_name = resolve_focus_folder(
-        sb, scope_folder_id=_current_scope_folder_id.get(), user_id=user_id, focus=folder,
+        sb,
+        scope_folder_id=_current_scope_folder_id.get(),
+        user_id=user_id,
+        focus=folder,
     )
     if not resolved_id:
         return f"Error: {resolved_name}"
     try:
         row = (
-            sb.table("repo_documentation").select("content, generated_at")
-            .eq("folder_id", resolved_id).eq("user_id", user_id)
-            .order("generated_at", desc=True).limit(1).execute().data
+            sb.table("repo_documentation")
+            .select("content, generated_at")
+            .eq("folder_id", resolved_id)
+            .eq("user_id", user_id)
+            .order("generated_at", desc=True)
+            .limit(1)
+            .execute()
+            .data
         )
     except Exception as exc:  # noqa: BLE001
         return f"Error reading documentation: {str(exc)[:200]}"
@@ -1077,6 +1176,86 @@ def get_repo_documentation(folder: str | None = None) -> str:
             "then call save_repo_documentation(content, abstract)."
         )
     return row[0]["content"]
+
+
+# Generous cap for the one-time init-context dump — big is fine (it runs once),
+# but bounded so an enormous folder can't overflow the tool response.
+_DOC_DUMP_CHAR_CAP = 300_000
+
+
+@mcp.tool()
+def read_folder_documents(folder: str | None = None) -> str:
+    """Return the FULL text of every document already uploaded to this folder.
+
+    Use this at briefing/documentation generation time to fold in a kioku
+    folder's existing knowledge — external docs, specs, architecture notes —
+    that describe the broader ecosystem the repo lives in, beyond the code on
+    disk. The repo's own files alone often don't capture the whole ecosystem.
+
+    Each file's content is the reconstructed full text (all chunks, in order).
+    Output is capped (~300k chars) with a truncation note if the folder is huge.
+    Returns a short "nothing to fold in" message when the folder has no docs.
+
+    Args:
+        folder: name / slash-path / UUID; omit to target the API key's scope folder.
+    """
+    if not _current_user_id.get():
+        return "Error: Not authenticated."
+    from services.folder_summary.repo import get_docs_in_subtree
+
+    sb = get_supabase()
+    user_id = _current_user_id.get()
+    resolved_id, resolved_name = resolve_focus_folder(
+        sb,
+        scope_folder_id=_current_scope_folder_id.get(),
+        user_id=user_id,
+        focus=folder,
+    )
+    if not resolved_id:
+        return f"Error: {resolved_name}"
+    try:
+        docs = get_docs_in_subtree(sb, resolved_id, user_id)
+    except Exception as exc:  # noqa: BLE001
+        return f"Error reading documents: {str(exc)[:200]}"
+    if not docs:
+        return (
+            f"No uploaded documents in '{resolved_name}' — nothing to fold in. "
+            "Generate the briefing from the repo code on disk."
+        )
+
+    parts: list[str] = []
+    used = 0
+    included = 0
+    truncated = False
+    for d in docs:
+        name = d.get("source_filename") or "unknown"
+        body = d.get("content") or ""
+        block = f"\n\n## {name}\n{body}"
+        remaining = _DOC_DUMP_CHAR_CAP - used
+        if len(block) > remaining:
+            if remaining > 1000:  # partial slice so a giant first file still helps
+                parts.append(block[:remaining])
+                included += 1
+            truncated = True
+            break
+        parts.append(block)
+        used += len(block)
+        included += 1
+
+    header = (
+        f"# Existing documents in '{resolved_name}' — {included} of {len(docs)} file(s)\n"
+        "Documents already uploaded to this kioku folder (ecosystem context beyond "
+        "the repo code). Fold relevant details into the briefing sections and the "
+        "detailed documentation."
+    )
+    footer = ""
+    if truncated:
+        footer = (
+            f"\n\n[Truncated at ~{_DOC_DUMP_CHAR_CAP:,} chars — "
+            f"{len(docs) - included} more file(s) not shown; read them with "
+            "knowledge_base_search if you need them.]"
+        )
+    return header + "".join(parts) + footer
 
 
 @mcp.tool()
@@ -1106,18 +1285,25 @@ def update_folder_briefing_section(
     if not _current_user_id.get():
         return "Error: Not authenticated."
     from services.folder_summary.briefing import (
-        BRIEFING_SCHEMA_VERSION, SECTION_KEYS, new_section, empty_briefing,
+        BRIEFING_SCHEMA_VERSION,
+        SECTION_KEYS,
+        empty_briefing,
+        new_section,
     )
     from services.folder_summary.repo import (
-        get_folder, get_latest_summary,
+        get_folder,
+        get_latest_summary,
     )
+
     if section not in SECTION_KEYS:
         return f"Error: Unknown section '{section}'. Valid: {SECTION_KEYS}"
     sb = get_supabase()
     user_id = _current_user_id.get()
     resolved_id, resolved_name = resolve_focus_folder(
-        sb, scope_folder_id=_current_scope_folder_id.get(),
-        user_id=user_id, focus=folder,
+        sb,
+        scope_folder_id=_current_scope_folder_id.get(),
+        user_id=user_id,
+        focus=folder,
     )
     if not resolved_id:
         return f"Error: {resolved_name}"
@@ -1142,7 +1328,7 @@ def update_folder_briefing_section(
         parsed_content,
         status="pinned" if pin else "auto",
         provenance="agent_mcp",
-        updated_by=f"api_key_id_placeholder",  # TODO: thread real id through the middleware
+        updated_by="api_key_id_placeholder",  # TODO: thread real id through the middleware
     )
     payload = {
         "folder_id": folder_id,
@@ -1176,8 +1362,9 @@ def update_folder_briefing_section(
             if "trigger_check" in msg and payload.get("trigger") != "manual":
                 payload["trigger"] = "manual"
                 downgraded = True
-            if ("briefing_schema_version" in msg or "sections" in msg) \
-                    and "briefing_schema_version" in payload:
+            if (
+                "briefing_schema_version" in msg or "sections" in msg
+            ) and "briefing_schema_version" in payload:
                 payload.pop("briefing_schema_version", None)
                 payload.pop("sections", None)
                 downgraded = True
@@ -1232,8 +1419,10 @@ def get_folder_orientation(
     # Resolver: accepts either the new `folder` arg or the legacy `folder_name`.
     focus = folder or folder_name
     folder_id, folder_name_resolved = resolve_focus_folder(
-        sb, scope_folder_id=_current_scope_folder_id.get(),
-        user_id=user_id, focus=focus,
+        sb,
+        scope_folder_id=_current_scope_folder_id.get(),
+        user_id=user_id,
+        focus=focus,
     )
     if not folder_id:
         return f"Error: {folder_name_resolved}"
@@ -1265,20 +1454,24 @@ def get_folder_orientation(
         try:
             for r in mem0_client.list_eternal(limit=50):
                 md = r.get("metadata") or {}
-                rules.append({
-                    "content": r.get("memory"),
-                    "category": md.get("category"),
-                    "tags": md.get("tags", []),
-                    "id": r.get("id"),
-                })
+                rules.append(
+                    {
+                        "content": r.get("memory"),
+                        "category": md.get("category"),
+                        "tags": md.get("tags", []),
+                        "id": r.get("id"),
+                    }
+                )
             for r in mem0_client.list_recent_episodic(days=14, limit=20):
                 md = r.get("metadata") or {}
-                recent_learnings.append({
-                    "content": r.get("memory"),
-                    "category": md.get("category"),
-                    "created_at": r.get("created_at"),
-                    "tags": md.get("tags", []),
-                })
+                recent_learnings.append(
+                    {
+                        "content": r.get("memory"),
+                        "category": md.get("category"),
+                        "created_at": r.get("created_at"),
+                        "tags": md.get("tags", []),
+                    }
+                )
         except Exception:  # noqa: BLE001 — non-fatal
             pass
 
@@ -1287,9 +1480,8 @@ def get_folder_orientation(
     recent_commits: list[dict] = []
     try:
         gh_rows = (
-            sb.table("documents").select(
-                "source_filename, source_type, metadata, content, created_at"
-            )
+            sb.table("documents")
+            .select("source_filename, source_type, metadata, content, created_at")
             .eq("user_id", user_id)
             .eq("root_folder_id", folder_id)
             .in_("source_type", ["github_commit", "github_pr", "github_issue"])
@@ -1300,13 +1492,16 @@ def get_folder_orientation(
             or []
         )
         for g in gh_rows:
-            recent_commits.append({
-                "kind": g.get("source_type"),
-                "ref": g.get("source_filename"),
-                "title": (g.get("metadata") or {}).get("title") or (g.get("content") or "")[:120],
-                "url": (g.get("metadata") or {}).get("url"),
-                "created_at": g.get("created_at"),
-            })
+            recent_commits.append(
+                {
+                    "kind": g.get("source_type"),
+                    "ref": g.get("source_filename"),
+                    "title": (g.get("metadata") or {}).get("title")
+                    or (g.get("content") or "")[:120],
+                    "url": (g.get("metadata") or {}).get("url"),
+                    "created_at": g.get("created_at"),
+                }
+            )
     except Exception:  # noqa: BLE001
         pass
 
@@ -1330,10 +1525,16 @@ def get_folder_orientation(
             # is a repo folder (commits may still exist in documents).
             "github_connected": bool(
                 (
-                    sb.table("folders").select("kind")
-                    .eq("id", folder_id).eq("user_id", user_id)
-                    .limit(1).execute().data or [{}]
-                )[0].get("kind") == "repo"
+                    sb.table("folders")
+                    .select("kind")
+                    .eq("id", folder_id)
+                    .eq("user_id", user_id)
+                    .limit(1)
+                    .execute()
+                    .data
+                    or [{}]
+                )[0].get("kind")
+                == "repo"
             ),
         },
     }
@@ -1347,8 +1548,12 @@ def get_folder_orientation(
             from services.folder_summary.rollup import (
                 build_workspace_orientation_payload,
             )
+
             extra = build_workspace_orientation_payload(
-                sb, folder_id=folder_id, user_id=user_id, latest_row=row,
+                sb,
+                folder_id=folder_id,
+                user_id=user_id,
+                latest_row=row,
             )
             payload["subfolders"] = extra["subfolders"]
         except Exception:  # noqa: BLE001
@@ -1364,9 +1569,10 @@ def get_folder_orientation(
     is_briefing_row = (
         row.get("kind") == "briefing"
         or row.get("briefing_schema_version")
-        or (isinstance(sections, dict) and any(
-            k in sections for k in ("overview", "architecture", "activity")
-        ))
+        or (
+            isinstance(sections, dict)
+            and any(k in sections for k in ("overview", "architecture", "activity"))
+        )
     )
     if is_briefing_row and sections:
         payload["briefing"] = {
@@ -1451,7 +1657,7 @@ def _startup_healthcheck() -> None:
         print(f"  ✓ Supabase       {r.count or 0} folders visible")
     except Exception as exc:  # noqa: BLE001
         print(f"  ✗ Supabase       {str(exc)[:120]}")
-        print(f"    Hint: check SUPABASE_URL + SUPABASE_SERVICE_KEY in .env")
+        print("    Hint: check SUPABASE_URL + SUPABASE_SERVICE_KEY in .env")
 
     # Anthropic
     try:
