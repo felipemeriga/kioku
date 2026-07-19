@@ -425,28 +425,41 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
     }
 
     // Educate: a folder seeded with docs / Notion produces a much richer
-    // briefing (Claude folds them in via read_folder_documents). Nudge when
-    // there's no ecosystem context yet — and, if we're about to generate,
-    // offer to seed the folder in the web UI first.
-    const noContext = (summary?.doc_count ?? 0) === 0 && !summary?.has_notion;
-    if (summary && noContext && isTTY) {
-      info(
-        "💡 Seed this folder for a richer briefing — one that understands your whole"
-      );
-      info(
-        "   ecosystem, not just the code: add docs or connect Notion in the web UI,"
-      );
-      info("   then re-run with kioku init --force.");
+    // briefing (Claude folds them in via read_folder_documents). Base this on
+    // ACTUAL synced docs, not just a Notion config — a just-connected Notion
+    // hasn't synced yet, so its pages aren't in the folder to fold in.
+    const hasDocs = (summary?.doc_count ?? 0) > 0;
+    if (summary && !hasDocs && isTTY) {
+      if (summary.has_notion) {
+        info(
+          "💡 Notion is connected but no documents have synced to this folder yet."
+        );
+        info(
+          "   Wait for the sync to finish (or click Sync now in the web UI), then"
+        );
+        info(
+          "   re-run kioku init --force so the briefing includes your Notion content."
+        );
+      } else {
+        info(
+          "💡 Seed this folder for a richer briefing — one that understands your whole"
+        );
+        info(
+          "   ecosystem, not just the code: add docs or connect Notion in the web UI,"
+        );
+        info("   then re-run with kioku init --force.");
+      }
       if (shouldGenerate && !opts.yes && !opts.force) {
         const openFirst = await confirm({
-          message: "Open the web UI to add docs & Notion before generating?",
+          message: summary.has_notion
+            ? "Open the web UI to check the Notion sync before generating?"
+            : "Open the web UI to add docs & Notion before generating?",
           default: false,
         });
         if (openFirst) {
           await openCmd(repoFolder.id, {});
           await input({
-            message:
-              "Press Enter when you've added docs and are ready to generate…",
+            message: "Press Enter when you're ready to generate…",
           });
         }
       }
