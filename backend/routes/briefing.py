@@ -15,7 +15,7 @@ Section update semantics:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import re as _re
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -33,8 +33,6 @@ from services.folder_summary.repo import get_folder, get_latest_summary
 
 router = APIRouter(prefix="/api/folders")
 
-
-import re as _re
 
 _UUID_RE = _re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
@@ -94,7 +92,10 @@ async def briefing_schema():
             },
             "preferences": {
                 "shape": {"rules": ["str"]},
-                "notes": "Auto-populated from Mem0 [preference]. Don't manually edit unless you want to override.",
+                "notes": (
+                    "Auto-populated from Mem0 [preference]. Don't manually "
+                    "edit unless you want to override."
+                ),
             },
             "important_files": {
                 "shape": [{"path": "str", "role": "str", "why": "str"}],
@@ -117,12 +118,16 @@ async def briefing_schema():
                 "notes": "Auto-populated from manifests. Runtime deps + external services.",
             },
             "activity": {
-                "shape": {
-                    "recent_commits": ["{...}"],
-                    "recent_prs": ["{...}"],
-                    "recent_learnings": ["{...}"],
-                },
-                "notes": "Live git activity from the local clone (CLI-injected) + Mem0. Don't pin — it goes stale.",
+                "shape": {"summary": "str", "highlights": ["str"]},
+                "notes": (
+                    "A substantial, useful digest of recent work distilled from git "
+                    "history (roughly the last ~30-50 commits or ~2-3 months). "
+                    "`summary` = a 4-8 sentence narrative of the themes and direction "
+                    "of recent work. `highlights` = 5-10 concrete bullets, each a "
+                    "notable change/feature/fix with a bit of context (what and why, "
+                    "reference PR numbers when visible). Group related commits into "
+                    "themes; do NOT paste a raw commit list. Don't pin — it goes stale."
+                ),
             },
         },
     }
@@ -144,9 +149,7 @@ async def read_briefing(folder_id: str, user_id: str = Depends(get_current_user)
 
 
 @router.get("/{folder_id}/documentation")
-async def read_documentation(
-    folder_id: str, user_id: str = Depends(get_current_user)
-):
+async def read_documentation(folder_id: str, user_id: str = Depends(get_current_user)):
     """The latest detailed architecture doc (the 'complete overview' deep-doc)
     for a repo folder. Returns {documentation: null} if none has been generated
     yet (or the table isn't migrated)."""
@@ -168,6 +171,35 @@ async def read_documentation(
     return {"documentation": rows[0] if rows else None}
 
 
+@router.delete("/{folder_id}/briefing")
+async def clear_briefing(folder_id: str, user_id: str = Depends(get_current_user)):
+    """Clear the entire briefing + detailed doc for a repo folder so it
+    regenerates from scratch. Deletes every folder_summaries row for the folder
+    and the stored repo_documentation. After this, `needs_generation` flips back
+    to True and the next `kioku init` (or session start) regenerates everything.
+    """
+    sb = get_supabase()
+    _folder_must_be_repo(sb, folder_id, user_id)
+    (
+        sb.table("folder_summaries")
+        .delete()
+        .eq("folder_id", folder_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    try:
+        (
+            sb.table("repo_documentation")
+            .delete()
+            .eq("folder_id", folder_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+    except Exception:  # noqa: BLE001 — table may not be migrated yet
+        pass
+    return {"ok": True}
+
+
 class UpdateSectionRequest(BaseModel):
     content: Any  # section-shape depends on section; validated softly
     status: str = "pinned"  # 'pinned' | 'auto' | 'hybrid'
@@ -182,6 +214,7 @@ class ReplaceBriefingRequest(BaseModel):
     - `pin_all` marks every provided section as pinned (default True),
       so auto-regen respects the caller's overwrite.
     """
+
     sections: dict[str, Any] = Field(default_factory=dict)
     pin_all: bool = True
     updated_by: str | None = None
@@ -256,9 +289,7 @@ async def update_briefing_section(
     return {"ok": True, "section": sections[section_name]}
 
 
-def _persist_sections(
-    sb, *, folder_id: str, user_id: str, sections: dict
-) -> None:
+def _persist_sections(sb, *, folder_id: str, user_id: str, sections: dict) -> None:
     """Insert a new briefing row with the given sections map. We insert
     a fresh row on every edit so the history endpoint keeps its audit
     trail; the frontend always reads via get_latest_summary.
@@ -307,14 +338,14 @@ def _insert_with_fallbacks(sb, payload: dict) -> None:
             if "trigger_check" in msg and attempt.get("trigger") != "manual":
                 attempt["trigger"] = "manual"
                 downgraded = True
-            if ("briefing_schema_version" in msg or "sections" in msg) \
-                    and "briefing_schema_version" in attempt:
+            if (
+                "briefing_schema_version" in msg or "sections" in msg
+            ) and "briefing_schema_version" in attempt:
                 attempt.pop("briefing_schema_version", None)
                 attempt.pop("sections", None)
                 downgraded = True
             if not downgraded:
                 raise
     raise RuntimeError(
-        "briefing persistence exhausted downgrade attempts; "
-        "last error surfaced from Postgrest"
+        "briefing persistence exhausted downgrade attempts; last error surfaced from Postgrest"
     )

@@ -245,6 +245,17 @@ export async function resetBriefingSection(
   return res.json();
 }
 
+/** Clear the whole briefing + detailed doc for a repo folder so it
+ *  regenerates on the next `kioku init`. */
+export async function clearBriefing(
+  folderId: string,
+): Promise<{ ok: boolean }> {
+  const res = await apiFetch(`/api/folders/${folderId}/briefing`, {
+    method: "DELETE",
+  });
+  return res.json();
+}
+
 export async function renameConversation(
   id: string,
   title: string
@@ -573,6 +584,7 @@ export interface Folder {
 export interface Breadcrumb {
   id: string;
   name: string;
+  kind?: "folder" | "repo";
 }
 
 export async function fetchFolders(

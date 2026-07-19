@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Box,
   Paper,
@@ -30,27 +30,43 @@ export default function DocumentationPanel({ folderId }: { folderId: string }) {
   const [loading, setLoading] = useState(true);
   const [hidden, setHidden] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  // Bumped on every load so a stale response from a previous folder/request
+  // can't overwrite a newer one.
+  const reqRef = useRef(0);
 
-  useEffect(() => {
-    let cancelled = false;
+  const load = useCallback(async () => {
+    const seq = ++reqRef.current;
     setLoading(true);
-    fetchDocumentation(folderId)
-      .then((res) => {
-        if (cancelled) return;
-        setDoc(res.documentation);
-        setHidden(false);
-      })
-      .catch(() => {
-        // Non-repo folder → 400. Render nothing.
-        if (!cancelled) setHidden(true);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+    try {
+      const res = await fetchDocumentation(folderId);
+      if (seq !== reqRef.current) return;
+      setDoc(res.documentation);
+      setHidden(false);
+    } catch {
+      // Non-repo folder → 400. Render nothing.
+      if (seq === reqRef.current) setHidden(true);
+    } finally {
+      if (seq === reqRef.current) setLoading(false);
+    }
   }, [folderId]);
+
+  // Initial load + reload when the folder changes.
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  // The briefing "Clear & regenerate" deletes the detailed doc too. Refetch on
+  // that event so this panel drops the now-deleted doc instead of showing it
+  // stale until a page reload.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const cleared = (e as CustomEvent<{ folderId?: string }>).detail
+        ?.folderId;
+      if (!cleared || cleared === folderId) void load();
+    };
+    window.addEventListener("briefing-cleared", handler);
+    return () => window.removeEventListener("briefing-cleared", handler);
+  }, [folderId, load]);
 
   if (loading || hidden) return null;
 
@@ -66,7 +82,11 @@ export default function DocumentationPanel({ folderId }: { folderId: string }) {
     <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
       <DescriptionOutlinedIcon sx={{ fontSize: 20, color: brand.cyan }} />
       <Typography
-        sx={{ fontFamily: fonts.display, fontSize: "1.25rem", color: brand.text }}
+        sx={{
+          fontFamily: fonts.display,
+          fontSize: "1.25rem",
+          color: brand.text,
+        }}
       >
         Detailed documentation
       </Typography>
@@ -78,9 +98,9 @@ export default function DocumentationPanel({ folderId }: { folderId: string }) {
       <Paper elevation={0} sx={cardSx}>
         {header}
         <Typography sx={{ color: brand.muted, mt: 1, fontSize: "0.9rem" }}>
-          No detailed architecture doc yet. It's generated together with the repo
-          summary — or, in a Claude Code session in this repo, say “generate the
-          docs”.
+          No detailed architecture doc yet. It's generated together with the
+          repo summary — or, in a Claude Code session in this repo, say
+          “generate the docs”.
         </Typography>
       </Paper>
     );
@@ -169,7 +189,9 @@ export default function DocumentationPanel({ folderId }: { folderId: string }) {
             "& th, & td": { border: `1px solid ${brand.line}`, px: 1, py: 0.5 },
           }}
         >
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{doc.content}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            {doc.content}
+          </ReactMarkdown>
         </Box>
       </Collapse>
 

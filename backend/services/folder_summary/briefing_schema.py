@@ -57,31 +57,40 @@ def empty_briefing() -> dict[str, dict]:
     the base when a new repo hasn't had any populators run yet."""
     return {
         "overview": new_section({"purpose": "", "description": ""}),
-        "architecture": new_section({
-            "summary": "",
-            "components": [],
-            "data_flow": "",
-        }),
+        "architecture": new_section(
+            {
+                "summary": "",
+                "components": [],
+                "data_flow": "",
+            }
+        ),
         "preferences": new_section({"rules": []}),
         "important_files": new_section([]),
-        "how_it_runs": new_section({
-            "requirements": [],
-            "local_dev": "",
-        }),
-        "deployment": new_section({
-            "environments": [],
-            "how_to_deploy": "",
-            "ci_cd_notes": "",
-        }),
-        "dependencies": new_section({
-            "runtime": [],
-            "services": [],
-        }),
-        "activity": new_section({
-            "recent_commits": [],
-            "recent_prs": [],
-            "recent_learnings": [],
-        }),
+        "how_it_runs": new_section(
+            {
+                "requirements": [],
+                "local_dev": "",
+            }
+        ),
+        "deployment": new_section(
+            {
+                "environments": [],
+                "how_to_deploy": "",
+                "ci_cd_notes": "",
+            }
+        ),
+        "dependencies": new_section(
+            {
+                "runtime": [],
+                "services": [],
+            }
+        ),
+        "activity": new_section(
+            {
+                "summary": "",
+                "highlights": [],
+            }
+        ),
     }
 
 

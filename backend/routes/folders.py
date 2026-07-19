@@ -91,10 +91,7 @@ def _check_unique_sibling(
 ) -> None:
     """Raise 409 if a folder with the same name already exists under the same
     parent (case-sensitive match, matching whatever the user typed)."""
-    q = (
-        sb.table("folders").select("id")
-        .eq("user_id", user_id).eq("name", name)
-    )
+    q = sb.table("folders").select("id").eq("user_id", user_id).eq("name", name)
     if parent_id is None:
         q = q.is_("parent_id", "null")
     else:
@@ -136,9 +133,7 @@ async def create_folder(
             if not parent.data:
                 raise HTTPException(status_code=404, detail="Parent folder not found")
 
-        _check_unique_sibling(
-            sb, name=name, parent_id=body.parent_id, user_id=user_id
-        )
+        _check_unique_sibling(sb, name=name, parent_id=body.parent_id, user_id=user_id)
 
         result = (
             sb.table("folders")
@@ -154,7 +149,7 @@ async def create_folder(
     except HTTPException:
         # Preserve intentional HTTPExceptions raised inside the block.
         raise
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         raise HTTPException(
             status_code=400,
             detail=(
@@ -184,15 +179,22 @@ async def update_folder(
     if body.name is not None:
         name = _validate_folder_name(body.name)
         existing = (
-            sb.table("folders").select("parent_id")
-            .eq("id", folder_id).eq("user_id", user_id)
-            .limit(1).execute().data
+            sb.table("folders")
+            .select("parent_id")
+            .eq("id", folder_id)
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+            .data
         )
         if not existing:
             raise HTTPException(status_code=404, detail="Folder not found")
         _check_unique_sibling(
-            sb, name=name, parent_id=existing[0].get("parent_id"),
-            user_id=user_id, excluding_id=folder_id,
+            sb,
+            name=name,
+            parent_id=existing[0].get("parent_id"),
+            user_id=user_id,
+            excluding_id=folder_id,
         )
         updates["name"] = name
 
@@ -206,19 +208,20 @@ async def update_folder(
 
     if not updates:
         row = (
-            sb.table("folders").select("*")
-            .eq("id", folder_id).eq("user_id", user_id).limit(1).execute().data
+            sb.table("folders")
+            .select("*")
+            .eq("id", folder_id)
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+            .data
         )
         if not row:
             raise HTTPException(status_code=404, detail="Folder not found")
         return row[0]
 
     result = (
-        sb.table("folders")
-        .update(updates)
-        .eq("id", folder_id)
-        .eq("user_id", user_id)
-        .execute()
+        sb.table("folders").update(updates).eq("id", folder_id).eq("user_id", user_id).execute()
     )
     if not result.data:
         raise HTTPException(status_code=404, detail="Folder not found")
@@ -242,8 +245,13 @@ async def delete_folder(
     sb = get_supabase()
     # Fetch first so we know what to clean up + can return proper 404.
     row = (
-        sb.table("folders").select("id, name")
-        .eq("id", folder_id).eq("user_id", user_id).limit(1).execute().data
+        sb.table("folders")
+        .select("id, name")
+        .eq("id", folder_id)
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+        .data
     )
     if not row:
         raise HTTPException(status_code=404, detail="Folder not found")
@@ -255,9 +263,12 @@ async def delete_folder(
         # their folder_id to null (once null we can't identify them by folder).
         descendant_ids = _descendant_folder_ids(sb, folder_id, user_id)
         docs = (
-            sb.table("documents").select("id, source_filename, source_type, metadata")
-            .eq("user_id", user_id).in_("folder_id", descendant_ids)
-            .execute().data
+            sb.table("documents")
+            .select("id, source_filename, source_type, metadata")
+            .eq("user_id", user_id)
+            .in_("folder_id", descendant_ids)
+            .execute()
+            .data
             or []
         )
         docs_deleted = len(docs)
@@ -286,7 +297,7 @@ async def delete_folder(
         if docs:
             ids = [d["id"] for d in docs]
             for i in range(0, len(ids), 100):
-                sb.table("documents").delete().in_("id", ids[i:i+100]).execute()
+                sb.table("documents").delete().in_("id", ids[i : i + 100]).execute()
 
     sb.table("folders").delete().eq("id", folder_id).eq("user_id", user_id).execute()
     return {"ok": True, "docs_deleted": docs_deleted, "files_removed": files_removed}
@@ -298,8 +309,12 @@ def _descendant_folder_ids(sb, folder_id: str, user_id: str) -> list[str]:
     frontier = [folder_id]
     while frontier:
         r = (
-            sb.table("folders").select("id")
-            .in_("parent_id", frontier).eq("user_id", user_id).execute().data
+            sb.table("folders")
+            .select("id")
+            .in_("parent_id", frontier)
+            .eq("user_id", user_id)
+            .execute()
+            .data
         )
         next_ids = [row["id"] for row in (r or [])]
         if not next_ids:
@@ -340,8 +355,12 @@ async def get_folder_summary(
             from services.folder_summary.rollup import (
                 build_workspace_orientation_payload,
             )
+
             subfolders_index = build_workspace_orientation_payload(
-                sb, folder_id=folder_id, user_id=user_id, latest_row=latest,
+                sb,
+                folder_id=folder_id,
+                user_id=user_id,
+                latest_row=latest,
             )["subfolders"]
         except Exception:  # noqa: BLE001
             pass
@@ -408,6 +427,7 @@ async def regenerate_folder_summary(
         # so hammering Regenerate collapses to one job, but a legitimate
         # re-click after content changes still enqueues.
         import time as _time
+
         bucket = int(_time.time()) // 10
         job = await pool.enqueue_job(
             "summarize_folder_task",
@@ -445,7 +465,7 @@ async def get_breadcrumbs(
     while current_id:
         result = (
             sb.table("folders")
-            .select("id, name, parent_id")
+            .select("id, name, parent_id, kind")
             .eq("id", current_id)
             .eq("user_id", user_id)
             .execute()
@@ -453,7 +473,13 @@ async def get_breadcrumbs(
         if not result.data:
             break
         folder = result.data[0]
-        breadcrumbs.append({"id": folder["id"], "name": folder["name"]})
+        breadcrumbs.append(
+            {
+                "id": folder["id"],
+                "name": folder["name"],
+                "kind": folder.get("kind") or "folder",
+            }
+        )
         current_id = folder.get("parent_id")
 
     breadcrumbs.reverse()

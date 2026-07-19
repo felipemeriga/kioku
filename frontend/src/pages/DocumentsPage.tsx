@@ -20,6 +20,8 @@ import {
   Chip,
   ToggleButton,
   ToggleButtonGroup,
+  Tabs,
+  Tab,
 } from "@mui/material";
 import { useSearchParams } from "react-router-dom";
 import { keyframes } from "@mui/system";
@@ -77,6 +79,7 @@ export default function DocumentsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [breadcrumbs, setBreadcrumbs] = useState<Breadcrumb[]>([]);
+  const [folderTab, setFolderTab] = useState<"files" | "briefing">("files");
 
   // Audio recording
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -384,6 +387,18 @@ export default function DocumentsPage() {
     const q = searchQuery.toLowerCase();
     return subFolders.filter((f) => f.name.toLowerCase().includes(q));
   }, [subFolders, searchQuery]);
+
+  // The current folder is the last breadcrumb; its kind decides whether the
+  // repo Briefing tab is available. Non-repo folders keep the plain file view.
+  const currentFolderIsRepo =
+    breadcrumbs.length > 0 &&
+    breadcrumbs[breadcrumbs.length - 1]?.kind === "repo";
+
+  // Reset to the Files tab whenever we navigate to a different folder, so a
+  // repo's Briefing tab never "sticks" onto the next folder we open.
+  useEffect(() => {
+    setFolderTab("files");
+  }, [currentFolderId]);
 
   const handleCreateFolder = async () => {
     if (!newFolderName.trim()) return;
@@ -722,8 +737,45 @@ export default function DocumentsPage() {
             </Alert>
           )}
 
+          {/* Repo folders get a Files | Briefing tab bar so the generated
+              knowledge lives on its own tab, away from the file browser. */}
+          {currentFolderIsRepo && (
+            <Tabs
+              value={folderTab}
+              onChange={(_, v) => setFolderTab(v)}
+              sx={{
+                mb: 3,
+                minHeight: 40,
+                borderBottom: `1px solid ${brand.line}`,
+                "& .MuiTab-root": {
+                  minHeight: 40,
+                  textTransform: "none",
+                  fontFamily: fonts.display,
+                  fontSize: "0.9rem",
+                  color: brand.muted,
+                  "&.Mui-selected": { color: brand.cyan },
+                },
+                "& .MuiTabs-indicator": { backgroundColor: brand.cyan },
+              }}
+            >
+              <Tab
+                value="files"
+                label="Files"
+                icon={<FolderIcon sx={{ fontSize: 18 }} />}
+                iconPosition="start"
+              />
+              <Tab
+                value="briefing"
+                label="Briefing"
+                icon={<AccountTreeIcon sx={{ fontSize: 18 }} />}
+                iconPosition="start"
+              />
+            </Tabs>
+          )}
+
           {/* Sub-folders grid */}
-          {filteredFolders.length > 0 && (
+          {(!currentFolderIsRepo || folderTab === "files") &&
+            filteredFolders.length > 0 && (
             <Box sx={{ mb: 3 }}>
               <Typography
                 variant="overline"
@@ -863,7 +915,9 @@ export default function DocumentsPage() {
               architecture, important files, …), placed BELOW the folder grid
               so subfolders sit at the top of a repo view. BriefingPanel renders
               nothing for non-repo folders. */}
-          {currentFolderId && (
+          {/* Non-repo folders keep the plain orientation card. Repos surface
+              their generated knowledge on the Briefing tab instead. */}
+          {currentFolderId && !currentFolderIsRepo && (
             <FolderSummaryPanel
               folderId={currentFolderId}
               folderName={
@@ -873,11 +927,16 @@ export default function DocumentsPage() {
               }
             />
           )}
-          {currentFolderId && <BriefingPanel folderId={currentFolderId} />}
-          {currentFolderId && <DocumentationPanel folderId={currentFolderId} />}
+          {currentFolderIsRepo && folderTab === "briefing" && currentFolderId && (
+            <>
+              <BriefingPanel folderId={currentFolderId} />
+              <DocumentationPanel folderId={currentFolderId} />
+            </>
+          )}
 
           {/* Documents grid */}
-          {filteredDocs.length > 0 && (
+          {(!currentFolderIsRepo || folderTab === "files") &&
+            filteredDocs.length > 0 && (
             <Box>
               <Typography
                 variant="overline"
@@ -926,7 +985,7 @@ export default function DocumentsPage() {
           )}
 
           {/* Empty / no-results state */}
-          {isEmpty && (
+          {(!currentFolderIsRepo || folderTab === "files") && isEmpty && (
             <Stack alignItems="center" spacing={2} sx={{ mt: 10, textAlign: "center" }}>
               <Box
                 sx={{
@@ -956,7 +1015,8 @@ export default function DocumentsPage() {
           )}
 
           {/* Search returned nothing */}
-          {!isEmpty && searchQuery && filteredFolders.length === 0 && filteredDocs.length === 0 && (
+          {(!currentFolderIsRepo || folderTab === "files") &&
+            !isEmpty && searchQuery && filteredFolders.length === 0 && filteredDocs.length === 0 && (
             <Stack alignItems="center" spacing={1.5} sx={{ mt: 8, textAlign: "center" }}>
               <SearchIcon sx={{ fontSize: 40, color: brand.muted }} />
               <Typography sx={{ fontFamily: fonts.display, fontWeight: 600, color: brand.text }}>
