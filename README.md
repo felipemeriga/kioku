@@ -21,6 +21,23 @@ Built as a self-hosted, folder-scoped second brain. Unlike per-project agents, K
 - **Multi-tenant** — all data scoped by user with Supabase Auth + Row Level Security
 - **Self-hosted** — deploy with Docker Compose behind Traefik or any reverse proxy
 
+## Recommended workflow (get the richest briefing)
+
+Kioku is centered on repos, but a repo's code alone rarely captures the whole
+ecosystem it lives in — the external systems it talks to, the specs, the design
+decisions. The **ideal order** gives Claude that context up front:
+
+1. **Create the folder in the web UI** for the repo you're about to wire.
+2. **Seed it with ecosystem context** — upload docs (PDFs, Markdown, specs,
+   architecture notes) and/or **connect Notion sync**.
+3. **`cd` into the repo and run `kioku init`.** During generation Claude calls
+   `read_folder_documents` and folds those uploaded docs into both the briefing
+   and the detailed architecture doc — so you get a briefing that understands
+   your whole ecosystem, not just this repo's code.
+
+Already ran `kioku init` on a bare folder? Add the docs later and re-run
+`kioku init --force` to regenerate with the new context.
+
 ## Architecture
 
 ```

@@ -6,12 +6,7 @@
  * content. We detect our sections by fenced markers.
  */
 
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 
 const MARKER_BEGIN = "<!-- BEGIN kioku second-brain instructions -->";
@@ -22,13 +17,19 @@ const MARKER_END = "<!-- END kioku second-brain instructions -->";
 export interface McpConfig {
   mcpServers: Record<
     string,
-    { type?: string; url: string; headers?: Record<string, string>; command?: string; args?: string[] }
+    {
+      type?: string;
+      url: string;
+      headers?: Record<string, string>;
+      command?: string;
+      args?: string[];
+    }
   >;
 }
 
 export function writeMcpConfig(
   repoRoot: string,
-  serverEntry: { url: string; headers: Record<string, string>; type?: string },
+  serverEntry: { url: string; headers: Record<string, string>; type?: string }
 ): { path: string; existed: boolean } {
   const path = join(repoRoot, ".mcp.json");
   let existing: McpConfig = { mcpServers: {} };
@@ -90,7 +91,7 @@ function loadSettings(path: string): ClaudeSettings {
 function ensureHook(
   settings: ClaudeSettings,
   event: string,
-  command: string,
+  command: string
 ): boolean {
   if (!settings.hooks) settings.hooks = {};
   const bucket = settings.hooks;
@@ -99,11 +100,11 @@ function ensureHook(
   // the legacy malformed entries this tool used to write.
   const groups = raw.filter(
     (g): g is HookGroup =>
-      !!g && typeof g === "object" && Array.isArray((g as HookGroup).hooks),
+      !!g && typeof g === "object" && Array.isArray((g as HookGroup).hooks)
   );
   bucket[event] = groups;
   const already = groups.some((g) =>
-    g.hooks.some((h) => h.command === command),
+    g.hooks.some((h) => h.command === command)
   );
   if (!already) groups.push({ hooks: [{ type: "command", command }] });
   // Return true if we changed anything (added the hook OR pruned bad entries).
@@ -114,7 +115,11 @@ function ensureHook(
  *  `{type,command}`-directly form) from a settings file. Used to migrate kioku's
  *  hooks OUT of the committed settings.json. No-op if the file/hook is absent.
  *  Never creates the file. Returns true if it changed. */
-function removeHookFromFile(path: string, event: string, command: string): boolean {
+function removeHookFromFile(
+  path: string,
+  event: string,
+  command: string
+): boolean {
   if (!existsSync(path)) return false;
   const settings = loadSettings(path);
   const arr = settings.hooks?.[event];
@@ -124,7 +129,8 @@ function removeHookFromFile(path: string, event: string, command: string): boole
     if (!g || typeof g !== "object") return false;
     const o = g as { type?: string; command?: string; hooks?: HookEntry[] };
     if (o.type === "command") return o.command !== command; // legacy malformed
-    if (Array.isArray(o.hooks)) return !o.hooks.some((h) => h.command === command);
+    if (Array.isArray(o.hooks))
+      return !o.hooks.some((h) => h.command === command);
     return true; // unknown shape — leave it
   }) as HookGroup[];
   if (JSON.stringify(cleaned) === before) return false;
@@ -139,7 +145,7 @@ function removeHookFromFile(path: string, event: string, command: string): boole
 function installHook(
   repoRoot: string,
   event: string,
-  command: string,
+  command: string
 ): { path: string; addedHook: boolean } {
   const dir = join(repoRoot, ".claude");
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
@@ -175,7 +181,7 @@ export function writeCaptureState(
     folder_id: string;
     folder_name: string;
     scope_root_name: string;
-  },
+  }
 ): { path: string } {
   const dir = join(repoRoot, ".claude");
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
@@ -184,7 +190,10 @@ export function writeCaptureState(
   let existing: Record<string, unknown> = {};
   if (existsSync(path)) {
     try {
-      existing = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+      existing = JSON.parse(readFileSync(path, "utf8")) as Record<
+        string,
+        unknown
+      >;
     } catch {
       existing = {};
     }
@@ -198,7 +207,9 @@ export function readLastSessionAt(repoRoot: string): string | undefined {
   const path = join(repoRoot, ".claude", "kioku-state.json");
   if (!existsSync(path)) return undefined;
   try {
-    const s = JSON.parse(readFileSync(path, "utf8")) as { last_session_at?: string };
+    const s = JSON.parse(readFileSync(path, "utf8")) as {
+      last_session_at?: string;
+    };
     return s.last_session_at;
   } catch {
     return undefined;
@@ -212,12 +223,18 @@ export function stampLastSessionAt(repoRoot: string, iso: string): void {
   let existing: Record<string, unknown> = {};
   if (existsSync(path)) {
     try {
-      existing = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+      existing = JSON.parse(readFileSync(path, "utf8")) as Record<
+        string,
+        unknown
+      >;
     } catch {
       existing = {};
     }
   }
-  writeFileSync(path, JSON.stringify({ ...existing, last_session_at: iso }, null, 2) + "\n");
+  writeFileSync(
+    path,
+    JSON.stringify({ ...existing, last_session_at: iso }, null, 2) + "\n"
+  );
 }
 
 // ── CLAUDE.md snippet ────────────────────────────────────────────
@@ -267,12 +284,19 @@ Persist it. It'll survive the session, the PC, the team:
   lookups.
 - \`query_documents_metadata(question)\` — structured questions about
   what documents exist ("show me all PDFs added this week").
+- \`read_folder_documents()\` — full text of every doc already uploaded to
+  this folder (specs, architecture, ecosystem context beyond the code).
 
 ### Convention
 
 Prefer \`update_folder_briefing_section\` for repo facts, \`save_memory\`
 for preferences and one-off learnings. If uncertain, save both — briefings
 are pinned by default and won't be overwritten.
+
+If a briefing feels thin, this repo's kioku folder may have no uploaded docs.
+Suggest the user add documents or connect Notion in the web UI, then re-run
+\`kioku init --force\` — generation folds that ecosystem context into the
+briefing and the detailed doc, so it spans the whole ecosystem, not just code.
 
 ${MARKER_END}
 `;
@@ -290,7 +314,9 @@ export function updateClaudeMd(repoRoot: string): {
   if (existing.includes(MARKER_BEGIN) && existing.includes(MARKER_END)) {
     // Update the existing block in place.
     const before = existing.slice(0, existing.indexOf(MARKER_BEGIN));
-    const after = existing.slice(existing.indexOf(MARKER_END) + MARKER_END.length);
+    const after = existing.slice(
+      existing.indexOf(MARKER_END) + MARKER_END.length
+    );
     writeFileSync(path, before + CLAUDE_MD_SNIPPET + after);
     return { path, action: "updated" };
   }
@@ -302,7 +328,10 @@ export function updateClaudeMd(repoRoot: string): {
 
 // ── .gitignore ────────────────────────────────────────────────────
 
-export function updateGitignore(repoRoot: string): { path: string; changed: boolean } {
+export function updateGitignore(repoRoot: string): {
+  path: string;
+  changed: boolean;
+} {
   const path = join(repoRoot, ".gitignore");
   const entries = [
     ".mcp.json",
@@ -313,7 +342,9 @@ export function updateGitignore(repoRoot: string): { path: string; changed: bool
     ".claude/kioku-autogen.log",
   ];
   const existing = existsSync(path) ? readFileSync(path, "utf8") : "";
-  const missing = entries.filter((e) => !existing.split("\n").some((line) => line.trim() === e));
+  const missing = entries.filter(
+    (e) => !existing.split("\n").some((line) => line.trim() === e)
+  );
   if (missing.length === 0) return { path, changed: false };
   const block = ["", "# kioku CLI", ...missing, ""].join("\n");
   writeFileSync(path, existing + block);

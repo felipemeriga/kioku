@@ -38,9 +38,9 @@ router = APIRouter(prefix="/api/cli")
 # Device-auth rate limiter
 # ---------------------------------------------------------------------------
 
-_DEVICE_RATE_MAX = 10          # requests per window for /start (burst guard)
-_DEVICE_TOKEN_RATE_MAX = 60    # requests per window for /token (poll headroom)
-_DEVICE_RATE_WINDOW = 60       # seconds, per IP + bucket
+_DEVICE_RATE_MAX = 10  # requests per window for /start (burst guard)
+_DEVICE_TOKEN_RATE_MAX = 60  # requests per window for /token (poll headroom)
+_DEVICE_RATE_WINDOW = 60  # seconds, per IP + bucket
 _device_hits: dict[str, deque] = {}
 
 
@@ -82,6 +82,7 @@ def _frontend_url() -> str:
 # ---------------------------------------------------------------------------
 # Device-auth endpoints
 # ---------------------------------------------------------------------------
+
 
 class DeviceStartRequest(BaseModel):
     hostname: str = Field(default="unknown", max_length=120)
@@ -203,6 +204,7 @@ async def device_info(req: str):
 class MintApiKeyRequest(BaseModel):
     """CLI-flavored api key mint. Returns the plaintext token + config
     snippet the CLI needs to write."""
+
     scope_folder_id: str
     name: str = Field(min_length=1, max_length=80)
 
@@ -215,9 +217,10 @@ async def mint_api_key(
     """CLI wrapper around the api-keys endpoint that also returns the
     MCP config snippet ready to write into .mcp.json."""
     from routes.api_keys import (
-        CreateKeyRequest, create_api_key,
+        CreateKeyRequest,
+        create_api_key,
     )
-    sb = get_supabase()
+
     # Reuse the underlying create path — same validation, same delete-
     # existing-scoped-key behavior. Returns {key, id, ...}.
     result = await create_api_key(
@@ -253,9 +256,14 @@ async def whoami(user_id: str = Depends(get_current_user)):
     the interactive picker can render immediately after login."""
     sb = get_supabase()
     folders = (
-        sb.table("folders").select("id, name, kind, parent_id")
-        .eq("user_id", user_id).is_("parent_id", "null")
-        .order("name").execute().data or []
+        sb.table("folders")
+        .select("id, name, kind, parent_id")
+        .eq("user_id", user_id)
+        .is_("parent_id", "null")
+        .order("name")
+        .execute()
+        .data
+        or []
     )
     return {"user_id": user_id, "root_folders": folders}
 
@@ -270,8 +278,7 @@ async def auth_config():
     return {
         "supabase_url": os.environ["SUPABASE_URL"],
         "supabase_anon_key": (
-            os.environ.get("SUPABASE_ANON_KEY")
-            or os.environ.get("SUPABASE_PUBLISHABLE_KEY")
+            os.environ.get("SUPABASE_ANON_KEY") or os.environ.get("SUPABASE_PUBLISHABLE_KEY")
         ),
     }
 
@@ -336,18 +343,23 @@ async def session_capture(body: SessionCaptureRequest, request: Request):
         4. Save each via the existing Mem0 add path with hard dedup.
     """
     import hashlib
+
     from fastapi import HTTPException as HE
 
     auth = request.headers.get("Authorization") or ""
     if not auth.startswith("Bearer rag_"):
         raise HE(status_code=401, detail="Bearer api key required")
-    key = auth[len("Bearer "):]
+    key = auth[len("Bearer ") :]
     key_hash = hashlib.sha256(key.encode()).hexdigest()
 
     sb = get_supabase()
     row = (
-        sb.table("api_keys").select("user_id, scope_folder_id")
-        .eq("key_hash", key_hash).limit(1).execute().data
+        sb.table("api_keys")
+        .select("user_id, scope_folder_id")
+        .eq("key_hash", key_hash)
+        .limit(1)
+        .execute()
+        .data
     )
     if not row or not row[0].get("scope_folder_id"):
         raise HE(status_code=401, detail="Invalid or unscoped api key")
@@ -356,6 +368,7 @@ async def session_capture(body: SessionCaptureRequest, request: Request):
 
     # Verify folder is inside scope
     from mcp_server import _descendant_folder_ids  # existing helper
+
     subtree = _descendant_folder_ids(sb, scope_id, user_id)
     if body.folder_id not in subtree:
         raise HE(status_code=403, detail="folder_id not in api key scope")
@@ -378,6 +391,7 @@ async def session_capture(body: SessionCaptureRequest, request: Request):
     # Mem0 wired?
     from services.mem0_sync import get_client_for_folder
     from services.mem0_sync.client import MemoryScope
+
     mem0 = get_client_for_folder(sb, body.folder_id, user_id)
     if mem0 is None:
         return {"ok": True, "skipped": True, "reason": "Mem0 not wired for this folder"}
@@ -386,8 +400,7 @@ async def session_capture(body: SessionCaptureRequest, request: Request):
     from services.llm import Task, complete
 
     transcript_text = "\n\n".join(
-        f"[{t.role}]{' ' + t.ts if t.ts else ''}\n{t.content[:2000]}"
-        for t in body.transcript_delta
+        f"[{t.role}]{' ' + t.ts if t.ts else ''}\n{t.content[:2000]}" for t in body.transcript_delta
     )
     if len(transcript_text) > 30_000:
         transcript_text = transcript_text[:30_000] + "\n\n… (truncated)"
@@ -437,7 +450,7 @@ async def session_capture(body: SessionCaptureRequest, request: Request):
         "Rules:\n"
         "- Emit ONLY memories that will be useful in FUTURE sessions or on "
         "different PCs. A one-off debugging step is NOT worth saving.\n"
-        "- If the user stated a preference (\"always X\", \"never Y\"), "
+        '- If the user stated a preference ("always X", "never Y"), '
         "emit category='preference'.\n"
         "- If a concrete fact about the codebase was discovered or "
         "confirmed, emit category='finding'.\n"
@@ -453,15 +466,17 @@ async def session_capture(body: SessionCaptureRequest, request: Request):
     msg = complete(
         task=Task.RAG_AGENT,
         system=DISTILL_SYSTEM,
-        messages=[{
-            "role": "user",
-            "content": (
-                f"Session id: {body.session_id}\n"
-                f"cwd: {body.cwd or '(unknown)'}\n"
-                f"Turns since last capture: {len(body.transcript_delta)}\n\n"
-                f"Transcript delta:\n\n{transcript_text}"
-            ),
-        }],
+        messages=[
+            {
+                "role": "user",
+                "content": (
+                    f"Session id: {body.session_id}\n"
+                    f"cwd: {body.cwd or '(unknown)'}\n"
+                    f"Turns since last capture: {len(body.transcript_delta)}\n\n"
+                    f"Transcript delta:\n\n{transcript_text}"
+                ),
+            }
+        ],
         tools=[DISTILL_TOOL],
         max_tokens=800,
     )
@@ -490,11 +505,13 @@ async def session_capture(body: SessionCaptureRequest, request: Request):
             )
             saved.append({"category": cat, "content": content, "raw": result})
         except Exception as exc:  # noqa: BLE001
-            saved.append({
-                "category": cat,
-                "content": content,
-                "error": str(exc)[:200],
-            })
+            saved.append(
+                {
+                    "category": cat,
+                    "content": content,
+                    "error": str(exc)[:200],
+                }
+            )
 
     return {"ok": True, "count": len(saved), "memories": saved}
 
@@ -513,6 +530,7 @@ async def search(body: SearchRequest, request: Request):
     would see for the same query.
     """
     import hashlib
+
     from fastapi import HTTPException as HE
 
     from mcp_server import _descendant_folder_ids
@@ -522,12 +540,16 @@ async def search(body: SearchRequest, request: Request):
     auth = request.headers.get("Authorization") or ""
     if not auth.startswith("Bearer rag_"):
         raise HE(status_code=401, detail="Bearer api key required")
-    key = auth[len("Bearer "):]
+    key = auth[len("Bearer ") :]
     key_hash = hashlib.sha256(key.encode()).hexdigest()
     sb = get_supabase()
     row = (
-        sb.table("api_keys").select("user_id, scope_folder_id")
-        .eq("key_hash", key_hash).limit(1).execute().data
+        sb.table("api_keys")
+        .select("user_id, scope_folder_id")
+        .eq("key_hash", key_hash)
+        .limit(1)
+        .execute()
+        .data
     )
     if not row or not row[0].get("scope_folder_id"):
         raise HE(status_code=401, detail="Invalid or unscoped api key")
@@ -557,14 +579,16 @@ async def search(body: SearchRequest, request: Request):
     hits = []
     for h in result.hits[: body.limit]:
         md = h.metadata or {}
-        hits.append({
-            "source": h.source,
-            "content": (h.content or "")[:1200],
-            "similarity": h.score if h.score is not None else 0.0,
-            "filename": md.get("source_filename"),
-            "category": md.get("category"),
-            "created_at": md.get("created_at"),
-        })
+        hits.append(
+            {
+                "source": h.source,
+                "content": (h.content or "")[:1200],
+                "similarity": h.score if h.score is not None else 0.0,
+                "filename": md.get("source_filename"),
+                "category": md.get("category"),
+                "created_at": md.get("created_at"),
+            }
+        )
     return {
         "query": body.query,
         "folder_id": target,
@@ -585,14 +609,17 @@ async def scope_info(request: Request):
     auth = request.headers.get("Authorization") or ""
     if not auth.startswith("Bearer rag_"):
         raise HE(status_code=401, detail="Bearer api key required")
-    key = auth[len("Bearer "):]
+    key = auth[len("Bearer ") :]
     key_hash = hashlib.sha256(key.encode()).hexdigest()
 
     sb = get_supabase()
     row = (
         sb.table("api_keys")
         .select("user_id, scope_folder_id")
-        .eq("key_hash", key_hash).limit(1).execute().data
+        .eq("key_hash", key_hash)
+        .limit(1)
+        .execute()
+        .data
     )
     if not row or not row[0].get("scope_folder_id"):
         raise HE(status_code=401, detail="Invalid or unscoped api key")
@@ -600,8 +627,13 @@ async def scope_info(request: Request):
     user_id = row[0]["user_id"]
 
     scope_row = (
-        sb.table("folders").select("id, name")
-        .eq("id", scope_id).eq("user_id", user_id).limit(1).execute().data
+        sb.table("folders")
+        .select("id, name")
+        .eq("id", scope_id)
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+        .data
     )
     scope_name = scope_row[0]["name"] if scope_row else "(scope)"
 
@@ -610,9 +642,13 @@ async def scope_info(request: Request):
     frontier = [scope_id]
     while frontier:
         r = (
-            sb.table("folders").select("id")
-            .in_("parent_id", frontier).eq("user_id", user_id).execute()
-            .data or []
+            sb.table("folders")
+            .select("id")
+            .in_("parent_id", frontier)
+            .eq("user_id", user_id)
+            .execute()
+            .data
+            or []
         )
         next_ids = [x["id"] for x in r]
         if not next_ids:
@@ -620,11 +656,16 @@ async def scope_info(request: Request):
         subtree.extend(next_ids)
         frontier = next_ids
     rows = (
-        sb.table("folders").select("id, name, kind, parent_id")
-        .in_("id", subtree).eq("user_id", user_id).execute()
-        .data or []
+        sb.table("folders")
+        .select("id, name, kind, parent_id")
+        .in_("id", subtree)
+        .eq("user_id", user_id)
+        .execute()
+        .data
+        or []
     )
     by_id = {r["id"]: r for r in rows}
+
     def path(fid: str) -> str:
         parts: list[str] = []
         cur: str | None = fid
@@ -636,9 +677,13 @@ async def scope_info(request: Request):
         return "/".join(reversed(parts))
 
     summaries = (
-        sb.table("folder_summaries").select("folder_id")
-        .in_("folder_id", subtree).eq("user_id", user_id).execute()
-        .data or []
+        sb.table("folder_summaries")
+        .select("folder_id")
+        .in_("folder_id", subtree)
+        .eq("user_id", user_id)
+        .execute()
+        .data
+        or []
     )
     summarized = {r["folder_id"] for r in summaries}
     return {
@@ -646,7 +691,8 @@ async def scope_info(request: Request):
         "folders": sorted(
             [
                 {
-                    "id": r["id"], "name": r["name"],
+                    "id": r["id"],
+                    "name": r["name"],
                     "kind": r.get("kind") or "folder",
                     "path": path(r["id"]),
                     "has_summary": r["id"] in summarized,
@@ -665,8 +711,13 @@ async def scope_info(request: Request):
 SUMMARY_TTL_DAYS = 7
 DOC_TTL_DAYS = 30
 STABLE_SECTION_ORDER = [
-    "overview", "architecture", "preferences", "important_files",
-    "how_it_runs", "deployment", "dependencies",
+    "overview",
+    "architecture",
+    "preferences",
+    "important_files",
+    "how_it_runs",
+    "deployment",
+    "dependencies",
 ]
 
 
@@ -703,11 +754,15 @@ def _api_key_scope(request: Request) -> tuple[str, str]:
     auth = request.headers.get("Authorization") or ""
     if not auth.startswith("Bearer rag_"):
         raise HTTPException(status_code=401, detail="Bearer api key required")
-    key_hash = hashlib.sha256(auth[len("Bearer "):].encode()).hexdigest()
+    key_hash = hashlib.sha256(auth[len("Bearer ") :].encode()).hexdigest()
     sb = get_supabase()
     row = (
-        sb.table("api_keys").select("user_id, scope_folder_id")
-        .eq("key_hash", key_hash).limit(1).execute().data
+        sb.table("api_keys")
+        .select("user_id, scope_folder_id")
+        .eq("key_hash", key_hash)
+        .limit(1)
+        .execute()
+        .data
     )
     if not row or not row[0].get("scope_folder_id"):
         raise HTTPException(status_code=401, detail="Invalid or unscoped api key")
@@ -719,6 +774,7 @@ def _is_uuid(s: str) -> bool:
     Guard before it reaches a uuid DB column, where Postgres raises 22P02
     ('invalid input syntax for type uuid') and surfaces as an uncaught 500."""
     import uuid as _uuid
+
     try:
         _uuid.UUID(str(s))
         return True
@@ -734,8 +790,13 @@ async def folder_summary(request: Request, folder_id: str):
     sb = get_supabase()
     # Ownership check (the api key's user must own the folder).
     owns = (
-        sb.table("folders").select("id")
-        .eq("id", folder_id).eq("user_id", user_id).limit(1).execute().data
+        sb.table("folders")
+        .select("id")
+        .eq("id", folder_id)
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+        .data
     )
     if not owns:
         raise HTTPException(status_code=404, detail="Folder not found")
@@ -747,13 +808,18 @@ async def folder_summary(request: Request, folder_id: str):
     # key still reaches every repo beneath it.
     if folder_id != scope_folder_id:
         from mcp_server import _descendant_folder_ids
+
         if folder_id not in _descendant_folder_ids(sb, scope_folder_id, user_id):
             raise HTTPException(status_code=403, detail="folder_id not in api key scope")
     latest = (
         sb.table("folder_summaries")
         .select("content, generated_at")
-        .eq("folder_id", folder_id).eq("user_id", user_id)
-        .order("generated_at", desc=True).limit(1).execute().data
+        .eq("folder_id", folder_id)
+        .eq("user_id", user_id)
+        .order("generated_at", desc=True)
+        .limit(1)
+        .execute()
+        .data
     )
     generated_at = latest[0]["generated_at"] if latest else None
     sections = (latest[0]["content"] or {}).get("sections") if latest else None
@@ -766,12 +832,45 @@ async def folder_summary(request: Request, folder_id: str):
         doc_row = (
             sb.table("repo_documentation")
             .select("generated_at")
-            .eq("folder_id", folder_id).eq("user_id", user_id)
-            .order("generated_at", desc=True).limit(1).execute().data
+            .eq("folder_id", folder_id)
+            .eq("user_id", user_id)
+            .order("generated_at", desc=True)
+            .limit(1)
+            .execute()
+            .data
         )
         doc_generated_at = doc_row[0]["generated_at"] if doc_row else None
     except Exception:  # noqa: BLE001 — table may not exist pre-migration
         doc_generated_at = None
+
+    # Doc / Notion presence — powers the CLI "seed this folder first" nudge so
+    # `kioku init` can suggest adding ecosystem context before generating.
+    from mcp_server import _descendant_folder_ids
+
+    subtree_ids = _descendant_folder_ids(sb, folder_id, user_id)
+    doc_names = (
+        sb.table("documents")
+        .select("source_filename")
+        .eq("user_id", user_id)
+        .in_("folder_id", subtree_ids)
+        .eq("status", "completed")
+        .limit(1000)
+        .execute()
+        .data
+        or []
+    )
+    doc_count = len({r["source_filename"] for r in doc_names})
+    try:
+        notion = (
+            sb.table("notion_sync_configs")
+            .select("id", count="exact", head=True)
+            .eq("user_id", user_id)
+            .eq("root_folder_id", folder_id)
+            .execute()
+        )
+        has_notion = bool(notion.count or 0)
+    except Exception:  # noqa: BLE001 — table may not exist
+        has_notion = False
 
     return {
         "folder_id": folder_id,
@@ -781,4 +880,6 @@ async def folder_summary(request: Request, folder_id: str):
         "section_order": STABLE_SECTION_ORDER,
         "doc_needs_generation": _needs_generation(doc_generated_at, ttl_days=DOC_TTL_DAYS),
         "doc_generated_at": doc_generated_at,
+        "doc_count": doc_count,
+        "has_notion": has_notion,
     }

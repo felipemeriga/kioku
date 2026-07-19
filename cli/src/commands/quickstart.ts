@@ -21,7 +21,9 @@ export async function quickstart(opts: Opts): Promise<void> {
   const git = detectGit(process.cwd());
   if (!git.isRepo) {
     section("Quickstart");
-    info("This command wires the CURRENT directory to kioku. Run it inside a git repo.");
+    info(
+      "This command wires the CURRENT directory to kioku. Run it inside a git repo."
+    );
     info(`git init && git remote add origin <url> && kioku quickstart`);
     process.exitCode = 1;
     return;
@@ -40,8 +42,18 @@ export async function quickstart(opts: Opts): Promise<void> {
   console.log();
   box([
     `${kleur.green("✓")} ${kleur.bold("You're set.")}`,
-    kleur.dim("  Open this repo in Claude Code — briefing loads at session start."),
+    kleur.dim(
+      "  Open this repo in Claude Code — briefing loads at session start."
+    ),
     kleur.dim("  Try:  kioku briefing   to see what Claude Code will see."),
+    "",
+    kleur.dim(
+      "  Tip: for the richest briefing, create the folder in the web UI and"
+    ),
+    kleur.dim(
+      "       add docs / connect Notion BEFORE kioku init — it folds that"
+    ),
+    kleur.dim("       ecosystem context in, not just the repo's code."),
   ]);
   console.log();
 }

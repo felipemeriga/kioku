@@ -23,6 +23,7 @@ import {
 import { bad, info, ok, section, step, warn } from "../lib/banner.js";
 import { panel } from "../ui/panel.js";
 import { generateInstruction } from "./session-start.js";
+import { openCmd } from "./open.js";
 
 interface InitOptions {
   yes?: boolean;
@@ -386,6 +387,8 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
           needs_generation?: boolean;
           generated_at?: string | null;
           section_order?: string[];
+          doc_count?: number;
+          has_notion?: boolean;
         })
       : null;
 
@@ -419,6 +422,34 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
         }
       }
       // Existing briefing under --yes / non-TTY without --force: skip quietly.
+    }
+
+    // Educate: a folder seeded with docs / Notion produces a much richer
+    // briefing (Claude folds them in via read_folder_documents). Nudge when
+    // there's no ecosystem context yet — and, if we're about to generate,
+    // offer to seed the folder in the web UI first.
+    const noContext = (summary?.doc_count ?? 0) === 0 && !summary?.has_notion;
+    if (summary && noContext && isTTY) {
+      info(
+        "💡 Seed this folder for a richer briefing — one that understands your whole"
+      );
+      info(
+        "   ecosystem, not just the code: add docs or connect Notion in the web UI,"
+      );
+      info("   then re-run with kioku init --force.");
+      if (shouldGenerate && !opts.yes && !opts.force) {
+        const openFirst = await confirm({
+          message: "Open the web UI to add docs & Notion before generating?",
+          default: false,
+        });
+        if (openFirst) {
+          await openCmd(repoFolder.id, {});
+          await input({
+            message:
+              "Press Enter when you've added docs and are ready to generate…",
+          });
+        }
+      }
     }
 
     if (shouldGenerate) {

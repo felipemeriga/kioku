@@ -72,9 +72,11 @@ export default function DocumentsPage() {
   const toast = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [, setDragOver] = useState(false);
-  const [integrationsTarget, setIntegrationsTarget] = useState<
-    { id: string; name: string; kind?: "folder" | "repo" } | null
-  >(null);
+  const [integrationsTarget, setIntegrationsTarget] = useState<{
+    id: string;
+    name: string;
+    kind?: "folder" | "repo";
+  } | null>(null);
   const [globalDropActive, setGlobalDropActive] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
@@ -126,7 +128,9 @@ export default function DocumentsPage() {
     setDeleteConfirm({
       type: "document",
       id: Array.from(selectedFiles).join(","),
-      name: `${selectedFiles.size} selected file${selectedFiles.size > 1 ? "s" : ""}`,
+      name: `${selectedFiles.size} selected file${
+        selectedFiles.size > 1 ? "s" : ""
+      }`,
     });
   };
 
@@ -218,7 +222,7 @@ export default function DocumentsPage() {
     } catch {
       toast.show(
         "Microphone access denied — please allow microphone permissions in your browser.",
-        "warning",
+        "warning"
       );
     }
   };
@@ -254,11 +258,11 @@ export default function DocumentsPage() {
       } catch (err) {
         toast.show(
           `Upload failed for “${file.name}”: ${messageFromError(err)}`,
-          "error",
+          "error"
         );
       }
     },
-    [upload, currentFolderId, toast],
+    [upload, currentFolderId, toast]
   );
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -279,7 +283,7 @@ export default function DocumentsPage() {
         void uploadOne(file);
       }
     },
-    [uploadOne],
+    [uploadOne]
   );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -293,19 +297,18 @@ export default function DocumentsPage() {
 
   const [subFolders, setSubFolders] = useState<
     { id: string; name: string; kind?: "folder" | "repo" }[]
-  >(
-    []
-  );
+  >([]);
 
   // Load subfolders of current directory for the grid view.
   // Non-critical: page still renders. Logged so devs see repeated failures.
   const loadSubFolders = useCallback(() => {
     fetchFolders(currentFolderId)
       .then((data) =>
-        setSubFolders(data.map((f) => ({ id: f.id, name: f.name, kind: f.kind })))
+        setSubFolders(
+          data.map((f) => ({ id: f.id, name: f.name, kind: f.kind }))
+        )
       )
       .catch((err) => {
-        // eslint-disable-next-line no-console
         console.warn("[DocumentsPage] failed to load subfolders:", err);
       });
   }, [currentFolderId]);
@@ -337,7 +340,7 @@ export default function DocumentsPage() {
       .then(setBreadcrumbs)
       .catch((err) => {
         setBreadcrumbs([]);
-        // eslint-disable-next-line no-console
+
         console.warn("[DocumentsPage] failed to load breadcrumbs:", err);
       });
   }, [currentFolderId]);
@@ -377,9 +380,7 @@ export default function DocumentsPage() {
   const filteredDocs = useMemo(() => {
     if (!searchQuery.trim()) return documents;
     const q = searchQuery.toLowerCase();
-    return documents.filter((d) =>
-      d.source_filename.toLowerCase().includes(q)
-    );
+    return documents.filter((d) => d.source_filename.toLowerCase().includes(q));
   }, [documents, searchQuery]);
 
   const filteredFolders = useMemo(() => {
@@ -443,7 +444,7 @@ export default function DocumentsPage() {
         if (failed.length > 0) {
           toast.show(
             `Couldn't delete ${failed.length} of ${filenames.length} files (${failed[0]})`,
-            "error",
+            "error"
           );
         }
         clearSelection();
@@ -464,7 +465,7 @@ export default function DocumentsPage() {
     } catch (err) {
       toast.show(
         `Couldn't download “${filename}”: ${messageFromError(err)}`,
-        "error",
+        "error"
       );
     }
   };
@@ -481,301 +482,331 @@ export default function DocumentsPage() {
         overflow: "hidden",
       }}
     >
-        {/* Toolbar */}
-        <Box
-          sx={{
-            px: 3,
-            pt: 2,
-            pb: 1.5,
-            display: "flex",
-            flexDirection: "column",
-            gap: 1.25,
-            borderBottom: `1px solid ${brand.line}`,
-            bgcolor: alpha(brand.surface2, 0.4),
-          }}
+      {/* Toolbar */}
+      <Box
+        sx={{
+          px: 3,
+          pt: 2,
+          pb: 1.5,
+          display: "flex",
+          flexDirection: "column",
+          gap: 1.25,
+          borderBottom: `1px solid ${brand.line}`,
+          bgcolor: alpha(brand.surface2, 0.4),
+        }}
+      >
+        {/* Breadcrumb row */}
+        <Stack
+          direction="row"
+          alignItems="center"
+          spacing={0.75}
+          sx={{ flexWrap: "wrap" }}
         >
-          {/* Breadcrumb row */}
-          <Stack direction="row" alignItems="center" spacing={0.75} sx={{ flexWrap: "wrap" }}>
-            <IconButton
-              size="small"
-              onClick={() => setCurrentFolderId(null)}
+          <IconButton
+            size="small"
+            onClick={() => setCurrentFolderId(null)}
+            sx={{
+              p: 0.5,
+              color: currentFolderId ? brand.muted : brand.violet2,
+              "&:hover": {
+                color: brand.violet2,
+                bgcolor: alpha(brand.violet, 0.1),
+              },
+            }}
+            aria-label="Root"
+          >
+            <HomeIcon fontSize="small" />
+          </IconButton>
+          {breadcrumbs.map((bc, i) => {
+            const isLast = i === breadcrumbs.length - 1;
+            return (
+              <Stack
+                key={bc.id}
+                direction="row"
+                alignItems="center"
+                spacing={0.25}
+              >
+                <ChevronRightIcon sx={{ fontSize: 16, color: brand.muted }} />
+                {isLast ? (
+                  <Typography
+                    sx={{
+                      fontFamily: fonts.display,
+                      fontWeight: 700,
+                      fontSize: "1rem",
+                      color: brand.text,
+                      letterSpacing: "-0.01em",
+                    }}
+                  >
+                    {bc.name}
+                  </Typography>
+                ) : (
+                  <Button
+                    variant="text"
+                    size="small"
+                    onClick={() => setCurrentFolderId(bc.id)}
+                    sx={{
+                      minWidth: 0,
+                      px: 0.75,
+                      py: 0.25,
+                      color: brand.muted,
+                      fontFamily: fonts.display,
+                      fontSize: "0.9rem",
+                      "&:hover": { color: brand.violet2 },
+                    }}
+                  >
+                    {bc.name}
+                  </Button>
+                )}
+              </Stack>
+            );
+          })}
+          {breadcrumbs.length === 0 && (
+            <Typography
               sx={{
-                p: 0.5,
-                color: currentFolderId ? brand.muted : brand.violet2,
-                "&:hover": { color: brand.violet2, bgcolor: alpha(brand.violet, 0.1) },
+                fontFamily: fonts.display,
+                fontWeight: 700,
+                fontSize: "1rem",
+                color: brand.text,
+                ml: 0.5,
+                letterSpacing: "-0.01em",
               }}
-              aria-label="Root"
             >
-              <HomeIcon fontSize="small" />
-            </IconButton>
-            {breadcrumbs.map((bc, i) => {
-              const isLast = i === breadcrumbs.length - 1;
-              return (
-                <Stack key={bc.id} direction="row" alignItems="center" spacing={0.25}>
-                  <ChevronRightIcon sx={{ fontSize: 16, color: brand.muted }} />
-                  {isLast ? (
-                    <Typography
-                      sx={{
-                        fontFamily: fonts.display,
-                        fontWeight: 700,
-                        fontSize: "1rem",
-                        color: brand.text,
-                        letterSpacing: "-0.01em",
-                      }}
-                    >
-                      {bc.name}
-                    </Typography>
-                  ) : (
-                    <Button
-                      variant="text"
-                      size="small"
-                      onClick={() => setCurrentFolderId(bc.id)}
-                      sx={{
-                        minWidth: 0,
-                        px: 0.75,
-                        py: 0.25,
-                        color: brand.muted,
-                        fontFamily: fonts.display,
-                        fontSize: "0.9rem",
-                        "&:hover": { color: brand.violet2 },
-                      }}
-                    >
-                      {bc.name}
-                    </Button>
-                  )}
-                </Stack>
-              );
-            })}
-            {breadcrumbs.length === 0 && (
+              All Documents
+            </Typography>
+          )}
+          {(filteredDocs.length > 0 || filteredFolders.length > 0) && (
+            <Chip
+              size="small"
+              label={`${filteredFolders.length + filteredDocs.length} items`}
+              sx={{
+                ml: 1.25,
+                height: 22,
+                fontFamily: fonts.mono,
+                fontSize: "0.65rem",
+                letterSpacing: "0.08em",
+                bgcolor: alpha(brand.cyan, 0.08),
+                color: brand.cyan,
+                border: `1px solid ${alpha(brand.cyan, 0.3)}`,
+              }}
+            />
+          )}
+        </Stack>
+
+        {/* Actions row */}
+        <Stack direction="row" alignItems="center" spacing={1.25}>
+          <TextField
+            size="small"
+            placeholder="Search in this folder…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon sx={{ fontSize: 18, color: brand.muted }} />
+                </InputAdornment>
+              ),
+              endAdornment: searchQuery ? (
+                <InputAdornment position="end">
+                  <IconButton size="small" onClick={() => setSearchQuery("")}>
+                    <CloseIcon sx={{ fontSize: 16 }} />
+                  </IconButton>
+                </InputAdornment>
+              ) : null,
+            }}
+            sx={{
+              flex: 1,
+              maxWidth: 380,
+              "& .MuiOutlinedInput-root": {
+                fontFamily: fonts.body,
+                fontSize: "0.85rem",
+              },
+            }}
+          />
+
+          <ToggleButtonGroup
+            value={viewMode}
+            exclusive
+            size="small"
+            onChange={(_, v) => v && setViewMode(v)}
+            sx={{
+              "& .MuiToggleButton-root": {
+                border: `1px solid ${brand.line}`,
+                color: brand.muted,
+                px: 1,
+                py: 0.5,
+                "&.Mui-selected": {
+                  color: brand.violet2,
+                  bgcolor: alpha(brand.violet, 0.15),
+                },
+              },
+            }}
+          >
+            <ToggleButton value="grid" aria-label="Grid view">
+              <GridViewIcon fontSize="small" />
+            </ToggleButton>
+            <ToggleButton value="list" aria-label="List view">
+              <ViewListIcon fontSize="small" />
+            </ToggleButton>
+          </ToggleButtonGroup>
+
+          <Box sx={{ flex: 1 }} />
+
+          {ingestionTasks.length > 0 && (
+            <Tooltip title="Processing status">
+              <IconButton size="small" onClick={openIngestionDrawer}>
+                <Badge
+                  badgeContent={
+                    ingestionTasks.filter(
+                      (t) =>
+                        !["completed", "error", "duplicate"].includes(t.stage)
+                    ).length || undefined
+                  }
+                  color="primary"
+                >
+                  <CloudUploadIcon fontSize="small" />
+                </Badge>
+              </IconButton>
+            </Tooltip>
+          )}
+          <input
+            type="file"
+            ref={fileInputRef}
+            hidden
+            multiple
+            accept={ACCEPTED_TYPES}
+            onChange={handleFileSelect}
+          />
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<CreateNewFolderIcon fontSize="small" />}
+            onClick={() => setNewFolderOpen(true)}
+            sx={{ borderColor: brand.line, color: brand.muted }}
+          >
+            New folder
+          </Button>
+          <Button
+            variant="contained"
+            size="small"
+            startIcon={<UploadFileIcon />}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            Upload
+          </Button>
+        </Stack>
+      </Box>
+
+      {/* Content area */}
+      <Box
+        sx={{ flex: 1, overflow: "auto", p: 3, position: "relative" }}
+        onDrop={handleDrop}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+      >
+        {/* Small recorder chip — full-page drop overlay handles file uploads */}
+        <Stack
+          direction="row"
+          spacing={1}
+          alignItems="center"
+          sx={{ mb: 2.5, color: brand.muted }}
+        >
+          <IconButton
+            onClick={handleMicClick}
+            size="small"
+            sx={{
+              bgcolor: isRecording
+                ? alpha("#ef4444", 0.2)
+                : alpha(brand.violet, 0.1),
+              border: `1px solid ${
+                isRecording ? alpha("#ef4444", 0.5) : brand.line
+              }`,
+              color: isRecording ? "#ef4444" : brand.violet2,
+              "&:hover": {
+                bgcolor: isRecording
+                  ? alpha("#ef4444", 0.3)
+                  : alpha(brand.violet, 0.2),
+              },
+            }}
+          >
+            {isRecording ? (
+              <StopIcon fontSize="small" />
+            ) : (
+              <MicIcon fontSize="small" />
+            )}
+          </IconButton>
+          {isRecording ? (
+            <Stack direction="row" spacing={0.75} alignItems="center">
+              <Box
+                sx={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: "50%",
+                  bgcolor: "#ef4444",
+                  animation: `${pulse} 1.2s ease-in-out infinite`,
+                }}
+              />
               <Typography
                 sx={{
-                  fontFamily: fonts.display,
-                  fontWeight: 700,
-                  fontSize: "1rem",
-                  color: brand.text,
-                  ml: 0.5,
-                  letterSpacing: "-0.01em",
+                  color: "#ef4444",
+                  fontFamily: fonts.mono,
+                  fontSize: "0.85rem",
                 }}
               >
-                All Documents
+                {formatTime(recordingTime)}
               </Typography>
-            )}
-            {(filteredDocs.length > 0 || filteredFolders.length > 0) && (
-              <Chip
-                size="small"
-                label={`${filteredFolders.length + filteredDocs.length} items`}
-                sx={{
-                  ml: 1.25,
-                  height: 22,
-                  fontFamily: fonts.mono,
-                  fontSize: "0.65rem",
-                  letterSpacing: "0.08em",
-                  bgcolor: alpha(brand.cyan, 0.08),
-                  color: brand.cyan,
-                  border: `1px solid ${alpha(brand.cyan, 0.3)}`,
-                }}
-              />
-            )}
-          </Stack>
-
-          {/* Actions row */}
-          <Stack direction="row" alignItems="center" spacing={1.25}>
-            <TextField
-              size="small"
-              placeholder="Search in this folder…"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <SearchIcon sx={{ fontSize: 18, color: brand.muted }} />
-                  </InputAdornment>
-                ),
-                endAdornment: searchQuery ? (
-                  <InputAdornment position="end">
-                    <IconButton size="small" onClick={() => setSearchQuery("")}>
-                      <CloseIcon sx={{ fontSize: 16 }} />
-                    </IconButton>
-                  </InputAdornment>
-                ) : null,
-              }}
-              sx={{
-                flex: 1,
-                maxWidth: 380,
-                "& .MuiOutlinedInput-root": {
-                  fontFamily: fonts.body,
-                  fontSize: "0.85rem",
-                },
-              }}
-            />
-
-            <ToggleButtonGroup
-              value={viewMode}
-              exclusive
-              size="small"
-              onChange={(_, v) => v && setViewMode(v)}
-              sx={{
-                "& .MuiToggleButton-root": {
-                  border: `1px solid ${brand.line}`,
-                  color: brand.muted,
-                  px: 1,
-                  py: 0.5,
-                  "&.Mui-selected": {
-                    color: brand.violet2,
-                    bgcolor: alpha(brand.violet, 0.15),
-                  },
-                },
-              }}
-            >
-              <ToggleButton value="grid" aria-label="Grid view">
-                <GridViewIcon fontSize="small" />
-              </ToggleButton>
-              <ToggleButton value="list" aria-label="List view">
-                <ViewListIcon fontSize="small" />
-              </ToggleButton>
-            </ToggleButtonGroup>
-
-            <Box sx={{ flex: 1 }} />
-
-            {ingestionTasks.length > 0 && (
-              <Tooltip title="Processing status">
-                <IconButton size="small" onClick={openIngestionDrawer}>
-                  <Badge
-                    badgeContent={
-                      ingestionTasks.filter(
-                        (t) => !["completed", "error", "duplicate"].includes(t.stage)
-                      ).length || undefined
-                    }
-                    color="primary"
-                  >
-                    <CloudUploadIcon fontSize="small" />
-                  </Badge>
-                </IconButton>
-              </Tooltip>
-            )}
-            <input
-              type="file"
-              ref={fileInputRef}
-              hidden
-              multiple
-              accept={ACCEPTED_TYPES}
-              onChange={handleFileSelect}
-            />
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<CreateNewFolderIcon fontSize="small" />}
-              onClick={() => setNewFolderOpen(true)}
-              sx={{ borderColor: brand.line, color: brand.muted }}
-            >
-              New folder
-            </Button>
-            <Button
-              variant="contained"
-              size="small"
-              startIcon={<UploadFileIcon />}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              Upload
-            </Button>
-          </Stack>
-        </Box>
-
-        {/* Content area */}
-        <Box
-          sx={{ flex: 1, overflow: "auto", p: 3, position: "relative" }}
-          onDrop={handleDrop}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-        >
-          {/* Small recorder chip — full-page drop overlay handles file uploads */}
-          <Stack
-            direction="row"
-            spacing={1}
-            alignItems="center"
-            sx={{ mb: 2.5, color: brand.muted }}
-          >
-            <IconButton
-              onClick={handleMicClick}
-              size="small"
-              sx={{
-                bgcolor: isRecording ? alpha("#ef4444", 0.2) : alpha(brand.violet, 0.1),
-                border: `1px solid ${isRecording ? alpha("#ef4444", 0.5) : brand.line}`,
-                color: isRecording ? "#ef4444" : brand.violet2,
-                "&:hover": {
-                  bgcolor: isRecording ? alpha("#ef4444", 0.3) : alpha(brand.violet, 0.2),
-                },
-              }}
-            >
-              {isRecording ? <StopIcon fontSize="small" /> : <MicIcon fontSize="small" />}
-            </IconButton>
-            {isRecording ? (
-              <Stack direction="row" spacing={0.75} alignItems="center">
-                <Box
-                  sx={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: "50%",
-                    bgcolor: "#ef4444",
-                    animation: `${pulse} 1.2s ease-in-out infinite`,
-                  }}
-                />
-                <Typography sx={{ color: "#ef4444", fontFamily: fonts.mono, fontSize: "0.85rem" }}>
-                  {formatTime(recordingTime)}
-                </Typography>
-              </Stack>
-            ) : (
-              <Typography sx={{ fontFamily: fonts.body, fontSize: "0.8rem" }}>
-                Record audio · or drop files anywhere on this page
-              </Typography>
-            )}
-          </Stack>
-
-          {error && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              {error}
-            </Alert>
+            </Stack>
+          ) : (
+            <Typography sx={{ fontFamily: fonts.body, fontSize: "0.8rem" }}>
+              Record audio · or drop files anywhere on this page
+            </Typography>
           )}
+        </Stack>
 
-          {/* Repo folders get a Files | Briefing tab bar so the generated
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error}
+          </Alert>
+        )}
+
+        {/* Repo folders get a Files | Briefing tab bar so the generated
               knowledge lives on its own tab, away from the file browser. */}
-          {currentFolderIsRepo && (
-            <Tabs
-              value={folderTab}
-              onChange={(_, v) => setFolderTab(v)}
-              sx={{
-                mb: 3,
+        {currentFolderIsRepo && (
+          <Tabs
+            value={folderTab}
+            onChange={(_, v) => setFolderTab(v)}
+            sx={{
+              mb: 3,
+              minHeight: 40,
+              borderBottom: `1px solid ${brand.line}`,
+              "& .MuiTab-root": {
                 minHeight: 40,
-                borderBottom: `1px solid ${brand.line}`,
-                "& .MuiTab-root": {
-                  minHeight: 40,
-                  textTransform: "none",
-                  fontFamily: fonts.display,
-                  fontSize: "0.9rem",
-                  color: brand.muted,
-                  "&.Mui-selected": { color: brand.cyan },
-                },
-                "& .MuiTabs-indicator": { backgroundColor: brand.cyan },
-              }}
-            >
-              <Tab
-                value="files"
-                label="Files"
-                icon={<FolderIcon sx={{ fontSize: 18 }} />}
-                iconPosition="start"
-              />
-              <Tab
-                value="briefing"
-                label="Briefing"
-                icon={<AccountTreeIcon sx={{ fontSize: 18 }} />}
-                iconPosition="start"
-              />
-            </Tabs>
-          )}
+                textTransform: "none",
+                fontFamily: fonts.display,
+                fontSize: "0.9rem",
+                color: brand.muted,
+                "&.Mui-selected": { color: brand.cyan },
+              },
+              "& .MuiTabs-indicator": { backgroundColor: brand.cyan },
+            }}
+          >
+            <Tab
+              value="files"
+              label="Files"
+              icon={<FolderIcon sx={{ fontSize: 18 }} />}
+              iconPosition="start"
+            />
+            <Tab
+              value="briefing"
+              label="Briefing"
+              icon={<AccountTreeIcon sx={{ fontSize: 18 }} />}
+              iconPosition="start"
+            />
+          </Tabs>
+        )}
 
-          {/* Sub-folders grid */}
-          {(!currentFolderIsRepo || folderTab === "files") &&
-            filteredFolders.length > 0 && (
+        {/* Sub-folders grid */}
+        {(!currentFolderIsRepo || folderTab === "files") &&
+          filteredFolders.length > 0 && (
             <Box sx={{ mb: 3 }}>
               <Typography
                 variant="overline"
@@ -890,7 +921,9 @@ export default function DocumentsPage() {
                       <DeleteIcon sx={{ fontSize: 14 }} />
                     </IconButton>
                     {folder.kind === "repo" ? (
-                      <AccountTreeIcon sx={{ fontSize: 36, color: "#06b6d4" }} />
+                      <AccountTreeIcon
+                        sx={{ fontSize: 36, color: "#06b6d4" }}
+                      />
                     ) : (
                       <FolderIcon sx={{ fontSize: 36, color: "#FF2E93" }} />
                     )}
@@ -911,32 +944,32 @@ export default function DocumentsPage() {
             </Box>
           )}
 
-          {/* Folder summary/orientation + the repo briefing (overview,
+        {/* Folder summary/orientation + the repo briefing (overview,
               architecture, important files, …), placed BELOW the folder grid
               so subfolders sit at the top of a repo view. BriefingPanel renders
               nothing for non-repo folders. */}
-          {/* Non-repo folders keep the plain orientation card. Repos surface
+        {/* Non-repo folders keep the plain orientation card. Repos surface
               their generated knowledge on the Briefing tab instead. */}
-          {currentFolderId && !currentFolderIsRepo && (
-            <FolderSummaryPanel
-              folderId={currentFolderId}
-              folderName={
-                breadcrumbs.length > 0
-                  ? breadcrumbs[breadcrumbs.length - 1].name
-                  : "This folder"
-              }
-            />
-          )}
-          {currentFolderIsRepo && folderTab === "briefing" && currentFolderId && (
-            <>
-              <BriefingPanel folderId={currentFolderId} />
-              <DocumentationPanel folderId={currentFolderId} />
-            </>
-          )}
+        {currentFolderId && !currentFolderIsRepo && (
+          <FolderSummaryPanel
+            folderId={currentFolderId}
+            folderName={
+              breadcrumbs.length > 0
+                ? breadcrumbs[breadcrumbs.length - 1].name
+                : "This folder"
+            }
+          />
+        )}
+        {currentFolderIsRepo && folderTab === "briefing" && currentFolderId && (
+          <>
+            <BriefingPanel folderId={currentFolderId} />
+            <DocumentationPanel folderId={currentFolderId} />
+          </>
+        )}
 
-          {/* Documents grid */}
-          {(!currentFolderIsRepo || folderTab === "files") &&
-            filteredDocs.length > 0 && (
+        {/* Documents grid */}
+        {(!currentFolderIsRepo || folderTab === "files") &&
+          filteredDocs.length > 0 && (
             <Box>
               <Typography
                 variant="overline"
@@ -984,42 +1017,96 @@ export default function DocumentsPage() {
             </Box>
           )}
 
-          {/* Empty / no-results state */}
-          {(!currentFolderIsRepo || folderTab === "files") && isEmpty && (
-            <Stack alignItems="center" spacing={2} sx={{ mt: 10, textAlign: "center" }}>
-              <Box
+        {/* Empty / no-results state */}
+        {(!currentFolderIsRepo || folderTab === "files") && isEmpty && (
+          <Stack
+            alignItems="center"
+            spacing={2}
+            sx={{ mt: 10, textAlign: "center" }}
+          >
+            <Box
+              sx={{
+                width: 72,
+                height: 72,
+                borderRadius: "50%",
+                display: "grid",
+                placeItems: "center",
+                bgcolor: alpha(brand.violet, 0.1),
+                border: `1px solid ${alpha(brand.violet, 0.25)}`,
+              }}
+            >
+              <CloudUploadIcon sx={{ fontSize: 32, color: brand.violet2 }} />
+            </Box>
+            <Stack alignItems="center" spacing={0.5}>
+              <Typography
                 sx={{
-                  width: 72,
-                  height: 72,
-                  borderRadius: "50%",
-                  display: "grid",
-                  placeItems: "center",
-                  bgcolor: alpha(brand.violet, 0.1),
-                  border: `1px solid ${alpha(brand.violet, 0.25)}`,
+                  fontFamily: fonts.display,
+                  fontWeight: 700,
+                  fontSize: "1.15rem",
+                  color: brand.text,
                 }}
               >
-                <CloudUploadIcon sx={{ fontSize: 32, color: brand.violet2 }} />
-              </Box>
-              <Stack alignItems="center" spacing={0.5}>
-                <Typography sx={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "1.15rem", color: brand.text }}>
-                  {currentFolderId ? "This folder is empty" : "Your corpus is empty"}
+                {currentFolderId
+                  ? "This folder is empty"
+                  : "Your corpus is empty"}
+              </Typography>
+              <Typography
+                sx={{
+                  fontFamily: fonts.body,
+                  fontSize: "0.88rem",
+                  color: brand.muted,
+                  maxWidth: 380,
+                }}
+              >
+                Drop files anywhere on this page, click Upload above, or record
+                audio directly.
+              </Typography>
+              {currentFolderId && (
+                <Typography
+                  sx={{
+                    fontFamily: fonts.body,
+                    fontSize: "0.8rem",
+                    color: brand.violet2,
+                    maxWidth: 420,
+                    mt: 1,
+                  }}
+                >
+                  Tip: docs you add here (or a Notion sync) enrich this repo's
+                  briefing — <code>kioku init</code> folds them in, so it
+                  understands your whole ecosystem, not just the code.
                 </Typography>
-                <Typography sx={{ fontFamily: fonts.body, fontSize: "0.88rem", color: brand.muted, maxWidth: 380 }}>
-                  Drop files anywhere on this page, click Upload above, or record audio directly.
-                </Typography>
-              </Stack>
-              <Button variant="contained" size="small" startIcon={<UploadFileIcon />} onClick={() => fileInputRef.current?.click()}>
-                Upload your first file
-              </Button>
+              )}
             </Stack>
-          )}
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<UploadFileIcon />}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              Upload your first file
+            </Button>
+          </Stack>
+        )}
 
-          {/* Search returned nothing */}
-          {(!currentFolderIsRepo || folderTab === "files") &&
-            !isEmpty && searchQuery && filteredFolders.length === 0 && filteredDocs.length === 0 && (
-            <Stack alignItems="center" spacing={1.5} sx={{ mt: 8, textAlign: "center" }}>
+        {/* Search returned nothing */}
+        {(!currentFolderIsRepo || folderTab === "files") &&
+          !isEmpty &&
+          searchQuery &&
+          filteredFolders.length === 0 &&
+          filteredDocs.length === 0 && (
+            <Stack
+              alignItems="center"
+              spacing={1.5}
+              sx={{ mt: 8, textAlign: "center" }}
+            >
               <SearchIcon sx={{ fontSize: 40, color: brand.muted }} />
-              <Typography sx={{ fontFamily: fonts.display, fontWeight: 600, color: brand.text }}>
+              <Typography
+                sx={{
+                  fontFamily: fonts.display,
+                  fontWeight: 600,
+                  color: brand.text,
+                }}
+              >
                 No matches for "{searchQuery}"
               </Typography>
               <Button size="small" onClick={() => setSearchQuery("")}>
@@ -1027,69 +1114,78 @@ export default function DocumentsPage() {
               </Button>
             </Stack>
           )}
-        </Box>
+      </Box>
 
-        {/* Full-page drop overlay when dragging files anywhere */}
-        {globalDropActive && (
-          <Box
-            onDragOver={handleDragOver}
-            onDrop={handleDrop}
-            onDragLeave={handleDragLeave}
+      {/* Full-page drop overlay when dragging files anywhere */}
+      {globalDropActive && (
+        <Box
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
+          onDragLeave={handleDragLeave}
+          sx={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1500,
+            pointerEvents: "auto",
+            backdropFilter: "blur(6px)",
+            WebkitBackdropFilter: "blur(6px)",
+            bgcolor: alpha(brand.ink, 0.75),
+            display: "grid",
+            placeItems: "center",
+            transition: "opacity 0.15s ease-out",
+          }}
+          data-testid="global-drop-overlay"
+        >
+          <Stack
+            alignItems="center"
+            spacing={2}
             sx={{
-              position: "fixed",
-              inset: 0,
-              zIndex: 1500,
-              pointerEvents: "auto",
-              backdropFilter: "blur(6px)",
-              WebkitBackdropFilter: "blur(6px)",
-              bgcolor: alpha(brand.ink, 0.75),
-              display: "grid",
-              placeItems: "center",
-              transition: "opacity 0.15s ease-out",
+              border: `2px dashed ${brand.violet2}`,
+              borderRadius: 4,
+              px: 8,
+              py: 6,
+              bgcolor: alpha(brand.violet, 0.08),
+              minWidth: 460,
             }}
-            data-testid="global-drop-overlay"
           >
-            <Stack
-              alignItems="center"
-              spacing={2}
+            <Box
               sx={{
-                border: `2px dashed ${brand.violet2}`,
-                borderRadius: 4,
-                px: 8,
-                py: 6,
-                bgcolor: alpha(brand.violet, 0.08),
-                minWidth: 460,
+                width: 80,
+                height: 80,
+                borderRadius: "50%",
+                display: "grid",
+                placeItems: "center",
+                background: `radial-gradient(circle at 30% 30%, ${brand.violet2} 0%, ${brand.violetDeep} 100%)`,
+                boxShadow: `0 12px 40px ${alpha(brand.violet, 0.6)}`,
               }}
             >
-              <Box
-                sx={{
-                  width: 80,
-                  height: 80,
-                  borderRadius: "50%",
-                  display: "grid",
-                  placeItems: "center",
-                  background: `radial-gradient(circle at 30% 30%, ${brand.violet2} 0%, ${brand.violetDeep} 100%)`,
-                  boxShadow: `0 12px 40px ${alpha(brand.violet, 0.6)}`,
-                }}
-              >
-                <CloudUploadIcon sx={{ fontSize: 40, color: "#fff" }} />
-              </Box>
-              <Typography
-                sx={{
-                  fontFamily: fonts.display,
-                  fontWeight: 700,
-                  fontSize: "1.5rem",
-                  color: brand.text,
-                }}
-              >
-                Drop to upload
-              </Typography>
-              <Typography sx={{ fontFamily: fonts.body, fontSize: "0.9rem", color: brand.muted }}>
-                Files will land in {breadcrumbs.length ? `"${breadcrumbs[breadcrumbs.length - 1]!.name}"` : "the root folder"}
-              </Typography>
-            </Stack>
-          </Box>
-        )}
+              <CloudUploadIcon sx={{ fontSize: 40, color: "#fff" }} />
+            </Box>
+            <Typography
+              sx={{
+                fontFamily: fonts.display,
+                fontWeight: 700,
+                fontSize: "1.5rem",
+                color: brand.text,
+              }}
+            >
+              Drop to upload
+            </Typography>
+            <Typography
+              sx={{
+                fontFamily: fonts.body,
+                fontSize: "0.9rem",
+                color: brand.muted,
+              }}
+            >
+              Files will land in{" "}
+              {breadcrumbs.length
+                ? `"${breadcrumbs[breadcrumbs.length - 1]!.name}"`
+                : "the root folder"}
+            </Typography>
+          </Stack>
+        </Box>
+      )}
 
       {/* Bulk action bar */}
       {selectedFiles.size > 0 && (
@@ -1142,7 +1238,9 @@ export default function DocumentsPage() {
       {/* Bulk Move Dialog */}
       <MoveDialog
         open={bulkMoveOpen}
-        title={`Move ${selectedFiles.size} file${selectedFiles.size > 1 ? "s" : ""}`}
+        title={`Move ${selectedFiles.size} file${
+          selectedFiles.size > 1 ? "s" : ""
+        }`}
         onClose={() => setBulkMoveOpen(false)}
         onSelect={handleBulkMove}
       />
