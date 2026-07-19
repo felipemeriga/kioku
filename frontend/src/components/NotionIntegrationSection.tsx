@@ -14,6 +14,7 @@ import {
   Divider,
   FormControl,
   InputLabel,
+  LinearProgress,
   MenuItem,
   Select,
   Stack,
@@ -49,12 +50,17 @@ export function NotionIntegrationSection() {
     id: string;
     title: string;
   } | null>(null);
-  const [activeJobsByConfig, setActiveJobsByConfig] = useState<Record<string, IngestionJob>>({});
+  const [activeJobsByConfig, setActiveJobsByConfig] = useState<
+    Record<string, IngestionJob>
+  >({});
   const pollTimers = useRef<Record<string, number>>({});
 
   const refresh = useCallback(async () => {
     try {
-      const [cfgs, fs] = await Promise.all([fetchNotionConfigs(), fetchFolders(null)]);
+      const [cfgs, fs] = await Promise.all([
+        fetchNotionConfigs(),
+        fetchFolders(null),
+      ]);
       setConfigs(cfgs);
       setFolders(fs.map((f) => ({ id: f.id, name: f.name })));
     } catch (err) {
@@ -94,14 +100,14 @@ export function NotionIntegrationSection() {
           stopPolling(configId);
           toast.show(
             `Lost track of the Notion sync job: ${messageFromError(err)}`,
-            "warning",
+            "warning"
           );
         }
       };
       void tick();
       pollTimers.current[configId] = window.setInterval(tick, 2000);
     },
-    [refresh, toast],
+    [refresh, toast]
   );
 
   useEffect(() => {
@@ -117,13 +123,14 @@ export function NotionIntegrationSection() {
       } catch (err) {
         // Non-fatal: user just won't see the resumed progress bar for in-flight
         // syncs that started before the page loaded.
-        // eslint-disable-next-line no-console
+
         console.warn("[Notion] failed to resume active-job polling:", err);
       }
     })();
     return () => {
       cancelled = true;
-      for (const configId of Object.keys(pollTimers.current)) stopPolling(configId);
+      for (const configId of Object.keys(pollTimers.current))
+        stopPolling(configId);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -163,7 +170,7 @@ export function NotionIntegrationSection() {
       toast.showSuccess(
         deleteDocs
           ? "Disconnected. Notion-sourced docs removed."
-          : "Disconnected. Docs kept in the folder.",
+          : "Disconnected. Docs kept in the folder."
       );
     } catch (err) {
       toast.showError(err, "Couldn't disconnect Notion.");
@@ -173,7 +180,12 @@ export function NotionIntegrationSection() {
   return (
     <Card sx={{ mb: 3 }}>
       <CardContent>
-        <Stack direction="row" alignItems="center" justifyContent="space-between" mb={2}>
+        <Stack
+          direction="row"
+          alignItems="center"
+          justifyContent="space-between"
+          mb={2}
+        >
           <Typography variant="h6">Notion Integration</Typography>
           <Button variant="contained" onClick={() => setDialogOpen(true)}>
             Connect Notion
@@ -188,7 +200,8 @@ export function NotionIntegrationSection() {
 
         {configs.length === 0 && (
           <Typography color="text.secondary">
-            No Notion pages connected. Connect a Notion root page to sync its content into a rag root folder.
+            No Notion pages connected. Connect a Notion root page to sync its
+            content into a rag root folder.
           </Typography>
         )}
 
@@ -209,8 +222,8 @@ export function NotionIntegrationSection() {
                       {cfg.notion_page_title ?? cfg.notion_page_id}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                      Root folder: {folderName(folders, cfg.root_folder_id)} · Poll every{" "}
-                      {cfg.fast_poll_interval_min} min
+                      Root folder: {folderName(folders, cfg.root_folder_id)} ·
+                      Poll every {cfg.fast_poll_interval_min} min
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
                       Last fast: {formatTs(cfg.last_fast_sync_at)} · Last full:{" "}
@@ -225,7 +238,10 @@ export function NotionIntegrationSection() {
                   <Stack
                     direction="row"
                     spacing={1}
-                    sx={{ flexShrink: 0, "& .MuiButton-root": { whiteSpace: "nowrap" } }}
+                    sx={{
+                      flexShrink: 0,
+                      "& .MuiButton-root": { whiteSpace: "nowrap" },
+                    }}
                   >
                     <Button
                       startIcon={<RefreshIcon />}
@@ -247,7 +263,7 @@ export function NotionIntegrationSection() {
                       onClick={() =>
                         requestDisconnect(
                           cfg.id,
-                          cfg.notion_page_title ?? cfg.notion_page_id,
+                          cfg.notion_page_title ?? cfg.notion_page_id
                         )
                       }
                     >
@@ -255,12 +271,58 @@ export function NotionIntegrationSection() {
                     </Button>
                   </Stack>
                 </Stack>
-                {activeJob && (
-                  <Alert severity="info" sx={{ mt: 1 }}>
-                    Syncing {activeJob.processed_pages ?? 0}/{activeJob.total_pages ?? "?"} pages —
-                    batches {activeJob.processed_batches}/{activeJob.total_batches}
-                  </Alert>
-                )}
+                {activeJob &&
+                  (() => {
+                    // Two-phase progress: pages first (ingest), then embedding
+                    // batches. Indeterminate while we're still enumerating and
+                    // neither total is known yet.
+                    const pages = activeJob.total_pages ?? 0;
+                    const batches = activeJob.total_batches ?? 0;
+                    let pct: number | null = null; // null → indeterminate bar
+                    let label = "Syncing…";
+                    if (pages > 0) {
+                      const done = activeJob.processed_pages ?? 0;
+                      pct = Math.min(100, Math.round((done / pages) * 100));
+                      label = `Syncing ${done}/${pages} pages`;
+                    } else if (batches > 0) {
+                      pct = Math.min(
+                        100,
+                        Math.round(
+                          (activeJob.processed_batches / batches) * 100
+                        )
+                      );
+                      label = `Embedding ${activeJob.processed_batches}/${batches} batches`;
+                    }
+                    return (
+                      <Box sx={{ mt: 1.5 }}>
+                        <Stack
+                          direction="row"
+                          justifyContent="space-between"
+                          alignItems="baseline"
+                          sx={{ mb: 0.5 }}
+                        >
+                          <Typography variant="caption" color="text.secondary">
+                            {label}
+                          </Typography>
+                          {pct !== null && (
+                            <Typography
+                              variant="caption"
+                              color="text.secondary"
+                            >
+                              {pct}%
+                            </Typography>
+                          )}
+                        </Stack>
+                        <LinearProgress
+                          variant={
+                            pct === null ? "indeterminate" : "determinate"
+                          }
+                          value={pct ?? undefined}
+                          sx={{ height: 6, borderRadius: 3 }}
+                        />
+                      </Box>
+                    );
+                  })()}
               </Box>
             );
           })}
@@ -328,7 +390,9 @@ export function NotionConnectDialog({
   const [token, setToken] = useState("");
   const [rootFolderId, setRootFolderId] = useState(fixedFolderId ?? "");
   const [pageOptions, setPageOptions] = useState<NotionPageOption[]>([]);
-  const [selectedPage, setSelectedPage] = useState<NotionPageOption | null>(null);
+  const [selectedPage, setSelectedPage] = useState<NotionPageOption | null>(
+    null
+  );
   const [loadingPages, setLoadingPages] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -355,7 +419,7 @@ export function NotionConnectDialog({
 
   const canSubmit = useMemo(
     () => !!token && !!rootFolderId && !!selectedPage && !busy,
-    [token, rootFolderId, selectedPage, busy],
+    [token, rootFolderId, selectedPage, busy]
   );
 
   const submit = async () => {
@@ -389,8 +453,8 @@ export function NotionConnectDialog({
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
           <Typography variant="body2" color="text.secondary">
-            1. Create an integration at notion.so/my-integrations. 2. Share your root page with it.
-            3. Paste the integration token below.
+            1. Create an integration at notion.so/my-integrations. 2. Share your
+            root page with it. 3. Paste the integration token below.
           </Typography>
           <TextField
             label="Notion integration token"
@@ -407,7 +471,9 @@ export function NotionConnectDialog({
             getOptionLabel={(o) => o.title}
             value={selectedPage}
             onChange={(_, v) => setSelectedPage(v)}
-            renderInput={(params) => <TextField {...params} label="Notion root page" />}
+            renderInput={(params) => (
+              <TextField {...params} label="Notion root page" />
+            )}
             disabled={pageOptions.length === 0}
           />
           {!fixedFolderId && (
@@ -430,7 +496,9 @@ export function NotionConnectDialog({
         </Stack>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose} disabled={busy}>Cancel</Button>
+        <Button onClick={onClose} disabled={busy}>
+          Cancel
+        </Button>
         <Button onClick={submit} disabled={!canSubmit} variant="contained">
           {busy ? "Connecting…" : "Connect"}
         </Button>
@@ -439,7 +507,10 @@ export function NotionConnectDialog({
   );
 }
 
-function folderName(folders: { id: string; name: string }[], id: string): string {
+function folderName(
+  folders: { id: string; name: string }[],
+  id: string
+): string {
   return folders.find((f) => f.id === id)?.name ?? id;
 }
 
