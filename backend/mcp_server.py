@@ -1206,9 +1206,11 @@ def read_folder_documents(folder: str | None = None) -> str:
     if not _current_user_id.get():
         return "Error: Not authenticated."
     from services.folder_summary.repo import (
-        get_ancestor_folder_ids,
+        find_child_folder_id,
+        get_descendant_folder_ids,
         get_docs_for_folder_ids,
         get_docs_in_subtree,
+        get_root_folder_id,
     )
 
     sb = get_supabase()
@@ -1223,8 +1225,19 @@ def read_folder_documents(folder: str | None = None) -> str:
         return f"Error: {resolved_name}"
     try:
         repo_docs = get_docs_in_subtree(sb, resolved_id, user_id)
-        ancestor_ids = get_ancestor_folder_ids(sb, resolved_id, user_id)
-        shared_docs = get_docs_for_folder_ids(sb, ancestor_ids, user_id) if ancestor_ids else []
+        # Shared context = everything under the ROOT except the 'repositories'
+        # container (which holds sibling repos) and this repo's own subtree. So
+        # a company root's shared docs — including its notion/ folder — reach the
+        # briefing, while other repos under repositories/ do not.
+        excluded = set(get_descendant_folder_ids(sb, resolved_id, user_id))
+        root_id = get_root_folder_id(sb, resolved_id, user_id)
+        repositories_id = find_child_folder_id(sb, root_id, "repositories", user_id)
+        if repositories_id:
+            excluded |= set(get_descendant_folder_ids(sb, repositories_id, user_id))
+        shared_ids = [
+            f for f in get_descendant_folder_ids(sb, root_id, user_id) if f not in excluded
+        ]
+        shared_docs = get_docs_for_folder_ids(sb, shared_ids, user_id)
     except Exception as exc:  # noqa: BLE001
         return f"Error reading documents: {str(exc)[:200]}"
 
@@ -1265,9 +1278,10 @@ def read_folder_documents(folder: str | None = None) -> str:
         repo_docs,
     )
     _emit_group(
-        f"Shared context from parent folders ({len(shared_docs)} file(s))",
-        "Docs from this repo's ancestor folders (e.g. a company/workspace root) "
-        "— broader context that applies across its repos.",
+        f"Shared context from the workspace ({len(shared_docs)} file(s))",
+        "Docs from the workspace root and its shared folders (e.g. a company "
+        "root's notion/ + specs) — context that applies across all its repos. "
+        "Other repos are excluded.",
         shared_docs,
     )
 

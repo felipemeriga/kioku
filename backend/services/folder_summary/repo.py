@@ -70,6 +70,29 @@ def get_ancestor_folder_ids(sb, folder_id: str, user_id: str) -> list[str]:
     return ids
 
 
+def get_root_folder_id(sb, folder_id: str, user_id: str) -> str:
+    """The topmost ancestor of folder_id (a root has parent_id=null), or
+    folder_id itself if it's already a root."""
+    ancestors = get_ancestor_folder_ids(sb, folder_id, user_id)
+    return ancestors[-1] if ancestors else folder_id
+
+
+def find_child_folder_id(sb, parent_id: str, name: str, user_id: str) -> str | None:
+    """Id of the direct child folder named `name` (case-insensitive) under
+    parent_id, or None. Used to locate the 'repositories' container."""
+    r = (
+        sb.table("folders")
+        .select("id")
+        .eq("parent_id", parent_id)
+        .eq("user_id", user_id)
+        .ilike("name", name)
+        .limit(1)
+        .execute()
+        .data
+    )
+    return r[0]["id"] if r else None
+
+
 def _reconstruct_docs(sb, folder_ids: list[str], user_id: str) -> list[dict]:
     """One row per (source_filename) with content concatenated across all chunks,
     for documents whose folder_id is in `folder_ids`. Only completed docs.
