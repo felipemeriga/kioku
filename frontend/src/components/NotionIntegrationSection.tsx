@@ -39,6 +39,7 @@ import {
   type NotionConfig,
   type NotionPageOption,
 } from "../lib/api";
+import { notionSyncProgress } from "../lib/notionProgress";
 
 export function NotionIntegrationSection() {
   const toast = useToast();
@@ -273,32 +274,7 @@ export function NotionIntegrationSection() {
                 </Stack>
                 {activeJob &&
                   (() => {
-                    // Two-phase progress: pages first (ingest), then embedding
-                    // batches. Indeterminate while we're still enumerating and
-                    // neither total is known yet.
-                    const done = activeJob.processed_pages ?? 0;
-                    const pages = activeJob.total_pages ?? 0;
-                    const batches = activeJob.total_batches ?? 0;
-                    let pct: number | null = null; // null → indeterminate bar
-                    let label = "Syncing…";
-                    if (pages > 0) {
-                      pct = Math.min(100, Math.round((done / pages) * 100));
-                      label = `Syncing ${done}/${pages} pages`;
-                    } else if (batches > 0) {
-                      pct = Math.min(
-                        100,
-                        Math.round(
-                          (activeJob.processed_batches / batches) * 100
-                        )
-                      );
-                      label = `Embedding ${activeJob.processed_batches}/${batches} batches`;
-                    } else if (done > 0) {
-                      // Total not known yet (still enumerating) but pages are
-                      // landing — show the running count.
-                      label = `Syncing… ${done} page${
-                        done === 1 ? "" : "s"
-                      } done`;
-                    }
+                    const { pct, label } = notionSyncProgress(activeJob);
                     return (
                       <Box sx={{ mt: 1.5 }}>
                         <Stack
