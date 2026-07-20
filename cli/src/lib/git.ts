@@ -37,6 +37,20 @@ export function detectGit(cwd: string = process.cwd()): GitInfo {
   return { isRepo: true, remoteUrl, ...parsed };
 }
 
+/** Current HEAD commit SHA, or undefined if not a repo / no commits yet. */
+export function headSha(cwd: string = process.cwd()): string | undefined {
+  try {
+    return execSync("git rev-parse HEAD", {
+      cwd,
+      stdio: ["ignore", "pipe", "ignore"],
+    })
+      .toString()
+      .trim();
+  } catch {
+    return undefined;
+  }
+}
+
 /** Parse GitHub remotes in HTTPS or SSH form. */
 export function parseRemote(remoteUrl: string): {
   owner?: string;
@@ -47,7 +61,7 @@ export function parseRemote(remoteUrl: string): {
   if (ssh) return { owner: ssh[1], repo: ssh[2] };
   // https://github.com/owner/repo(.git)
   const https = /^https?:\/\/github\.com\/([^/]+)\/(.+?)(?:\.git)?\/?$/.exec(
-    remoteUrl,
+    remoteUrl
   );
   if (https) return { owner: https[1], repo: https[2] };
   return {};

@@ -8,6 +8,7 @@ import { init } from "./commands/init.js";
 import { login } from "./commands/login.js";
 import { logout } from "./commands/logout.js";
 import { ls } from "./commands/ls.js";
+import { onPush } from "./commands/on-push.js";
 import { openCmd } from "./commands/open.js";
 import { quickstart } from "./commands/quickstart.js";
 import { search } from "./commands/search.js";
@@ -164,6 +165,20 @@ program
   .action(async () => {
     try {
       await capture();
+    } catch (err) {
+      // never fail a hook
+      if (process.env.KIOKU_DEBUG) console.error(err);
+    }
+  });
+
+program
+  .command("on-push")
+  .description(
+    "Refresh 'activity' after a git push (used by the PostToolUse hook)"
+  )
+  .action(async () => {
+    try {
+      await onPush();
     } catch (err) {
       // never fail a hook
       if (process.env.KIOKU_DEBUG) console.error(err);

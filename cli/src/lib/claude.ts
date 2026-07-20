@@ -74,6 +74,7 @@ interface ClaudeSettings {
 
 const SESSION_START_COMMAND = "kioku session-start";
 const STOP_COMMAND = "kioku capture";
+const POST_PUSH_COMMAND = "kioku on-push";
 
 function loadSettings(path: string): ClaudeSettings {
   if (!existsSync(path)) return {};
@@ -91,7 +92,8 @@ function loadSettings(path: string): ClaudeSettings {
 function ensureHook(
   settings: ClaudeSettings,
   event: string,
-  command: string
+  command: string,
+  matcher?: string
 ): boolean {
   if (!settings.hooks) settings.hooks = {};
   const bucket = settings.hooks;
@@ -106,7 +108,13 @@ function ensureHook(
   const already = groups.some((g) =>
     g.hooks.some((h) => h.command === command)
   );
-  if (!already) groups.push({ hooks: [{ type: "command", command }] });
+  if (!already) {
+    // Tool-scoped events (e.g. PostToolUse) need a matcher so the group only
+    // fires for the intended tool; SessionStart/Stop take none.
+    const group: HookGroup = { hooks: [{ type: "command", command }] };
+    if (matcher) group.matcher = matcher;
+    groups.push(group);
+  }
   // Return true if we changed anything (added the hook OR pruned bad entries).
   return !already || raw.length !== groups.length;
 }
@@ -145,13 +153,14 @@ function removeHookFromFile(
 function installHook(
   repoRoot: string,
   event: string,
-  command: string
+  command: string,
+  matcher?: string
 ): { path: string; addedHook: boolean } {
   const dir = join(repoRoot, ".claude");
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   const path = join(dir, "settings.local.json");
   const settings = loadSettings(path);
-  const added = ensureHook(settings, event, command);
+  const added = ensureHook(settings, event, command, matcher);
   writeFileSync(path, JSON.stringify(settings, null, 2) + "\n");
   // Migration: strip any old copy from the committed settings.json.
   removeHookFromFile(join(dir, "settings.json"), event, command);
@@ -172,6 +181,16 @@ export function installStopHook(repoRoot: string): {
   return installHook(repoRoot, "Stop", STOP_COMMAND);
 }
 
+/** PostToolUse hook scoped to the Bash tool. `kioku on-push` filters for a
+ *  `git push` command and, when found, nudges the session to refresh the
+ *  repo's stored `activity` briefing from the newly-pushed commits. */
+export function installPostPushHook(repoRoot: string): {
+  path: string;
+  addedHook: boolean;
+} {
+  return installHook(repoRoot, "PostToolUse", POST_PUSH_COMMAND, "Bash");
+}
+
 /** Write the per-repo state file. Contains the folder_id the CLI bound
  *  this repo to plus capture watermarks. Not a secret — the api key is
  *  in .mcp.json — but still gitignored to avoid state churn in git. */
@@ -182,6 +201,10 @@ export function writeCaptureState(
     folder_name: string;
     scope_root_name: string;
     api_key_minted_at?: string;
+    // HEAD at init time — the `on-push` hook only nudges for commits made
+    // after this, so the first push doesn't re-summarize history already
+    // covered by the initial activity generation.
+    last_activity_sha?: string;
   }
 ): { path: string } {
   const dir = join(repoRoot, ".claude");
@@ -292,6 +315,11 @@ The SessionStart hook fetches your briefing automatically. Every 10
 minutes or every 5 assistant turns (whichever comes first), the Stop
 hook automatically distills recent turns into Mem0 — preferences,
 findings, decisions, issues, and session summaries.
+
+After a \`git push\`, a PostToolUse hook asks you to refresh this repo's
+\`activity\` briefing from the newly-pushed commits (via
+\`update_folder_briefing_section\`) so the web UI stays current — just
+follow the injected instruction when you see it.
 
 If you want to reload the briefing manually:
 

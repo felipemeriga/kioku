@@ -11,8 +11,9 @@ import {
   type Folder,
 } from "../lib/api.js";
 import { isLoggedIn } from "../lib/config.js";
-import { detectGit } from "../lib/git.js";
+import { detectGit, headSha } from "../lib/git.js";
 import {
+  installPostPushHook,
   installSessionStartHook,
   installStopHook,
   readMcpEntry,
@@ -305,13 +306,24 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
       : "Stop hook already present"
   );
 
-  // Step 6c: state file the Stop hook uses to know which folder to save to
-  //          and how much of the transcript has been captured already.
+  // Step 6c: PostToolUse hook — after a `git push`, nudges the session to
+  //          refresh the repo's `activity` briefing from the new commits.
+  const push = installPostPushHook(repoRoot);
+  ok(
+    push.addedHook
+      ? "Push hook installed  " + kleur.dim("(refreshes activity on git push)")
+      : "Push hook already present"
+  );
+
+  // Step 6d: state file the Stop/Push hooks read — which folder to save to,
+  //          how much transcript is captured, and the HEAD the activity was
+  //          last generated from (so the first push only covers newer work).
   writeCaptureState(repoRoot, {
     folder_id: repoFolder.id,
     folder_name: repoFolder.name,
     scope_root_name: rootName,
     api_key_minted_at: keyMintedAt,
+    last_activity_sha: headSha(repoRoot),
   });
 
   // Step 7: CLAUDE.md
