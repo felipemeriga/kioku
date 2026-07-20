@@ -41,13 +41,43 @@ def get_descendant_folder_ids(sb, folder_id: str, user_id: str) -> list[str]:
     return result
 
 
-def get_docs_in_subtree(sb, folder_id: str, user_id: str) -> list[dict]:
-    """One row per (source_filename) with content concatenated across all chunks.
+def get_ancestor_folder_ids(sb, folder_id: str, user_id: str) -> list[str]:
+    """Ancestor folder ids from the immediate parent up to the root, EXCLUDING
+    folder_id itself. Ordered nearest-parent-first. Used to fold shared context
+    (e.g. a company root folder's docs) into a repo's briefing."""
+    ids: list[str] = []
+    seen = {folder_id}
+    cur: str | None = folder_id
+    # Bound the walk so a cyclic parent_id can't loop forever.
+    for _ in range(64):
+        r = (
+            sb.table("folders")
+            .select("parent_id")
+            .eq("id", cur)
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+            .data
+        )
+        if not r:
+            break
+        parent = r[0].get("parent_id")
+        if not parent or parent in seen:
+            break
+        ids.append(parent)
+        seen.add(parent)
+        cur = parent
+    return ids
+
+
+def _reconstruct_docs(sb, folder_ids: list[str], user_id: str) -> list[dict]:
+    """One row per (source_filename) with content concatenated across all chunks,
+    for documents whose folder_id is in `folder_ids`. Only completed docs.
 
     We use chunk_index ordering to reconstruct the canonical document text.
-    Only completed docs are included so in-flight ingestions don't get read.
     """
-    folder_ids = get_descendant_folder_ids(sb, folder_id, user_id)
+    if not folder_ids:
+        return []
 
     rows: list[dict] = []
     page_size = 1000
@@ -101,6 +131,17 @@ def get_docs_in_subtree(sb, folder_id: str, user_id: str) -> list[dict]:
         )
     docs.sort(key=lambda d: d["source_filename"])
     return docs
+
+
+def get_docs_in_subtree(sb, folder_id: str, user_id: str) -> list[dict]:
+    """Reconstructed docs for a folder and all its descendants."""
+    return _reconstruct_docs(sb, get_descendant_folder_ids(sb, folder_id, user_id), user_id)
+
+
+def get_docs_for_folder_ids(sb, folder_ids: list[str], user_id: str) -> list[dict]:
+    """Reconstructed docs whose folder_id is exactly one of `folder_ids` (the
+    folders' own direct docs — not their subtrees)."""
+    return _reconstruct_docs(sb, list(folder_ids), user_id)
 
 
 def get_latest_summary(sb, folder_id: str, user_id: str) -> dict | None:

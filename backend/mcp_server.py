@@ -1185,23 +1185,31 @@ _DOC_DUMP_CHAR_CAP = 300_000
 
 @mcp.tool()
 def read_folder_documents(folder: str | None = None) -> str:
-    """Return the FULL text of every document already uploaded to this folder.
+    """Return the FULL text of documents relevant to this repo folder.
 
     Use this at briefing/documentation generation time to fold in a kioku
     folder's existing knowledge — external docs, specs, architecture notes —
     that describe the broader ecosystem the repo lives in, beyond the code on
-    disk. The repo's own files alone often don't capture the whole ecosystem.
+    disk. Two groups are returned:
+
+      1. Repo documents — docs uploaded to this folder and its subfolders.
+      2. Shared context from parent folders — the direct docs of this folder's
+         ancestors (e.g. a company/workspace root folder), which apply across
+         all the repos beneath them. Sibling repos are NOT included.
 
     Each file's content is the reconstructed full text (all chunks, in order).
-    Output is capped (~300k chars) with a truncation note if the folder is huge.
-    Returns a short "nothing to fold in" message when the folder has no docs.
+    Output is capped (~300k chars, repo docs first) with a truncation note.
 
     Args:
         folder: name / slash-path / UUID; omit to target the API key's scope folder.
     """
     if not _current_user_id.get():
         return "Error: Not authenticated."
-    from services.folder_summary.repo import get_docs_in_subtree
+    from services.folder_summary.repo import (
+        get_ancestor_folder_ids,
+        get_docs_for_folder_ids,
+        get_docs_in_subtree,
+    )
 
     sb = get_supabase()
     user_id = _current_user_id.get()
@@ -1214,48 +1222,67 @@ def read_folder_documents(folder: str | None = None) -> str:
     if not resolved_id:
         return f"Error: {resolved_name}"
     try:
-        docs = get_docs_in_subtree(sb, resolved_id, user_id)
+        repo_docs = get_docs_in_subtree(sb, resolved_id, user_id)
+        ancestor_ids = get_ancestor_folder_ids(sb, resolved_id, user_id)
+        shared_docs = get_docs_for_folder_ids(sb, ancestor_ids, user_id) if ancestor_ids else []
     except Exception as exc:  # noqa: BLE001
         return f"Error reading documents: {str(exc)[:200]}"
-    if not docs:
+
+    if not repo_docs and not shared_docs:
         return (
-            f"No uploaded documents in '{resolved_name}' — nothing to fold in. "
-            "Generate the briefing from the repo code on disk."
+            f"No uploaded documents in '{resolved_name}' or its parent folders — "
+            "nothing to fold in. Generate the briefing from the repo code on disk."
         )
 
     parts: list[str] = []
-    used = 0
-    included = 0
-    truncated = False
-    for d in docs:
-        name = d.get("source_filename") or "unknown"
-        body = d.get("content") or ""
-        block = f"\n\n## {name}\n{body}"
-        remaining = _DOC_DUMP_CHAR_CAP - used
-        if len(block) > remaining:
-            if remaining > 1000:  # partial slice so a giant first file still helps
-                parts.append(block[:remaining])
-                included += 1
-            truncated = True
-            break
-        parts.append(block)
-        used += len(block)
-        included += 1
+    state = {"used": 0, "truncated": False}
 
-    header = (
-        f"# Existing documents in '{resolved_name}' — {included} of {len(docs)} file(s)\n"
-        "Documents already uploaded to this kioku folder (ecosystem context beyond "
-        "the repo code). Fold relevant details into the briefing sections and the "
+    def _emit_group(title: str, desc: str, docs: list[dict]) -> None:
+        if not docs or state["truncated"]:
+            return
+        head = f"\n\n# {title}\n{desc}"
+        if state["used"] + len(head) > _DOC_DUMP_CHAR_CAP:
+            state["truncated"] = True
+            return
+        parts.append(head)
+        state["used"] += len(head)
+        for d in docs:
+            name = d.get("source_filename") or "unknown"
+            block = f"\n\n## {name}\n{d.get('content') or ''}"
+            remaining = _DOC_DUMP_CHAR_CAP - state["used"]
+            if len(block) > remaining:
+                if remaining > 1000:  # partial slice so a giant file still helps
+                    parts.append(block[:remaining])
+                state["truncated"] = True
+                break
+            parts.append(block)
+            state["used"] += len(block)
+
+    _emit_group(
+        f"Repo documents in '{resolved_name}' ({len(repo_docs)} file(s))",
+        "Docs uploaded to this repo folder and its subfolders — ecosystem "
+        "context beyond the code on disk.",
+        repo_docs,
+    )
+    _emit_group(
+        f"Shared context from parent folders ({len(shared_docs)} file(s))",
+        "Docs from this repo's ancestor folders (e.g. a company/workspace root) "
+        "— broader context that applies across its repos.",
+        shared_docs,
+    )
+
+    intro = (
+        f"# Documents for '{resolved_name}'\n"
+        "Fold the relevant details below into the briefing sections and the "
         "detailed documentation."
     )
     footer = ""
-    if truncated:
+    if state["truncated"]:
         footer = (
-            f"\n\n[Truncated at ~{_DOC_DUMP_CHAR_CAP:,} chars — "
-            f"{len(docs) - included} more file(s) not shown; read them with "
-            "knowledge_base_search if you need them.]"
+            f"\n\n[Truncated at ~{_DOC_DUMP_CHAR_CAP:,} chars — some files not "
+            "shown; read more with knowledge_base_search if you need them.]"
         )
-    return header + "".join(parts) + footer
+    return intro + "".join(parts) + footer
 
 
 @mcp.tool()
