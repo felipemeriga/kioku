@@ -31,11 +31,28 @@ function formatTs(iso: string | null): string {
   }
 }
 
-export function NotionSyncBanner({ folderId }: { folderId: string }) {
+export function NotionSyncBanner({
+  folderId,
+  onPagesSynced,
+}: {
+  folderId: string;
+  /** Fired when a new page finishes syncing (processed_pages increases) and
+   *  once more when the sync completes — so the caller can refresh its file
+   *  list to show newly-ingested documents without a manual reload. */
+  onPagesSynced?: () => void;
+}) {
   const [config, setConfig] = useState<NotionConfig | null>(null);
   const [job, setJob] = useState<IngestionJob | null>(null);
   const rootIdRef = useRef<string | null>(null);
   const hadJobRef = useRef(false);
+  // Latest processed_pages we've seen; -1 until the first observation so
+  // opening a folder mid-sync doesn't fire a spurious refresh.
+  const lastPagesRef = useRef(-1);
+  // Keep the callback fresh without re-running the polling effect.
+  const onPagesSyncedRef = useRef(onPagesSynced);
+  useEffect(() => {
+    onPagesSyncedRef.current = onPagesSynced;
+  }, [onPagesSynced]);
 
   useEffect(() => {
     // Keyed by folderId at the call site, so this mounts fresh per folder —
@@ -61,9 +78,25 @@ export function NotionSyncBanner({ folderId }: { folderId: string }) {
             (j) => j.kind === "notion_sync" && j.root_folder_id === rootId
           ) ?? null;
         setJob(running);
+
+        // A page landed since we last looked → tell the caller to refresh
+        // its file list. Skip the very first observation (lastPagesRef < 0).
+        const pages = running?.processed_pages ?? 0;
+        if (running && pages !== lastPagesRef.current) {
+          if (lastPagesRef.current >= 0 && pages > lastPagesRef.current) {
+            onPagesSyncedRef.current?.();
+          }
+          lastPagesRef.current = pages;
+        }
+
         // When a sync we were watching finishes, refresh the config so the
-        // idle "last synced" line / error reflects the new state.
-        if (hadJobRef.current && !running) await loadConfig(rootId);
+        // idle "last synced" line / error reflects the new state, and do a
+        // final file-list refresh to catch the last page + any new folders.
+        if (hadJobRef.current && !running) {
+          await loadConfig(rootId);
+          onPagesSyncedRef.current?.();
+          lastPagesRef.current = -1;
+        }
         hadJobRef.current = !!running;
       } catch {
         // Best-effort: keep the last known state on a transient failure.

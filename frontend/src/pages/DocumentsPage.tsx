@@ -317,6 +317,13 @@ export default function DocumentsPage() {
     loadSubFolders();
   }, [loadSubFolders]);
 
+  // Refresh the file grid + subfolders as a Notion sync ingests new pages,
+  // so documents appear live without a manual reload.
+  const handleSyncProgress = useCallback(() => {
+    loadDocuments();
+    loadSubFolders();
+  }, [loadDocuments, loadSubFolders]);
+
   // Keep the folder grid in sync with folder changes made elsewhere — most
   // importantly a delete from the sidebar tree, which dispatches
   // `folders-changed`. Without this, a folder deleted in the sidebar lingered
@@ -699,7 +706,11 @@ export default function DocumentsPage() {
       {/* Notion sync status for the current folder's root — live progress
           while a sync runs, last-synced/error when idle, nothing otherwise. */}
       {currentFolderId && (
-        <NotionSyncBanner key={currentFolderId} folderId={currentFolderId} />
+        <NotionSyncBanner
+          key={currentFolderId}
+          folderId={currentFolderId}
+          onPagesSynced={handleSyncProgress}
+        />
       )}
 
       {/* Content area */}
