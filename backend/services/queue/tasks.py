@@ -36,6 +36,7 @@ from services.queue.batching import into_batches
 from services.queue.jobs import (
     create_job,
     increment_processed_batches,
+    increment_processed_pages,
     mark_completed,
     mark_failed,
     set_total_batches,
@@ -155,6 +156,18 @@ async def _ingest_notion_page_task_impl(ctx: dict, payload: dict) -> None:
     chunks = chunk_text(markdown)
     batches = list(into_batches(chunks, size=128))
     set_total_batches(supabase, job_id=payload["job_id"], total=len(batches))
+
+    if not batches:
+        # The page had no embeddable text (e.g. a container/index page whose
+        # body is just child links). No embed batches will run, so nothing
+        # would ever call increment_processed_batches to finalize this job —
+        # it would hang at "embedding" forever and block the parent sync from
+        # completing. Finalize here and cascade the page count to the parent.
+        mark_completed(supabase, job_id=payload["job_id"])
+        parent_id = payload.get("parent_job_id")
+        if parent_id:
+            increment_processed_pages(supabase, job_id=parent_id)
+        return
 
     row_template = {
         "user_id": payload["user_id"],

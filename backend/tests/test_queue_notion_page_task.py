@@ -104,6 +104,62 @@ class TestIngestNotionPageTask(unittest.TestCase):
         self.assertEqual(batch_payload["row_template"]["notion_page_id"], "p1")
         self.assertEqual(batch_payload["row_template"]["source_type"], "notion")
 
+    def test_empty_page_finalizes_and_cascades_to_parent(self):
+        # A page with no embeddable text produces zero batches. No batch task
+        # runs, so the page job must be finalized here and the parent's page
+        # count bumped — otherwise the sync hangs at "embedding" forever.
+        from services.queue.tasks import ingest_notion_page_task
+
+        supabase = MagicMock()
+        table = supabase.table.return_value
+        delete_chain = table.delete.return_value.eq.return_value.eq.return_value.eq.return_value
+        delete_chain.execute.return_value.data = []
+
+        notion_mock = MagicMock()
+        notion_mock.get_page.return_value = _page()
+        notion_mock.iter_child_blocks.return_value = iter([])
+
+        pool = self._mock_enqueue_pool()
+
+        payload = {
+            "job_id": "page-job-1",
+            "parent_job_id": "sync-job-1",
+            "config_id": "cfg-1",
+            "user_id": "u1",
+            "root_folder_id": "root-1",
+            "mapped_root_page_id": "cosm",
+            "page_id": "p1",
+            "integration_token": "t",
+        }
+
+        with (
+            patch(
+                "services.queue.tasks.get_supabase_thread_safe",
+                return_value=supabase,
+                create=True,
+            ),
+            patch(
+                "services.queue.tasks.NotionClient",
+                return_value=notion_mock,
+                create=True,
+            ),
+            patch(
+                "services.queue.tasks.ensure_notion_folder_path",
+                return_value=("leaf", ""),
+                create=True,
+            ),
+            patch("services.queue.tasks.chunk_text", return_value=[], create=True),
+            patch("services.queue.tasks.set_total_batches") as set_total_mock,
+            patch("services.queue.tasks.mark_completed") as mark_completed_mock,
+            patch("services.queue.tasks.increment_processed_pages") as incr_pages_mock,
+        ):
+            _run(ingest_notion_page_task({"redis": pool}, payload))
+
+        self.assertEqual(set_total_mock.call_args.kwargs["total"], 0)
+        self.assertEqual(pool.enqueue_job.call_count, 0)
+        mark_completed_mock.assert_called_once_with(supabase, job_id="page-job-1")
+        incr_pages_mock.assert_called_once_with(supabase, job_id="sync-job-1")
+
     def test_multiple_batches_when_over_128_chunks(self):
         from services.queue.tasks import ingest_notion_page_task
 
