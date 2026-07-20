@@ -15,6 +15,8 @@ import { detectGit } from "../lib/git.js";
 import {
   installSessionStartHook,
   installStopHook,
+  readMcpEntry,
+  readRepoState,
   updateClaudeMd,
   updateGitignore,
   writeCaptureState,
@@ -30,6 +32,10 @@ interface InitOptions {
   root?: string;
   force?: boolean;
 }
+
+/** Reuse an existing scoped api key if it was minted within this window,
+ *  instead of rotating it on every init. */
+const RECENT_KEY_WINDOW_MS = 1000 * 60 * 60 * 24; // 24h
 
 /** Compact "2h ago" style relative time for the last-generated hint. */
 function relTime(iso: string): string {
@@ -288,12 +294,39 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
   // .mcp.json (401). Scoping per-repo gives each repo its own key that survives
   // sibling inits; re-initializing the same repo cleanly rotates only its own
   // key. (Cross-repo drilling via a single root-scoped key is a v2 concern.)
-  const key = await step("Minting API key", () =>
-    mintScopedApiKey({
-      scope_folder_id: repoFolder.id,
-      name: `cli-${desiredName}-${new Date().toISOString().slice(0, 10)}`,
-    })
-  );
+  // Reuse a recently-minted key for THIS repo instead of rotating it on every
+  // init. The plaintext key already lives in .mcp.json; minting deletes the old
+  // key, so a needless re-mint churns it (and can 401 other machines still
+  // holding the previous one). Only re-mint when there's no recent local key.
+  const priorState = readRepoState(repoRoot);
+  const priorMcp = readMcpEntry(repoRoot);
+  const priorMintedAt = priorState?.api_key_minted_at
+    ? Date.parse(priorState.api_key_minted_at)
+    : NaN;
+  const canReuseKey =
+    priorState?.folder_id === repoFolder.id &&
+    !!priorMcp?.key &&
+    !Number.isNaN(priorMintedAt) &&
+    Date.now() - priorMintedAt < RECENT_KEY_WINDOW_MS;
+
+  let key: { key: string; mcp_config: unknown };
+  let keyMintedAt: string;
+  if (canReuseKey && priorState?.api_key_minted_at) {
+    key = {
+      key: priorMcp!.key,
+      mcp_config: { mcpServers: { kioku: priorMcp!.entry } },
+    };
+    keyMintedAt = priorState.api_key_minted_at;
+    ok(`Reusing API key minted ${relTime(keyMintedAt)}`);
+  } else {
+    key = await step("Minting API key", () =>
+      mintScopedApiKey({
+        scope_folder_id: repoFolder.id,
+        name: `cli-${desiredName}-${new Date().toISOString().slice(0, 10)}`,
+      })
+    );
+    keyMintedAt = new Date().toISOString();
+  }
 
   // Step 5: write .mcp.json
   const mcpEntry = (
@@ -332,6 +365,7 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
     folder_id: repoFolder.id,
     folder_name: repoFolder.name,
     scope_root_name: rootName,
+    api_key_minted_at: keyMintedAt,
   });
 
   // Step 7: CLAUDE.md

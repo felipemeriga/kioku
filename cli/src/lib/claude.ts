@@ -181,6 +181,7 @@ export function writeCaptureState(
     folder_id: string;
     folder_name: string;
     scope_root_name: string;
+    api_key_minted_at?: string;
   }
 ): { path: string } {
   const dir = join(repoRoot, ".claude");
@@ -201,6 +202,45 @@ export function writeCaptureState(
   const merged = { ...existing, ...state };
   writeFileSync(path, JSON.stringify(merged, null, 2) + "\n");
   return { path };
+}
+
+/** Read the bits of kioku-state.json init cares about — the bound folder and
+ *  when this repo's api key was last minted. */
+export function readRepoState(repoRoot: string): {
+  folder_id?: string;
+  api_key_minted_at?: string;
+} | null {
+  const path = join(repoRoot, ".claude", "kioku-state.json");
+  if (!existsSync(path)) return null;
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as {
+      folder_id?: string;
+      api_key_minted_at?: string;
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Read the existing kioku MCP entry + plaintext api key from .mcp.json, if
+ *  present. Lets init reuse a recently-minted key instead of rotating it. */
+export function readMcpEntry(repoRoot: string): {
+  entry: { url: string; headers: Record<string, string> };
+  key: string;
+} | null {
+  const path = join(repoRoot, ".mcp.json");
+  if (!existsSync(path)) return null;
+  try {
+    const cfg = JSON.parse(readFileSync(path, "utf8")) as McpConfig;
+    const entry = cfg.mcpServers?.["kioku"];
+    const auth = entry?.headers?.["Authorization"];
+    if (!entry?.url || !auth) return null;
+    const key = auth.replace(/^Bearer\s+/, "");
+    if (!key) return null;
+    return { entry: { url: entry.url, headers: entry.headers ?? {} }, key };
+  } catch {
+    return null;
+  }
 }
 
 export function readLastSessionAt(repoRoot: string): string | undefined {
