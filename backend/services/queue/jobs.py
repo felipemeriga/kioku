@@ -7,8 +7,14 @@ worker process (for progress updates).
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
+
+# A queued/running job whose updated_at hasn't moved in this long is treated as
+# orphaned — its worker crashed or was down when it was enqueued. updated_at
+# auto-bumps on every progress write (DB trigger), so a live job never looks
+# stale, no matter how long it legitimately runs.
+STALE_JOB_MINUTES = 15
 
 
 def create_job(
@@ -51,6 +57,48 @@ def get_active_job(supabase, *, kind: str, source_ref: str) -> dict | None:
         .data
     ) or []
     return rows[0] if rows else None
+
+
+def is_job_stale(job: dict, *, older_than_min: int = STALE_JOB_MINUTES) -> bool:
+    """True if a queued/running job hasn't been updated in older_than_min minutes
+    (its worker is gone). Returns False for completed/failed jobs."""
+    if job.get("status") not in ("queued", "running"):
+        return False
+    ts = job.get("updated_at") or job.get("created_at")
+    if not ts:
+        return False
+    try:
+        last = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return datetime.now(timezone.utc) - last > timedelta(minutes=older_than_min)
+
+
+def fail_stale_jobs(
+    supabase,
+    *,
+    older_than_min: int = STALE_JOB_MINUTES,
+    kinds: list[str] | None = None,
+) -> int:
+    """Fail jobs stuck queued/running with no update in older_than_min minutes —
+    orphaned by a worker crash/downtime. Un-sticks the UI and frees
+    get_active_job so new syncs aren't blocked. Returns the number reaped."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=older_than_min)).isoformat()
+    q = (
+        supabase.table("ingestion_jobs")
+        .update(
+            {
+                "status": "failed",
+                "error": f"stale: no progress for >{older_than_min}m (worker down?)",
+            }
+        )
+        .in_("status", ["queued", "running"])
+        .lt("updated_at", cutoff)
+    )
+    if kinds:
+        q = q.in_("kind", kinds)
+    rows = q.execute().data or []
+    return len(rows)
 
 
 def mark_running(supabase, *, job_id: str) -> None:

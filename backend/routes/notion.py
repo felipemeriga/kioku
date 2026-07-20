@@ -12,7 +12,7 @@ from auth import get_current_user
 from db.client import get_supabase
 from services.crypto import encrypt_secret
 from services.notion_sync.client import NotionClient
-from services.queue.jobs import create_job, get_active_job
+from services.queue.jobs import create_job, get_active_job, is_job_stale, mark_failed
 from services.queue.settings import _redis_settings
 
 router = APIRouter(prefix="/api/notion", tags=["notion"])
@@ -161,6 +161,11 @@ async def _enqueue_sync(config_id: str, user_id: str, full_reconcile: bool) -> d
     cfg = rows[0]
 
     existing = get_active_job(sb, kind="notion_sync", source_ref=config_id)
+    if existing and is_job_stale(existing):
+        # A zombie from a prior worker outage — reap it so this sync can run
+        # instead of being blocked by a job that will never finish.
+        mark_failed(sb, job_id=existing["id"], error="stale: superseded by a new sync")
+        existing = None
     if existing:
         return {"job_id": existing["id"], "already_running": True}
 
