@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import os
 
+from arq import cron
 from arq.connections import RedisSettings
 from dotenv import load_dotenv
 
@@ -59,6 +60,11 @@ class WorkerSettings:
         notion_sync_task,
     ]
     on_startup = _reap_stale_jobs
+    # Also reap every 5 minutes so a job that goes stale while the worker is up
+    # (no restart, no new enqueue) still self-heals.
+    cron_jobs = [
+        cron(_reap_stale_jobs, minute=set(range(0, 60, 5)), run_at_startup=False)
+    ]
     max_jobs: int = int(os.environ.get("INGEST_WORKER_CONCURRENCY", "10"))
     job_timeout: int = 60 * 60  # 1 hour hard cap per task
     keep_result: int = 60 * 60 * 24  # 24h result retention
