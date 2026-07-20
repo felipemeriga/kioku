@@ -7,7 +7,14 @@
  * ships the files changed since. First run ships the whole graph.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+  statSync,
+  rmSync,
+} from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 
@@ -61,6 +68,40 @@ function stampState(repoRoot: string, patch: Record<string, unknown>): void {
 export function graphifyAvailable(): boolean {
   const r = spawnSync("graphify", ["--version"], { stdio: "ignore" });
   return !r.error && r.status === 0;
+}
+
+const LOCK_STALE_MS = 10 * 60 * 1000;
+
+/** Serialize indexing per-repo: init and the on-push detached index (or two
+ *  quick pushes) must not run `graphify` on the same graphify-out/ at once —
+ *  concurrent writers corrupt graph.json. Returns false if another index holds
+ *  a fresh lock. Stale locks (crashed run) are taken over. */
+function acquireIndexLock(repoRoot: string): boolean {
+  const p = join(repoRoot, ".claude", "kioku-index.lock");
+  mkdirSync(dirname(p), { recursive: true });
+  try {
+    writeFileSync(p, String(process.pid), { flag: "wx" });
+    return true;
+  } catch {
+    try {
+      const age = Date.now() - statSync(p).mtimeMs;
+      if (age > LOCK_STALE_MS) {
+        writeFileSync(p, String(process.pid));
+        return true;
+      }
+    } catch {
+      // fall through
+    }
+    return false;
+  }
+}
+
+function releaseIndexLock(repoRoot: string): void {
+  try {
+    rmSync(join(repoRoot, ".claude", "kioku-index.lock"), { force: true });
+  } catch {
+    // best-effort
+  }
 }
 
 /** Normalize a path to repo-relative form (strip ./ and an absolute repoRoot
@@ -143,6 +184,39 @@ export async function graphIndex(repoRootArg?: string): Promise<void> {
     }
   }
 
+  if (!acquireIndexLock(repoRoot)) {
+    info("Another `kioku index` is already running — skipping.");
+    return;
+  }
+  try {
+    await runExtractionAndUpload(repoRoot, {
+      mcp,
+      folderId,
+      head,
+      isFirst,
+      changedFiles,
+      deletedFiles,
+      norm,
+    });
+  } finally {
+    releaseIndexLock(repoRoot);
+  }
+}
+
+interface UploadCtx {
+  mcp: { entry: { url: string }; key: string };
+  folderId: string;
+  head: string;
+  isFirst: boolean;
+  changedFiles: string[];
+  deletedFiles: string[];
+  norm: (p?: string) => string;
+}
+
+async function runExtractionAndUpload(
+  repoRoot: string,
+  { mcp, folderId, head, isFirst, changedFiles, deletedFiles, norm }: UploadCtx
+): Promise<void> {
   info("Extracting AST graph (graphify, no LLM)…");
   const ext = spawnSync("graphify", ["update", repoRoot, "--no-cluster"], {
     cwd: repoRoot,
@@ -160,11 +234,21 @@ export async function graphIndex(repoRootArg?: string): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  const graph = JSON.parse(readFileSync(graphPath, "utf8")) as {
+  let graph: {
     nodes?: GraphNode[];
     links?: GraphLink[];
     edges?: GraphLink[];
   };
+  try {
+    graph = JSON.parse(readFileSync(graphPath, "utf8"));
+  } catch (err) {
+    bad(
+      "graph.json was unreadable (partial/concurrent write?).",
+      err instanceof Error ? err.message : String(err)
+    );
+    process.exitCode = 1;
+    return;
+  }
   const allNodes = graph.nodes ?? [];
   const allEdges = graph.links ?? graph.edges ?? [];
 
@@ -183,33 +267,56 @@ export async function graphIndex(repoRootArg?: string): Promise<void> {
 
   const base = new URL(mcp.entry.url).origin.replace(/:8001$/, ":8000");
   info(`Uploading ${nodes.length} symbols, ${edges.length} edges…`);
-  const res = await fetch(`${base}/api/cli/repo-graph`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${mcp.key}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      folder_id: folderId,
-      head_sha: head,
-      changed_files: filesForDelta,
-      deleted_files: deletedFiles,
-      nodes,
-      edges,
-    }),
-  });
-  if (!res.ok) {
-    bad(`Upload failed (${res.status}).`, (await res.text()).slice(0, 300));
-    process.exitCode = 1;
-    return;
+
+  // Upload is best-effort: a transient network/backend hiccup must fail
+  // gracefully (clear message, no throw) so a caller like `kioku init` never
+  // aborts on it. One quick retry absorbs the common transient case.
+  let body:
+    | {
+        nodes_upserted: number;
+        edges_upserted: number;
+        node_count: number;
+        edge_count: number;
+        skipped_shrink?: string[];
+      }
+    | undefined;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const res = await fetch(`${base}/api/cli/repo-graph`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${mcp.key}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          folder_id: folderId,
+          head_sha: head,
+          changed_files: filesForDelta,
+          deleted_files: deletedFiles,
+          nodes,
+          edges,
+        }),
+      });
+      if (!res.ok) {
+        bad(`Upload failed (${res.status}).`, (await res.text()).slice(0, 300));
+        process.exitCode = 1;
+        return;
+      }
+      body = await res.json();
+      break;
+    } catch (err) {
+      if (attempt === 2) {
+        bad(
+          "Couldn't reach the kioku backend to upload the graph.",
+          err instanceof Error ? err.message : String(err)
+        );
+        process.exitCode = 1;
+        return;
+      }
+    }
   }
-  const body = (await res.json()) as {
-    nodes_upserted: number;
-    edges_upserted: number;
-    node_count: number;
-    edge_count: number;
-    skipped_shrink?: string[];
-  };
+  if (!body) return;
+
   stampState(repoRoot, { last_indexed_sha: head });
   ok(
     `Indexed ${body.nodes_upserted} symbols, ${body.edges_upserted} edges ` +
