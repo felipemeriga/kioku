@@ -883,3 +883,66 @@ async def folder_summary(request: Request, folder_id: str):
         "doc_count": doc_count,
         "has_notion": has_notion,
     }
+
+
+# ── Repo code graph (grep-reduction) ─────────────────────────────────
+#
+# `kioku index` extracts a per-file symbol/reference graph (Graphify AST) and
+# uploads it here as a delta. We merge per-file (replace rows owned by changed
+# files, drop deleted files) so re-indexing is cheap and cross-machine-safe.
+
+
+class RepoGraphDelta(BaseModel):
+    folder_id: str
+    head_sha: str | None = None
+    changed_files: list[str] = Field(default_factory=list)
+    deleted_files: list[str] = Field(default_factory=list)
+    # Raw Graphify node/link dicts for the changed files. Kept as dicts (not
+    # typed models) because Graphify emits leading-underscore keys (_origin)
+    # and the field mapping lives in services.repo_graph.mapping.
+    nodes: list[dict[str, Any]] = Field(default_factory=list, max_length=100_000)
+    edges: list[dict[str, Any]] = Field(default_factory=list, max_length=200_000)
+
+
+@router.post("/repo-graph")
+async def repo_graph_upload(body: RepoGraphDelta, request: Request):
+    """Merge a per-file code-graph delta. Authenticated by scoped api key (same
+    as session-capture); the folder must be inside the key's scope subtree."""
+    auth = request.headers.get("Authorization") or ""
+    if not auth.startswith("Bearer rag_"):
+        raise HTTPException(status_code=401, detail="Bearer api key required")
+    key = auth[len("Bearer ") :]
+    key_hash = hashlib.sha256(key.encode()).hexdigest()
+
+    sb = get_supabase()
+    row = (
+        sb.table("api_keys")
+        .select("user_id, scope_folder_id")
+        .eq("key_hash", key_hash)
+        .limit(1)
+        .execute()
+        .data
+    )
+    if not row or not row[0].get("scope_folder_id"):
+        raise HTTPException(status_code=401, detail="Invalid or unscoped api key")
+    user_id = row[0]["user_id"]
+    scope_id = row[0]["scope_folder_id"]
+
+    from mcp_server import _descendant_folder_ids
+
+    if body.folder_id not in _descendant_folder_ids(sb, scope_id, user_id):
+        raise HTTPException(status_code=403, detail="folder_id not in api key scope")
+
+    from services.repo_graph import apply_delta
+
+    result = apply_delta(
+        sb,
+        folder_id=body.folder_id,
+        user_id=user_id,
+        changed_files=body.changed_files,
+        deleted_files=body.deleted_files,
+        nodes=body.nodes,
+        edges=body.edges,
+        head_sha=body.head_sha,
+    )
+    return {"ok": True, **result}
