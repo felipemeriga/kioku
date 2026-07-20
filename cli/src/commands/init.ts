@@ -195,85 +195,33 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
     }
   }
 
-  // Step 2: pick a folder inside the chosen root to bind this repo to.
+  // Step 2: bind this repo to <root>/repositories/<repo-name>.
   //
-  // Three affordances:
-  //   a. Attach to an existing folder (turn it into a repo)
-  //   b. Create a new folder for this repo
-  //   c. Fast-path: an exact name match with the repo's basename +
-  //      --yes flag → auto-attach without prompting.
+  // Convention over configuration: every repo lives under a "repositories"
+  // container in its root, named after the git repo — no renaming, no picker.
+  // This keeps the workspace predictable (shared docs that sit ABOVE
+  // repositories/ flow into every repo's briefing) and identical across
+  // machines. If the repo folder already exists we attach to it.
+  const rootName =
+    w.root_folders.find((f) => f.id === rootId)?.name ?? "(root)";
   const desiredName = git.repo ?? basename(repoRoot);
-  const children = await listChildren(rootId!);
-  const nameMatch = children.find(
+  const reposContainer = await createOrAttach("repositories", rootId!);
+  const siblings = await listChildren(reposContainer.id);
+  const existing = siblings.find(
     (f) => f.name.toLowerCase() === desiredName.toLowerCase()
   );
 
   let repoFolder: Folder;
-  if (nameMatch && opts.yes) {
-    // Non-interactive only: with --yes we silent-attach to the name match.
-    // Interactively we always fall through to the picker so the user can
-    // choose to reuse the existing folder or create a new one.
-    repoFolder = nameMatch;
+  if (existing) {
+    repoFolder = existing;
     info(
       `Attaching to existing ${
-        nameMatch.kind === "repo" ? "repo" : "folder"
-      } "${repoFolder.name}"`
+        existing.kind === "repo" ? "repo" : "folder"
+      } "${rootName}/repositories/${desiredName}"`
     );
-  } else if (opts.yes && !nameMatch) {
-    info(`Creating folder "${desiredName}"…`);
-    repoFolder = await createOrAttach(desiredName, rootId!);
-  } else if (!nameMatch && children.length === 0) {
-    // Empty root — obvious answer: create the folder now, no picker.
-    info(`Creating folder "${desiredName}"…`);
-    repoFolder = await createOrAttach(desiredName, rootId!);
   } else {
-    const choice = await select<string>({
-      message: "Which folder does this repo bind to?",
-      choices: [
-        // Fast option — the auto-match, if any, on top with a hint.
-        ...(nameMatch
-          ? [
-              {
-                name: `${nameMatch.name}  ${kleur.dim(
-                  "(matches your repo name — recommended)"
-                )}`,
-                value: nameMatch.id,
-              },
-            ]
-          : []),
-        // Other existing children — attach and mark as repo
-        ...children
-          .filter((f) => !nameMatch || f.id !== nameMatch.id)
-          .map((f) => ({
-            name: `${f.name}${
-              f.kind === "repo" ? kleur.dim("  (already a repo)") : ""
-            }`,
-            value: f.id,
-          })),
-        {
-          name: kleur.dim(`+ create new folder "${desiredName}"`),
-          value: "__create__",
-        },
-        {
-          name: kleur.dim("+ create new folder with different name"),
-          value: "__create_named__",
-        },
-      ],
-    });
-    if (choice === "__create__") {
-      info(`Creating folder "${desiredName}"…`);
-      repoFolder = await createOrAttach(desiredName, rootId!);
-    } else if (choice === "__create_named__") {
-      const name = await input({
-        message: "New folder name:",
-        default: desiredName,
-      });
-      info(`Creating folder "${name}"…`);
-      repoFolder = await createOrAttach(name.trim(), rootId!);
-    } else {
-      repoFolder = children.find((f) => f.id === choice)!;
-      info(`Attaching to "${repoFolder.name}"`);
-    }
+    info(`Creating "${rootName}/repositories/${desiredName}"…`);
+    repoFolder = await createOrAttach(desiredName, reposContainer.id);
   }
 
   // Step 2b: mark the folder as a repo (idempotent — no-ops if already
@@ -359,8 +307,6 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
 
   // Step 6c: state file the Stop hook uses to know which folder to save to
   //          and how much of the transcript has been captured already.
-  const rootName =
-    w.root_folders.find((f) => f.id === rootId)?.name ?? "(root)";
   writeCaptureState(repoRoot, {
     folder_id: repoFolder.id,
     folder_name: repoFolder.name,
