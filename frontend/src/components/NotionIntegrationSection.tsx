@@ -276,12 +276,12 @@ export function NotionIntegrationSection() {
                     // Two-phase progress: pages first (ingest), then embedding
                     // batches. Indeterminate while we're still enumerating and
                     // neither total is known yet.
+                    const done = activeJob.processed_pages ?? 0;
                     const pages = activeJob.total_pages ?? 0;
                     const batches = activeJob.total_batches ?? 0;
                     let pct: number | null = null; // null → indeterminate bar
                     let label = "Syncing…";
                     if (pages > 0) {
-                      const done = activeJob.processed_pages ?? 0;
                       pct = Math.min(100, Math.round((done / pages) * 100));
                       label = `Syncing ${done}/${pages} pages`;
                     } else if (batches > 0) {
@@ -292,6 +292,12 @@ export function NotionIntegrationSection() {
                         )
                       );
                       label = `Embedding ${activeJob.processed_batches}/${batches} batches`;
+                    } else if (done > 0) {
+                      // Total not known yet (still enumerating) but pages are
+                      // landing — show the running count.
+                      label = `Syncing… ${done} page${
+                        done === 1 ? "" : "s"
+                      } done`;
                     }
                     return (
                       <Box sx={{ mt: 1.5 }}>
