@@ -20,7 +20,7 @@ import {
   appendFileSync,
 } from "node:fs";
 import { join, resolve, dirname } from "node:path";
-import { execSync } from "node:child_process";
+import { execSync, spawn } from "node:child_process";
 
 interface HookPayload {
   session_id?: string;
@@ -143,6 +143,22 @@ function emit(additionalContext: string): void {
   );
 }
 
+/** Refresh the code graph in a detached background process so the push hook
+ *  returns immediately. `kioku index` self-gates on last_indexed_sha and
+ *  no-ops if graphify isn't installed. */
+function spawnIndex(repoRoot: string): void {
+  try {
+    const child = spawn(process.execPath, [process.argv[1], "index"], {
+      cwd: repoRoot,
+      detached: true,
+      stdio: "ignore",
+    });
+    child.unref();
+  } catch {
+    // best-effort — never disrupt the push
+  }
+}
+
 export async function onPush(): Promise<void> {
   const payload = await readStdinJson();
   const repoRoot = resolve(payload.cwd || process.cwd());
@@ -157,6 +173,10 @@ export async function onPush(): Promise<void> {
     logDebug(repoRoot, "no .mcp.json — skip");
     return;
   }
+
+  // Refresh the code graph in the background (detached, non-blocking).
+  spawnIndex(repoRoot);
+  logDebug(repoRoot, "spawned detached `kioku index`");
 
   const head = gitSafe(repoRoot, "rev-parse HEAD");
   if (!head) {

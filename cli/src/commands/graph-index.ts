@@ -58,7 +58,7 @@ function stampState(repoRoot: string, patch: Record<string, unknown>): void {
   );
 }
 
-function graphifyAvailable(): boolean {
+export function graphifyAvailable(): boolean {
   const r = spawnSync("graphify", ["--version"], { stdio: "ignore" });
   return !r.error && r.status === 0;
 }
@@ -74,8 +74,8 @@ function makeNorm(repoRoot: string): (p?: string) => string {
   };
 }
 
-export async function graphIndex(): Promise<void> {
-  const repoRoot = resolve(process.cwd());
+export async function graphIndex(repoRootArg?: string): Promise<void> {
+  const repoRoot = resolve(repoRootArg ?? process.cwd());
 
   const mcp = readMcpEntry(repoRoot);
   if (!mcp) {

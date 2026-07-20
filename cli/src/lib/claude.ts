@@ -355,6 +355,19 @@ Persist it. It'll survive the session, the PC, the team:
 - \`read_folder_documents()\` — full text of every doc already uploaded to
   this folder (specs, architecture, ecosystem context beyond the code).
 
+### Navigating the code — query the graph, don't grep
+
+This repo is indexed into a code graph. Prefer these over \`grep\`/\`glob\`
+to locate and trace code — they return exact \`file:line\` answers:
+
+- \`find_definition(symbol)\` — where a function/type/method is defined.
+- \`find_references(symbol)\` — who calls/uses it (all sites).
+- \`outline(path)\` — the symbols under a file or directory.
+- \`impact_of(symbol)\` — blast radius: what transitively depends on it.
+
+The graph refreshes on \`git push\` (and via \`kioku index\`). If a lookup
+returns nothing, fall back to a normal search.
+
 ### Convention
 
 Prefer \`update_folder_briefing_section\` for repo facts, \`save_memory\`
@@ -406,8 +419,11 @@ export function updateGitignore(repoRoot: string): {
     ".claude/settings.local.json",
     ".claude/kioku-state.json",
     ".claude/kioku-capture.log",
+    ".claude/kioku-onpush.log",
     ".claude/kioku-autogen.lock",
     ".claude/kioku-autogen.log",
+    // Graphify's local extraction output + AST cache (used by `kioku index`).
+    "graphify-out/",
   ];
   const existing = existsSync(path) ? readFileSync(path, "utf8") : "";
   const missing = entries.filter(

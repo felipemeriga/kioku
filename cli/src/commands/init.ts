@@ -12,6 +12,7 @@ import {
 } from "../lib/api.js";
 import { isLoggedIn } from "../lib/config.js";
 import { detectGit, headSha } from "../lib/git.js";
+import { graphIndex, graphifyAvailable } from "./graph-index.js";
 import {
   installPostPushHook,
   installSessionStartHook,
@@ -340,6 +341,36 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
   const gi = updateGitignore(repoRoot);
   if (gi.changed) {
     ok(".gitignore updated (secrets excluded)");
+  }
+
+  // Step 9: initial code-graph index so agents query structure instead of
+  //         grepping. Best-effort — never fails init.
+  try {
+    if (graphifyAvailable()) {
+      await graphIndex(repoRoot);
+    } else if (!opts.yes) {
+      const installGraphify = await confirm({
+        message:
+          "Enable code-graph queries (find_definition / references / outline)? Installs `graphify` via uv.",
+        default: true,
+      });
+      if (installGraphify) {
+        const { spawnSync } = await import("node:child_process");
+        info("Installing graphify…");
+        spawnSync("uv", ["tool", "install", "graphify"], { stdio: "inherit" });
+        if (graphifyAvailable()) await graphIndex(repoRoot);
+        else warn("graphify still not on PATH — run `kioku index` once it is.");
+      } else {
+        info("Skipped code-graph index. Run `kioku index` later to enable it.");
+      }
+    } else {
+      info(
+        "graphify not installed — skipping code-graph index (run `uv tool install graphify` then `kioku index`)."
+      );
+    }
+  } catch (err) {
+    if (process.env.KIOKU_DEBUG) console.error(err);
+    warn("Code-graph index skipped (non-fatal).");
   }
 
   console.log();
