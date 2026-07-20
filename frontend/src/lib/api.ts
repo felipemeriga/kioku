@@ -812,48 +812,23 @@ export async function listNotionPages(
   return res.json();
 }
 
-// --- Mem0 integration ---
+// --- Mem0 memory (self-hosted, auto-on for repo folders — no connect step) ---
 
-export interface Mem0Config {
-  id: string;
-  root_folder_id: string;
-  root_folder_name: string;
-  org_id: string | null;
-  project_id: string | null;
-  last_verified_at: string | null;
-  last_error: string | null;
-  created_at: string;
-  updated_at: string;
+/** Memory availability for a folder. Repo folders get memory automatically;
+ *  non-repo folders return { available:false, reason }. */
+export interface Mem0Status {
+  available: boolean; // true → this is a repo folder, memory is on
+  healthy?: boolean; // is the self-hosted mem0 service reachable
+  error?: string | null;
+  reason?: string; // when unavailable, e.g. "not a repo folder"
 }
 
-export async function fetchMem0Configs(): Promise<Mem0Config[]> {
-  const res = await apiFetch("/api/mem0/configs");
-  return res.json();
-}
-
-export async function connectMem0(input: {
-  root_folder_id: string;
-  api_key: string;
-  org_id?: string;
-  project_id?: string;
-}): Promise<Mem0Config> {
-  const res = await apiFetch("/api/mem0/connect", {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
-  return res.json();
-}
-
-export async function disconnectMem0(configId: string): Promise<void> {
-  await apiFetch(`/api/mem0/configs/${configId}`, { method: "DELETE" });
-}
-
-export async function verifyMem0(
-  configId: string
-): Promise<{ ok: boolean; error: string | null }> {
-  const res = await apiFetch(`/api/mem0/configs/${configId}/verify`, {
-    method: "POST",
-  });
+export async function fetchMem0Status(
+  rootFolderId: string
+): Promise<Mem0Status> {
+  const res = await apiFetch(
+    `/api/mem0/status?root_folder_id=${encodeURIComponent(rootFolderId)}`
+  );
   return res.json();
 }
 
@@ -877,27 +852,67 @@ export interface MemoryRecord {
   updated_at: string | null;
 }
 
+/** Raw record shape the mem0 service returns (content in `memory`, the rest in
+ *  `metadata`). Normalized to MemoryRecord below. */
+interface RawMemory {
+  id: string;
+  memory?: string;
+  metadata?: {
+    scope?: MemoryScope;
+    category?: MemoryCategory;
+    tags?: string[];
+    written_by?: string;
+  } | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+function normalizeMemory(r: RawMemory): MemoryRecord {
+  const md = r.metadata ?? {};
+  return {
+    id: r.id,
+    content: r.memory ?? "",
+    scope: md.scope ?? null,
+    category: md.category ?? null,
+    tags: md.tags ?? [],
+    written_by: md.written_by ?? null,
+    created_at: r.created_at ?? null,
+    updated_at: r.updated_at ?? null,
+  };
+}
+
+/** All memories for a repo folder — eternal rules + recent episodic, combined. */
 export async function listFolderMemories(
-  configId: string,
+  rootFolderId: string,
   opts: { scope?: "any" | MemoryScope; limit?: number } = {}
 ): Promise<{ folder_id: string; memories: MemoryRecord[] }> {
-  const params = new URLSearchParams({
-    scope: opts.scope ?? "any",
-    limit: String(opts.limit ?? 200),
-  });
-  const res = await apiFetch(
-    `/api/mem0/configs/${configId}/memories?${params.toString()}`
-  );
-  return res.json();
+  const scope = opts.scope ?? "any";
+  const limit = opts.limit ?? 200;
+  const q = `root_folder_id=${encodeURIComponent(rootFolderId)}`;
+  const memories: MemoryRecord[] = [];
+  if (scope === "any" || scope === "eternal") {
+    const res = await apiFetch(`/api/mem0/memories/rules?${q}`);
+    const j = (await res.json()) as { rules?: RawMemory[] };
+    memories.push(...(j.rules ?? []).map(normalizeMemory));
+  }
+  if (scope === "any" || scope === "episodic") {
+    const res = await apiFetch(`/api/mem0/memories/recent?${q}&limit=${limit}`);
+    const j = (await res.json()) as { memories?: RawMemory[] };
+    memories.push(...(j.memories ?? []).map(normalizeMemory));
+  }
+  return { folder_id: rootFolderId, memories };
 }
 
 export async function deleteFolderMemory(
-  configId: string,
+  rootFolderId: string,
   memoryId: string
 ): Promise<void> {
-  await apiFetch(`/api/mem0/configs/${configId}/memories/${memoryId}`, {
-    method: "DELETE",
-  });
+  await apiFetch(
+    `/api/mem0/memories/${memoryId}?root_folder_id=${encodeURIComponent(
+      rootFolderId
+    )}`,
+    { method: "DELETE" }
+  );
 }
 
 export async function addFolderMemory(input: {

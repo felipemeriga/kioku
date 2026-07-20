@@ -57,12 +57,12 @@ import {
   fetchDocumentContent,
   fetchDocuments,
   fetchFolders,
-  fetchMem0Configs,
+  fetchMem0Status,
   listFolderMemories,
   type DocumentContent,
   type DocumentInfo,
   type Folder,
-  type Mem0Config,
+  type Mem0Status,
   type MemoryCategory,
   type MemoryRecord,
   type MemoryScope,
@@ -85,7 +85,7 @@ export default function FolderDetailPage() {
 
   const [folder, setFolder] = useState<Folder | null>(null);
   const [documents, setDocuments] = useState<DocumentInfo[]>([]);
-  const [mem0Config, setMem0Config] = useState<Mem0Config | null>(null);
+  const [mem0Status, setMem0Status] = useState<Mem0Status | null>(null);
   const [memories, setMemories] = useState<MemoryRecord[]>([]);
   const [loadingMemories, setLoadingMemories] = useState(false);
   const [loadingDocs, setLoadingDocs] = useState(false);
@@ -158,11 +158,10 @@ export default function FolderDetailPage() {
     if (!folderId) return;
     setLoadingMemories(true);
     try {
-      const configs = await fetchMem0Configs();
-      const cfg = configs.find((c) => c.root_folder_id === folderId) ?? null;
-      setMem0Config(cfg);
-      if (cfg) {
-        const res = await listFolderMemories(cfg.id, {
+      const status = await fetchMem0Status(folderId);
+      setMem0Status(status);
+      if (status.available) {
+        const res = await listFolderMemories(folderId, {
           scope: "any",
           limit: 200,
         });
@@ -209,11 +208,11 @@ export default function FolderDetailPage() {
   };
 
   const deleteMemory = async (memory: MemoryRecord) => {
-    if (!mem0Config) return;
+    if (!folderId) return;
     if (!confirm(`Delete this memory?\n\n${memory.content.slice(0, 120)}…`))
       return;
     try {
-      await deleteFolderMemory(mem0Config.id, memory.id);
+      await deleteFolderMemory(folderId, memory.id);
       setMemories((prev) => prev.filter((m) => m.id !== memory.id));
       toast.showSuccess("Memory deleted.");
     } catch (err) {
@@ -334,10 +333,12 @@ export default function FolderDetailPage() {
         />
         <Chip
           label={
-            mem0Config ? `${memories.length} memories` : "Mem0 not connected"
+            mem0Status?.available
+              ? `${memories.length} memories`
+              : "Memory: repo-only"
           }
           size="small"
-          color={mem0Config ? "primary" : "default"}
+          color={mem0Status?.available ? "primary" : "default"}
           sx={{ fontFamily: fonts.mono, height: 22 }}
         />
         <Button
@@ -397,12 +398,11 @@ export default function FolderDetailPage() {
 
         {tab === "memory" && (
           <MemoryTab
-            connected={!!mem0Config}
+            available={!!mem0Status?.available}
             loading={loadingMemories}
             eternal={eternal}
             episodic={episodic}
             onDelete={deleteMemory}
-            onOpenIntegrations={() => setIntegrationsOpen(true)}
             onAdd={() => setAddMemoryOpen(true)}
           />
         )}
@@ -551,40 +551,27 @@ function DocumentsSection({
 }
 
 function MemoryTab({
-  connected,
+  available,
   loading,
   eternal,
   episodic,
   onDelete,
-  onOpenIntegrations,
   onAdd,
 }: {
-  connected: boolean;
+  available: boolean;
   loading: boolean;
   eternal: MemoryRecord[];
   episodic: MemoryRecord[];
   onDelete: (m: MemoryRecord) => void;
-  onOpenIntegrations: () => void;
   onAdd: () => void;
 }) {
-  if (!connected) {
+  if (!available) {
     return (
       <Box>
-        <Alert
-          severity="info"
-          sx={{ mb: 2 }}
-          action={
-            <Button
-              color="inherit"
-              size="small"
-              variant="outlined"
-              onClick={onOpenIntegrations}
-            >
-              Manage integrations
-            </Button>
-          }
-        >
-          No Mem0 integration connected for this folder yet.
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Memory is available on repo folders. Run <code>kioku init</code> in
+          this folder to make it a repo — then episodic + eternal memory is on
+          automatically, no connection needed.
         </Alert>
       </Box>
     );

@@ -1,13 +1,12 @@
 /**
- * FolderIntegrationsDialog — one dialog to manage all three integrations
- * (Mem0, Notion, GitHub) for a specific folder, opened from the folder
- * context menu. Reuses the existing connect dialogs, pre-scoped to this folder.
+ * FolderIntegrationsDialog — manage a folder's integrations (Mem0, Notion),
+ * opened from the folder context menu.
  *
- * Layout: three cards, one per integration. Each card shows connection status,
- * and offers connect / sync / disconnect actions inline.
+ * Mem0 memory is auto-on for repo folders (self-hosted, no connect step), so
+ * its card is status-only. Notion still has a connect/sync/disconnect flow.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Alert,
   Box,
@@ -21,10 +20,7 @@ import {
   Stack,
   Typography,
 } from "@mui/material";
-import {
-  Mem0BrandIcon,
-  NotionBrandIcon,
-} from "./BrandIcons";
+import { Mem0BrandIcon, NotionBrandIcon } from "./BrandIcons";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import DeleteIcon from "@mui/icons-material/Delete";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
@@ -32,17 +28,14 @@ import LinkOffIcon from "@mui/icons-material/LinkOff";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import { useNavigate } from "react-router-dom";
 import {
-  disconnectMem0,
   disconnectNotion,
-  fetchMem0Configs,
+  fetchMem0Status,
   fetchNotionConfigs,
   syncNotionNow,
-  type Folder,
-  type Mem0Config,
+  type Mem0Status,
   type NotionConfig,
 } from "../lib/api";
 import { useToast } from "./ToastProvider";
-import { Mem0ConnectDialog } from "./Mem0IntegrationSection";
 import { NotionConnectDialog } from "./NotionIntegrationSection";
 
 interface Props {
@@ -51,8 +44,6 @@ interface Props {
   onClose: () => void;
 }
 
-type IntegrationKey = "mem0" | "notion";
-
 export default function FolderIntegrationsDialog({
   open,
   folder,
@@ -60,37 +51,22 @@ export default function FolderIntegrationsDialog({
 }: Props) {
   const toast = useToast();
   const navigate = useNavigate();
-  const [mem0, setMem0] = useState<Mem0Config | null>(null);
+  const [mem0Status, setMem0Status] = useState<Mem0Status | null>(null);
   const [notion, setNotion] = useState<NotionConfig | null>(null);
   const [loading, setLoading] = useState(true);
-  const [connectOpen, setConnectOpen] = useState<IntegrationKey | null>(null);
+  const [notionConnectOpen, setNotionConnectOpen] = useState(false);
 
   const folderId = folder?.id ?? null;
-  const fakeRootFolders: Folder[] = useMemo(
-    () =>
-      folder
-        ? [
-            {
-              id: folder.id,
-              name: folder.name,
-              parent_id: null,
-              user_id: "",
-              created_at: "",
-            } as Folder,
-          ]
-        : [],
-    [folder]
-  );
 
   const refresh = useCallback(async () => {
     if (!folderId) return;
     setLoading(true);
     try {
-      const [m, n] = await Promise.all([
-        fetchMem0Configs().catch(() => [] as Mem0Config[]),
+      const [ms, n] = await Promise.all([
+        fetchMem0Status(folderId).catch(() => null),
         fetchNotionConfigs().catch(() => [] as NotionConfig[]),
       ]);
-      setMem0(m.find((c) => c.root_folder_id === folderId) ?? null);
+      setMem0Status(ms);
       setNotion(n.find((c) => c.root_folder_id === folderId) ?? null);
     } catch (err) {
       toast.showError(err, "Couldn't load integrations.");
@@ -103,28 +79,28 @@ export default function FolderIntegrationsDialog({
     if (open) void refresh();
   }, [open, refresh]);
 
-  // ── Actions ────────────────────────────────────────────────────────────
-  const handleDisconnect = async (kind: IntegrationKey) => {
+  const handleDisconnectNotion = async () => {
+    if (!notion) return;
     try {
-      if (kind === "mem0" && mem0) await disconnectMem0(mem0.id);
-      if (kind === "notion" && notion) await disconnectNotion(notion.id, false);
+      await disconnectNotion(notion.id, false);
       await refresh();
-      toast.showSuccess(`${kind} disconnected.`);
+      toast.showSuccess("Notion disconnected.");
     } catch (err) {
-      toast.showError(err, `Couldn't disconnect ${kind}.`);
+      toast.showError(err, "Couldn't disconnect Notion.");
     }
   };
 
-  const handleSync = async (kind: IntegrationKey) => {
+  const handleSyncNotion = async () => {
+    if (!notion) return;
     try {
-      if (kind === "notion" && notion) {
-        await syncNotionNow(notion.id);
-        toast.showSuccess("Notion sync queued.");
-      }
+      await syncNotionNow(notion.id);
+      toast.showSuccess("Notion sync queued.");
     } catch (err) {
-      toast.showError(err, `Couldn't sync ${kind}.`);
+      toast.showError(err, "Couldn't sync Notion.");
     }
   };
+
+  const memAvailable = !!mem0Status?.available;
 
   return (
     <>
@@ -137,39 +113,37 @@ export default function FolderIntegrationsDialog({
         </DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Wire this folder to memory, note-sync, and repo activity sources.
-            None of these are required — leave any of them disconnected and
-            they simply won't appear in the folder orientation.
+            Wire this folder to memory and note-sync. None are required — leave
+            them off and they simply won't appear in the folder orientation.
           </Typography>
 
           <Stack spacing={2}>
-            {/* Mem0 is repo-only. On a plain folder we still show the card
-                but disable Connect and add a hint explaining why. */}
+            {/* Mem0 is self-hosted and auto-on for repo folders — no connect. */}
             <IntegrationCard
               icon={<Mem0BrandIcon fontSize="small" />}
               title="Mem0 memory"
-              description="Episodic and eternal memory (agent-authored) scoped to this repo."
-              connected={!!mem0}
+              description="Episodic + eternal memory (agent-authored), scoped to this repo."
+              connected={memAvailable}
+              connectedLabel="On"
+              disconnectedLabel="Repo-only"
               statusDetail={
-                mem0?.last_verified_at
-                  ? `Verified ${new Date(
-                      mem0.last_verified_at
-                    ).toLocaleString()}`
-                  : mem0
-                  ? "Never verified"
+                memAvailable
+                  ? mem0Status?.healthy
+                    ? "On automatically · memory service healthy"
+                    : "On · memory service unreachable"
                   : null
               }
-              errorDetail={mem0?.last_error ?? null}
-              onConnect={
-                folder?.kind === "repo" ? () => setConnectOpen("mem0") : undefined
+              errorDetail={
+                memAvailable && mem0Status?.healthy === false
+                  ? mem0Status?.error ?? "Memory service is unreachable."
+                  : null
               }
-              onDisconnect={mem0 ? () => handleDisconnect("mem0") : undefined}
+              disconnectedHint={
+                !memAvailable
+                  ? "Auto-on for repo folders — run `kioku init` here to make this a repo and enable memory."
+                  : undefined
+              }
               loading={loading}
-              connectHint={
-                folder?.kind === "repo"
-                  ? undefined
-                  : "Mem0 is repo-only — connect this folder to a GitHub repo first."
-              }
             />
 
             <IntegrationCard
@@ -187,12 +161,11 @@ export default function FolderIntegrationsDialog({
                   : null
               }
               errorDetail={notion?.last_error ?? null}
-              onConnect={() => setConnectOpen("notion")}
-              onSync={notion ? () => handleSync("notion") : undefined}
-              onDisconnect={() => handleDisconnect("notion")}
+              onConnect={() => setNotionConnectOpen(true)}
+              onSync={notion ? handleSyncNotion : undefined}
+              onDisconnect={notion ? handleDisconnectNotion : undefined}
               loading={loading}
             />
-
           </Stack>
         </DialogContent>
         <DialogActions sx={{ justifyContent: "space-between", px: 3, pb: 2 }}>
@@ -212,32 +185,18 @@ export default function FolderIntegrationsDialog({
         </DialogActions>
       </Dialog>
 
-      {/* Reused connect dialogs, pre-scoped to this folder. */}
       {folder && (
-        <>
-          <Mem0ConnectDialog
-            open={connectOpen === "mem0"}
-            rootFolders={fakeRootFolders}
-            fixedFolderId={folder.id}
-            onClose={() => setConnectOpen(null)}
-            onConnected={async () => {
-              setConnectOpen(null);
-              await refresh();
-              toast.showSuccess("Mem0 connected.");
-            }}
-          />
-          <NotionConnectDialog
-            open={connectOpen === "notion"}
-            rootFolders={[{ id: folder.id, name: folder.name }]}
-            fixedFolderId={folder.id}
-            onClose={() => setConnectOpen(null)}
-            onConnected={async () => {
-              setConnectOpen(null);
-              await refresh();
-              toast.showSuccess("Notion connected.");
-            }}
-          />
-        </>
+        <NotionConnectDialog
+          open={notionConnectOpen}
+          rootFolders={[{ id: folder.id, name: folder.name }]}
+          fixedFolderId={folder.id}
+          onClose={() => setNotionConnectOpen(false)}
+          onConnected={async () => {
+            setNotionConnectOpen(false);
+            await refresh();
+            toast.showSuccess("Notion connected.");
+          }}
+        />
       )}
     </>
   );
@@ -248,9 +207,11 @@ function IntegrationCard({
   title,
   description,
   connected,
+  connectedLabel = "Connected",
+  disconnectedLabel = "Not connected",
   statusDetail,
   errorDetail,
-  connectHint,
+  disconnectedHint,
   onConnect,
   onSync,
   onDisconnect,
@@ -260,14 +221,18 @@ function IntegrationCard({
   title: string;
   description: string;
   connected: boolean;
+  connectedLabel?: string;
+  disconnectedLabel?: string;
   statusDetail: string | null;
   errorDetail: string | null;
-  connectHint?: string;
+  disconnectedHint?: string;
   onConnect?: () => void;
   onSync?: () => void;
   onDisconnect?: () => void;
   loading: boolean;
 }) {
+  const showActions =
+    (!connected && !!onConnect) || (connected && (!!onSync || !!onDisconnect));
   return (
     <Box
       sx={{
@@ -286,7 +251,7 @@ function IntegrationCard({
         <Chip
           size="small"
           icon={connected ? <CheckCircleIcon /> : <LinkOffIcon />}
-          label={connected ? "Connected" : "Not connected"}
+          label={connected ? connectedLabel : disconnectedLabel}
           color={connected ? "success" : "default"}
           variant={connected ? "filled" : "outlined"}
           sx={{ fontSize: "0.7rem", height: 22 }}
@@ -297,7 +262,11 @@ function IntegrationCard({
       </Typography>
 
       {statusDetail && (
-        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{ display: "block", mb: 1 }}
+        >
           {statusDetail}
         </Typography>
       )}
@@ -308,34 +277,39 @@ function IntegrationCard({
         </Alert>
       )}
 
-      <Divider sx={{ my: 1.5 }} />
-      <Stack direction="row" spacing={1} justifyContent="flex-end">
-        {!connected && onConnect && (
-          <Button size="small" variant="contained" onClick={onConnect}>
-            Connect
-          </Button>
-        )}
-        {!connected && !onConnect && connectHint && (
-          <Typography variant="caption" color="text.secondary">
-            {connectHint}
-          </Typography>
-        )}
-        {connected && onSync && (
-          <Button size="small" startIcon={<RefreshIcon />} onClick={onSync}>
-            Sync now
-          </Button>
-        )}
-        {connected && onDisconnect && (
-          <Button
-            size="small"
-            color="error"
-            startIcon={<DeleteIcon />}
-            onClick={onDisconnect}
-          >
-            Disconnect
-          </Button>
-        )}
-      </Stack>
+      {!connected && disconnectedHint && (
+        <Typography variant="caption" color="text.secondary">
+          {disconnectedHint}
+        </Typography>
+      )}
+
+      {showActions && (
+        <>
+          <Divider sx={{ my: 1.5 }} />
+          <Stack direction="row" spacing={1} justifyContent="flex-end">
+            {!connected && onConnect && (
+              <Button size="small" variant="contained" onClick={onConnect}>
+                Connect
+              </Button>
+            )}
+            {connected && onSync && (
+              <Button size="small" startIcon={<RefreshIcon />} onClick={onSync}>
+                Sync now
+              </Button>
+            )}
+            {connected && onDisconnect && (
+              <Button
+                size="small"
+                color="error"
+                startIcon={<DeleteIcon />}
+                onClick={onDisconnect}
+              >
+                Disconnect
+              </Button>
+            )}
+          </Stack>
+        </>
+      )}
     </Box>
   );
 }
