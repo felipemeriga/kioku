@@ -7,6 +7,7 @@ import { doctor } from "./commands/doctor.js";
 import { init } from "./commands/init.js";
 import { login } from "./commands/login.js";
 import { logout } from "./commands/logout.js";
+import { graphIndex } from "./commands/graph-index.js";
 import { ls } from "./commands/ls.js";
 import { onPush } from "./commands/on-push.js";
 import { openCmd } from "./commands/open.js";
@@ -168,6 +169,20 @@ program
     } catch (err) {
       // never fail a hook
       if (process.env.KIOKU_DEBUG) console.error(err);
+    }
+  });
+
+program
+  .command("index")
+  .description(
+    "Extract this repo's code graph and upload it so agents query it instead of grepping"
+  )
+  .action(async () => {
+    try {
+      await graphIndex();
+    } catch (err) {
+      if (process.env.KIOKU_DEBUG) console.error(err);
+      process.exitCode = 1;
     }
   });
 
