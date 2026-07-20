@@ -48,6 +48,7 @@ import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import { useNavigate, useParams } from "react-router-dom";
 
 import BriefingPanel from "../components/BriefingPanel";
+import { NotionSyncBanner } from "../components/NotionSyncBanner";
 import DocumentationPanel from "../components/DocumentationPanel";
 import FolderIntegrationsDialog from "../components/FolderIntegrationsDialog";
 import { useToast } from "../components/ToastProvider";
@@ -350,6 +351,10 @@ export default function FolderDetailPage() {
           Integrations
         </Button>
       </Box>
+
+      {/* Notion sync status for this folder's root — live progress while a
+          sync runs, last-synced/error line when idle, nothing otherwise. */}
+      <NotionSyncBanner key={folderId} folderId={folderId} />
 
       {/* Repo folders get a Briefing tab (the 8-section structured schema);
           other folders have no summary/briefing — only repos do now. */}
