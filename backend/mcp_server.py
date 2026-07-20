@@ -1661,6 +1661,143 @@ class ApiKeyAuthMiddleware:
         await self.app(scope, receive, send)
 
 
+# ── Code graph tools (query structure instead of grepping) ───────────
+#
+# Backed by the repo_symbols/repo_edges tables populated by `kioku index`.
+# Prefer these over grep/glob for locating and tracing code.
+
+
+def _resolve_repo(sb, user_id, folder):
+    """Shared resolver for the graph tools → (folder_id, name) or (None, err)."""
+    resolved_id, resolved_name = resolve_focus_folder(
+        sb,
+        scope_folder_id=_current_scope_folder_id.get(),
+        user_id=user_id,
+        focus=folder,
+    )
+    return resolved_id, resolved_name
+
+
+@mcp.tool()
+def find_definition(symbol: str, folder: str | None = None) -> str:
+    """Find where a symbol (function/type/method) is DEFINED — use instead of
+    grepping for a definition.
+
+    Args:
+        symbol: name to look up, e.g. 'PrefetchCore' or '.has_audio()'.
+        folder: which repo (name / slash-path / UUID). Omit for the scope repo.
+
+    Returns file:line locations, or a note if the repo isn't indexed yet.
+    """
+    if not _current_user_id.get():
+        return "Error: Not authenticated."
+    sb = get_supabase()
+    user_id = _current_user_id.get()
+    folder_id, name = _resolve_repo(sb, user_id, folder)
+    if not folder_id:
+        return f"Error: {name}"
+    from services.repo_graph import find_definition as _find
+
+    rows = _find(sb, folder_id=folder_id, symbol=symbol)
+    if not rows:
+        return f"No definition found for '{symbol}'. (Repo may not be indexed — run `kioku index`.)"
+    lines = [f"Definitions for '{symbol}':"]
+    for r in rows:
+        loc = f":{r['start_line']}" if r.get("start_line") else ""
+        kind = f" [{r['kind']}]" if r.get("kind") else ""
+        lines.append(f"  {r['symbol']}{kind} — {r['file']}{loc}")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def find_references(symbol: str, folder: str | None = None) -> str:
+    """Find where a symbol is USED / who calls it — use instead of grepping for
+    call sites.
+
+    Args:
+        symbol: the referenced name.
+        folder: which repo. Omit for the scope repo.
+    """
+    if not _current_user_id.get():
+        return "Error: Not authenticated."
+    sb = get_supabase()
+    user_id = _current_user_id.get()
+    folder_id, name = _resolve_repo(sb, user_id, folder)
+    if not folder_id:
+        return f"Error: {name}"
+    from services.repo_graph import find_references as _refs
+
+    rows = _refs(sb, folder_id=folder_id, symbol=symbol)
+    if not rows:
+        return f"No references found for '{symbol}'."
+    lines = [f"References to '{symbol}' ({len(rows)}):"]
+    for r in rows:
+        loc = f":{r['ref_line']}" if r.get("ref_line") else ""
+        lines.append(f"  {r['relation']} from {r.get('ref_file') or '?'}{loc}")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def outline(path: str, folder: str | None = None) -> str:
+    """List the symbols defined under a file or directory — use instead of
+    reading/globbing a file just to see what's in it.
+
+    Args:
+        path: repo-relative file or directory prefix, e.g. 'ses/ingester/'.
+        folder: which repo. Omit for the scope repo.
+    """
+    if not _current_user_id.get():
+        return "Error: Not authenticated."
+    sb = get_supabase()
+    user_id = _current_user_id.get()
+    folder_id, name = _resolve_repo(sb, user_id, folder)
+    if not folder_id:
+        return f"Error: {name}"
+    from services.repo_graph import outline as _outline
+
+    rows = _outline(sb, folder_id=folder_id, path=path)
+    if not rows:
+        return f"No symbols found under '{path}'."
+    lines = [f"Outline of '{path}' ({len(rows)} symbols):"]
+    current = None
+    for r in rows:
+        if r["file"] != current:
+            current = r["file"]
+            lines.append(f"  {current}:")
+        loc = f":{r['start_line']}" if r.get("start_line") else ""
+        lines.append(f"    {r['symbol']}{loc}")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def impact_of(symbol: str, depth: int = 2, folder: str | None = None) -> str:
+    """Blast radius: what transitively depends on a symbol (callers of callers)
+    up to `depth` hops — use before changing something to see what it affects.
+
+    Args:
+        symbol: the symbol to trace impact from.
+        depth: hops to traverse (default 2).
+        folder: which repo. Omit for the scope repo.
+    """
+    if not _current_user_id.get():
+        return "Error: Not authenticated."
+    sb = get_supabase()
+    user_id = _current_user_id.get()
+    folder_id, name = _resolve_repo(sb, user_id, folder)
+    if not folder_id:
+        return f"Error: {name}"
+    from services.repo_graph import impact_of as _impact
+
+    rows = _impact(sb, folder_id=folder_id, symbol=symbol, depth=depth)
+    if not rows:
+        return f"Nothing depends on '{symbol}' (or it isn't indexed)."
+    lines = [f"Impact of changing '{symbol}' ({len(rows)} dependents, depth {depth}):"]
+    for r in sorted(rows, key=lambda x: x.get("depth", 0)):
+        loc = f":{r['start_line']}" if r.get("start_line") else ""
+        lines.append(f"  [h{r.get('depth', '?')}] {r['symbol']} — {r['file']}{loc}")
+    return "\n".join(lines)
+
+
 def _startup_healthcheck() -> None:
     """Quick synchronous ping of the dependencies the tools need. Prints
     a green/yellow line per dependency so operators see connection health
