@@ -178,10 +178,11 @@ async def _enqueue_sync(config_id: str, user_id: str, full_reconcile: bool) -> d
     )
     pool = await create_pool(_redis_settings())
     try:
-        # Deterministic _job_id belt-and-suspenders on top of the
-        # get_active_job check. Two concurrent requests could still both
-        # see no active row and both enqueue — this arq-level dedup
-        # catches that.
+        # Unique _job_id per enqueue (the fresh DB job_id). A deterministic id
+        # would be deduped by arq against a PREVIOUS run of the same config for
+        # up to keep_result (24h) — creating a DB row but never enqueuing a real
+        # arq job, i.e. a zombie stuck at "queued". Concurrency is already
+        # prevented by the get_active_job check above.
         await pool.enqueue_job(
             "notion_sync_task",
             {
@@ -189,7 +190,7 @@ async def _enqueue_sync(config_id: str, user_id: str, full_reconcile: bool) -> d
                 "config_id": config_id,
                 "full_reconcile": full_reconcile,
             },
-            _job_id=f"notion_sync:{config_id}:{'full' if full_reconcile else 'fast'}",
+            _job_id=f"notion_sync:{job_id}",
         )
     finally:
         await pool.close()
