@@ -73,10 +73,17 @@ export function NotionSyncBanner({ folderId }: { folderId: string }) {
     (async () => {
       try {
         const crumbs = await fetchBreadcrumbs(folderId);
-        const rootId = crumbs[0]?.id ?? folderId;
-        rootIdRef.current = rootId;
-        const cfg = await loadConfig(rootId);
-        if (cancelled || !cfg) return; // not a Notion folder → no banner, no poll
+        // Match a Notion config anchored to *any* ancestor in this folder's
+        // chain (self included), so the banner shows on the connected root
+        // folder and on every synced subfolder beneath it — regardless of
+        // whether the config points at the top root or an intermediate folder.
+        const chainIds = new Set([folderId, ...crumbs.map((c) => c.id)]);
+        const cfgs = await fetchNotionConfigs();
+        if (cancelled) return;
+        const cfg = cfgs.find((c) => chainIds.has(c.root_folder_id)) ?? null;
+        setConfig(cfg);
+        if (!cfg) return; // not a Notion folder → no banner, no poll
+        rootIdRef.current = cfg.root_folder_id;
         await tick();
         if (!cancelled) timer = window.setInterval(tick, POLL_MS);
       } catch {

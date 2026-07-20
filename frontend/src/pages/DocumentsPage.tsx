@@ -56,6 +56,7 @@ import IngestionDrawer from "../components/IngestionDrawer";
 import BriefingPanel from "../components/BriefingPanel";
 import DocumentationPanel from "../components/DocumentationPanel";
 import FolderIntegrationsDialog from "../components/FolderIntegrationsDialog";
+import { NotionSyncBanner } from "../components/NotionSyncBanner";
 import { useToast, messageFromError } from "../components/ToastProvider";
 import { brand, fonts } from "../theme";
 
@@ -694,6 +695,12 @@ export default function DocumentsPage() {
           </Button>
         </Stack>
       </Box>
+
+      {/* Notion sync status for the current folder's root — live progress
+          while a sync runs, last-synced/error when idle, nothing otherwise. */}
+      {currentFolderId && (
+        <NotionSyncBanner key={currentFolderId} folderId={currentFolderId} />
+      )}
 
       {/* Content area */}
       <Box
