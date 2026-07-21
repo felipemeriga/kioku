@@ -1,0 +1,32 @@
+# kioku MCP server — agent tools at mcp.${DOMAIN} (SSE at /sse).
+services:
+  mcp:
+    image: felipemeriga1/kioku-mcp:latest
+    pull_policy: always
+    container_name: kioku-mcp
+    restart: unless-stopped
+    environment:
+      - ANTHROPIC_API_KEY=${KIOKU_ANTHROPIC_API_KEY}
+      - VOYAGE_API_KEY=${KIOKU_VOYAGE_API_KEY}
+      - SUPABASE_URL=${KIOKU_SUPABASE_URL}
+      - SUPABASE_SERVICE_KEY=${KIOKU_SUPABASE_SERVICE_KEY}
+      - MCP_API_KEY=${KIOKU_MCP_API_KEY}
+      - MEM0_SERVICE_URL=http://kioku-mem0:8010
+      - MEM0_SERVICE_TOKEN=${KIOKU_MEM0_SERVICE_TOKEN}
+    networks:
+      - kioku
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.kioku-mcp.rule=Host(`mcp.${DOMAIN}`)"
+      - "traefik.http.routers.kioku-mcp.entrypoints=websecure"
+      - "traefik.http.routers.kioku-mcp.tls.certresolver=letsencrypt"
+      - "traefik.http.services.kioku-mcp.loadbalancer.server.port=8001"
+
+networks:
+  kioku:
+    external: true
+    name: kioku
+  proxy:
+    external: true
+    name: proxy
