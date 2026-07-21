@@ -946,3 +946,45 @@ async def repo_graph_upload(body: RepoGraphDelta, request: Request):
         head_sha=body.head_sha,
     )
     return {"ok": True, **result}
+
+
+@router.get("/repo-graph")
+async def repo_graph_meta(folder_id: str, request: Request):
+    """Return the code-graph watermark for a folder so a fresh machine can seed
+    its local last_indexed_sha and skip re-indexing an already-current graph."""
+    auth = request.headers.get("Authorization") or ""
+    if not auth.startswith("Bearer rag_"):
+        raise HTTPException(status_code=401, detail="Bearer api key required")
+    key = auth[len("Bearer ") :]
+    key_hash = hashlib.sha256(key.encode()).hexdigest()
+
+    sb = get_supabase()
+    row = (
+        sb.table("api_keys")
+        .select("user_id, scope_folder_id")
+        .eq("key_hash", key_hash)
+        .limit(1)
+        .execute()
+        .data
+    )
+    if not row or not row[0].get("scope_folder_id"):
+        raise HTTPException(status_code=401, detail="Invalid or unscoped api key")
+    user_id = row[0]["user_id"]
+    scope_id = row[0]["scope_folder_id"]
+
+    from mcp_server import _descendant_folder_ids
+
+    if folder_id not in _descendant_folder_ids(sb, scope_id, user_id):
+        raise HTTPException(status_code=403, detail="folder_id not in api key scope")
+
+    meta = (
+        sb.table("repo_graph_meta")
+        .select("last_indexed_sha, node_count, edge_count, updated_at")
+        .eq("folder_id", folder_id)
+        .limit(1)
+        .execute()
+        .data
+    )
+    if not meta:
+        return {"last_indexed_sha": None, "node_count": 0, "edge_count": 0}
+    return meta[0]
