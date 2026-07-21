@@ -19,6 +19,7 @@ import {
 } from "./graph-index.js";
 import {
   installPostPushHook,
+  installPrePushGitHook,
   installSessionStartHook,
   installStopHook,
   readMcpEntry,
@@ -318,6 +319,16 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
     push.addedHook
       ? "Push hook installed  " + kleur.dim("(refreshes activity on git push)")
       : "Push hook already present"
+  );
+
+  // Step 6c.2: native git pre-push hook — fires on EVERY push (any terminal),
+  //            so the code graph refreshes even when you push by hand.
+  const prePush = installPrePushGitHook(repoRoot);
+  ok(
+    prePush.addedHook
+      ? "git pre-push hook installed  " +
+          kleur.dim("(re-indexes the graph on any push)")
+      : "git pre-push hook already present"
   );
 
   // Step 6d: state file the Stop/Push hooks read — which folder to save to,

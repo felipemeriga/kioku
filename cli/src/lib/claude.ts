@@ -6,8 +6,15 @@
  * content. We detect our sections by fenced markers.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join, dirname } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+  chmodSync,
+} from "node:fs";
+import { join, dirname, isAbsolute } from "node:path";
+import { execFileSync } from "node:child_process";
 
 const MARKER_BEGIN = "<!-- BEGIN kioku second-brain instructions -->";
 const MARKER_END = "<!-- END kioku second-brain instructions -->";
@@ -189,6 +196,63 @@ export function installPostPushHook(repoRoot: string): {
   addedHook: boolean;
 } {
   return installHook(repoRoot, "PostToolUse", POST_PUSH_COMMAND, "Bash");
+}
+
+// ── native git pre-push hook ──────────────────────────────────────────
+//
+// The Claude Code PostToolUse hook only fires when the AGENT runs `git push`.
+// A native git pre-push hook fires on EVERY push (any terminal), so the code
+// graph stays fresh even when the developer pushes by hand. Runs `kioku index`
+// detached — non-blocking, best-effort, never fails the push. The per-repo
+// index lock keeps it from double-indexing with the agent's on-push hook.
+
+const GIT_HOOK_MARKER = "# kioku: refresh code graph on push";
+
+/** Resolve the repo's effective hooks dir (honors core.hooksPath). */
+function gitHooksDir(repoRoot: string): string {
+  try {
+    const rel = execFileSync("git", ["rev-parse", "--git-path", "hooks"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return isAbsolute(rel) ? rel : join(repoRoot, rel);
+  } catch {
+    return join(repoRoot, ".git", "hooks");
+  }
+}
+
+export function installPrePushGitHook(repoRoot: string): {
+  path: string;
+  addedHook: boolean;
+} {
+  const dir = gitHooksDir(repoRoot);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  const path = join(dir, "pre-push");
+
+  const block = [
+    GIT_HOOK_MARKER,
+    "# Installed by `kioku init` — non-blocking, best-effort.",
+    "command -v kioku >/dev/null 2>&1 && ( kioku index >/dev/null 2>&1 & )",
+    "# end kioku",
+  ].join("\n");
+
+  if (existsSync(path)) {
+    const existing = readFileSync(path, "utf8");
+    if (existing.includes(GIT_HOOK_MARKER)) return { path, addedHook: false };
+    // Coexist: insert our block after the shebang without altering the existing
+    // hook's control flow (we background + never add our own exit).
+    const lines = existing.split("\n");
+    const at = lines[0]?.startsWith("#!") ? 1 : 0;
+    lines.splice(at, 0, "", block, "");
+    writeFileSync(path, lines.join("\n"));
+    chmodSync(path, 0o755);
+    return { path, addedHook: true };
+  }
+
+  writeFileSync(path, `#!/bin/sh\n\n${block}\n\nexit 0\n`);
+  chmodSync(path, 0o755);
+  return { path, addedHook: true };
 }
 
 /** Write the per-repo state file. Contains the folder_id the CLI bound
