@@ -12,7 +12,11 @@ import {
 } from "../lib/api.js";
 import { isLoggedIn } from "../lib/config.js";
 import { detectGit, headSha } from "../lib/git.js";
-import { graphIndex, graphifyAvailable } from "./graph-index.js";
+import {
+  graphIndex,
+  graphifyAvailable,
+  seedWatermarkFromServer,
+} from "./graph-index.js";
 import {
   installPostPushHook,
   installSessionStartHook,
@@ -344,28 +348,23 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
   }
 
   // Step 9: initial code-graph index so agents query structure instead of
-  //         grepping. Best-effort — never fails init.
+  //         grepping. Auto-installs the extractor if missing, seeds the
+  //         watermark from the server (so a fresh machine doesn't re-index an
+  //         already-current graph), then indexes. Best-effort — never fails init.
   try {
+    if (!graphifyAvailable()) {
+      const { spawnSync } = await import("node:child_process");
+      info("Installing graphify (code-graph extractor) via uv…");
+      // PyPI package is `graphifyy`; it provides the `graphify` command.
+      spawnSync("uv", ["tool", "install", "graphifyy"], { stdio: "inherit" });
+    }
     if (graphifyAvailable()) {
+      await seedWatermarkFromServer(repoRoot);
       await graphIndex(repoRoot);
-    } else if (!opts.yes) {
-      const installGraphify = await confirm({
-        message:
-          "Enable code-graph queries (find_definition / references / outline)? Installs `graphify` via uv.",
-        default: true,
-      });
-      if (installGraphify) {
-        const { spawnSync } = await import("node:child_process");
-        info("Installing graphify…");
-        spawnSync("uv", ["tool", "install", "graphify"], { stdio: "inherit" });
-        if (graphifyAvailable()) await graphIndex(repoRoot);
-        else warn("graphify still not on PATH — run `kioku index` once it is.");
-      } else {
-        info("Skipped code-graph index. Run `kioku index` later to enable it.");
-      }
     } else {
-      info(
-        "graphify not installed — skipping code-graph index (run `uv tool install graphify` then `kioku index`)."
+      warn(
+        "Couldn't set up graphify — skipping code-graph index.",
+        "Install it (`uv tool install graphifyy`) then run `kioku index`."
       );
     }
   } catch (err) {

@@ -46,6 +46,16 @@ function gitSafe(repoRoot: string, args: string[]): string {
   }
 }
 
+/** True if the git command exits 0 (used to test whether a SHA exists here). */
+function gitOk(repoRoot: string, args: string[]): boolean {
+  try {
+    execFileSync("git", args, { cwd: repoRoot, stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function readState(repoRoot: string): Record<string, unknown> {
   const p = join(repoRoot, ".claude", "kioku-state.json");
   if (!existsSync(p)) return {};
@@ -63,6 +73,33 @@ function stampState(repoRoot: string, patch: Record<string, unknown>): void {
     p,
     JSON.stringify({ ...readState(repoRoot), ...patch }, null, 2) + "\n"
   );
+}
+
+/** Fetch the server's graph watermark for this repo's folder, or null. */
+async function fetchServerWatermark(repoRoot: string): Promise<string | null> {
+  const mcp = readMcpEntry(repoRoot);
+  const folderId = readState(repoRoot).folder_id as string | undefined;
+  if (!mcp || !folderId) return null;
+  const base = new URL(mcp.entry.url).origin.replace(/:8001$/, ":8000");
+  try {
+    const res = await fetch(
+      `${base}/api/cli/repo-graph?folder_id=${encodeURIComponent(folderId)}`,
+      { headers: { Authorization: `Bearer ${mcp.key}` } }
+    );
+    if (!res.ok) return null;
+    const body = (await res.json()) as { last_indexed_sha?: string | null };
+    return body.last_indexed_sha ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Seed the local watermark from the server when this machine has none, so a
+ *  fresh `kioku init` doesn't re-index a graph another machine already built. */
+export async function seedWatermarkFromServer(repoRoot: string): Promise<void> {
+  if (readState(repoRoot).last_indexed_sha) return; // already have a local one
+  const serverSha = await fetchServerWatermark(repoRoot);
+  if (serverSha) stampState(repoRoot, { last_indexed_sha: serverSha });
 }
 
 export function graphifyAvailable(): boolean {
@@ -134,7 +171,7 @@ export async function graphIndex(repoRootArg?: string): Promise<void> {
   if (!graphifyAvailable()) {
     warn(
       "`graphify` isn't on PATH — skipping code-graph index.",
-      "Install it (e.g. `uv tool install graphify`), then re-run `kioku index`."
+      "Install it (e.g. `uv tool install graphifyy`), then re-run `kioku index`."
     );
     return;
   }
@@ -149,13 +186,20 @@ export async function graphIndex(repoRootArg?: string): Promise<void> {
   const lastSha = state.last_indexed_sha as string | undefined;
   const norm = makeNorm(repoRoot);
 
-  if (lastSha === head) {
+  // The watermark is only usable as a diff base if it's a commit in THIS clone.
+  // A watermark seeded from the server (another machine) that we don't have
+  // means we must full-reindex rather than compute a bogus/empty delta.
+  const baseValid =
+    !!lastSha && gitOk(repoRoot, ["cat-file", "-e", `${lastSha}^{commit}`]);
+
+  if (baseValid && lastSha === head) {
     info("Already indexed at HEAD — nothing to do.");
     return;
   }
 
-  // Which files to ship. First run: everything. Incremental: git delta.
-  const isFirst = !lastSha;
+  // Which files to ship. First run (or unusable base): everything. Otherwise
+  // the git delta since the watermark.
+  const isFirst = !baseValid;
   let changedFiles: string[] = [];
   let deletedFiles: string[] = [];
   if (!isFirst) {
