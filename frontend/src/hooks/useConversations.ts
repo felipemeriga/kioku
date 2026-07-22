@@ -33,6 +33,15 @@ export function useConversations() {
     return () => { active = false; };
   }, []);
 
+  // React to external mutations (e.g. rename from the sidebar row).
+  useEffect(() => {
+    const handler = () => {
+      fetchConversations().then(setConversations).catch(() => {});
+    };
+    window.addEventListener("conversations-changed", handler);
+    return () => window.removeEventListener("conversations-changed", handler);
+  }, []);
+
   // Load messages when selectedId changes
   useEffect(() => {
     if (!initialized) return;

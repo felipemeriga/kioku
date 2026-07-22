@@ -1,0 +1,17 @@
+# kioku mem0 — self-hosted memory (CPU embeddings). Internal only, no domain.
+services:
+  mem0:
+    image: felipemeriga1/kioku-mem0:latest
+    pull_policy: always
+    container_name: kioku-mem0
+    restart: unless-stopped
+    environment:
+      - MEM0_DATABASE_URL=${KIOKU_MEM0_DATABASE_URL}
+      - MEM0_SERVICE_TOKEN=${KIOKU_MEM0_SERVICE_TOKEN}
+    networks:
+      - kioku
+
+networks:
+  kioku:
+    external: true
+    name: kioku

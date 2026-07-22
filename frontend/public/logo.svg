@@ -1,54 +1,36 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Kioku 記憶 — cyberpunk hanko stamp -->
   <defs>
-    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#7c3aed"/>
-      <stop offset="100%" stop-color="#3b82f6"/>
+    <linearGradient id="frame" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF2E93"/>
+      <stop offset="100%" stop-color="#00F0FF"/>
     </linearGradient>
-    <linearGradient id="g2" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#a78bfa"/>
-      <stop offset="100%" stop-color="#60a5fa"/>
-    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="1.5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
   </defs>
-  <!-- Rounded square background -->
-  <rect width="512" height="512" rx="96" fill="url(#g)"/>
-  <!-- Network connections (lines between nodes) -->
-  <line x1="256" y1="148" x2="148" y2="296" stroke="rgba(255,255,255,0.2)" stroke-width="10" stroke-linecap="round"/>
-  <line x1="256" y1="148" x2="364" y2="296" stroke="rgba(255,255,255,0.2)" stroke-width="10" stroke-linecap="round"/>
-  <line x1="148" y1="296" x2="256" y2="388" stroke="rgba(255,255,255,0.2)" stroke-width="10" stroke-linecap="round"/>
-  <line x1="364" y1="296" x2="256" y2="388" stroke="rgba(255,255,255,0.2)" stroke-width="10" stroke-linecap="round"/>
-  <line x1="148" y1="296" x2="364" y2="296" stroke="rgba(255,255,255,0.2)" stroke-width="10" stroke-linecap="round"/>
-  <!-- Document shape (center-top node) -->
-  <g transform="translate(256,148)">
-    <rect x="-32" y="-40" width="64" height="80" rx="8" fill="white"/>
-    <rect x="-32" y="-40" width="64" height="80" rx="8" fill="white" opacity="0.95"/>
-    <!-- Page fold -->
-    <path d="M12,-40 L32,-40 L32,-20 L12,-20 Z" fill="url(#g2)" opacity="0.4"/>
-    <path d="M12,-40 L12,-20 L32,-20 Z" fill="white"/>
-    <!-- Text lines -->
-    <rect x="-20" y="-16" width="28" height="5" rx="2.5" fill="url(#g)" opacity="0.5"/>
-    <rect x="-20" y="-4" width="36" height="5" rx="2.5" fill="url(#g)" opacity="0.35"/>
-    <rect x="-20" y="8" width="22" height="5" rx="2.5" fill="url(#g)" opacity="0.25"/>
-    <rect x="-20" y="20" width="32" height="5" rx="2.5" fill="url(#g)" opacity="0.2"/>
-  </g>
-  <!-- Brain/AI node (bottom-left) -->
-  <circle cx="148" cy="296" r="40" fill="white"/>
-  <g transform="translate(148,296)">
-    <!-- Stylized brain paths -->
-    <path d="M-2,-18 C-14,-18 -20,-10 -20,-2 C-20,4 -16,8 -12,10 C-16,12 -18,16 -14,20 C-10,24 -4,22 -2,18" stroke="url(#g)" stroke-width="5" fill="none" stroke-linecap="round"/>
-    <path d="M2,-18 C14,-18 20,-10 20,-2 C20,4 16,8 12,10 C16,12 18,16 14,20 C10,24 4,22 2,18" stroke="url(#g)" stroke-width="5" fill="none" stroke-linecap="round"/>
-    <line x1="0" y1="-18" x2="0" y2="18" stroke="url(#g)" stroke-width="4" stroke-linecap="round"/>
-  </g>
-  <!-- Search/retrieval node (bottom-right) -->
-  <circle cx="364" cy="296" r="40" fill="white"/>
-  <g transform="translate(364,296)">
-    <!-- Magnifying glass -->
-    <circle cx="-4" cy="-4" r="14" stroke="url(#g)" stroke-width="5.5" fill="none"/>
-    <line x1="6" y1="6" x2="18" y2="18" stroke="url(#g)" stroke-width="5.5" stroke-linecap="round"/>
-  </g>
-  <!-- Agent/spark node (bottom-center) -->
-  <circle cx="256" cy="388" r="40" fill="white"/>
-  <g transform="translate(256,388)">
-    <!-- Lightning bolt / agent spark -->
-    <path d="M2,-20 L-8,0 L0,0 L-2,20 L10,-2 L2,-2 Z" fill="url(#g)"/>
-  </g>
+  <!-- Background surface -->
+  <rect x="0" y="0" width="64" height="64" rx="8" fill="#08040F"/>
+  <!-- Inner glow frame -->
+  <rect x="4" y="4" width="56" height="56" rx="6" fill="none"
+        stroke="url(#frame)" stroke-width="1.5" opacity="0.9"/>
+  <rect x="7" y="7" width="50" height="50" rx="4" fill="none"
+        stroke="#FF2E93" stroke-width="0.5" opacity="0.6"/>
+  <!-- Kanji 記 -->
+  <text x="32" y="46"
+        font-family="'Noto Sans JP', 'Yu Gothic', system-ui, sans-serif"
+        font-weight="900"
+        font-size="36"
+        text-anchor="middle"
+        fill="#FF6DB1"
+        filter="url(#glow)">記</text>
+  <!-- Scan corner ticks -->
+  <path d="M 10 10 L 10 14 M 10 10 L 14 10" stroke="#00F0FF" stroke-width="1.2" opacity="0.7"/>
+  <path d="M 54 10 L 54 14 M 54 10 L 50 10" stroke="#00F0FF" stroke-width="1.2" opacity="0.7"/>
+  <path d="M 10 54 L 10 50 M 10 54 L 14 54" stroke="#00F0FF" stroke-width="1.2" opacity="0.7"/>
+  <path d="M 54 54 L 54 50 M 54 54 L 50 54" stroke="#00F0FF" stroke-width="1.2" opacity="0.7"/>
 </svg>

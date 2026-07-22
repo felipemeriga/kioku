@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { fetchIngestionStatus, uploadDocument } from "../lib/api";
+import { fetchIngestionStatus, uploadDocument, ApiError } from "../lib/api";
 import type { IngestionTask } from "../lib/api";
 
 const TERMINAL_STAGES = new Set(["completed", "error", "duplicate"]);
@@ -15,21 +15,27 @@ export function useIngestionStatus() {
   const activeTasks = tasks.filter((t) => !TERMINAL_STAGES.has(t.stage));
   const hasActiveTasks = activeTasks.length > 0;
 
-  // Poll for status updates
+  // Poll for status updates. Transient failures (e.g. network jitter) are
+  // tolerated silently — the next tick will retry — but a 401 stops polling
+  // immediately (the global apiFetch signs the user out on 401 anyway) and
+  // any other persistent failure is logged for devs.
   useEffect(() => {
     if (tasks.length === 0) return;
+    if (!hasActiveTasks) return;
 
     const poll = async () => {
       try {
         const updated = await fetchIngestionStatus();
         setTasks(updated);
-      } catch {
-        // Silently ignore poll errors
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 401) {
+          clearInterval(interval);
+          return;
+        }
+        // eslint-disable-next-line no-console
+        console.warn("[useIngestionStatus] poll failed:", err);
       }
     };
-
-    // Only poll if there are active tasks
-    if (!hasActiveTasks) return;
 
     const interval = setInterval(poll, POLL_INTERVAL);
     return () => clearInterval(interval);
@@ -68,10 +74,12 @@ export function useIngestionStatus() {
     }
   }, []);
 
+  // Upload throws on failure so the caller can toast; on success, inserts the
+  // placeholder task and opens the drawer. Previously an unhandled promise
+  // rejection would leave the user with no signal that the upload failed.
   const upload = useCallback(
     async (file: File, folderId?: string | null) => {
       const result = await uploadDocument(file, folderId);
-      // Add a placeholder task immediately
       const placeholder: IngestionTask = {
         id: result.task_id,
         user_id: "",
@@ -89,14 +97,14 @@ export function useIngestionStatus() {
       };
       setTasks((prev) => [...prev, placeholder]);
       setDrawerOpen(true);
-      // Cancel any auto-close from previous batch
       cancelAutoClose();
-      // Immediately poll for fresh data
       try {
         const updated = await fetchIngestionStatus();
         setTasks(updated);
-      } catch {
-        // Keep placeholder if poll fails
+      } catch (err) {
+        // Non-fatal: placeholder stands in until the next scheduled poll.
+        // eslint-disable-next-line no-console
+        console.warn("[useIngestionStatus] initial poll after upload failed:", err);
       }
     },
     [cancelAutoClose]

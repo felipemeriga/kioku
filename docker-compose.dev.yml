@@ -1,0 +1,33 @@
+services:
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --appendfsync everysec
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  mem0:
+    build:
+      context: ./mem0-service
+      dockerfile: Dockerfile
+    environment:
+      - MEM0_DATABASE_URL          # same Postgres as the app; store pins search_path=mem0
+      - MEM0_SERVICE_TOKEN
+    ports:
+      - "8010:8010"                # exposed in dev so a locally-run backend can reach it
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,os;urllib.request.urlopen(urllib.request.Request('http://localhost:8010/health',headers={'Authorization':'Bearer '+os.environ['MEM0_SERVICE_TOKEN']}))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  redis-data:

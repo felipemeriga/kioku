@@ -31,6 +31,9 @@ import {
   type ApiKeyInfo,
   type Folder,
 } from "../lib/api";
+import { NotionIntegrationSection } from "../components/NotionIntegrationSection";
+import { Mem0IntegrationSection } from "../components/Mem0IntegrationSection";
+import { messageFromError } from "../components/ToastProvider";
 
 export default function SettingsPage() {
   const [keys, setKeys] = useState<ApiKeyInfo[]>([]);
@@ -52,8 +55,8 @@ export default function SettingsPage() {
       ]);
       setKeys(keysData);
       setScopes(scopesData);
-    } catch {
-      setError("Failed to load data.");
+    } catch (err) {
+      setError(`Couldn't load settings: ${messageFromError(err)}`);
     } finally {
       setLoading(false);
     }
@@ -73,16 +76,22 @@ export default function SettingsPage() {
       const result = await createApiKey(keyName || "Default", selectedScope);
       setNewKey(result.key);
       await loadData();
-    } catch {
-      setError("Failed to generate API key.");
+    } catch (err) {
+      setError(`Couldn't generate API key: ${messageFromError(err)}`);
     }
   };
 
   const handleCopy = async () => {
     if (newKey) {
-      await navigator.clipboard.writeText(newKey);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      try {
+        await navigator.clipboard.writeText(newKey);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch (err) {
+        setError(
+          `Couldn't copy — clipboard access denied. Copy the key manually: ${messageFromError(err)}`,
+        );
+      }
     }
   };
 
@@ -94,8 +103,8 @@ export default function SettingsPage() {
       setKeys((prev) => prev.filter((k) => k.id !== revokeTarget));
       setNewKey(null);
       setRevokeTarget(null);
-    } catch {
-      setError("Failed to revoke API key.");
+    } catch (err) {
+      setError(`Couldn't revoke API key: ${messageFromError(err)}`);
       setRevokeTarget(null);
     }
   };
@@ -109,9 +118,38 @@ export default function SettingsPage() {
         p: 3,
       }}
     >
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 3 }}>
-        <Typography variant="h6" sx={{ fontWeight: 600 }}>
+      <Box sx={{ mb: 3, maxWidth: 700, mx: "auto", width: "100%" }}>
+        <Typography
+          sx={{
+            fontFamily: '"JetBrains Mono", monospace',
+            fontSize: "0.64rem",
+            letterSpacing: "0.28em",
+            color: "text.secondary",
+          }}
+        >
+          WORKSPACE
+        </Typography>
+        <Typography
+          sx={{
+            fontFamily: '"Rubik", sans-serif',
+            fontWeight: 700,
+            fontSize: "1.75rem",
+            letterSpacing: "-0.02em",
+            lineHeight: 1.15,
+            mt: 0.5,
+          }}
+        >
           Settings
+        </Typography>
+        <Typography
+          sx={{
+            fontFamily: '"Rubik", sans-serif',
+            fontSize: "0.9rem",
+            color: "text.secondary",
+            mt: 0.75,
+          }}
+        >
+          Manage MCP keys, Notion sync, and workspace connections.
         </Typography>
       </Box>
 
@@ -194,7 +232,7 @@ export default function SettingsPage() {
                 }}
               >
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                  <KeyIcon sx={{ fontSize: 18, color: "#7c3aed" }} />
+                  <KeyIcon sx={{ fontSize: 18, color: "#FF2E93" }} />
                   <Typography variant="body2" sx={{ fontWeight: 500 }}>
                     {k.name}
                   </Typography>
@@ -264,6 +302,10 @@ export default function SettingsPage() {
           )}
         </Box>
 
+        <NotionIntegrationSection />
+
+        <Mem0IntegrationSection />
+
         {/* Card 2: MCP Configuration */}
         <Box
           sx={{
@@ -298,7 +340,7 @@ export default function SettingsPage() {
           >
             {`{
   "mcpServers": {
-    "agentic-rag": {
+    "kioku": {
       "type": "sse",
       "url": "http://localhost:8001/sse",
       "headers": {

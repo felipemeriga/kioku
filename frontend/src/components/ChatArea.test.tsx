@@ -16,7 +16,7 @@ const defaultProps = {
 describe("ChatArea", () => {
   it("renders empty state with suggestion chips when no messages", () => {
     renderWithProviders(<ChatArea {...defaultProps} />);
-    expect(screen.getByText("Agentic RAG")).toBeInTheDocument();
+    expect(screen.getByText("Ask your second brain.")).toBeInTheDocument();
     expect(screen.getByText("Summarize my documents")).toBeInTheDocument();
     expect(screen.getByText("What topics are covered?")).toBeInTheDocument();
   });

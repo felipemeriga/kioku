@@ -1,0 +1,15 @@
+# kioku redis — internal only (arq broker). No domain.
+services:
+  redis:
+    image: redis:7
+    pull_policy: always
+    container_name: kioku-redis
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    networks:
+      - kioku
+
+networks:
+  kioku:
+    external: true
+    name: kioku

@@ -18,17 +18,17 @@ vi.mock("../lib/supabase", () => ({
 describe("LoginPage", () => {
   it("renders sign in form by default", () => {
     renderWithProviders(<LoginPage />, { initialEntries: ["/login"] });
-    expect(screen.getByText("Agentic RAG")).toBeInTheDocument();
+    expect(screen.getByText("Kioku")).toBeInTheDocument();
     expect(screen.getByLabelText("Email")).toBeInTheDocument();
     expect(screen.getByLabelText("Password")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Sign In" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
   });
 
   it("toggles to sign up form", async () => {
     const user = userEvent.setup();
     renderWithProviders(<LoginPage />, { initialEntries: ["/login"] });
     await user.click(screen.getByText("Sign up"));
-    expect(screen.getByRole("button", { name: "Sign Up" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign up" })).toBeInTheDocument();
   });
 
   it("shows animated background", () => {

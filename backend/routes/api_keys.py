@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from auth import get_current_user
 from db.client import get_supabase
+from routes._validation import require_uuid
 from services.scope import validate_scope_folder
 
 router = APIRouter(prefix="/api/api-keys")
@@ -57,8 +58,16 @@ async def list_api_keys(
         if not row.get("scope_folder_id"):
             continue
         folder_name = "Unknown"
+        # Defensive user_id filter: audit found this lookup relied entirely on
+        # the api_keys row already being user-scoped, which is true today but
+        # fragile — any future refactor removing that guard would leak a
+        # folder name across users.
         folder = (
-            sb.table("folders").select("name").eq("id", row["scope_folder_id"]).limit(1).execute()
+            sb.table("folders").select("name")
+            .eq("id", row["scope_folder_id"])
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
         )
         if folder.data:
             folder_name = folder.data[0]["name"]
@@ -104,7 +113,12 @@ async def create_api_key(
     )
 
     row = result.data[0]
-    folder = sb.table("folders").select("name").eq("id", body.scope_folder_id).limit(1).execute()
+    # Defensive user_id filter (see comment on the list endpoint).
+    folder = (
+        sb.table("folders").select("name")
+        .eq("id", body.scope_folder_id).eq("user_id", user_id)
+        .limit(1).execute()
+    )
     folder_name = folder.data[0]["name"] if folder.data else "Unknown"
 
     return CreateKeyResponse(
@@ -123,6 +137,7 @@ async def revoke_api_key(
     user_id: str = Depends(get_current_user),
 ):
     """Revoke a specific API key by ID."""
+    require_uuid(key_id, "API key not found")
     sb = get_supabase()
     result = sb.table("api_keys").delete().eq("id", key_id).eq("user_id", user_id).execute()
     if not result.data:

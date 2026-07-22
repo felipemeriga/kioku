@@ -29,9 +29,9 @@ export default function ThinkingBar({ stage }: ThinkingBarProps) {
         px: 2,
         py: 1.25,
         mb: 2,
-        bgcolor: alpha("#7c3aed", 0.08),
+        bgcolor: alpha("#FF2E93", 0.08),
         border: 1,
-        borderColor: alpha("#7c3aed", 0.2),
+        borderColor: alpha("#FF2E93", 0.2),
         borderRadius: 2.5,
         animation: "fadeSlideIn 0.2s ease-out",
         "@keyframes fadeSlideIn": {
@@ -58,7 +58,7 @@ export default function ThinkingBar({ stage }: ThinkingBarProps) {
                 bgcolor: isCompleted
                   ? "#10b981"
                   : isActive
-                    ? "#7c3aed"
+                    ? "#FF2E93"
                     : alpha("#ffffff", 0.1),
                 ...(isActive && {
                   animation: "pulse 1.5s infinite",

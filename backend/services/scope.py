@@ -43,15 +43,18 @@ def resolve_root_folder_id(folder_id: str, user_id: str) -> str:
 
 
 def validate_scope_folder(scope_folder_id: str, user_id: str) -> None:
-    """Validate that a folder ID is a root folder belonging to the user.
+    """Validate that a folder ID belongs to the user. Root or sub-folder both OK.
 
-    Raises:
-        HTTPException: If folder is not a root folder or doesn't belong to user.
+    Sub-folder scoping is what lets Mem0 + GitHub integrations bind to
+    subprojects like 'personal/agentic-rag' — matches the relaxed validation
+    already applied to Mem0/GitHub configs.
+
+    Raises HTTPException if folder is missing or not owned by the user.
     """
     sb = get_supabase()
     result = (
         sb.table("folders")
-        .select("id, parent_id")
+        .select("id")
         .eq("id", scope_folder_id)
         .eq("user_id", user_id)
         .limit(1)
@@ -59,5 +62,3 @@ def validate_scope_folder(scope_folder_id: str, user_id: str) -> None:
     )
     if not result.data:
         raise HTTPException(status_code=404, detail="Scope folder not found")
-    if result.data[0]["parent_id"] is not None:
-        raise HTTPException(status_code=400, detail="Scope must be a root folder")

@@ -1,24 +1,149 @@
 import { supabase } from "./supabase";
 
+/**
+ * Structured API error. Every failing apiFetch throws one of these so callers
+ * can render a proper message ('userMessage') plus decide whether to retry
+ * based on 'status'. .toString() also returns userMessage so `String(e)`
+ * still produces something useful in legacy call sites.
+ */
+export class ApiError extends Error {
+  status: number;
+  detail: unknown;
+  isNetwork: boolean;
+  userMessage: string;
+
+  constructor(opts: {
+    status: number;
+    detail?: unknown;
+    userMessage: string;
+    isNetwork?: boolean;
+  }) {
+    super(opts.userMessage);
+    this.name = "ApiError";
+    this.status = opts.status;
+    this.detail = opts.detail;
+    this.isNetwork = opts.isNetwork ?? false;
+    this.userMessage = opts.userMessage;
+  }
+
+  toString() {
+    return this.userMessage;
+  }
+}
+
+// Convert whatever FastAPI put in `detail` (string, list of pydantic issues,
+// or a nested object) into a single human-readable line.
+function normalizeDetail(detail: unknown): string {
+  if (!detail) return "";
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    // FastAPI 422 shape: [{loc: [...], msg: "...", type: "..."}]
+    return detail
+      .map((d: unknown) => {
+        if (typeof d === "string") return d;
+        if (d && typeof d === "object" && "msg" in d) {
+          const m = d as { msg?: unknown; loc?: unknown[] };
+          const loc =
+            Array.isArray(m.loc) && m.loc.length > 0
+              ? `${m.loc.filter((x) => x !== "body").join(".")}: `
+              : "";
+          return `${loc}${String(m.msg)}`;
+        }
+        return JSON.stringify(d);
+      })
+      .join("; ");
+  }
+  if (typeof detail === "object") return JSON.stringify(detail);
+  return String(detail);
+}
+
+function friendlyForStatus(status: number, detail: string): string {
+  if (detail) return detail;
+  if (status === 0) return "Network error — could not reach the server.";
+  if (status === 401) return "Your session expired. Please sign in again.";
+  if (status === 403) return "You don't have permission to do that.";
+  if (status === 404) return "Not found.";
+  if (status === 409) return "That conflicts with existing data.";
+  if (status === 413) return "That file is too large.";
+  if (status === 422) return "The request was invalid.";
+  if (status === 429) return "Too many requests — try again shortly.";
+  if (status >= 500) return "The server hit an error. Please try again.";
+  return `Request failed (${status}).`;
+}
+
 export async function getAuthHeaders(): Promise<Record<string, string>> {
   const {
     data: { session },
   } = await supabase.auth.getSession();
-  if (!session) throw new Error("Not authenticated");
+  if (!session) {
+    throw new ApiError({
+      status: 401,
+      userMessage: "You're not signed in.",
+    });
+  }
   return {
     Authorization: `Bearer ${session.access_token}`,
     "Content-Type": "application/json",
   };
 }
 
+// One global place to react to 401s: sign the user out so ProtectedRoute
+// bounces them to /login instead of leaving them stuck with a broken session.
+async function handleAuthExpiry() {
+  try {
+    await supabase.auth.signOut();
+  } catch {
+    /* ignore */
+  }
+}
+
 export async function apiFetch(path: string, options: RequestInit = {}) {
-  const headers = await getAuthHeaders();
-  const response = await fetch(path, {
-    ...options,
-    headers: { ...headers, ...(options.headers as Record<string, string>) },
-  });
+  let response: Response;
+  try {
+    const headers = await getAuthHeaders();
+    response = await fetch(path, {
+      ...options,
+      headers: { ...headers, ...(options.headers as Record<string, string>) },
+    });
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    // TypeError from fetch = DNS/network/CORS. Distinguish from HTTP errors.
+    throw new ApiError({
+      status: 0,
+      isNetwork: true,
+      userMessage: "Network error — check your connection and try again.",
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
+
   if (!response.ok) {
-    throw new Error(`API error: ${response.status}`);
+    // Try to read the body. FastAPI returns JSON {detail: ...}, but a 500
+    // from an unhandled exception is text/plain.
+    let detail: unknown = undefined;
+    let detailStr = "";
+    const contentType = response.headers.get("content-type") || "";
+    try {
+      if (contentType.includes("application/json")) {
+        const body = await response.json();
+        detail = (body as { detail?: unknown })?.detail ?? body;
+      } else {
+        const text = await response.text();
+        detail = text;
+      }
+      detailStr = normalizeDetail(detail);
+    } catch {
+      /* body already consumed or malformed — leave detailStr empty */
+    }
+
+    if (response.status === 401) {
+      void handleAuthExpiry();
+    }
+
+    throw new ApiError({
+      status: response.status,
+      detail,
+      userMessage: friendlyForStatus(response.status, detailStr),
+    });
   }
   return response;
 }
@@ -42,6 +167,111 @@ export async function createConversation(): Promise<Conversation> {
 
 export async function deleteConversation(id: string): Promise<void> {
   await apiFetch(`/api/conversations/${id}`, { method: "DELETE" });
+}
+
+// ── Briefing (Phase 3+) ──────────────────────────────────────────────────
+
+export type BriefingSectionStatus = "auto" | "pinned" | "hybrid";
+export type BriefingProvenance = "auto" | "user_ui" | "agent_mcp";
+
+export interface BriefingSection<C = unknown> {
+  status: BriefingSectionStatus;
+  content: C;
+  provenance: BriefingProvenance;
+  updated_at: string;
+  updated_by: string | null;
+}
+
+/** Fixed section keys — order matters for stable rendering. */
+export const BRIEFING_SECTIONS = [
+  "overview",
+  "architecture",
+  "preferences",
+  "important_files",
+  "how_it_runs",
+  "deployment",
+  "dependencies",
+  "activity",
+] as const;
+export type BriefingSectionKey = (typeof BRIEFING_SECTIONS)[number];
+
+export interface BriefingResponse {
+  folder: { id: string; name: string; kind?: "folder" | "repo" };
+  schema_version: number;
+  sections: Record<BriefingSectionKey, BriefingSection>;
+  last_generated_at: string | null;
+}
+
+export async function fetchBriefing(
+  folderId: string
+): Promise<BriefingResponse> {
+  const res = await apiFetch(`/api/folders/${folderId}/briefing`);
+  return res.json();
+}
+
+export interface RepoDocumentation {
+  content: string;
+  abstract: string | null;
+  generated_at: string;
+}
+
+export async function fetchDocumentation(
+  folderId: string
+): Promise<{ documentation: RepoDocumentation | null }> {
+  const res = await apiFetch(`/api/folders/${folderId}/documentation`);
+  return res.json();
+}
+
+export async function updateBriefingSection(
+  folderId: string,
+  section: BriefingSectionKey,
+  content: unknown,
+  status: BriefingSectionStatus = "pinned",
+  updatedBy?: string
+): Promise<{ ok: boolean; section: BriefingSection }> {
+  const res = await apiFetch(
+    `/api/folders/${folderId}/briefing/section/${section}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ content, status, updated_by: updatedBy }),
+    }
+  );
+  return res.json();
+}
+
+export async function resetBriefingSection(
+  folderId: string,
+  section: BriefingSectionKey
+): Promise<{ ok: boolean; section: BriefingSection }> {
+  const res = await apiFetch(
+    `/api/folders/${folderId}/briefing/section/${section}/reset`,
+    {
+      method: "POST",
+    }
+  );
+  return res.json();
+}
+
+/** Clear the whole briefing + detailed doc for a repo folder so it
+ *  regenerates on the next `kioku init`. */
+export async function clearBriefing(
+  folderId: string
+): Promise<{ ok: boolean }> {
+  const res = await apiFetch(`/api/folders/${folderId}/briefing`, {
+    method: "DELETE",
+  });
+  return res.json();
+}
+
+export async function renameConversation(
+  id: string,
+  title: string
+): Promise<Conversation> {
+  const res = await apiFetch(`/api/conversations/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ title }),
+  });
+  return res.json();
 }
 
 export interface Message {
@@ -91,60 +321,148 @@ export async function streamChat(
   onDone: () => void,
   filters?: ChatFilters,
   onStage?: (event: StageEvent) => void,
-  fastMode?: boolean
+  fastMode?: boolean,
+  onError?: (err: ApiError) => void
 ): Promise<void> {
-  const headers = await getAuthHeaders();
-  const response = await fetch("/api/chat", {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      conversation_id: conversationId,
-      content,
-      topic: filters?.topic || null,
-      keyword: filters?.keyword || null,
-      fast_mode: fastMode ?? false,
-    }),
-  });
+  // A stream is "clean" only if it emits a data.done frame. Anything else —
+  // TCP drop, backend timeout, JSON parse loss — should raise, not silently
+  // close (which is how the previous code let broken responses pretend they
+  // finished successfully).
+  let headers: Record<string, string>;
+  try {
+    headers = await getAuthHeaders();
+  } catch (err) {
+    const e =
+      err instanceof ApiError
+        ? err
+        : new ApiError({
+            status: 401,
+            userMessage: "You're not signed in.",
+          });
+    onError?.(e);
+    throw e;
+  }
+
+  let response: Response;
+  try {
+    response = await fetch("/api/chat", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        conversation_id: conversationId,
+        content,
+        topic: filters?.topic || null,
+        keyword: filters?.keyword || null,
+        fast_mode: fastMode ?? false,
+      }),
+    });
+  } catch (err) {
+    const e = new ApiError({
+      status: 0,
+      isNetwork: true,
+      userMessage: "Network error — the chat request never reached the server.",
+      detail: err instanceof Error ? err.message : String(err),
+    });
+    onError?.(e);
+    throw e;
+  }
 
   if (!response.ok) {
-    throw new Error(`Chat error: ${response.status}`);
+    let detailStr = "";
+    try {
+      const body = await response.json();
+      detailStr = normalizeDetail(
+        (body as { detail?: unknown })?.detail ?? body
+      );
+    } catch {
+      /* non-JSON body */
+    }
+    if (response.status === 401) void handleAuthExpiry();
+    const e = new ApiError({
+      status: response.status,
+      userMessage: friendlyForStatus(response.status, detailStr),
+    });
+    onError?.(e);
+    throw e;
   }
 
   const reader = response.body?.getReader();
-  if (!reader) throw new Error("No response body");
+  if (!reader) {
+    const e = new ApiError({
+      status: 500,
+      userMessage: "The server returned an empty chat response.",
+    });
+    onError?.(e);
+    throw e;
+  }
 
   const decoder = new TextDecoder();
   let buffer = "";
+  let sawDone = false;
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
 
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() || "";
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
 
-    for (const line of lines) {
-      if (line.startsWith("data: ")) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        let data: any;
-        try {
-          data = JSON.parse(line.slice(6));
-        } catch {
-          continue;
-        }
-        if (data.done) {
-          onDone();
-          return;
-        }
-        if (data.stage && onStage) {
-          onStage({ stage: data.stage, docs: data.docs });
-        }
-        if (data.token) {
-          onToken(data.token);
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          let data: any;
+          try {
+            data = JSON.parse(line.slice(6));
+          } catch {
+            continue;
+          }
+          if (data.error) {
+            const e = new ApiError({
+              status: 500,
+              userMessage:
+                normalizeDetail(data.error) ||
+                "The model returned an error mid-response.",
+            });
+            onError?.(e);
+            throw e;
+          }
+          if (data.done) {
+            sawDone = true;
+            onDone();
+            return;
+          }
+          if (data.stage && onStage) {
+            onStage({ stage: data.stage, docs: data.docs });
+          }
+          if (data.token) {
+            onToken(data.token);
+          }
         }
       }
     }
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    const e = new ApiError({
+      status: 0,
+      isNetwork: true,
+      userMessage: "The chat connection dropped before the answer finished.",
+      detail: err instanceof Error ? err.message : String(err),
+    });
+    onError?.(e);
+    throw e;
+  }
+
+  // Stream closed cleanly BUT with no data.done — treat as a truncated response.
+  if (!sawDone) {
+    const e = new ApiError({
+      status: 0,
+      isNetwork: true,
+      userMessage: "The response ended before the answer was complete.",
+    });
+    onError?.(e);
+    throw e;
   }
   onDone();
 }
@@ -207,16 +525,40 @@ export async function uploadDocument(
   formData.append("file", file);
 
   const params = folderId ? `?folder_id=${folderId}` : "";
-  const response = await fetch(`/api/documents/upload${params}`, {
-    method: "POST",
-    headers: { Authorization },
-    body: formData,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`/api/documents/upload${params}`, {
+      method: "POST",
+      headers: { Authorization },
+      body: formData,
+    });
+  } catch (err) {
+    throw new ApiError({
+      status: 0,
+      isNetwork: true,
+      userMessage: `Network error while uploading “${file.name}”.`,
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
+
   if (!response.ok) {
-    const err = await response
-      .json()
-      .catch(() => ({ detail: "Upload failed" }));
-    throw new Error(err.detail || `Upload error: ${response.status}`);
+    let detailStr = "";
+    try {
+      const body = await response.json();
+      detailStr = normalizeDetail(
+        (body as { detail?: unknown })?.detail ?? body
+      );
+    } catch {
+      /* non-JSON */
+    }
+    if (response.status === 401) void handleAuthExpiry();
+    throw new ApiError({
+      status: response.status,
+      userMessage: friendlyForStatus(
+        response.status,
+        detailStr || `Upload failed for “${file.name}”.`
+      ),
+    });
   }
   return response.json();
 }
@@ -258,11 +600,17 @@ export interface Folder {
   parent_id: string | null;
   user_id: string;
   created_at: string;
+  /** Phase 1 of the second-brain reframe. 'repo' folders are bound to a
+   *  GitHub sync config and hold the strict 8-section briefing; 'folder'
+   *  is anything else. Server may omit before the migration lands — treat
+   *  missing as 'folder'. */
+  kind?: "folder" | "repo";
 }
 
 export interface Breadcrumb {
   id: string;
   name: string;
+  kind?: "folder" | "repo";
 }
 
 export async function fetchFolders(
@@ -295,8 +643,12 @@ export async function renameFolder(
   return res.json();
 }
 
-export async function deleteFolder(folderId: string): Promise<void> {
-  await apiFetch(`/api/folders/${folderId}`, { method: "DELETE" });
+export async function deleteFolder(
+  folderId: string,
+  deleteDocs: boolean = false
+): Promise<void> {
+  const q = deleteDocs ? "?delete_docs=true" : "";
+  await apiFetch(`/api/folders/${folderId}${q}`, { method: "DELETE" });
 }
 
 export async function fetchBreadcrumbs(
@@ -349,4 +701,332 @@ export async function revokeApiKey(keyId: string): Promise<void> {
 
 export async function fetchRootFolders(): Promise<Folder[]> {
   return fetchFolders(null);
+}
+
+// --- Notion Sync ---
+
+export interface NotionConfig {
+  id: string;
+  root_folder_id: string;
+  notion_page_id: string;
+  notion_page_title: string | null;
+  fast_poll_interval_min: number;
+  last_fast_sync_at: string | null;
+  last_full_sync_at: string | null;
+  last_error: string | null;
+}
+
+export interface NotionPageOption {
+  id: string;
+  title: string;
+}
+
+export interface IngestionJob {
+  id: string;
+  user_id: string;
+  kind: "upload" | "drop" | "notion_sync" | "notion_page";
+  source_ref: string;
+  parent_job_id: string | null;
+  root_folder_id: string | null;
+  status: "queued" | "running" | "completed" | "failed";
+  current_step: string | null;
+  total_batches: number;
+  processed_batches: number;
+  total_pages: number | null;
+  processed_pages: number | null;
+  error: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+export interface SyncNowResponse {
+  job_id: string;
+  already_running: boolean;
+}
+
+export async function fetchIngestionJob(jobId: string): Promise<IngestionJob> {
+  const res = await apiFetch(`/api/ingestion-jobs/${jobId}`);
+  return res.json();
+}
+
+export async function fetchActiveIngestionJobs(): Promise<IngestionJob[]> {
+  const res = await apiFetch("/api/ingestion-jobs");
+  return res.json();
+}
+
+export async function fetchNotionConfigs(): Promise<NotionConfig[]> {
+  const res = await apiFetch("/api/notion/configs");
+  return res.json();
+}
+
+export async function connectNotion(input: {
+  root_folder_id: string;
+  notion_page_id: string;
+  notion_page_title: string;
+  integration_token: string;
+  fast_poll_interval_min?: number;
+}): Promise<NotionConfig> {
+  const res = await apiFetch("/api/notion/configs", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return res.json();
+}
+
+export async function disconnectNotion(
+  configId: string,
+  deleteDocs: boolean
+): Promise<void> {
+  await apiFetch(`/api/notion/configs/${configId}?delete_docs=${deleteDocs}`, {
+    method: "DELETE",
+  });
+}
+
+export async function syncNotionNow(
+  configId: string
+): Promise<SyncNowResponse> {
+  const res = await apiFetch(`/api/notion/configs/${configId}/sync`, {
+    method: "POST",
+  });
+  return res.json();
+}
+
+export async function reconcileNotionNow(
+  configId: string
+): Promise<SyncNowResponse> {
+  const res = await apiFetch(`/api/notion/configs/${configId}/reconcile`, {
+    method: "POST",
+  });
+  return res.json();
+}
+
+export async function listNotionPages(
+  integrationToken: string,
+  query: string
+): Promise<NotionPageOption[]> {
+  const params = new URLSearchParams({
+    integration_token: integrationToken,
+    query,
+  });
+  const res = await apiFetch(`/api/notion/pages?${params.toString()}`);
+  return res.json();
+}
+
+// --- Mem0 memory (self-hosted, auto-on for repo folders — no connect step) ---
+
+/** Memory availability for a folder. Repo folders get memory automatically;
+ *  non-repo folders return { available:false, reason }. */
+export interface Mem0Status {
+  available: boolean; // true → this is a repo folder, memory is on
+  healthy?: boolean; // is the self-hosted mem0 service reachable
+  error?: string | null;
+  reason?: string; // when unavailable, e.g. "not a repo folder"
+}
+
+export async function fetchMem0Status(
+  rootFolderId: string
+): Promise<Mem0Status> {
+  const res = await apiFetch(
+    `/api/mem0/status?root_folder_id=${encodeURIComponent(rootFolderId)}`
+  );
+  return res.json();
+}
+
+export type MemoryScope = "eternal" | "episodic";
+export type MemoryCategory =
+  | "decision"
+  | "finding"
+  | "issue"
+  | "preference"
+  | "session"
+  | "note";
+
+export interface MemoryRecord {
+  id: string;
+  content: string;
+  scope: MemoryScope | null;
+  category: MemoryCategory | null;
+  tags: string[];
+  written_by: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+/** Raw record shape the mem0 service returns (content in `memory`, the rest in
+ *  `metadata`). Normalized to MemoryRecord below. */
+interface RawMemory {
+  id: string;
+  memory?: string;
+  metadata?: {
+    scope?: MemoryScope;
+    category?: MemoryCategory;
+    tags?: string[];
+    written_by?: string;
+  } | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+function normalizeMemory(r: RawMemory): MemoryRecord {
+  const md = r.metadata ?? {};
+  return {
+    id: r.id,
+    content: r.memory ?? "",
+    scope: md.scope ?? null,
+    category: md.category ?? null,
+    tags: md.tags ?? [],
+    written_by: md.written_by ?? null,
+    created_at: r.created_at ?? null,
+    updated_at: r.updated_at ?? null,
+  };
+}
+
+/** All memories for a repo folder — eternal rules + recent episodic, combined. */
+export async function listFolderMemories(
+  rootFolderId: string,
+  opts: { scope?: "any" | MemoryScope; limit?: number } = {}
+): Promise<{ folder_id: string; memories: MemoryRecord[] }> {
+  const scope = opts.scope ?? "any";
+  const limit = opts.limit ?? 200;
+  const q = `root_folder_id=${encodeURIComponent(rootFolderId)}`;
+  const memories: MemoryRecord[] = [];
+  if (scope === "any" || scope === "eternal") {
+    const res = await apiFetch(`/api/mem0/memories/rules?${q}`);
+    const j = (await res.json()) as { rules?: RawMemory[] };
+    memories.push(...(j.rules ?? []).map(normalizeMemory));
+  }
+  if (scope === "any" || scope === "episodic") {
+    const res = await apiFetch(`/api/mem0/memories/recent?${q}&limit=${limit}`);
+    const j = (await res.json()) as { memories?: RawMemory[] };
+    memories.push(...(j.memories ?? []).map(normalizeMemory));
+  }
+  return { folder_id: rootFolderId, memories };
+}
+
+export async function deleteFolderMemory(
+  rootFolderId: string,
+  memoryId: string
+): Promise<void> {
+  await apiFetch(
+    `/api/mem0/memories/${memoryId}?root_folder_id=${encodeURIComponent(
+      rootFolderId
+    )}`,
+    { method: "DELETE" }
+  );
+}
+
+export async function addFolderMemory(input: {
+  root_folder_id: string;
+  content: string;
+  category: MemoryCategory;
+  scope?: MemoryScope;
+  tags?: string[];
+  written_by?: string;
+}): Promise<{
+  ok: boolean;
+  duplicate?: boolean;
+  existing_id?: string;
+  metadata: Record<string, unknown>;
+}> {
+  const res = await apiFetch("/api/mem0/memories", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return res.json();
+}
+
+export type ViewableAs =
+  | "markdown"
+  | "image"
+  | "pdf"
+  | "audio"
+  | "video"
+  | "code"
+  | "text";
+
+export interface DocumentContent {
+  source_filename: string;
+  source_type: string | null;
+  metadata: Record<string, unknown>;
+  chunk_count: number;
+  folder_id: string | null;
+  status: string | null;
+  created_at: string | null;
+  content: string;
+  viewable_as: ViewableAs;
+  /** Short-lived signed URL (15 min) to view the original file inline. */
+  file_url: string | null;
+  bucket: string | null;
+}
+
+export async function fetchDocumentContent(
+  filename: string,
+  folderId?: string
+): Promise<DocumentContent> {
+  const params = folderId ? `?folder_id=${folderId}` : "";
+  const res = await apiFetch(
+    `/api/documents/${encodeURIComponent(filename)}/content${params}`
+  );
+  return res.json();
+}
+
+export interface GitHubRepoOption {
+  owner: string;
+  name: string;
+  full_name: string;
+  private: boolean;
+  description: string;
+  pushed_at: string | null;
+  url: string | null;
+}
+
+export async function listGitHubRepos(
+  token: string
+): Promise<GitHubRepoOption[]> {
+  const res = await apiFetch("/api/github/repos", {
+    method: "POST",
+    body: JSON.stringify({ token }),
+  });
+  return res.json();
+}
+
+// ── CLI browser-handoff login ────────────────────────────────────────────
+export interface DeviceInfo {
+  hostname: string | null;
+  os: string | null;
+  valid: boolean;
+  expired: boolean;
+}
+
+export async function deviceInfo(req: string): Promise<DeviceInfo> {
+  // Unauthenticated read — do not use apiFetch (which requires a session).
+  const res = await fetch(
+    `/api/cli/auth/device/info?req=${encodeURIComponent(req)}`
+  );
+  if (!res.ok) throw new Error(`device info failed: ${res.status}`);
+  return res.json();
+}
+
+export async function deviceComplete(requestId: string): Promise<void> {
+  // The backend takes access_token + user id from the verified bearer;
+  // we pass the rest of the session so the CLI receives a full config.
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  await apiFetch("/api/cli/auth/device/complete", {
+    method: "POST",
+    body: JSON.stringify({
+      request_id: requestId,
+      refresh_token: session?.refresh_token ?? null,
+      expires_at: session?.expires_at ?? null,
+      email: session?.user?.email ?? null,
+    }),
+  });
+}
+
+export async function deviceDeny(requestId: string): Promise<void> {
+  await apiFetch("/api/cli/auth/device/deny", {
+    method: "POST",
+    body: JSON.stringify({ request_id: requestId }),
+  });
 }

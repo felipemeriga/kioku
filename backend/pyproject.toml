@@ -5,7 +5,10 @@ description = "Add your description here"
 requires-python = ">=3.10.0"
 dependencies = [
     "anthropic>=0.84.0",
+    "arq>=0.26.0",
+    "cryptography>=43.0.0",
     "docling>=2.78.0",
+    "notion-client>=2.2.1",
     "fastapi[standard]>=0.135.1",
     "pyjwt[crypto]>=2.11.0",
     "python-dotenv>=1.2.2",
@@ -20,6 +23,7 @@ dependencies = [
     "torch>=2.0.0",
     "torchvision>=0.15.0",
     "pyyaml>=6.0.3",
+    "mem0ai>=2.0.11",
 ]
 
 [tool.uv]
@@ -36,7 +40,11 @@ triton = { index = "pytorch-cpu" }
 
 [dependency-groups]
 dev = [
+    "fakeredis>=2.36.2",
+    "pillow>=12.1.1",
     "pytest>=9.0.3",
+    "pytest-asyncio>=1.4.0",
+    "reportlab>=5.0.0",
     "ruff>=0.15.5",
 ]
 

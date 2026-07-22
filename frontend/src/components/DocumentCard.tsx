@@ -43,7 +43,7 @@ const FILE_ICONS: Record<string, { icon: React.ReactNode; color: string }> = {
 
 const STATUS_COLORS: Record<string, string> = {
   completed: "#10b981",
-  processing: "#7c3aed",
+  processing: "#FF2E93",
   failed: "#ef4444",
 };
 
@@ -122,19 +122,19 @@ export default function DocumentCard({
           borderRadius: 3,
           bgcolor: alpha("#1e1e2e", 0.6),
           border: 1,
-          borderColor: selected ? alpha("#7c3aed", 0.5) : alpha("#ffffff", 0.06),
+          borderColor: selected ? alpha("#FF2E93", 0.5) : alpha("#ffffff", 0.06),
           backdropFilter: "blur(10px)",
           WebkitBackdropFilter: "blur(10px)",
           transition: "all 0.2s ease",
           position: "relative",
           cursor: "context-menu",
           ...(selected && {
-            bgcolor: alpha("#7c3aed", 0.08),
-            boxShadow: `0 0 0 1px ${alpha("#7c3aed", 0.3)}`,
+            bgcolor: alpha("#FF2E93", 0.08),
+            boxShadow: `0 0 0 1px ${alpha("#FF2E93", 0.3)}`,
           }),
           "&:hover": {
-            bgcolor: selected ? alpha("#7c3aed", 0.12) : alpha("#1e1e2e", 0.8),
-            borderColor: selected ? alpha("#7c3aed", 0.5) : alpha("#ffffff", 0.1),
+            bgcolor: selected ? alpha("#FF2E93", 0.12) : alpha("#1e1e2e", 0.8),
+            borderColor: selected ? alpha("#FF2E93", 0.5) : alpha("#ffffff", 0.1),
             "& .doc-actions": { opacity: 1 },
             "& .doc-checkbox": { opacity: 1 },
           },
@@ -183,8 +183,8 @@ export default function DocumentCard({
                 opacity: selected ? 1 : 0,
                 transition: "opacity 0.15s",
                 p: 0,
-                color: alpha("#7c3aed", 0.5),
-                "&.Mui-checked": { color: "#7c3aed" },
+                color: alpha("#FF2E93", 0.5),
+                "&.Mui-checked": { color: "#FF2E93" },
               }}
             />
           )}

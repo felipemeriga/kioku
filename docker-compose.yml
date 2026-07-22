@@ -1,4 +1,18 @@
 services:
+  mem0:
+    build:
+      context: ./mem0-service
+      dockerfile: Dockerfile
+    environment:
+      - MEM0_DATABASE_URL          # same Postgres as the app; store pins search_path=mem0
+      - MEM0_SERVICE_TOKEN
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,os;urllib.request.urlopen(urllib.request.Request('http://localhost:8010/health',headers={'Authorization':'Bearer '+os.environ['MEM0_SERVICE_TOKEN']}))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   backend:
     build:
       context: ./backend
@@ -12,7 +26,11 @@ services:
       - SUPABASE_URL
       - SUPABASE_SERVICE_KEY
       - SUPABASE_JWT_SECRET
+      - MEM0_SERVICE_URL=http://mem0:8010
+      - MEM0_SERVICE_TOKEN
     restart: unless-stopped
+    depends_on:
+      - mem0
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
       interval: 30s
@@ -31,7 +49,11 @@ services:
       - SUPABASE_URL
       - SUPABASE_SERVICE_KEY
       - MCP_API_KEY
+      - MEM0_SERVICE_URL=http://mem0:8010
+      - MEM0_SERVICE_TOKEN
     restart: unless-stopped
+    depends_on:
+      - mem0
 
   frontend:
     build:

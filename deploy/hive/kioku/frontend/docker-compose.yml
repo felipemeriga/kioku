@@ -1,0 +1,25 @@
+# kioku web UI at kioku.${DOMAIN}. nginx proxies /api -> http://backend:8000
+# (the `backend` alias lives on the kioku network, provided by the backend svc).
+services:
+  frontend:
+    image: felipemeriga1/kioku-frontend:latest
+    pull_policy: always
+    container_name: kioku-frontend
+    restart: unless-stopped
+    networks:
+      - kioku
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.kioku-web.rule=Host(`kioku.${DOMAIN}`)"
+      - "traefik.http.routers.kioku-web.entrypoints=websecure"
+      - "traefik.http.routers.kioku-web.tls.certresolver=letsencrypt"
+      - "traefik.http.services.kioku-web.loadbalancer.server.port=80"
+
+networks:
+  kioku:
+    external: true
+    name: kioku
+  proxy:
+    external: true
+    name: proxy
