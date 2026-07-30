@@ -2,7 +2,7 @@
  * CLI config storage — ~/.config/kioku/config.json (0600).
  *
  * Stores:
- *   - api_base:      backend URL (default http://localhost:8000)
+ *   - api_base:      backend URL (default https://kioku.api.merigafy.com)
  *   - access_token:  Supabase user JWT (short-lived, ~1h)
  *   - refresh_token: for silent renewal
  *   - user_id, email
@@ -36,7 +36,7 @@ const DEFAULT_API_BASE = "https://kioku.api.merigafy.com";
  *
  *   1. KIOKU_API_BASE env var — set by --api-base flag or shell
  *   2. api_base persisted in ~/.config/kioku/config.json
- *   3. DEFAULT_API_BASE (localhost:8000)
+ *   3. DEFAULT_API_BASE (kioku.api.merigafy.com)
  *
  * Previously the config-file value ALWAYS won over the env var, which
  * defeated the whole purpose of --api-base as an override.
