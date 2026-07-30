@@ -21,6 +21,7 @@ services:
       - MEM0_SERVICE_TOKEN=${KIOKU_MEM0_SERVICE_TOKEN}
       - REDIS_URL=redis://kioku-redis:6379/0
       - MCP_PUBLIC_URL=https://kioku.mcp.${DOMAIN}/sse
+      - FRONTEND_URL=https://kioku.${DOMAIN}
     networks:
       kioku:
         aliases:
