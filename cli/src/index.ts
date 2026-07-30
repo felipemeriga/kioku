@@ -20,7 +20,7 @@ import { banner, printError } from "./lib/banner.js";
 import { readConfig } from "./lib/config.js";
 import { checkForUpdate } from "./lib/update-check.js";
 
-const VERSION = "0.1.1";
+const VERSION = "0.1.2";
 
 // Verbose --version — intercept before commander shows the plain number.
 if (process.argv.includes("-V") || process.argv.includes("--version")) {
