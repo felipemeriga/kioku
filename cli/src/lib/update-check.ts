@@ -10,7 +10,7 @@ import { join } from "node:path";
 import kleur from "kleur";
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const PKG_NAME = "kioku";
+const PKG_NAME = "@felipemeriga/kioku";
 
 interface Cache {
   checked_at: number;
@@ -58,7 +58,7 @@ export async function checkForUpdate(currentVersion: string): Promise<void> {
   try {
     const ctrl = new AbortController();
     const timeout = setTimeout(() => ctrl.abort(), 2000);
-    const res = await fetch(`https://registry.npmjs.org/${PKG_NAME}/latest`, {
+    const res = await fetch(`https://registry.npmjs.org/${encodeURIComponent(PKG_NAME)}/latest`, {
       signal: ctrl.signal,
       headers: { Accept: "application/json" },
     });
