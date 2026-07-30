@@ -20,7 +20,7 @@ services:
       - MEM0_SERVICE_URL=http://kioku-mem0:8010
       - MEM0_SERVICE_TOKEN=${KIOKU_MEM0_SERVICE_TOKEN}
       - REDIS_URL=redis://kioku-redis:6379/0
-      - MCP_PUBLIC_URL=https://mcp.${DOMAIN}/sse
+      - MCP_PUBLIC_URL=https://kioku.mcp.${DOMAIN}/sse
     networks:
       kioku:
         aliases:
@@ -28,7 +28,7 @@ services:
       proxy: {}
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.kioku-api.rule=Host(`api.${DOMAIN}`)"
+      - "traefik.http.routers.kioku-api.rule=Host(`kioku.api.${DOMAIN}`)"
       - "traefik.http.routers.kioku-api.entrypoints=websecure"
       - "traefik.http.routers.kioku-api.tls.certresolver=letsencrypt"
       - "traefik.http.services.kioku-api.loadbalancer.server.port=8000"
