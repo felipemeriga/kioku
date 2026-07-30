@@ -8,6 +8,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { mcpUrlToRestBase } from "../lib/urls.js";
 
 async function fetchJson(url: string, headers: Record<string, string>) {
   const res = await fetch(url, { headers });
@@ -99,9 +100,9 @@ export async function sessionStart(): Promise<void> {
   }
   if (!apiKey || !mcpUrl) return;
 
-  // Derive the REST API base from the MCP URL (same host, port 8000 → 8000).
-  // Convention: MCP is at /sse; REST is at /api on the same base.
-  const base = new URL(mcpUrl).origin.replace(/:8001$/, ":8000");
+  // Derive the REST API base from the MCP URL (dev ports + prod subdomains).
+  // Convention: MCP is at /sse; REST is at /api on the derived base.
+  const base = mcpUrlToRestBase(mcpUrl);
 
   // The CLI's session-start uses the api-key against a lightweight REST
   // endpoint that returns exactly what the coding agent needs, without

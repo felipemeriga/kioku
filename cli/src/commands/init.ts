@@ -12,6 +12,7 @@ import {
 } from "../lib/api.js";
 import { isLoggedIn } from "../lib/config.js";
 import { detectGit, headSha } from "../lib/git.js";
+import { mcpUrlToRestBase } from "../lib/urls.js";
 import {
   graphIndex,
   graphifyAvailable,
@@ -408,7 +409,7 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
   // value for this very first session, which is exactly when you want the
   // briefing ready.
   try {
-    const restBase = new URL(mcpEntry.url).origin.replace(/:8001$/, ":8000");
+    const restBase = mcpUrlToRestBase(mcpEntry.url);
     const res = await fetch(
       `${restBase}/api/cli/folder-summary?folder_id=${encodeURIComponent(
         repoFolder.id

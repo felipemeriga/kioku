@@ -10,6 +10,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { readConfig } from "../lib/config.js";
+import { restBaseToWebUrl } from "../lib/urls.js";
 import { info, warn } from "../lib/banner.js";
 
 interface Opts {
@@ -52,27 +53,15 @@ export async function openCmd(target: string | undefined, opts: Opts): Promise<v
 }
 
 /**
- * Convert an API base URL into a best-guess web UI URL.
- *   http://localhost:8000       → http://localhost:5173
- *   https://api.example.com     → https://app.example.com (best-effort)
- *   otherwise passthrough
+ * Convert an API base URL into the web UI URL (KIOKU_WEB_URL overrides).
+ *   http://localhost:8000        → http://localhost:5174
+ *   https://kioku.api.merigafy.com → https://kioku.merigafy.com
  */
 function deriveWebUrl(apiBase: string): string {
   const override = process.env.KIOKU_WEB_URL;
   if (override) return override.replace(/\/$/, "");
-
-  // Localhost convention: our vite dev server runs on 5173 (or 5174 in this repo).
-  if (/localhost:8000/.test(apiBase)) {
-    return apiBase.replace("8000", "5174");
-  }
-  // 'api.example.com' → 'app.example.com'
-  const url = new URL(apiBase);
-  if (url.host.startsWith("api.")) {
-    url.host = "app." + url.host.slice(4);
-    return url.origin;
-  }
-  // Fall back to same host
-  return url.origin;
+  // dev: :8000 → :5174 · prod: <s>.api.<domain> → <s>.<domain>
+  return restBaseToWebUrl(apiBase);
 }
 
 function tryOpenBrowser(url: string): void {

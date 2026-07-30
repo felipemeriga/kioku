@@ -16,6 +16,7 @@ import {
   appendFileSync,
 } from "node:fs";
 import { join, resolve, dirname } from "node:path";
+import { mcpUrlToRestBase } from "../lib/urls.js";
 
 const MIN_TIME_BETWEEN_CAPTURES_MS = 10 * 60 * 1000; // 10 minutes
 const MIN_TURNS_BETWEEN_CAPTURES = 5;
@@ -192,8 +193,8 @@ export async function capture(): Promise<void> {
     return;
   }
 
-  // Derive REST base from SSE URL (same host, port 8001 → 8000 in dev).
-  const base = new URL(mcp.sseUrl).origin.replace(/:8001$/, ":8000");
+  // Derive REST base from the MCP SSE URL (handles dev ports + prod subdomains).
+  const base = mcpUrlToRestBase(mcp.sseUrl);
 
   const transcriptPath = hook.transcript_path;
   if (!transcriptPath) {
