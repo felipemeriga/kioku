@@ -11,6 +11,7 @@ services:
       - proxy
     labels:
       - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
       - "traefik.http.routers.kioku-web.rule=Host(`kioku.${DOMAIN}`)"
       - "traefik.http.routers.kioku-web.entrypoints=websecure"
       - "traefik.http.routers.kioku-web.tls.certresolver=letsencrypt"
