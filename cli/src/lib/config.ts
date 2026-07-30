@@ -25,7 +25,9 @@ export interface CliConfig {
   email?: string;
 }
 
-const DEFAULT_API_BASE = "http://localhost:8000";
+// Production instance. Local dev overrides via KIOKU_API_BASE / --api-base
+// (or a persisted api_base in ~/.config/kioku/config.json).
+const DEFAULT_API_BASE = "https://kioku.api.merigafy.com";
 
 /**
  * Resolve the API base URL with clear precedence, evaluated LAZILY so

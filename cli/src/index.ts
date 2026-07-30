@@ -17,6 +17,7 @@ import { sessionStart } from "./commands/session-start.js";
 import { status } from "./commands/status.js";
 import { whoami } from "./commands/whoami.js";
 import { banner, printError } from "./lib/banner.js";
+import { readConfig } from "./lib/config.js";
 import { checkForUpdate } from "./lib/update-check.js";
 
 const VERSION = "0.1.0";
@@ -30,8 +31,7 @@ if (process.argv.includes("-V") || process.argv.includes("--version")) {
   console.log(`  node       ${process.version}`);
   console.log(`  platform   ${process.platform}-${process.arch}`);
   console.log(`  config     ${cfgPath}`);
-  const apiBase = process.env.KIOKU_API_BASE || "http://localhost:8000";
-  console.log(`  api base   ${apiBase}`);
+  console.log(`  api base   ${readConfig().api_base}`);
   process.exit(0);
 }
 
@@ -64,7 +64,7 @@ Examples:
   $ kioku doctor                     # diagnose any issues
 
 Environment:
-  KIOKU_API_BASE   Backend REST URL (default: http://localhost:8000)
+  KIOKU_API_BASE   Backend REST URL (default: https://kioku.api.merigafy.com)
   KIOKU_MCP_URL    MCP SSE URL (default: derived from API base)
   KIOKU_DEBUG      Verbose logging for hooks and errors
   NO_COLOR               Disable ANSI colors
