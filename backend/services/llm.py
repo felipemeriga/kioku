@@ -35,15 +35,29 @@ MODEL_FOR_TASK: dict[Task, str] = {
 }
 
 
+def _tracing_enabled() -> bool:
+    """True only when LangSmith tracing is explicitly turned on."""
+    return os.getenv("LANGSMITH_TRACING", "").lower() in ("1", "true", "yes") or (
+        os.getenv("LANGCHAIN_TRACING_V2", "").lower() in ("1", "true", "yes")
+    )
+
+
 @cache
 def get_client() -> anthropic.Anthropic:
-    """Lazy singleton Anthropic client, LangSmith-wrapped for tracing."""
-    return wrap_anthropic(
-        anthropic.Anthropic(
-            api_key=os.environ["ANTHROPIC_API_KEY"],
-            timeout=60.0,
-        )
+    """Lazy singleton Anthropic client.
+
+    LangSmith's ``wrap_anthropic`` (0.7.x) crashes the streaming path with
+    anthropic >=0.84 — its ``_text_stream`` raises ``AttributeError: 'NoneType'
+    object has no attribute 'outputs'`` mid-stream, which kills the SSE chat
+    response before completion. Only apply the wrapper when tracing is actually
+    enabled; otherwise use the raw client. (Re-enabling tracing needs a langsmith
+    upgrade compatible with the current anthropic SDK.)
+    """
+    client = anthropic.Anthropic(
+        api_key=os.environ["ANTHROPIC_API_KEY"],
+        timeout=60.0,
     )
+    return wrap_anthropic(client) if _tracing_enabled() else client
 
 
 def _build_kwargs(
