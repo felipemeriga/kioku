@@ -5,7 +5,7 @@ WORKDIR /app
 # default CUDA torch (~5-6GB of nvidia-* wheels) this service never uses — it
 # only does CPU inference on all-MiniLM-L6-v2. Pre-installing the CPU build
 # satisfies the torch requirement so the requirements install won't pull CUDA.
-RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch==2.13.0
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

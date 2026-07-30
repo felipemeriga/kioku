@@ -1,7 +1,13 @@
 fastapi==0.115.*
 uvicorn[standard]==0.32.*
 mem0ai==2.0.11
-sentence-transformers==3.*
+# Pin the ML stack to the verified-good combo. Unpinned, a rebuild pulled
+# transformers 4.57 which inits models on the meta device and needs accelerate
+# to materialize the weights — without it the embedder died with
+# "Cannot copy out of meta tensor" and every memory write 500'd.
+sentence-transformers==3.4.1
+transformers==4.57.6
+accelerate==1.14.0
 psycopg[binary,pool]==3.*
 pgvector==0.3.*
 pydantic==2.*
