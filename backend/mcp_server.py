@@ -644,6 +644,58 @@ def delete_document(filename: str, folder: str | None = None) -> str:
 
 
 @mcp.tool()
+def add_document(filename: str, content: str, folder: str | None = None) -> str:
+    """Create a NEW document in the knowledge base from the given text — chunks
+    and embeds it so it's immediately searchable.
+
+    Use to capture durable reference material discovered in a session (a design
+    write-up, an API's behavior, a runbook). For a file that already exists,
+    use update_document instead — this refuses to overwrite.
+
+    Args:
+        filename: a name for the document, e.g. 'nvdec-limits.md'.
+        content: the full document text (markdown or plain text).
+        folder: optional sub-folder to store it in. Omit for the current scope.
+    """
+    if not _current_user_id.get():
+        return "Error: Not authenticated."
+    if not content or not content.strip():
+        return "Error: content is empty — nothing to store."
+    sb = get_supabase()
+    user_id = _current_user_id.get()
+    scope_id = _current_scope_folder_id.get()
+    if folder:
+        target_folder, name = resolve_focus_folder(sb, scope_id, user_id, folder)
+        if not target_folder:
+            return f"Error: {name}"
+    else:
+        target_folder = scope_id
+    if not target_folder:
+        return "Error: no scope folder to store the document in."
+    # Guard against silently overwriting an existing file in the same folder.
+    existing = (
+        sb.table("documents")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("source_filename", filename)
+        .eq("folder_id", target_folder)
+        .limit(1)
+        .execute()
+    ).data
+    if existing:
+        return (
+            f"A document named '{filename}' already exists here. "
+            "Use update_document to replace its content."
+        )
+    from services.ingestion import replace_document
+
+    res = replace_document(content, filename, user_id, folder_id=target_folder)
+    if not res["chunks"]:
+        return f"No content to store for '{filename}'."
+    return f"Created '{filename}': {res['chunks']} chunks embedded in {folder or 'the current scope'}."
+
+
+@mcp.tool()
 def save_note(title: str, content: str) -> str:
     """Save a structured note (decision, learning, observation) to the knowledge base.
 
