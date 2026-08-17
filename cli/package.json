@@ -41,7 +41,8 @@
     "boxen": "^7.1.1",
     "cli-table3": "^0.6.5",
     "commander": "^12.1.0",
-    "kleur": "^4.1.5"
+    "kleur": "^4.1.5",
+    "smol-toml": "^1.8.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

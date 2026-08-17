@@ -17,8 +17,8 @@ import {
 import { join, dirname, isAbsolute } from "node:path";
 import { execFileSync } from "node:child_process";
 
-const MARKER_BEGIN = "<!-- BEGIN kioku second-brain instructions -->";
-const MARKER_END = "<!-- END kioku second-brain instructions -->";
+export const MARKER_BEGIN = "<!-- BEGIN kioku second-brain instructions -->";
+export const MARKER_END = "<!-- END kioku second-brain instructions -->";
 
 // ── .mcp.json ─────────────────────────────────────────────────────
 
@@ -85,13 +85,13 @@ interface ClaudeSettings {
 // PATH — Claude Code runs hooks via /bin/sh and git runs its hooks via sh too,
 // neither of which loads the user's interactive PATH. A bare `kioku` fails there
 // whenever kioku is installed under nvm.
-const SUB_SESSION_START = "session-start";
-const SUB_STOP = "capture";
+export const SUB_SESSION_START = "session-start";
+export const SUB_STOP = "capture";
 const SUB_POST_PUSH = "on-push";
 const SUB_INDEX = "index";
 
 /** Single-quote a path for /bin/sh. */
-function shQuote(s: string): string {
+export function shQuote(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
 }
 
@@ -100,7 +100,7 @@ function shQuote(s: string): string {
  *  to bare `kioku` only if the entry script can't be resolved (very unusual).
  *  Note: pinned to the current node install path; re-run `kioku init` after
  *  switching node versions (e.g. `nvm install`) to refresh it. */
-function cliInvocation(): string {
+export function cliInvocation(): string {
   const argv1 = process.argv[1];
   if (!argv1) return "kioku"; // no entry script (unusual) — best-effort bare
   let entry = argv1;
@@ -232,7 +232,13 @@ function installHook(
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   const path = join(dir, "settings.local.json");
   const settings = loadSettings(path);
-  const added = ensureHook(settings, event, hookCommand(subcommand), subcommand, matcher);
+  const added = ensureHook(
+    settings,
+    event,
+    hookCommand(subcommand),
+    subcommand,
+    matcher
+  );
   writeFileSync(path, JSON.stringify(settings, null, 2) + "\n");
   // Migration: strip any old copy from the committed settings.json.
   removeHookFromFile(join(dir, "settings.json"), event, subcommand);
@@ -446,9 +452,25 @@ export function stampLastSessionAt(repoRoot: string, iso: string): void {
   );
 }
 
-// ── CLAUDE.md snippet ────────────────────────────────────────────
+// ── CLAUDE.md / AGENTS.md snippet ─────────────────────────────────
+//
+// The instructional block is agent-neutral except for two sentences about
+// which hooks are wired. `secondBrainSnippet` builds it for a given agent so
+// CLAUDE.md and AGENTS.md share one source of truth.
 
-const CLAUDE_MD_SNIPPET = `${MARKER_BEGIN}
+/** Build the fenced second-brain instructions block. `pushHook` toggles the
+ *  sentence about the git-push activity-refresh hook, which only the Claude
+ *  Code surface installs (Codex wires just SessionStart + Stop). */
+export function secondBrainSnippet(opts: { pushHook: boolean }): string {
+  const pushLine = opts.pushHook
+    ? `After a \`git push\`, a PostToolUse hook asks you to refresh this repo's
+\`activity\` briefing from the newly-pushed commits (via
+\`update_folder_briefing_section\`) so the web UI stays current — just
+follow the injected instruction when you see it.
+
+`
+    : "";
+  return `${MARKER_BEGIN}
 
 ## Kioku second-brain
 
@@ -462,12 +484,7 @@ minutes or every 5 assistant turns (whichever comes first), the Stop
 hook automatically distills recent turns into Mem0 — preferences,
 findings, decisions, issues, and session summaries.
 
-After a \`git push\`, a PostToolUse hook asks you to refresh this repo's
-\`activity\` briefing from the newly-pushed commits (via
-\`update_folder_briefing_section\`) so the web UI stays current — just
-follow the injected instruction when you see it.
-
-If you want to reload the briefing manually:
+${pushLine}If you want to reload the briefing manually:
 
 - \`get_folder_briefing()\` — 9-section briefing for this repo
   (overview, architecture, preferences, important_files, how_it_runs,
@@ -527,14 +544,18 @@ briefing and the detailed doc, so it spans the whole ecosystem, not just code.
 
 ${MARKER_END}
 `;
+}
 
-export function updateClaudeMd(repoRoot: string): {
-  path: string;
-  action: "created" | "appended" | "updated";
-} {
-  const path = join(repoRoot, "CLAUDE.md");
+const CLAUDE_MD_SNIPPET = secondBrainSnippet({ pushHook: true });
+
+/** Idempotently write a fenced snippet into a markdown file — create it, update
+ *  the existing block in place, or append. Shared by CLAUDE.md and AGENTS.md. */
+export function upsertMarkdownSnippet(
+  path: string,
+  snippet: string
+): { path: string; action: "created" | "appended" | "updated" } {
   if (!existsSync(path)) {
-    writeFileSync(path, CLAUDE_MD_SNIPPET);
+    writeFileSync(path, snippet);
     return { path, action: "created" };
   }
   const existing = readFileSync(path, "utf8");
@@ -544,13 +565,20 @@ export function updateClaudeMd(repoRoot: string): {
     const after = existing.slice(
       existing.indexOf(MARKER_END) + MARKER_END.length
     );
-    writeFileSync(path, before + CLAUDE_MD_SNIPPET + after);
+    writeFileSync(path, before + snippet + after);
     return { path, action: "updated" };
   }
   // Append — preserve any trailing newlines the user already has.
   const sep = existing.endsWith("\n") ? "\n" : "\n\n";
-  writeFileSync(path, existing + sep + CLAUDE_MD_SNIPPET);
+  writeFileSync(path, existing + sep + snippet);
   return { path, action: "appended" };
+}
+
+export function updateClaudeMd(repoRoot: string): {
+  path: string;
+  action: "created" | "appended" | "updated";
+} {
+  return upsertMarkdownSnippet(join(repoRoot, "CLAUDE.md"), CLAUDE_MD_SNIPPET);
 }
 
 // ── .gitignore ────────────────────────────────────────────────────
