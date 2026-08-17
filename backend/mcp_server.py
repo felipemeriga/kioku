@@ -2067,13 +2067,29 @@ def _startup_healthcheck() -> None:
     print()
 
 
+def build_app():
+    """Serve BOTH transports behind the same API-key auth:
+
+      • /sse   — SSE (Claude Code's .mcp.json `type: "sse"`).
+      • /mcp   — Streamable HTTP (OpenAI Codex's `url = ".../mcp"`).
+
+    The streamable-HTTP app carries the session-manager lifespan (a task group
+    that must run for /mcp to work), so it's the base app; the SSE routes are
+    appended onto it. One ApiKeyAuthMiddleware wraps the lot.
+    """
+    base = mcp.streamable_http_app()  # provides /mcp + the required lifespan
+    for route in mcp.sse_app().routes:  # add /sse + /messages
+        base.router.routes.append(route)
+    return ApiKeyAuthMiddleware(base)
+
+
 if __name__ == "__main__":
     print(f"Starting MCP server on port {MCP_PORT}...")
-    print(f"SSE endpoint: http://localhost:{MCP_PORT}/sse")
+    print(f"SSE endpoint:            http://localhost:{MCP_PORT}/sse")
+    print(f"Streamable-HTTP endpoint: http://localhost:{MCP_PORT}/mcp")
     _startup_healthcheck()
 
-    sse_app = mcp.sse_app()
-    app = ApiKeyAuthMiddleware(sse_app)
+    app = build_app()
 
     import uvicorn
 
