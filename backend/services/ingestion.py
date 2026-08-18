@@ -197,3 +197,69 @@ def ingest_document(
         ids.append(result.data[0]["id"])
 
     return {"duplicate": False, "chunks": len(ids), "document_ids": ids}
+
+
+def replace_document(
+    text: str,
+    filename: str,
+    user_id: str,
+    folder_id: str | None = None,
+) -> dict:
+    """Re-chunk/embed ``text`` and replace ALL existing chunks for ``filename``
+    within ``folder_id`` (used by the MCP ``update_document`` tool to refresh a
+    stale document).
+
+    Embeds the new content BEFORE deleting the old chunks, so an embedding
+    failure leaves the existing document intact. No dedup check — a replace is
+    intentional, and the caller has already confirmed the document exists.
+    """
+    from services.chunker import chunk_text
+    from services.embeddings import embed_batch
+    from services.metadata import extract_metadata
+    from services.scope import resolve_root_folder_id
+
+    if not text or not text.strip():
+        return {"chunks": 0, "document_ids": []}
+    chunks = chunk_text(text)
+    if not chunks:
+        return {"chunks": 0, "document_ids": []}
+
+    embeddings = embed_batch(chunks)  # do this first — failure leaves old intact
+    sb = get_supabase()
+    root_folder_id = resolve_root_folder_id(folder_id, user_id) if folder_id else None
+    content_hash = hashlib.sha256(text.encode()).hexdigest()
+    ext = Path(filename).suffix.lower()
+    source_type = EXTENSION_TO_TYPE.get(ext, "markdown")
+
+    # Remove the old chunks (scoped to this file + folder + user), then insert new.
+    del_q = sb.table("documents").delete().eq("user_id", user_id).eq("source_filename", filename)
+    if folder_id:
+        del_q = del_q.eq("folder_id", folder_id)
+    del_q.execute()
+
+    ids: list[str] = []
+    for i, (chunk, embedding) in enumerate(zip(chunks, embeddings, strict=True)):
+        meta = extract_metadata(chunk) or {}
+        row = {
+            "user_id": user_id,
+            "content": chunk,
+            "embedding": embedding,
+            "metadata": {
+                **meta,
+                "source_filename": filename,
+                "chunk_index": i,
+                "total_chunks": len(chunks),
+            },
+            "source_filename": filename,
+            "source_type": source_type,
+            "content_hash": content_hash,
+            "chunk_index": i,
+            "status": "completed",
+        }
+        if folder_id:
+            row["folder_id"] = folder_id
+        if root_folder_id:
+            row["root_folder_id"] = root_folder_id
+        result = sb.table("documents").insert(row).execute()
+        ids.append(result.data[0]["id"])
+    return {"chunks": len(ids), "document_ids": ids}

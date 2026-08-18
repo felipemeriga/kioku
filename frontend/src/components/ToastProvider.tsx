@@ -28,6 +28,7 @@ interface ToastAPI {
 
 const ToastContext = createContext<ToastAPI | null>(null);
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useToast(): ToastAPI {
   const ctx = useContext(ToastContext);
   if (!ctx) throw new Error("useToast must be used inside <ToastProvider>");
@@ -38,6 +39,7 @@ export function useToast(): ToastAPI {
  * Convert any thrown value into a user-friendly message. ApiError already
  * carries a good one; anything else gets a best-effort extraction.
  */
+// eslint-disable-next-line react-refresh/only-export-components
 export function messageFromError(err: unknown, fallback = "Something went wrong."): string {
   if (err instanceof ApiError) return err.userMessage;
   if (err instanceof Error) return err.message || fallback;

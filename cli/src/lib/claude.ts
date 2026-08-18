@@ -12,12 +12,13 @@ import {
   readFileSync,
   writeFileSync,
   chmodSync,
+  realpathSync,
 } from "node:fs";
 import { join, dirname, isAbsolute } from "node:path";
 import { execFileSync } from "node:child_process";
 
-const MARKER_BEGIN = "<!-- BEGIN kioku second-brain instructions -->";
-const MARKER_END = "<!-- END kioku second-brain instructions -->";
+export const MARKER_BEGIN = "<!-- BEGIN kioku second-brain instructions -->";
+export const MARKER_END = "<!-- END kioku second-brain instructions -->";
 
 // ── .mcp.json ─────────────────────────────────────────────────────
 
@@ -79,9 +80,49 @@ interface ClaudeSettings {
   [k: string]: unknown;
 }
 
-const SESSION_START_COMMAND = "kioku session-start";
-const STOP_COMMAND = "kioku capture";
-const POST_PUSH_COMMAND = "kioku on-push";
+// Hooks are identified by their kioku subcommand. The actual command string is
+// built absolute (see cliInvocation) so it runs from shells without nvm/custom
+// PATH — Claude Code runs hooks via /bin/sh and git runs its hooks via sh too,
+// neither of which loads the user's interactive PATH. A bare `kioku` fails there
+// whenever kioku is installed under nvm.
+export const SUB_SESSION_START = "session-start";
+export const SUB_STOP = "capture";
+export const SUB_POST_PUSH = "on-push";
+const SUB_INDEX = "index";
+
+/** Single-quote a path for /bin/sh. */
+export function shQuote(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
+/** Absolute `<node> <entry.js>` for this running CLI, sh-quoted. PATH-independent
+ *  so hook shells (/bin/sh, git) resolve it even without nvm on PATH. Falls back
+ *  to bare `kioku` only if the entry script can't be resolved (very unusual).
+ *  Note: pinned to the current node install path; re-run `kioku init` after
+ *  switching node versions (e.g. `nvm install`) to refresh it. */
+export function cliInvocation(): string {
+  const argv1 = process.argv[1];
+  if (!argv1) return "kioku"; // no entry script (unusual) — best-effort bare
+  let entry = argv1;
+  try {
+    entry = realpathSync(argv1); // resolve the nvm bin symlink to the real file
+  } catch {
+    entry = argv1; // keep as-is if it can't be resolved
+  }
+  return `${shQuote(process.execPath)} ${shQuote(entry)}`;
+}
+
+/** Build the full hook command for a subcommand. */
+function hookCommand(subcommand: string): string {
+  return `${cliInvocation()} ${subcommand}`;
+}
+
+/** True if `cmd` is a kioku invocation of `subcommand` — matches both the
+ *  legacy bare form (`kioku session-start`) and the absolute form. Used to
+ *  dedupe/migrate on re-init. */
+function isSubcommand(cmd: string | undefined, subcommand: string): boolean {
+  return !!cmd && cmd.trim().endsWith(` ${subcommand}`);
+}
 
 function loadSettings(path: string): ClaudeSettings {
   if (!existsSync(path)) return {};
@@ -100,6 +141,7 @@ function ensureHook(
   settings: ClaudeSettings,
   event: string,
   command: string,
+  subcommand: string,
   matcher?: string
 ): boolean {
   if (!settings.hooks) settings.hooks = {};
@@ -111,19 +153,37 @@ function ensureHook(
     (g): g is HookGroup =>
       !!g && typeof g === "object" && Array.isArray((g as HookGroup).hooks)
   );
-  bucket[event] = groups;
-  const already = groups.some((g) =>
-    g.hooks.some((h) => h.command === command)
-  );
-  if (!already) {
+  // Strip any existing kioku hook for THIS subcommand — both the exact current
+  // command and stale variants (e.g. the old bare `kioku session-start`, or an
+  // absolute command from a prior node version). This migrates re-inits to the
+  // current invocation instead of stacking duplicates.
+  let hadExact = false;
+  let removedStale = false;
+  for (const g of groups) {
+    g.hooks = g.hooks.filter((h) => {
+      if (h.command === command) {
+        hadExact = true;
+        return true;
+      }
+      if (isSubcommand(h.command, subcommand)) {
+        removedStale = true;
+        return false;
+      }
+      return true;
+    });
+  }
+  // Drop groups emptied by the strip.
+  const kept = groups.filter((g) => g.hooks.length > 0);
+  bucket[event] = kept;
+  if (!hadExact) {
     // Tool-scoped events (e.g. PostToolUse) need a matcher so the group only
     // fires for the intended tool; SessionStart/Stop take none.
     const group: HookGroup = { hooks: [{ type: "command", command }] };
     if (matcher) group.matcher = matcher;
-    groups.push(group);
+    kept.push(group);
   }
-  // Return true if we changed anything (added the hook OR pruned bad entries).
-  return !already || raw.length !== groups.length;
+  // Changed if we added the hook, removed a stale variant, or pruned bad groups.
+  return !hadExact || removedStale || raw.length !== groups.length;
 }
 
 /** Remove a specific command hook (both the correct group shape and the legacy
@@ -133,21 +193,26 @@ function ensureHook(
 function removeHookFromFile(
   path: string,
   event: string,
-  command: string
+  subcommand: string
 ): boolean {
   if (!existsSync(path)) return false;
   const settings = loadSettings(path);
   const arr = settings.hooks?.[event];
   if (!Array.isArray(arr)) return false;
   const before = JSON.stringify(arr);
-  const cleaned = (arr as unknown[]).filter((g) => {
-    if (!g || typeof g !== "object") return false;
-    const o = g as { type?: string; command?: string; hooks?: HookEntry[] };
-    if (o.type === "command") return o.command !== command; // legacy malformed
-    if (Array.isArray(o.hooks))
-      return !o.hooks.some((h) => h.command === command);
-    return true; // unknown shape — leave it
-  }) as HookGroup[];
+  const cleaned = (arr as unknown[])
+    .map((g) => {
+      if (!g || typeof g !== "object") return g;
+      const o = g as { type?: string; command?: string; hooks?: HookEntry[] };
+      if (o.type === "command")
+        return isSubcommand(o.command, subcommand) ? null : g; // legacy malformed
+      if (Array.isArray(o.hooks)) {
+        o.hooks = o.hooks.filter((h) => !isSubcommand(h.command, subcommand));
+        return o.hooks.length > 0 ? g : null;
+      }
+      return g; // unknown shape — leave it
+    })
+    .filter((g): g is HookGroup => g !== null && g !== undefined);
   if (JSON.stringify(cleaned) === before) return false;
   settings.hooks![event] = cleaned;
   writeFileSync(path, JSON.stringify(settings, null, 2) + "\n");
@@ -160,17 +225,23 @@ function removeHookFromFile(
 function installHook(
   repoRoot: string,
   event: string,
-  command: string,
+  subcommand: string,
   matcher?: string
 ): { path: string; addedHook: boolean } {
   const dir = join(repoRoot, ".claude");
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   const path = join(dir, "settings.local.json");
   const settings = loadSettings(path);
-  const added = ensureHook(settings, event, command, matcher);
+  const added = ensureHook(
+    settings,
+    event,
+    hookCommand(subcommand),
+    subcommand,
+    matcher
+  );
   writeFileSync(path, JSON.stringify(settings, null, 2) + "\n");
   // Migration: strip any old copy from the committed settings.json.
-  removeHookFromFile(join(dir, "settings.json"), event, command);
+  removeHookFromFile(join(dir, "settings.json"), event, subcommand);
   return { path, addedHook: added };
 }
 
@@ -178,14 +249,14 @@ export function installSessionStartHook(repoRoot: string): {
   path: string;
   addedHook: boolean;
 } {
-  return installHook(repoRoot, "SessionStart", SESSION_START_COMMAND);
+  return installHook(repoRoot, "SessionStart", SUB_SESSION_START);
 }
 
 export function installStopHook(repoRoot: string): {
   path: string;
   addedHook: boolean;
 } {
-  return installHook(repoRoot, "Stop", STOP_COMMAND);
+  return installHook(repoRoot, "Stop", SUB_STOP);
 }
 
 /** PostToolUse hook scoped to the Bash tool. `kioku on-push` filters for a
@@ -195,7 +266,7 @@ export function installPostPushHook(repoRoot: string): {
   path: string;
   addedHook: boolean;
 } {
-  return installHook(repoRoot, "PostToolUse", POST_PUSH_COMMAND, "Bash");
+  return installHook(repoRoot, "PostToolUse", SUB_POST_PUSH, "Bash");
 }
 
 // ── native git pre-push hook ──────────────────────────────────────────
@@ -230,16 +301,33 @@ export function installPrePushGitHook(repoRoot: string): {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   const path = join(dir, "pre-push");
 
+  // Absolute invocation — a bare `kioku` isn't on git's hook-shell PATH under
+  // nvm. Backgrounded + output discarded so it never blocks or fails the push.
   const block = [
     GIT_HOOK_MARKER,
     "# Installed by `kioku init` — non-blocking, best-effort.",
-    "command -v kioku >/dev/null 2>&1 && ( kioku index >/dev/null 2>&1 & )",
+    `( ${hookCommand(SUB_INDEX)} >/dev/null 2>&1 & )`,
     "# end kioku",
   ].join("\n");
 
   if (existsSync(path)) {
     const existing = readFileSync(path, "utf8");
-    if (existing.includes(GIT_HOOK_MARKER)) return { path, addedHook: false };
+    if (existing.includes(GIT_HOOK_MARKER)) {
+      // Migrate/refresh our block in place (e.g. old bare `kioku index`
+      // -> absolute invocation) without touching the rest of the hook.
+      const lines = existing.split("\n");
+      const start = lines.findIndex((l) => l.includes(GIT_HOOK_MARKER));
+      let end = lines.findIndex(
+        (l, i) => i >= start && l.trim() === "# end kioku"
+      );
+      if (end === -1) end = start; // malformed — replace just the marker line
+      lines.splice(start, end - start + 1, block);
+      const updated = lines.join("\n");
+      if (updated === existing) return { path, addedHook: false };
+      writeFileSync(path, updated);
+      chmodSync(path, 0o755);
+      return { path, addedHook: true };
+    }
     // Coexist: insert our block after the shebang without altering the existing
     // hook's control flow (we background + never add our own exit).
     const lines = existing.split("\n");
@@ -364,9 +452,25 @@ export function stampLastSessionAt(repoRoot: string, iso: string): void {
   );
 }
 
-// ── CLAUDE.md snippet ────────────────────────────────────────────
+// ── CLAUDE.md / AGENTS.md snippet ─────────────────────────────────
+//
+// The instructional block is agent-neutral except for two sentences about
+// which hooks are wired. `secondBrainSnippet` builds it for a given agent so
+// CLAUDE.md and AGENTS.md share one source of truth.
 
-const CLAUDE_MD_SNIPPET = `${MARKER_BEGIN}
+/** Build the fenced second-brain instructions block. `pushHook` toggles the
+ *  sentence about the git-push activity-refresh hook, which only the Claude
+ *  Code surface installs (Codex wires just SessionStart + Stop). */
+export function secondBrainSnippet(opts: { pushHook: boolean }): string {
+  const pushLine = opts.pushHook
+    ? `After a \`git push\`, a PostToolUse hook asks you to refresh this repo's
+\`activity\` briefing from the newly-pushed commits (via
+\`update_folder_briefing_section\`) so the web UI stays current — just
+follow the injected instruction when you see it.
+
+`
+    : "";
+  return `${MARKER_BEGIN}
 
 ## Kioku second-brain
 
@@ -380,12 +484,7 @@ minutes or every 5 assistant turns (whichever comes first), the Stop
 hook automatically distills recent turns into Mem0 — preferences,
 findings, decisions, issues, and session summaries.
 
-After a \`git push\`, a PostToolUse hook asks you to refresh this repo's
-\`activity\` briefing from the newly-pushed commits (via
-\`update_folder_briefing_section\`) so the web UI stays current — just
-follow the injected instruction when you see it.
-
-If you want to reload the briefing manually:
+${pushLine}If you want to reload the briefing manually:
 
 - \`get_folder_briefing()\` — 9-section briefing for this repo
   (overview, architecture, preferences, important_files, how_it_runs,
@@ -445,14 +544,18 @@ briefing and the detailed doc, so it spans the whole ecosystem, not just code.
 
 ${MARKER_END}
 `;
+}
 
-export function updateClaudeMd(repoRoot: string): {
-  path: string;
-  action: "created" | "appended" | "updated";
-} {
-  const path = join(repoRoot, "CLAUDE.md");
+const CLAUDE_MD_SNIPPET = secondBrainSnippet({ pushHook: true });
+
+/** Idempotently write a fenced snippet into a markdown file — create it, update
+ *  the existing block in place, or append. Shared by CLAUDE.md and AGENTS.md. */
+export function upsertMarkdownSnippet(
+  path: string,
+  snippet: string
+): { path: string; action: "created" | "appended" | "updated" } {
   if (!existsSync(path)) {
-    writeFileSync(path, CLAUDE_MD_SNIPPET);
+    writeFileSync(path, snippet);
     return { path, action: "created" };
   }
   const existing = readFileSync(path, "utf8");
@@ -462,13 +565,20 @@ export function updateClaudeMd(repoRoot: string): {
     const after = existing.slice(
       existing.indexOf(MARKER_END) + MARKER_END.length
     );
-    writeFileSync(path, before + CLAUDE_MD_SNIPPET + after);
+    writeFileSync(path, before + snippet + after);
     return { path, action: "updated" };
   }
   // Append — preserve any trailing newlines the user already has.
   const sep = existing.endsWith("\n") ? "\n" : "\n\n";
-  writeFileSync(path, existing + sep + CLAUDE_MD_SNIPPET);
+  writeFileSync(path, existing + sep + snippet);
   return { path, action: "appended" };
+}
+
+export function updateClaudeMd(repoRoot: string): {
+  path: string;
+  action: "created" | "appended" | "updated";
+} {
+  return upsertMarkdownSnippet(join(repoRoot, "CLAUDE.md"), CLAUDE_MD_SNIPPET);
 }
 
 // ── .gitignore ────────────────────────────────────────────────────

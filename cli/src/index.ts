@@ -17,9 +17,10 @@ import { sessionStart } from "./commands/session-start.js";
 import { status } from "./commands/status.js";
 import { whoami } from "./commands/whoami.js";
 import { banner, printError } from "./lib/banner.js";
+import { readConfig } from "./lib/config.js";
 import { checkForUpdate } from "./lib/update-check.js";
 
-const VERSION = "0.1.0";
+const VERSION = "0.1.2";
 
 // Verbose --version — intercept before commander shows the plain number.
 if (process.argv.includes("-V") || process.argv.includes("--version")) {
@@ -30,8 +31,7 @@ if (process.argv.includes("-V") || process.argv.includes("--version")) {
   console.log(`  node       ${process.version}`);
   console.log(`  platform   ${process.platform}-${process.arch}`);
   console.log(`  config     ${cfgPath}`);
-  const apiBase = process.env.KIOKU_API_BASE || "http://localhost:8000";
-  console.log(`  api base   ${apiBase}`);
+  console.log(`  api base   ${readConfig().api_base}`);
   process.exit(0);
 }
 
@@ -64,7 +64,7 @@ Examples:
   $ kioku doctor                     # diagnose any issues
 
 Environment:
-  KIOKU_API_BASE   Backend REST URL (default: http://localhost:8000)
+  KIOKU_API_BASE   Backend REST URL (default: https://kioku.api.merigafy.com)
   KIOKU_MCP_URL    MCP SSE URL (default: derived from API base)
   KIOKU_DEBUG      Verbose logging for hooks and errors
   NO_COLOR               Disable ANSI colors
@@ -122,10 +122,15 @@ If you need to resend the magic link, just run kioku login again.
 
 program
   .command("init")
-  .description("Wire the current repo — MCP, hook, CLAUDE.md")
+  .description("Wire the current repo — MCP, hooks, CLAUDE.md / AGENTS.md")
   .option("--root <name>", "Pre-select a root folder by name or id")
   .option("--yes", "Skip prompts where a sensible default exists")
   .option("--force", "Regenerate the briefing even if one already exists")
+  .option(
+    "--agent <claude|codex>",
+    "Which coding agent to wire (default: auto-detect)"
+  )
+  .option("--codex", "Shorthand for --agent codex")
   .addHelpText(
     "after",
     `
@@ -134,6 +139,7 @@ Examples:
   $ kioku init --yes                        # no prompts, take all defaults
   $ kioku init --root my-company            # pre-select root
   $ kioku init --force                      # regenerate an existing briefing
+  $ kioku init --agent codex                # wire OpenAI Codex instead of Claude
 `
   )
   .action(async (opts) => {

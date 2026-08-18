@@ -284,13 +284,15 @@ def _infer_viewable_as(filename: str, source_type: str | None, metadata: dict) -
         return "video"
     if name.endswith((".json", ".yaml", ".yml", ".toml")):
         return "code"
-    if name.endswith((".py", ".ts", ".tsx", ".js", ".jsx", ".rs", ".go", ".java", ".c", ".cpp", ".sh", ".sql")):
+    if name.endswith(
+        (".py", ".ts", ".tsx", ".js", ".jsx", ".rs", ".go", ".java", ".c", ".cpp", ".sh", ".sql")
+    ):
         return "code"
     return "text"
 
 
 _INLINE_URL_TTL_S = 300  # 5 min — long enough to render + interact, short
-                          # enough that a leaked screenshot expires fast.
+# enough that a leaked screenshot expires fast.
 
 
 def _signed_view_url(sb, metadata: dict) -> tuple[str | None, str | None]:

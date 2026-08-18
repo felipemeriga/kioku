@@ -14,7 +14,6 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any
 
 from services.search import search_documents
 
@@ -92,21 +91,63 @@ def _log_retrieval(
 ) -> None:
     """Insert one retrieval_log row. Never blocks the retrieval path — swallow."""
     try:
-        sb.table("retrieval_log").insert({
-            "user_id": user_id,
-            "folder_id": folder_id,
-            "query": query,
-            "sources_hit": sources_hit,
-            "chunks_returned": len(hits),
-            "chunk_ids": [h.id for h in hits[:50]],
-            "latency_ms": latency_ms,
-            "channel": channel,
-        }).execute()
+        sb.table("retrieval_log").insert(
+            {
+                "user_id": user_id,
+                "folder_id": folder_id,
+                "query": query,
+                "sources_hit": sources_hit,
+                "chunks_returned": len(hits),
+                "chunk_ids": [h.id for h in hits[:50]],
+                "latency_ms": latency_ms,
+                "channel": channel,
+            }
+        ).execute()
     except Exception:
         log.exception("failed to write retrieval_log row (non-fatal)")
 
 
+def _resolve_root_folder_id(sb, folder_id: str | None, user_id: str) -> str | None:
+    """Walk parent_id up to the workspace root.
+
+    search_documents scopes by documents.root_folder_id (an exact match on the
+    workspace root). The session's scope, however, is often a SUB-folder (e.g. a
+    repo like cosm/repositories/c360-lead). Passing that sub-folder id straight
+    through matched zero documents — their root_folder_id is the workspace root,
+    not the sub-folder — so any repo/sub-folder session got 0 doc hits. Resolve
+    to the actual root so the whole workspace tree is searchable from anywhere
+    inside it. Returns folder_id unchanged on any lookup failure.
+    """
+    if not folder_id:
+        return None
+    current = folder_id
+    seen: set[str] = set()
+    for _ in range(32):  # depth guard against cycles / pathological trees
+        if current in seen:
+            break
+        seen.add(current)
+        try:
+            res = (
+                sb.table("folders")
+                .select("parent_id")
+                .eq("id", current)
+                .eq("user_id", user_id)
+                .limit(1)
+                .execute()
+            )
+        except Exception:
+            return folder_id
+        if not res.data:
+            return folder_id
+        parent = res.data[0].get("parent_id")
+        if not parent:
+            return current  # no parent → this is the root
+        current = parent
+    return current
+
+
 async def _search_docs(
+    sb,
     embedding: list[float],
     query_text: str,
     user_id: str,
@@ -114,16 +155,22 @@ async def _search_docs(
     limit: int,
 ) -> tuple[list[UnifiedHit], int]:
     t0 = time.perf_counter()
-    try:
-        rows = await asyncio.to_thread(
-            search_documents,
+
+    def _run() -> list[dict]:
+        # Resolve the workspace root in-thread (one quick lookup) so a session
+        # scoped to a sub-folder still searches the whole tree.
+        root_id = _resolve_root_folder_id(sb, folder_id, user_id)
+        return search_documents(
             embedding,
             query_text=query_text,
             user_id=user_id,
-            root_folder_id=folder_id,
+            root_folder_id=root_id,
             fast_mode=True,
             top_k=limit,
         )
+
+    try:
+        rows = await asyncio.to_thread(_run)
     except Exception as e:
         log.exception("rag search failed: %s", e)
         rows = []
@@ -150,7 +197,11 @@ async def _search_mem0(
         log.exception("mem0 fan-out failed: %s", e)
         eternal, episodic = [], []
     latency = int((time.perf_counter() - t0) * 1000)
-    return _hits_from_mem0(eternal, MemoryScope.ETERNAL), _hits_from_mem0(episodic, MemoryScope.EPISODIC), latency
+    return (
+        _hits_from_mem0(eternal, MemoryScope.ETERNAL),
+        _hits_from_mem0(episodic, MemoryScope.EPISODIC),
+        latency,
+    )
 
 
 def _merge_hits(
@@ -177,7 +228,7 @@ def _merge_hits(
     # Score-sort docs + episodic together, best first.
     scored = sorted(
         doc_hits + mem0_episodic,
-        key=lambda h: (h.score if h.score is not None else 0.0),
+        key=lambda h: h.score if h.score is not None else 0.0,
         reverse=True,
     )
     for h in scored:
@@ -205,31 +256,36 @@ async def fanout_search(
     t0 = time.perf_counter()
     mem0 = get_client_for_folder(sb, folder_id, user_id) if (include_mem0 and folder_id) else None
 
-    doc_task = _search_docs(embedding, query_text, user_id, folder_id, limit)
+    doc_task = _search_docs(sb, embedding, query_text, user_id, folder_id, limit)
     mem0_task = _search_mem0(mem0, query_text, limit)
 
     (doc_hits, doc_ms), (m_eternal, m_episodic, mem0_ms) = await asyncio.gather(doc_task, mem0_task)
 
-    merged = _merge_hits(doc_hits, m_eternal, m_episodic)[:limit + len(m_eternal)]
+    merged = _merge_hits(doc_hits, m_eternal, m_episodic)[: limit + len(m_eternal)]
     total_ms = int((time.perf_counter() - t0) * 1000)
 
-    sources_hit: list[dict] = [
-        {"source": "docs", "count": len(doc_hits), "latency_ms": doc_ms}
-    ]
+    sources_hit: list[dict] = [{"source": "docs", "count": len(doc_hits), "latency_ms": doc_ms}]
     if mem0 is not None:
-        sources_hit.append({
-            "source": "mem0",
-            "count": len(m_eternal) + len(m_episodic),
-            "eternal": len(m_eternal),
-            "episodic": len(m_episodic),
-            "latency_ms": mem0_ms,
-        })
+        sources_hit.append(
+            {
+                "source": "mem0",
+                "count": len(m_eternal) + len(m_episodic),
+                "eternal": len(m_eternal),
+                "episodic": len(m_episodic),
+                "latency_ms": mem0_ms,
+            }
+        )
 
     _log_retrieval(
         sb,
-        user_id=user_id, folder_id=folder_id, query=query_text,
-        hits=merged, sources_hit=sources_hit,
-        latency_ms=total_ms, channel=channel, conversation_id=conversation_id,
+        user_id=user_id,
+        folder_id=folder_id,
+        query=query_text,
+        hits=merged,
+        sources_hit=sources_hit,
+        latency_ms=total_ms,
+        channel=channel,
+        conversation_id=conversation_id,
     )
 
     return FanoutResult(

@@ -16,6 +16,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import kleur from "kleur";
 import { readConfig } from "../lib/config.js";
+import { restBaseToMcpBase } from "../lib/urls.js";
 import { section, info } from "../lib/banner.js";
 import { detectGit } from "../lib/git.js";
 import { renderTable } from "../ui/table.js";
@@ -96,17 +97,16 @@ export async function doctor(): Promise<void> {
     }
   }
 
-  // 4. MCP reachable — derive URL from backend
-  const mcpUrl =
-    process.env.KIOKU_MCP_URL ??
-    cfg.api_base.replace(/:8000\b/, ":8001").replace(/\/api$/, "") +
-      "/health";
+  // 4. MCP reachable — derive URL from backend (dev ports + prod subdomains)
+  const mcpBase = process.env.KIOKU_MCP_URL
+    ? new URL(process.env.KIOKU_MCP_URL).origin
+    : restBaseToMcpBase(cfg.api_base);
   try {
-    const r = await timedFetch(mcpUrl.replace(/\/sse$/, "/health"));
+    const r = await timedFetch(`${mcpBase}/health`);
     checks.push({
       name: "MCP server reachable",
       ok: r.status === 200,
-      detail: mcpUrl.replace(/\/health$/, ""),
+      detail: mcpBase,
       hint:
         r.status === 200
           ? undefined

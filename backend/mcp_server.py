@@ -463,6 +463,238 @@ def query_documents_metadata(question: str) -> str:
     return f"SQL: {result['sql']}\nResults: {json.dumps(result['results'], default=str)}"
 
 
+def _doc_scope_ids(sb, user_id: str, folder: str | None):
+    """Folder ids whose documents the current session may read/manage.
+
+    Defaults to the session scope + all descendants; an optional ``folder``
+    narrows to a sub-folder inside the scope. Returns (ids, None) on success or
+    (None, error_message) if the focus can't be resolved.
+    """
+    scope_id = _current_scope_folder_id.get()
+    if folder:
+        fid, name = resolve_focus_folder(sb, scope_id, user_id, folder)
+        if not fid:
+            return None, name
+        base = fid
+    else:
+        base = scope_id
+    return _descendant_folder_ids(sb, base, user_id), None
+
+
+@mcp.tool()
+def list_documents(folder: str | None = None) -> str:
+    """List the source documents stored in the knowledge base for this scope —
+    one line per file with its chunk count, type, and date.
+
+    Use this to audit what's stored (e.g. a periodic freshness review) before
+    deciding what to update or delete. Pair with read_document to inspect
+    content, then update_document / delete_document to keep the base honest.
+
+    Args:
+        folder: optional sub-folder to narrow to. Omit for the whole scope.
+    """
+    if not _current_user_id.get():
+        return "Error: Not authenticated."
+    sb = get_supabase()
+    user_id = _current_user_id.get()
+    ids, err = _doc_scope_ids(sb, user_id, folder)
+    if ids is None:
+        return f"Error: {err}"
+    if not ids:
+        return "No folders in scope."
+    rows = (
+        sb.table("documents")
+        .select("source_filename, source_type, created_at")
+        .eq("user_id", user_id)
+        .in_("folder_id", ids)
+        .execute()
+    ).data
+    if not rows:
+        return "No documents in scope."
+    docs: dict[str, dict] = {}
+    for r in rows:
+        d = docs.setdefault(
+            r["source_filename"],
+            {"chunks": 0, "type": r.get("source_type"), "created": r.get("created_at")},
+        )
+        d["chunks"] += 1
+    lines = [f"{len(docs)} documents ({len(rows)} chunks):"]
+    for name in sorted(docs):
+        d = docs[name]
+        lines.append(f"- {name} · {d['chunks']} chunks · {d['type']} · {str(d['created'])[:10]}")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def read_document(filename: str, folder: str | None = None) -> str:
+    """Return the full text of a stored document (all chunks, in order) so you
+    can verify whether its content is still accurate before updating/deleting.
+
+    Args:
+        filename: the source_filename as shown by list_documents.
+        folder: optional sub-folder to narrow to.
+    """
+    if not _current_user_id.get():
+        return "Error: Not authenticated."
+    sb = get_supabase()
+    user_id = _current_user_id.get()
+    ids, err = _doc_scope_ids(sb, user_id, folder)
+    if ids is None:
+        return f"Error: {err}"
+    if not ids:
+        return "No folders in scope."
+    rows = (
+        sb.table("documents")
+        .select("content, chunk_index")
+        .eq("user_id", user_id)
+        .eq("source_filename", filename)
+        .in_("folder_id", ids)
+        .order("chunk_index")
+        .execute()
+    ).data
+    if not rows:
+        return f"Document '{filename}' not found in this scope."
+    body = "\n\n".join(r["content"] for r in rows)
+    return f"# {filename} ({len(rows)} chunks)\n\n{body}"
+
+
+@mcp.tool()
+def update_document(filename: str, new_content: str, folder: str | None = None) -> str:
+    """Replace a document's content with a corrected/updated version — re-chunks
+    and re-embeds it so search reflects the new text.
+
+    Use when a document is partially outdated but still relevant. If it's
+    entirely obsolete, prefer delete_document. Destructive to the old content —
+    run when reviewing/refreshing the knowledge base.
+
+    Args:
+        filename: the source_filename to replace (see list_documents).
+        new_content: the full new document text (markdown or plain text).
+        folder: optional sub-folder to narrow to.
+    """
+    if not _current_user_id.get():
+        return "Error: Not authenticated."
+    sb = get_supabase()
+    user_id = _current_user_id.get()
+    ids, err = _doc_scope_ids(sb, user_id, folder)
+    if ids is None:
+        return f"Error: {err}"
+    if not ids:
+        return "No folders in scope."
+    existing = (
+        sb.table("documents")
+        .select("id, folder_id")
+        .eq("user_id", user_id)
+        .eq("source_filename", filename)
+        .in_("folder_id", ids)
+        .execute()
+    ).data
+    if not existing:
+        return f"Document '{filename}' not found in this scope."
+    target_folder = existing[0].get("folder_id")
+    from services.ingestion import replace_document
+
+    res = replace_document(new_content, filename, user_id, folder_id=target_folder)
+    if not res["chunks"]:
+        return f"Update produced no content for '{filename}' — nothing changed."
+    return f"Updated '{filename}': re-embedded {res['chunks']} chunks."
+
+
+@mcp.tool()
+def delete_document(filename: str, folder: str | None = None) -> str:
+    """Permanently remove a document (all its chunks) from the knowledge base.
+
+    Use when a document's content is obsolete or no longer true. Destructive —
+    run only when explicitly pruning stale content.
+
+    Args:
+        filename: the source_filename to delete (see list_documents).
+        folder: optional sub-folder to narrow to.
+    """
+    if not _current_user_id.get():
+        return "Error: Not authenticated."
+    sb = get_supabase()
+    user_id = _current_user_id.get()
+    ids, err = _doc_scope_ids(sb, user_id, folder)
+    if ids is None:
+        return f"Error: {err}"
+    if not ids:
+        return "No folders in scope."
+    existing = (
+        sb.table("documents")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("source_filename", filename)
+        .in_("folder_id", ids)
+        .execute()
+    ).data
+    if not existing:
+        return f"Document '{filename}' not found in this scope."
+    (
+        sb.table("documents")
+        .delete()
+        .eq("user_id", user_id)
+        .eq("source_filename", filename)
+        .in_("folder_id", ids)
+        .execute()
+    )
+    return f"Deleted '{filename}' ({len(existing)} chunks)."
+
+
+@mcp.tool()
+def add_document(filename: str, content: str, folder: str | None = None) -> str:
+    """Create a NEW document in the knowledge base from the given text — chunks
+    and embeds it so it's immediately searchable.
+
+    Use to capture durable reference material discovered in a session (a design
+    write-up, an API's behavior, a runbook). For a file that already exists,
+    use update_document instead — this refuses to overwrite.
+
+    Args:
+        filename: a name for the document, e.g. 'nvdec-limits.md'.
+        content: the full document text (markdown or plain text).
+        folder: optional sub-folder to store it in. Omit for the current scope.
+    """
+    if not _current_user_id.get():
+        return "Error: Not authenticated."
+    if not content or not content.strip():
+        return "Error: content is empty — nothing to store."
+    sb = get_supabase()
+    user_id = _current_user_id.get()
+    scope_id = _current_scope_folder_id.get()
+    if folder:
+        target_folder, name = resolve_focus_folder(sb, scope_id, user_id, folder)
+        if not target_folder:
+            return f"Error: {name}"
+    else:
+        target_folder = scope_id
+    if not target_folder:
+        return "Error: no scope folder to store the document in."
+    # Guard against silently overwriting an existing file in the same folder.
+    existing = (
+        sb.table("documents")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("source_filename", filename)
+        .eq("folder_id", target_folder)
+        .limit(1)
+        .execute()
+    ).data
+    if existing:
+        return (
+            f"A document named '{filename}' already exists here. "
+            "Use update_document to replace its content."
+        )
+    from services.ingestion import replace_document
+
+    res = replace_document(content, filename, user_id, folder_id=target_folder)
+    if not res["chunks"]:
+        return f"No content to store for '{filename}'."
+    return (
+        f"Created '{filename}': {res['chunks']} chunks embedded in {folder or 'the current scope'}."
+    )
+
+
 @mcp.tool()
 def save_note(title: str, content: str) -> str:
     """Save a structured note (decision, learning, observation) to the knowledge base.
@@ -792,7 +1024,9 @@ def get_folder_briefing_schema() -> str:
                 "How the system fits together. summary (str), components "
                 "(list of {name, role, path}), data_flow (str)."
             ),
-            "preferences": "Verbatim rules. Prefer using save_memory + regen over editing directly.",
+            "preferences": (
+                "Verbatim rules. Prefer using save_memory + regen over editing directly."
+            ),
             "important_files": "3-8 files an agent would open first. list of {path, role, why}.",
             "how_it_runs": "Requirements list + local_dev setup string.",
             "deployment": "Environments list, how_to_deploy, ci_cd_notes.",
@@ -889,7 +1123,8 @@ def replace_folder_briefing(
     pin_all: bool = True,
     folder: str | None = None,
 ) -> str:
-    """Replace the ENTIRE briefing in one call — all the stable sections at once (activity is injected live; documentation is set via save_repo_documentation).
+    """Replace the ENTIRE briefing in one call — all the stable sections at once
+    (activity is injected live; documentation is set via save_repo_documentation).
 
     Use when you want to overwrite the whole briefing (e.g. after doing
     a big investigation that touched every area). Call
@@ -1835,13 +2070,29 @@ def _startup_healthcheck() -> None:
     print()
 
 
+def build_app():
+    """Serve BOTH transports behind the same API-key auth:
+
+      • /sse   — SSE (Claude Code's .mcp.json `type: "sse"`).
+      • /mcp   — Streamable HTTP (OpenAI Codex's `url = ".../mcp"`).
+
+    The streamable-HTTP app carries the session-manager lifespan (a task group
+    that must run for /mcp to work), so it's the base app; the SSE routes are
+    appended onto it. One ApiKeyAuthMiddleware wraps the lot.
+    """
+    base = mcp.streamable_http_app()  # provides /mcp + the required lifespan
+    for route in mcp.sse_app().routes:  # add /sse + /messages
+        base.router.routes.append(route)
+    return ApiKeyAuthMiddleware(base)
+
+
 if __name__ == "__main__":
     print(f"Starting MCP server on port {MCP_PORT}...")
-    print(f"SSE endpoint: http://localhost:{MCP_PORT}/sse")
+    print(f"SSE endpoint:            http://localhost:{MCP_PORT}/sse")
+    print(f"Streamable-HTTP endpoint: http://localhost:{MCP_PORT}/mcp")
     _startup_healthcheck()
 
-    sse_app = mcp.sse_app()
-    app = ApiKeyAuthMiddleware(sse_app)
+    app = build_app()
 
     import uvicorn
 

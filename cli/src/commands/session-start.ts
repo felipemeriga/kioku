@@ -8,6 +8,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { mcpUrlToRestBase } from "../lib/urls.js";
 
 async function fetchJson(url: string, headers: Record<string, string>) {
   const res = await fetch(url, { headers });
@@ -71,37 +72,52 @@ export function generateInstruction(sectionOrder: string[]): string {
   ].join("\n");
 }
 
+/** Resolve the kioku API key + MCP url for this session, agent-neutrally.
+ *  Prefer the Claude surface (.mcp.json in the repo); fall back to the Codex
+ *  surface (the global ~/.codex/config.toml). Returns null if neither is wired,
+ *  so the hook can exit silently in a non-kioku session. */
+function resolveKeyAndUrl(
+  repoRoot: string
+): { apiKey: string; mcpUrl: string } | null {
+  const mcpPath = join(repoRoot, ".mcp.json");
+  if (existsSync(mcpPath)) {
+    try {
+      const cfg = JSON.parse(readFileSync(mcpPath, "utf8")) as {
+        mcpServers?: Record<
+          string,
+          { url?: string; headers?: Record<string, string> }
+        >;
+      };
+      const entry = cfg.mcpServers?.["kioku"];
+      const auth = entry?.headers?.Authorization;
+      if (auth && entry?.url) {
+        return { apiKey: auth.replace(/^Bearer\s+/, ""), mcpUrl: entry.url };
+      }
+    } catch {
+      /* fall through to the Codex surface */
+    }
+  }
+  return null;
+}
+
 export async function sessionStart(): Promise<void> {
   const repoRoot = resolve(process.cwd());
-  const mcpPath = join(repoRoot, ".mcp.json");
-  if (!existsSync(mcpPath)) {
-    // Silently exit — no complaint, since the hook fires everywhere
-    // including in projects that never opted in.
-    return;
-  }
-  let apiKey: string | undefined;
-  let mcpUrl: string | undefined;
-  try {
-    const raw = readFileSync(mcpPath, "utf8");
-    const cfg = JSON.parse(raw) as {
-      mcpServers?: Record<
-        string,
-        { url?: string; headers?: Record<string, string> }
-      >;
-    };
-    const entry = cfg.mcpServers?.["kioku"];
-    if (entry?.headers?.Authorization) {
-      apiKey = entry.headers.Authorization.replace(/^Bearer\s+/, "");
-    }
-    mcpUrl = entry?.url;
-  } catch {
-    return;
-  }
-  if (!apiKey || !mcpUrl) return;
 
-  // Derive the REST API base from the MCP URL (same host, port 8000 → 8000).
-  // Convention: MCP is at /sse; REST is at /api on the same base.
-  const base = new URL(mcpUrl).origin.replace(/:8001$/, ":8000");
+  let resolved = resolveKeyAndUrl(repoRoot);
+  if (!resolved) {
+    // No Claude .mcp.json — try the global Codex config.
+    const { readCodexMcpEntry } = await import("../lib/codex.js");
+    const codex = readCodexMcpEntry();
+    if (codex) resolved = { apiKey: codex.key, mcpUrl: codex.entry.url };
+  }
+  // Silently exit — no complaint, since the hook fires everywhere including in
+  // projects/sessions that never opted in.
+  if (!resolved) return;
+  const { apiKey, mcpUrl } = resolved;
+
+  // Derive the REST API base from the MCP URL (dev ports + prod subdomains).
+  // Convention: MCP is at /sse; REST is at /api on the derived base.
+  const base = mcpUrlToRestBase(mcpUrl);
 
   // The CLI's session-start uses the api-key against a lightweight REST
   // endpoint that returns exactly what the coding agent needs, without

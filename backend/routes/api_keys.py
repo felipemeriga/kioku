@@ -63,7 +63,8 @@ async def list_api_keys(
         # fragile — any future refactor removing that guard would leak a
         # folder name across users.
         folder = (
-            sb.table("folders").select("name")
+            sb.table("folders")
+            .select("name")
             .eq("id", row["scope_folder_id"])
             .eq("user_id", user_id)
             .limit(1)
@@ -115,9 +116,12 @@ async def create_api_key(
     row = result.data[0]
     # Defensive user_id filter (see comment on the list endpoint).
     folder = (
-        sb.table("folders").select("name")
-        .eq("id", body.scope_folder_id).eq("user_id", user_id)
-        .limit(1).execute()
+        sb.table("folders")
+        .select("name")
+        .eq("id", body.scope_folder_id)
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
     )
     folder_name = folder.data[0]["name"] if folder.data else "Unknown"
 

@@ -174,8 +174,12 @@ def stream_rag_response(
                 # subsequent user message. 'New conversation' is the DB default.
                 current_title = (
                     sb.table("conversations")
-                    .select("title").eq("id", conversation_id).eq("user_id", user_id)
-                    .limit(1).execute().data
+                    .select("title")
+                    .eq("id", conversation_id)
+                    .eq("user_id", user_id)
+                    .limit(1)
+                    .execute()
+                    .data
                 )
                 _title = (current_title[0].get("title") or "") if current_title else ""
                 if _title in ("", "New conversation"):
@@ -236,9 +240,7 @@ def stream_rag_response(
                 if full_response:
                     content_to_save = full_response
                     if not completed_cleanly:
-                        content_to_save += (
-                            "\n\n*(reply truncated — connection dropped mid-stream)*"
-                        )
+                        content_to_save += "\n\n*(reply truncated — connection dropped mid-stream)*"
                     with stage("db: save assistant msg"):
                         sb.table("messages").insert(
                             {

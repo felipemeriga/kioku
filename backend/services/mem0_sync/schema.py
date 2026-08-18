@@ -27,9 +27,7 @@ EPISODIC_SCOPE = "episodic"
 
 MemoryScopeLiteral = Literal["eternal", "episodic"]
 
-MemoryCategoryLiteral = Literal[
-    "decision", "finding", "issue", "preference", "session", "note"
-]
+MemoryCategoryLiteral = Literal["decision", "finding", "issue", "preference", "session", "note"]
 
 
 class MemoryCategory:
@@ -87,14 +85,10 @@ def normalize_content(content: str) -> str:
 def compute_content_hash(*, content: str, folder_id: str) -> str:
     """Content-only identity. Matches Mem0's own dedup behavior: the same
     text in the same folder is the same memory, regardless of scope/category."""
-    return hashlib.sha256(
-        f"{folder_id}|{normalize_content(content)}".encode("utf-8")
-    ).hexdigest()
+    return hashlib.sha256(f"{folder_id}|{normalize_content(content)}".encode("utf-8")).hexdigest()
 
 
-def compute_dedup_key(
-    *, content: str, folder_id: str, scope: str, category: str
-) -> str:
+def compute_dedup_key(*, content: str, folder_id: str, scope: str, category: str) -> str:
     """Categorical identity: same content + same scope + same category. Kept
     alongside content_hash for observability, but content_hash is the
     load-bearing lookup because Mem0 itself keys on content."""

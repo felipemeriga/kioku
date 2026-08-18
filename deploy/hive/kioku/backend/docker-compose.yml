@@ -11,14 +11,17 @@ services:
       - ANTHROPIC_API_KEY=${KIOKU_ANTHROPIC_API_KEY}
       - VOYAGE_API_KEY=${KIOKU_VOYAGE_API_KEY}
       - TAVILY_API_KEY=${KIOKU_TAVILY_API_KEY}
+      - OPENAI_API_KEY=${KIOKU_OPENAI_API_KEY}
       - SUPABASE_URL=${KIOKU_SUPABASE_URL}
       - SUPABASE_SERVICE_KEY=${KIOKU_SUPABASE_SERVICE_KEY}
       - SUPABASE_JWT_SECRET=${KIOKU_SUPABASE_JWT_SECRET}
+      - SUPABASE_ANON_KEY=${KIOKU_SUPABASE_ANON_KEY}
       - NOTION_TOKEN_ENCRYPTION_KEY=${KIOKU_NOTION_TOKEN_ENCRYPTION_KEY}
       - MEM0_SERVICE_URL=http://kioku-mem0:8010
       - MEM0_SERVICE_TOKEN=${KIOKU_MEM0_SERVICE_TOKEN}
       - REDIS_URL=redis://kioku-redis:6379/0
-      - MCP_PUBLIC_URL=https://mcp.${DOMAIN}/sse
+      - MCP_PUBLIC_URL=https://kioku.mcp.${DOMAIN}/sse
+      - FRONTEND_URL=https://kioku.${DOMAIN}
     networks:
       kioku:
         aliases:
@@ -26,7 +29,8 @@ services:
       proxy: {}
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.kioku-api.rule=Host(`api.${DOMAIN}`)"
+      - "traefik.docker.network=proxy"
+      - "traefik.http.routers.kioku-api.rule=Host(`kioku.api.${DOMAIN}`)"
       - "traefik.http.routers.kioku-api.entrypoints=websecure"
       - "traefik.http.routers.kioku-api.tls.certresolver=letsencrypt"
       - "traefik.http.services.kioku-api.loadbalancer.server.port=8000"

@@ -25,14 +25,31 @@ jobs:
         with:
           version: latest
 
+      # The incremental migrations in supabase/migrations/ assume a base schema
+      # (public.folders et al.) that lives in backend/db/schema.sql, which we
+      # apply below — so they can't run on a fresh `supabase start`. Drop them
+      # here so start comes up clean; schema.sql is the source of truth for CI.
+      - name: Use schema.sql as the DB source (skip incremental migrations)
+        run: rm -f supabase/migrations/*.sql
+
       - name: Start Supabase
         run: supabase start
 
       - name: Apply schema + local setup
         run: |
           DB_URL=$(supabase status --output env | grep '^DB_URL=' | cut -d= -f2- | tr -d '"')
+          # schema.sql uses the public.vector type (pgvector) for documents.embedding
+          # but never creates the extension — enable it in public first, or the
+          # documents table (and everything referencing it) fails to create.
+          psql "$DB_URL" -c "CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;"
           psql "$DB_URL" -f backend/db/schema.sql
           psql "$DB_URL" -f backend/db/local_setup.sql
+          # PostgREST cached the (empty) schema at start, before these psql
+          # applies — so the supabase client gets PGRST205 "table not found in
+          # schema cache". A NOTIFY reload proved unreliable here; restart the
+          # PostgREST container so it rebuilds its cache, then wait for it.
+          docker restart $(docker ps -q --filter name=supabase_rest)
+          sleep 10
 
       - name: Install uv
         uses: astral-sh/setup-uv@v3

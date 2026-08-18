@@ -1,8 +1,24 @@
 {
-  "name": "kioku",
-  "version": "0.1.0",
+  "name": "@felipemeriga/kioku",
+  "version": "0.1.2",
   "description": "Kioku (記憶) — second brain for your repos. Wires a local repo to your Kioku instance: MCP server, SessionStart hook, capture Stop hook, CLAUDE.md snippet.",
   "type": "module",
+  "license": "MIT",
+  "author": "felipemeriga",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/felipemeriga/kioku.git",
+    "directory": "cli"
+  },
+  "homepage": "https://github.com/felipemeriga/kioku#readme",
+  "keywords": [
+    "claude",
+    "claude-code",
+    "mcp",
+    "second-brain",
+    "memory",
+    "code-graph"
+  ],
   "bin": {
     "kioku": "./dist/index.js"
   },
@@ -10,19 +26,23 @@
     "dist",
     "README.md"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
     "start": "node dist/index.js",
     "prepare": "npm run build",
-    "test": "npm run build && node --test 'dist/ui/*.test.js'"
+    "test": "npm run build && node --test 'dist/**/*.test.js'"
   },
   "dependencies": {
     "@inquirer/prompts": "^7.0.0",
     "boxen": "^7.1.1",
     "cli-table3": "^0.6.5",
     "commander": "^12.1.0",
-    "kleur": "^4.1.5"
+    "kleur": "^4.1.5",
+    "smol-toml": "^1.8.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

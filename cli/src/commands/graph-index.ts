@@ -21,6 +21,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { readMcpEntry } from "../lib/claude.js";
 import { headSha } from "../lib/git.js";
 import { section, ok, info, warn, bad } from "../lib/banner.js";
+import { mcpUrlToRestBase } from "../lib/urls.js";
 
 interface GraphNode {
   id: string;
@@ -80,7 +81,7 @@ async function fetchServerWatermark(repoRoot: string): Promise<string | null> {
   const mcp = readMcpEntry(repoRoot);
   const folderId = readState(repoRoot).folder_id as string | undefined;
   if (!mcp || !folderId) return null;
-  const base = new URL(mcp.entry.url).origin.replace(/:8001$/, ":8000");
+  const base = mcpUrlToRestBase(mcp.entry.url);
   try {
     const res = await fetch(
       `${base}/api/cli/repo-graph?folder_id=${encodeURIComponent(folderId)}`,
@@ -309,7 +310,7 @@ async function runExtractionAndUpload(
     ? [...new Set(allNodes.map((n) => norm(n.source_file)).filter(Boolean))]
     : changedFiles;
 
-  const base = new URL(mcp.entry.url).origin.replace(/:8001$/, ":8000");
+  const base = mcpUrlToRestBase(mcp.entry.url);
   info(`Uploading ${nodes.length} symbols, ${edges.length} edges…`);
 
   // Upload is best-effort: a transient network/backend hiccup must fail

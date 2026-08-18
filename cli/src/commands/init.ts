@@ -1,4 +1,5 @@
 import { basename, resolve } from "node:path";
+import { spawnSync } from "node:child_process";
 import { confirm, input, select } from "@inquirer/prompts";
 import kleur from "kleur";
 import {
@@ -12,6 +13,7 @@ import {
 } from "../lib/api.js";
 import { isLoggedIn } from "../lib/config.js";
 import { detectGit, headSha } from "../lib/git.js";
+import { mcpUrlToRestBase } from "../lib/urls.js";
 import {
   graphIndex,
   graphifyAvailable,
@@ -29,15 +31,61 @@ import {
   writeCaptureState,
   writeMcpConfig,
 } from "../lib/claude.js";
+import {
+  installCodexSessionStartHook,
+  installCodexStopHook,
+  installCodexPostPushHook,
+  updateAgentsMd,
+  writeCodexMcpConfig,
+} from "../lib/codex.js";
 import { bad, info, ok, section, step, warn } from "../lib/banner.js";
 import { panel } from "../ui/panel.js";
 import { generateInstruction } from "./session-start.js";
 import { openCmd } from "./open.js";
 
+type Agent = "claude" | "codex";
+
 interface InitOptions {
   yes?: boolean;
   root?: string;
   force?: boolean;
+  agent?: string;
+  codex?: boolean;
+}
+
+/** Is a CLI binary resolvable on PATH? */
+function onPath(bin: string): boolean {
+  const probe = process.platform === "win32" ? "where" : "which";
+  return spawnSync(probe, [bin], { stdio: "ignore" }).status === 0;
+}
+
+/** Resolve which coding agent to wire this repo to. Explicit flags win;
+ *  otherwise auto-detect from PATH, prompting only when both are installed. */
+async function resolveAgent(opts: InitOptions): Promise<Agent> {
+  const explicit = opts.codex ? "codex" : opts.agent?.toLowerCase();
+  if (explicit === "codex" || explicit === "claude") return explicit as Agent;
+  if (explicit) {
+    throw new Error(`Unknown --agent "${explicit}". Use "claude" or "codex".`);
+  }
+
+  const hasClaude = onPath("claude");
+  const hasCodex = onPath("codex");
+  if (hasClaude && !hasCodex) return "claude";
+  if (hasCodex && !hasClaude) return "codex";
+  if (!hasClaude && !hasCodex) {
+    throw new Error(
+      "Neither `claude` nor `codex` is on your PATH. Install one (or pass --agent) and re-run."
+    );
+  }
+  // Both installed.
+  if (opts.yes) return "claude"; // non-interactive default; pass --agent to override
+  return await select<Agent>({
+    message: "Which coding agent do you use here?",
+    choices: [
+      { name: "Claude Code", value: "claude" },
+      { name: "OpenAI Codex", value: "codex" },
+    ],
+  });
 }
 
 /** Reuse an existing scoped api key if it was minted within this window,
@@ -83,6 +131,13 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
 
   section("Wire this repo to kioku");
   info(`Working directory: ${repoRoot}`);
+
+  // Which coding agent? Determines whether we write the Claude Code surface
+  // (.mcp.json + .claude hooks + CLAUDE.md) or the Codex surface (global
+  // ~/.codex/config.toml MCP + hooks + AGENTS.md).
+  const agent = await resolveAgent(opts);
+  info(`Coding agent: ${agent === "codex" ? "OpenAI Codex" : "Claude Code"}`);
+
   const git = detectGit(repoRoot);
   if (!git.isRepo) {
     bad(
@@ -283,7 +338,7 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
     keyMintedAt = new Date().toISOString();
   }
 
-  // Step 5: write .mcp.json
+  // Step 5: write the MCP config + hooks for the chosen agent.
   const mcpEntry = (
     key.mcp_config as {
       mcpServers: Record<
@@ -292,34 +347,69 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
       >;
     }
   ).mcpServers["kioku"];
-  const mcp = writeMcpConfig(repoRoot, mcpEntry);
-  ok(`.mcp.json ${mcp.existed ? "updated" : "written"}`);
 
-  // Step 6a: SessionStart hook — fetches briefing at session start
-  const hook = installSessionStartHook(repoRoot);
-  ok(
-    hook.addedHook
-      ? "SessionStart hook installed"
-      : "SessionStart hook already present"
-  );
+  if (agent === "codex") {
+    // Codex surface: global ~/.codex/config.toml (MCP + SessionStart/Stop) +
+    // AGENTS.md. The url is rewritten to the streamable-HTTP path (/mcp) inside
+    // writeCodexMcpConfig, since Codex speaks streamable HTTP, not SSE.
+    const cx = writeCodexMcpConfig(mcpEntry);
+    ok(
+      `~/.codex/config.toml MCP entry ${cx.existed ? "updated" : "written"}  ` +
+        kleur.dim("(streamable-http)")
+    );
+    const cxStart = installCodexSessionStartHook();
+    ok(
+      cxStart.addedHook
+        ? "Codex SessionStart hook installed"
+        : "Codex SessionStart hook already present"
+    );
+    const cxStop = installCodexStopHook();
+    ok(
+      cxStop.addedHook
+        ? "Codex Stop hook installed  " +
+            kleur.dim("(captures learnings to Mem0)")
+        : "Codex Stop hook already present"
+    );
+    // PostToolUse hook — after a `git push`, nudges the session to refresh the
+    // repo's `activity` briefing from the new commits (parity with Claude).
+    const cxPush = installCodexPostPushHook();
+    ok(
+      cxPush.addedHook
+        ? "Codex Push hook installed  " +
+            kleur.dim("(refreshes activity on git push)")
+        : "Codex Push hook already present"
+    );
+  } else {
+    const mcp = writeMcpConfig(repoRoot, mcpEntry);
+    ok(`.mcp.json ${mcp.existed ? "updated" : "written"}`);
 
-  // Step 6b: Stop hook — captures session learnings to Mem0 every 10 min
-  //          or every 5 assistant turns.
-  const stop = installStopHook(repoRoot);
-  ok(
-    stop.addedHook
-      ? "Stop hook installed  " + kleur.dim("(captures learnings to Mem0)")
-      : "Stop hook already present"
-  );
+    // SessionStart hook — fetches briefing at session start
+    const hook = installSessionStartHook(repoRoot);
+    ok(
+      hook.addedHook
+        ? "SessionStart hook installed"
+        : "SessionStart hook already present"
+    );
 
-  // Step 6c: PostToolUse hook — after a `git push`, nudges the session to
-  //          refresh the repo's `activity` briefing from the new commits.
-  const push = installPostPushHook(repoRoot);
-  ok(
-    push.addedHook
-      ? "Push hook installed  " + kleur.dim("(refreshes activity on git push)")
-      : "Push hook already present"
-  );
+    // Stop hook — captures session learnings to Mem0 every 10 min
+    //          or every 5 assistant turns.
+    const stop = installStopHook(repoRoot);
+    ok(
+      stop.addedHook
+        ? "Stop hook installed  " + kleur.dim("(captures learnings to Mem0)")
+        : "Stop hook already present"
+    );
+
+    // PostToolUse hook — after a `git push`, nudges the session to
+    //          refresh the repo's `activity` briefing from the new commits.
+    const push = installPostPushHook(repoRoot);
+    ok(
+      push.addedHook
+        ? "Push hook installed  " +
+            kleur.dim("(refreshes activity on git push)")
+        : "Push hook already present"
+    );
+  }
 
   // Step 6c.2: native git pre-push hook — fires on EVERY push (any terminal),
   //            so the code graph refreshes even when you push by hand.
@@ -342,14 +432,16 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
     last_activity_sha: headSha(repoRoot),
   });
 
-  // Step 7: CLAUDE.md
-  const md = updateClaudeMd(repoRoot);
+  // Step 7: project instructions — CLAUDE.md for Claude, AGENTS.md for Codex.
+  const md =
+    agent === "codex" ? updateAgentsMd(repoRoot) : updateClaudeMd(repoRoot);
+  const mdName = agent === "codex" ? "AGENTS.md" : "CLAUDE.md";
   ok(
     md.action === "created"
-      ? "CLAUDE.md created"
+      ? `${mdName} created`
       : md.action === "appended"
-      ? "CLAUDE.md — second-brain instructions appended"
-      : "CLAUDE.md — second-brain instructions updated"
+      ? `${mdName} — second-brain instructions appended`
+      : `${mdName} — second-brain instructions updated`
   );
 
   // Step 8: .gitignore
@@ -408,7 +500,7 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
   // value for this very first session, which is exactly when you want the
   // briefing ready.
   try {
-    const restBase = new URL(mcpEntry.url).origin.replace(/:8001$/, ":8000");
+    const restBase = mcpUrlToRestBase(mcpEntry.url);
     const res = await fetch(
       `${restBase}/api/cli/folder-summary?folder_id=${encodeURIComponent(
         repoFolder.id
@@ -499,28 +591,41 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
     }
 
     if (shouldGenerate) {
-      info("Opening Claude Code — generating the briefing as its first task…");
+      const label = agent === "codex" ? "Codex" : "Claude Code";
+      info(`Opening ${label} — generating the briefing as its first task…`);
       console.log();
-      const { spawnSync } = await import("node:child_process");
-      // Interactive Claude Code, generation as the first user message.
-      // --dangerously-skip-permissions so it runs without stopping on tool
-      // approvals; KIOKU_NO_AUTOGEN=1 tells the SessionStart hook this session
-      // is already handling generation, so it doesn't inject the task twice.
-      spawnSync(
-        "claude",
-        [
-          "--dangerously-skip-permissions",
-          generateInstruction(summary?.section_order ?? []),
-        ],
-        {
+      const instruction = generateInstruction(summary?.section_order ?? []);
+      // KIOKU_NO_AUTOGEN=1 tells the SessionStart hook this session is already
+      // handling generation, so it doesn't inject the task twice.
+      const env = { ...process.env, KIOKU_NO_AUTOGEN: "1" };
+      if (agent === "codex") {
+        // Interactive Codex with the generation prompt as the first task.
+        // --dangerously-bypass-approvals-and-sandbox: run tools without
+        // approval prompts (Codex's equivalent of Claude's skip-permissions).
+        // --dangerously-bypass-hook-trust: the SessionStart/Stop hooks we just
+        // wrote are untrusted on first run; this lets them fire for this launch.
+        spawnSync(
+          "codex",
+          [
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--dangerously-bypass-hook-trust",
+            instruction,
+          ],
+          { cwd: repoRoot, stdio: "inherit", env }
+        );
+      } else {
+        // Interactive Claude Code, generation as the first user message.
+        // --dangerously-skip-permissions so it runs without stopping on tool
+        // approvals.
+        spawnSync("claude", ["--dangerously-skip-permissions", instruction], {
           cwd: repoRoot,
           stdio: "inherit",
-          env: { ...process.env, KIOKU_NO_AUTOGEN: "1" },
-        }
-      );
+          env,
+        });
+      }
     }
   } catch {
-    // Backend unreachable or `claude` not on PATH — skip the launch; opening
-    // Claude Code later still prompts for generation via the SessionStart hook.
+    // Backend unreachable or the agent binary not on PATH — skip the launch;
+    // opening the agent later still prompts for generation via SessionStart.
   }
 }

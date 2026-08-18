@@ -1,12 +1,16 @@
 /**
- * Runs as a Claude Code PostToolUse hook scoped to the Bash tool. When the
- * Bash command that just ran was a `git push`, it nudges the SAME session to
- * refresh the repo's stored `activity` briefing from the newly-pushed commits
- * — using the session's own model/tokens (via the kioku MCP tools).
+ * Runs as a PostToolUse hook scoped to the shell (Bash) tool, for BOTH Claude
+ * Code and OpenAI Codex — their PostToolUse payloads and output schemas match
+ * (same `tool_name`/`tool_input`/`hookSpecificOutput.additionalContext` shape).
+ * When the shell command that just ran was a `git push`, it nudges the SAME
+ * session to refresh the repo's stored `activity` briefing from the
+ * newly-pushed commits — using the session's own model/tokens (via the kioku
+ * MCP tools).
  *
- * The nudge is emitted as `hookSpecificOutput.additionalContext`, which Claude
- * Code injects into the model's context. Debounced on the last-synced commit
- * SHA in `.claude/kioku-state.json` so a push with no new commits is a no-op.
+ * The nudge is emitted as `hookSpecificOutput.additionalContext`, which both
+ * agents inject into the model's context. Debounced on the last-synced commit
+ * SHA in `.claude/kioku-state.json` (kioku's agent-neutral state store) so a
+ * push with no new commits is a no-op.
  *
  * Silent and best-effort — a git/parse hiccup never disrupts the session.
  * Always exits 0 and, unless there's a real nudge, prints nothing.
@@ -26,7 +30,10 @@ interface HookPayload {
   session_id?: string;
   cwd?: string;
   tool_name?: string;
-  tool_input?: { command?: string };
+  // Claude and Codex both send `{ command: "git push ..." }` (a string) for
+  // shell tools. `command` is typed loosely so we tolerate an array-of-argv
+  // shape too (see extractCommand).
+  tool_input?: { command?: unknown };
   // Claude Code has used both keys across versions.
   tool_output?: unknown;
   tool_response?: unknown;
@@ -106,6 +113,17 @@ function gitSafe(cwd: string, args: string): string {
   }
 }
 
+/** Normalize a shell tool's `tool_input.command` into a single string. Claude
+ *  and Codex both send a string ("git push origin main"), but be robust to an
+ *  argv-array shape (["git","push",...]) some tools/versions could use. */
+function extractCommand(command: unknown): string {
+  if (typeof command === "string") return command;
+  if (Array.isArray(command)) {
+    return command.filter((p) => typeof p === "string").join(" ");
+  }
+  return "";
+}
+
 /** True when the command is (or contains) a `git push` invocation. Tolerates
  *  leading env vars, `&&` chains, and flags — but not the word "push" as an
  *  argument to something else. */
@@ -163,14 +181,20 @@ export async function onPush(): Promise<void> {
   const payload = await readStdinJson();
   const repoRoot = resolve(payload.cwd || process.cwd());
 
-  // Only act on Bash `git push` commands.
-  const command = payload.tool_input?.command ?? "";
+  // Only act on shell `git push` commands. Claude and Codex both name the
+  // shell tool "Bash"; skip if some other tool fired.
+  const command = extractCommand(payload.tool_input?.command);
   if (payload.tool_name && payload.tool_name !== "Bash") return;
   if (!isGitPush(command)) return;
 
-  // Opted-in repo only (has a wired kioku MCP entry).
-  if (!existsSync(join(repoRoot, ".mcp.json"))) {
-    logDebug(repoRoot, "no .mcp.json — skip");
+  // Opted-in repo only. Claude wires a per-repo .mcp.json; Codex uses the
+  // global ~/.codex/config.toml (no .mcp.json), so also accept a repo bound to
+  // a folder in kioku-state.json — the agent-neutral opt-in signal init writes
+  // for both surfaces.
+  const wired =
+    existsSync(join(repoRoot, ".mcp.json")) || !!readState(repoRoot).folder_id;
+  if (!wired) {
+    logDebug(repoRoot, "not a kioku-wired repo — skip");
     return;
   }
 

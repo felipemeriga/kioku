@@ -1,7 +1,7 @@
 # backend/tests/test_cli_auth.py
-import time
-import pytest
 import fakeredis.aioredis
+import pytest
+
 import services.cli_auth as ca
 
 
@@ -67,8 +67,9 @@ async def test_unknown_device_code_is_expired(fake_redis):
 # ---------------------------------------------------------------------------
 # Task 2 — HTTP endpoint tests
 # ---------------------------------------------------------------------------
-from fastapi.testclient import TestClient
-from main import app
+from fastapi.testclient import TestClient  # noqa: E402
+
+from main import app  # noqa: E402
 
 client = TestClient(app)
 
@@ -116,6 +117,7 @@ def test_token_poll_unknown_returns_410():
 
 def test_start_rate_limited_after_burst(monkeypatch):
     import routes.cli as cli_routes
+
     monkeypatch.setattr(cli_routes, "_DEVICE_RATE_MAX", 3)
     monkeypatch.setattr(cli_routes, "_device_hits", {})
     codes = [
@@ -134,6 +136,7 @@ def test_token_poll_not_rate_limited_within_headroom(monkeypatch):
     incorrectly treat it as 'expired'.
     """
     import routes.cli as cli_routes
+
     monkeypatch.setattr(cli_routes, "_device_hits", {})
     # Use a bogus but valid-length device_code — backend returns 410
     # (unknown), never 429, for all 35 polls.
@@ -145,6 +148,6 @@ def test_token_poll_not_rate_limited_within_headroom(monkeypatch):
         for _ in range(35)
     ]
     assert 429 not in codes, (
-        f"Got 429 at poll(s) {[i for i,c in enumerate(codes) if c==429]}; "
+        f"Got 429 at poll(s) {[i for i, c in enumerate(codes) if c == 429]}; "
         "token bucket limit is too low"
     )
