@@ -40,11 +40,12 @@ jobs:
           DB_URL=$(supabase status --output env | grep '^DB_URL=' | cut -d= -f2- | tr -d '"')
           psql "$DB_URL" -f backend/db/schema.sql
           psql "$DB_URL" -f backend/db/local_setup.sql
-          # PostgREST caches the schema at startup; these tables were created
-          # via psql afterwards, so reload the cache or the supabase client
-          # gets PGRST205 "table not found in schema cache".
-          psql "$DB_URL" -c "NOTIFY pgrst, 'reload schema';"
-          sleep 3
+          # PostgREST cached the (empty) schema at start, before these psql
+          # applies — so the supabase client gets PGRST205 "table not found in
+          # schema cache". A NOTIFY reload proved unreliable here; restart the
+          # PostgREST container so it rebuilds its cache, then wait for it.
+          docker restart $(docker ps -q --filter name=supabase_rest)
+          sleep 10
 
       - name: Install uv
         uses: astral-sh/setup-uv@v3
