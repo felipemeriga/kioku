@@ -20,6 +20,7 @@ import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import {
   SUB_SESSION_START,
   SUB_STOP,
+  SUB_POST_PUSH,
   cliInvocation,
   secondBrainSnippet,
   upsertMarkdownSnippet,
@@ -140,6 +141,12 @@ export function readCodexMcpEntry(): {
 // FIRST launch passes --dangerously-bypass-hook-trust; interactive sessions
 // afterward prompt the user once to trust the hook.
 
+// Codex's shell/exec tool reports `tool_name = "Bash"` (its canonical hook
+// tool name — confirmed against codex-cli 0.147.0's hook_names.rs, which gives
+// the shell tool the name "Bash" with no aliases). A tool-scoped event like
+// PostToolUse needs this matcher so the group only fires for shell commands.
+const SHELL_TOOL_MATCHER = "Bash";
+
 interface CommandHandler {
   type: "command";
   command: string;
@@ -167,10 +174,12 @@ function isSubcommand(cmd: string | undefined, subcommand: string): boolean {
  *  Returns true if the config changed. */
 function ensureCodexHook(
   cfg: TomlTable,
-  event: "SessionStart" | "Stop",
+  event: "SessionStart" | "Stop" | "PostToolUse",
   subcommand: string,
-  extra?: Partial<CommandHandler>
+  opts?: { extra?: Partial<CommandHandler>; matcher?: string }
 ): boolean {
+  const extra = opts?.extra;
+  const matcher = opts?.matcher;
   const hooks = (cfg.hooks as TomlTable | undefined) ?? {};
   const rawGroups = Array.isArray(hooks[event])
     ? (hooks[event] as MatcherGroup[])
@@ -200,7 +209,13 @@ function ensureCodexHook(
   );
 
   if (!hadExact) {
-    kept.push({ hooks: [{ type: "command", command, ...extra }] });
+    const group: MatcherGroup = {
+      hooks: [{ type: "command", command, ...extra }],
+    };
+    // Tool-scoped events (e.g. PostToolUse) need a matcher so the group only
+    // fires for the intended tool; SessionStart/Stop take none.
+    if (matcher) group.matcher = matcher;
+    kept.push(group);
   }
 
   hooks[event] = kept;
@@ -215,7 +230,7 @@ export function installCodexSessionStartHook(): {
   const path = codexConfigPath();
   const cfg = loadConfig(path);
   const changed = ensureCodexHook(cfg, "SessionStart", SUB_SESSION_START, {
-    additionalContextLimit: SESSION_START_CONTEXT_LIMIT,
+    extra: { additionalContextLimit: SESSION_START_CONTEXT_LIMIT },
   });
   writeConfig(path, cfg);
   return { path, addedHook: changed };
@@ -229,17 +244,36 @@ export function installCodexStopHook(): { path: string; addedHook: boolean } {
   return { path, addedHook: changed };
 }
 
+/** PostToolUse hook scoped to the shell (Bash) tool. `kioku on-push` filters
+ *  for a `git push` command and, when found, nudges the SAME Codex session to
+ *  refresh the repo's stored `activity` briefing from the newly-pushed commits.
+ *  Mirrors Claude Code's installPostPushHook — Codex's PostToolUse honors the
+ *  same `hookSpecificOutput.additionalContext` injection `on-push` emits
+ *  (confirmed against codex-cli 0.147.0's PostToolUseHookSpecificOutputWire). */
+export function installCodexPostPushHook(): {
+  path: string;
+  addedHook: boolean;
+} {
+  const path = codexConfigPath();
+  const cfg = loadConfig(path);
+  const changed = ensureCodexHook(cfg, "PostToolUse", SUB_POST_PUSH, {
+    matcher: SHELL_TOOL_MATCHER,
+  });
+  writeConfig(path, cfg);
+  return { path, addedHook: changed };
+}
+
 // ── AGENTS.md ─────────────────────────────────────────────────────
 
 /** Mirror updateClaudeMd into AGENTS.md (Codex's project-instructions file).
- *  Uses the no-push-hook snippet — the Codex surface wires only SessionStart +
- *  Stop, not a push activity-refresh hook. */
+ *  Uses the push-hook snippet — the Codex surface now wires SessionStart, Stop,
+ *  and a PostToolUse activity-refresh hook (parity with Claude Code). */
 export function updateAgentsMd(repoRoot: string): {
   path: string;
   action: "created" | "appended" | "updated";
 } {
   return upsertMarkdownSnippet(
     join(repoRoot, "AGENTS.md"),
-    secondBrainSnippet({ pushHook: false })
+    secondBrainSnippet({ pushHook: true })
   );
 }

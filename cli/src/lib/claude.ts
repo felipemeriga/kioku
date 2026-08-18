@@ -87,7 +87,7 @@ interface ClaudeSettings {
 // whenever kioku is installed under nvm.
 export const SUB_SESSION_START = "session-start";
 export const SUB_STOP = "capture";
-const SUB_POST_PUSH = "on-push";
+export const SUB_POST_PUSH = "on-push";
 const SUB_INDEX = "index";
 
 /** Single-quote a path for /bin/sh. */

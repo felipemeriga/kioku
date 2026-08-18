@@ -34,6 +34,7 @@ import {
 import {
   installCodexSessionStartHook,
   installCodexStopHook,
+  installCodexPostPushHook,
   updateAgentsMd,
   writeCodexMcpConfig,
 } from "../lib/codex.js";
@@ -368,6 +369,15 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
         ? "Codex Stop hook installed  " +
             kleur.dim("(captures learnings to Mem0)")
         : "Codex Stop hook already present"
+    );
+    // PostToolUse hook — after a `git push`, nudges the session to refresh the
+    // repo's `activity` briefing from the new commits (parity with Claude).
+    const cxPush = installCodexPostPushHook();
+    ok(
+      cxPush.addedHook
+        ? "Codex Push hook installed  " +
+            kleur.dim("(refreshes activity on git push)")
+        : "Codex Push hook already present"
     );
   } else {
     const mcp = writeMcpConfig(repoRoot, mcpEntry);

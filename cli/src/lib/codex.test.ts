@@ -7,6 +7,7 @@ import { parse as parseToml } from "smol-toml";
 import {
   installCodexSessionStartHook,
   installCodexStopHook,
+  installCodexPostPushHook,
   readCodexMcpEntry,
   toStreamableHttpUrl,
   writeCodexMcpConfig,
@@ -98,6 +99,85 @@ test("hooks write the correct [[hooks.Event]] / [[hooks.Event.hooks]] nesting", 
     const stopHandler = cfg.hooks.Stop[0].hooks[0];
     assert.equal(stopHandler.type, "command");
     assert.ok(stopHandler.command.endsWith(" capture"));
+  } finally {
+    cleanup();
+  }
+});
+
+test("PostToolUse push hook writes a Bash-matched group running on-push", () => {
+  const { path, cleanup } = setup();
+  try {
+    const push = installCodexPostPushHook();
+    assert.ok(push.addedHook);
+    const cfg = parseToml(readFileSync(path, "utf8")) as any;
+    const groups = cfg.hooks.PostToolUse;
+    assert.ok(Array.isArray(groups) && groups.length === 1);
+    // Tool-scoped: the group carries the shell-tool matcher.
+    assert.equal(groups[0].matcher, "Bash");
+    const handler = groups[0].hooks[0];
+    assert.equal(handler.type, "command");
+    assert.ok(handler.command.endsWith(" on-push"));
+    assert.ok(handler.command.includes(process.execPath));
+    assert.notEqual(handler.command, "kioku on-push");
+  } finally {
+    cleanup();
+  }
+});
+
+test("re-installing the push hook is idempotent (no duplicates)", () => {
+  const { path, cleanup } = setup();
+  try {
+    installCodexPostPushHook();
+    const second = installCodexPostPushHook();
+    assert.equal(second.addedHook, false);
+    const cfg = parseToml(readFileSync(path, "utf8")) as any;
+    assert.equal(cfg.hooks.PostToolUse.length, 1);
+    assert.equal(cfg.hooks.PostToolUse[0].hooks.length, 1);
+    assert.equal(cfg.hooks.PostToolUse[0].matcher, "Bash");
+  } finally {
+    cleanup();
+  }
+});
+
+test("a stale bare push hook is migrated, not duplicated", () => {
+  const { path, cleanup } = setup();
+  try {
+    writeFileSync(
+      path,
+      [
+        "[[hooks.PostToolUse]]",
+        'matcher = "Bash"',
+        "[[hooks.PostToolUse.hooks]]",
+        'type = "command"',
+        'command = "kioku on-push"',
+        "",
+      ].join("\n")
+    );
+    installCodexPostPushHook();
+    const cfg = parseToml(readFileSync(path, "utf8")) as any;
+    const commands = (cfg.hooks.PostToolUse as any[]).flatMap((g) =>
+      g.hooks.map((h: any) => h.command)
+    );
+    assert.equal(commands.length, 1);
+    assert.notEqual(commands[0], "kioku on-push");
+  } finally {
+    cleanup();
+  }
+});
+
+test("push + session-start + stop hooks coexist independently", () => {
+  const { path, cleanup } = setup();
+  try {
+    installCodexSessionStartHook();
+    installCodexStopHook();
+    installCodexPostPushHook();
+    const cfg = parseToml(readFileSync(path, "utf8")) as any;
+    assert.ok(
+      cfg.hooks.SessionStart[0].hooks[0].command.endsWith(" session-start")
+    );
+    assert.ok(cfg.hooks.Stop[0].hooks[0].command.endsWith(" capture"));
+    assert.ok(cfg.hooks.PostToolUse[0].hooks[0].command.endsWith(" on-push"));
+    assert.equal(cfg.hooks.PostToolUse[0].matcher, "Bash");
   } finally {
     cleanup();
   }
