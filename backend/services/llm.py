@@ -104,8 +104,12 @@ def complete(
     (Haiku 2048, Sonnet/Opus 1024 input tokens) — safe to leave on.
     """
     kwargs = _build_kwargs(
-        task=task, messages=messages, system=system, tools=tools,
-        max_tokens=max_tokens, cache_system=cache_system,
+        task=task,
+        messages=messages,
+        system=system,
+        tools=tools,
+        max_tokens=max_tokens,
+        cache_system=cache_system,
     )
     return get_client().messages.create(**kwargs)
 
@@ -126,7 +130,11 @@ def stream_complete(
     so you can freely swap between them without behavior drift.
     """
     kwargs = _build_kwargs(
-        task=task, messages=messages, system=system, tools=tools,
-        max_tokens=max_tokens, cache_system=cache_system,
+        task=task,
+        messages=messages,
+        system=system,
+        tools=tools,
+        max_tokens=max_tokens,
+        cache_system=cache_system,
     )
     return get_client().messages.stream(**kwargs)

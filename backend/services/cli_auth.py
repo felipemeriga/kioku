@@ -4,6 +4,7 @@ Two secrets per request: a public `request_id` (goes in the browser URL)
 and a secret `device_code` (stays in the CLI, used to poll). Only
 sha256(device_code) is persisted. Records are single-use and TTL-bound.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -57,9 +58,7 @@ async def get_by_request_id(request_id: str) -> dict | None:
 
 
 async def _save(rec: dict) -> None:
-    await _get_redis().set(
-        _REQ_PREFIX + rec["request_id"], json.dumps(rec), ex=_remaining_ttl(rec)
-    )
+    await _get_redis().set(_REQ_PREFIX + rec["request_id"], json.dumps(rec), ex=_remaining_ttl(rec))
 
 
 async def authorize(request_id: str, tokens: dict) -> bool:

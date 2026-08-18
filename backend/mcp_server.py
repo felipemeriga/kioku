@@ -521,9 +521,7 @@ def list_documents(folder: str | None = None) -> str:
     lines = [f"{len(docs)} documents ({len(rows)} chunks):"]
     for name in sorted(docs):
         d = docs[name]
-        lines.append(
-            f"- {name} · {d['chunks']} chunks · {d['type']} · {str(d['created'])[:10]}"
-        )
+        lines.append(f"- {name} · {d['chunks']} chunks · {d['type']} · {str(d['created'])[:10]}")
     return "\n".join(lines)
 
 
@@ -692,7 +690,9 @@ def add_document(filename: str, content: str, folder: str | None = None) -> str:
     res = replace_document(content, filename, user_id, folder_id=target_folder)
     if not res["chunks"]:
         return f"No content to store for '{filename}'."
-    return f"Created '{filename}': {res['chunks']} chunks embedded in {folder or 'the current scope'}."
+    return (
+        f"Created '{filename}': {res['chunks']} chunks embedded in {folder or 'the current scope'}."
+    )
 
 
 @mcp.tool()
@@ -1024,7 +1024,9 @@ def get_folder_briefing_schema() -> str:
                 "How the system fits together. summary (str), components "
                 "(list of {name, role, path}), data_flow (str)."
             ),
-            "preferences": "Verbatim rules. Prefer using save_memory + regen over editing directly.",
+            "preferences": (
+                "Verbatim rules. Prefer using save_memory + regen over editing directly."
+            ),
             "important_files": "3-8 files an agent would open first. list of {path, role, why}.",
             "how_it_runs": "Requirements list + local_dev setup string.",
             "deployment": "Environments list, how_to_deploy, ci_cd_notes.",
@@ -1121,7 +1123,8 @@ def replace_folder_briefing(
     pin_all: bool = True,
     folder: str | None = None,
 ) -> str:
-    """Replace the ENTIRE briefing in one call — all the stable sections at once (activity is injected live; documentation is set via save_repo_documentation).
+    """Replace the ENTIRE briefing in one call — all the stable sections at once
+    (activity is injected live; documentation is set via save_repo_documentation).
 
     Use when you want to overwrite the whole briefing (e.g. after doing
     a big investigation that touched every area). Call

@@ -14,7 +14,6 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any
 
 from services.search import search_documents
 
@@ -92,16 +91,18 @@ def _log_retrieval(
 ) -> None:
     """Insert one retrieval_log row. Never blocks the retrieval path — swallow."""
     try:
-        sb.table("retrieval_log").insert({
-            "user_id": user_id,
-            "folder_id": folder_id,
-            "query": query,
-            "sources_hit": sources_hit,
-            "chunks_returned": len(hits),
-            "chunk_ids": [h.id for h in hits[:50]],
-            "latency_ms": latency_ms,
-            "channel": channel,
-        }).execute()
+        sb.table("retrieval_log").insert(
+            {
+                "user_id": user_id,
+                "folder_id": folder_id,
+                "query": query,
+                "sources_hit": sources_hit,
+                "chunks_returned": len(hits),
+                "chunk_ids": [h.id for h in hits[:50]],
+                "latency_ms": latency_ms,
+                "channel": channel,
+            }
+        ).execute()
     except Exception:
         log.exception("failed to write retrieval_log row (non-fatal)")
 
@@ -196,7 +197,11 @@ async def _search_mem0(
         log.exception("mem0 fan-out failed: %s", e)
         eternal, episodic = [], []
     latency = int((time.perf_counter() - t0) * 1000)
-    return _hits_from_mem0(eternal, MemoryScope.ETERNAL), _hits_from_mem0(episodic, MemoryScope.EPISODIC), latency
+    return (
+        _hits_from_mem0(eternal, MemoryScope.ETERNAL),
+        _hits_from_mem0(episodic, MemoryScope.EPISODIC),
+        latency,
+    )
 
 
 def _merge_hits(
@@ -223,7 +228,7 @@ def _merge_hits(
     # Score-sort docs + episodic together, best first.
     scored = sorted(
         doc_hits + mem0_episodic,
-        key=lambda h: (h.score if h.score is not None else 0.0),
+        key=lambda h: h.score if h.score is not None else 0.0,
         reverse=True,
     )
     for h in scored:
@@ -256,26 +261,31 @@ async def fanout_search(
 
     (doc_hits, doc_ms), (m_eternal, m_episodic, mem0_ms) = await asyncio.gather(doc_task, mem0_task)
 
-    merged = _merge_hits(doc_hits, m_eternal, m_episodic)[:limit + len(m_eternal)]
+    merged = _merge_hits(doc_hits, m_eternal, m_episodic)[: limit + len(m_eternal)]
     total_ms = int((time.perf_counter() - t0) * 1000)
 
-    sources_hit: list[dict] = [
-        {"source": "docs", "count": len(doc_hits), "latency_ms": doc_ms}
-    ]
+    sources_hit: list[dict] = [{"source": "docs", "count": len(doc_hits), "latency_ms": doc_ms}]
     if mem0 is not None:
-        sources_hit.append({
-            "source": "mem0",
-            "count": len(m_eternal) + len(m_episodic),
-            "eternal": len(m_eternal),
-            "episodic": len(m_episodic),
-            "latency_ms": mem0_ms,
-        })
+        sources_hit.append(
+            {
+                "source": "mem0",
+                "count": len(m_eternal) + len(m_episodic),
+                "eternal": len(m_eternal),
+                "episodic": len(m_episodic),
+                "latency_ms": mem0_ms,
+            }
+        )
 
     _log_retrieval(
         sb,
-        user_id=user_id, folder_id=folder_id, query=query_text,
-        hits=merged, sources_hit=sources_hit,
-        latency_ms=total_ms, channel=channel, conversation_id=conversation_id,
+        user_id=user_id,
+        folder_id=folder_id,
+        query=query_text,
+        hits=merged,
+        sources_hit=sources_hit,
+        latency_ms=total_ms,
+        channel=channel,
+        conversation_id=conversation_id,
     )
 
     return FanoutResult(

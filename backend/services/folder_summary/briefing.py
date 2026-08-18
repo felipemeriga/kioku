@@ -10,10 +10,10 @@ log = logging.getLogger(__name__)
 from .briefing_schema import (  # noqa: F401, E402
     BRIEFING_SCHEMA_VERSION,
     SECTION_KEYS,
-    SectionStatus,
     Provenance,
-    new_section,
+    SectionStatus,
+    _now_iso,
     empty_briefing,
     merge_briefing,
-    _now_iso,
+    new_section,
 )

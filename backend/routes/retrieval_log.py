@@ -25,7 +25,10 @@ async def list_recent(
     sb = get_supabase()
     q = (
         sb.table("retrieval_log")
-        .select("id, folder_id, query, sources_hit, chunks_returned, chunk_ids, latency_ms, channel, created_at")
+        .select(
+            "id, folder_id, query, sources_hit, chunks_returned, "
+            "chunk_ids, latency_ms, channel, created_at"
+        )
         .eq("user_id", user_id)
         .order("created_at", desc=True)
         .limit(min(max(limit, 1), 500))
@@ -105,7 +108,5 @@ async def stats(
         "latency_p50_ms": _pct(50),
         "latency_p95_ms": _pct(95),
         "zero_hit_queries": zero_hits,
-        "top_retrieved_chunks": [
-            {"chunk_id": cid, "retrievals": n} for cid, n in top_chunks
-        ],
+        "top_retrieved_chunks": [{"chunk_id": cid, "retrievals": n} for cid, n in top_chunks],
     }

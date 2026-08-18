@@ -232,12 +232,7 @@ def replace_document(
     source_type = EXTENSION_TO_TYPE.get(ext, "markdown")
 
     # Remove the old chunks (scoped to this file + folder + user), then insert new.
-    del_q = (
-        sb.table("documents")
-        .delete()
-        .eq("user_id", user_id)
-        .eq("source_filename", filename)
-    )
+    del_q = sb.table("documents").delete().eq("user_id", user_id).eq("source_filename", filename)
     if folder_id:
         del_q = del_q.eq("folder_id", folder_id)
     del_q.execute()

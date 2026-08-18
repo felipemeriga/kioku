@@ -13,6 +13,7 @@ def test_briefing_schema_helpers_importable():
     # SECTION_KEYS + new_section + empty_briefing must be importable from
     # wherever they end up living (Task 2 may move them).
     from routes.briefing import SECTION_KEYS
+
     assert "overview" in SECTION_KEYS and "activity" in SECTION_KEYS
 
 
