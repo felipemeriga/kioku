@@ -38,6 +38,10 @@ jobs:
       - name: Apply schema + local setup
         run: |
           DB_URL=$(supabase status --output env | grep '^DB_URL=' | cut -d= -f2- | tr -d '"')
+          # schema.sql uses the public.vector type (pgvector) for documents.embedding
+          # but never creates the extension — enable it in public first, or the
+          # documents table (and everything referencing it) fails to create.
+          psql "$DB_URL" -c "CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;"
           psql "$DB_URL" -f backend/db/schema.sql
           psql "$DB_URL" -f backend/db/local_setup.sql
           # PostgREST cached the (empty) schema at start, before these psql
