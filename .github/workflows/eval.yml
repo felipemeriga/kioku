@@ -25,6 +25,13 @@ jobs:
         with:
           version: latest
 
+      # The incremental migrations in supabase/migrations/ assume a base schema
+      # (public.folders et al.) that lives in backend/db/schema.sql, which we
+      # apply below — so they can't run on a fresh `supabase start`. Drop them
+      # here so start comes up clean; schema.sql is the source of truth for CI.
+      - name: Use schema.sql as the DB source (skip incremental migrations)
+        run: rm -f supabase/migrations/*.sql
+
       - name: Start Supabase
         run: supabase start
 
