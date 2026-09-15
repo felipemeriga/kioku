@@ -53,6 +53,17 @@ class TestJobsHelpers(unittest.TestCase):
         update = sb.table.return_value.update.call_args.args[0]
         self.assertEqual(update["status"], "running")
         self.assertIn("started_at", update)
+        self.assertNotIn("current_step", update)
+
+    def test_mark_running_can_set_current_step(self):
+        from services.queue.jobs import mark_running
+
+        sb = MagicMock()
+        mark_running(sb, job_id="job-1", current_step="parsing")
+
+        update = sb.table.return_value.update.call_args.args[0]
+        self.assertEqual(update["status"], "running")
+        self.assertEqual(update["current_step"], "parsing")
 
     def test_increment_batches_uses_read_modify_write(self):
         from services.queue.jobs import increment_processed_batches

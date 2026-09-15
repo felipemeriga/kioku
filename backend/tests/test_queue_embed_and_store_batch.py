@@ -112,6 +112,120 @@ class TestEmbedAndStoreBatchTask(unittest.TestCase):
             self._run(embed_and_store_batch_task({"redis": None}, payload))
         self.assertEqual(sorted(calls), ["a", "b", "c", "d", "e"])
 
+    def test_replace_existing_page_deletes_only_after_embed_succeeds(self):
+        # The whole point of replace_existing_page is that the delete happens
+        # here, after Voyage/Anthropic succeeded — never before.
+        from services.queue.tasks import embed_and_store_batch_task
+
+        supabase = MagicMock()
+        supabase.table.return_value.insert.return_value.execute.return_value.data = []
+
+        payload = {
+            "job_id": "job-1",
+            "row_template": {
+                "user_id": "u1",
+                "root_folder_id": "root-1",
+                "source_type": "notion",
+                "notion_page_id": "p1",
+                "status": "completed",
+            },
+            "chunks": ["a"],
+            "replace_existing_page": True,
+        }
+
+        with (
+            patch(
+                "services.queue.tasks.get_supabase_thread_safe",
+                return_value=supabase,
+                create=True,
+            ),
+            patch("services.queue.tasks.embed_batch", return_value=[[0.0] * 1024]),
+            patch("services.queue.tasks.extract_metadata", return_value={}),
+            patch(
+                "services.queue.tasks.increment_processed_batches",
+                return_value={"completed": True},
+            ),
+        ):
+            self._run(embed_and_store_batch_task({"redis": None}, payload))
+
+        delete_eq = supabase.table.return_value.delete.return_value.eq
+        delete_eq.assert_called_with("user_id", "u1")
+        chained = delete_eq.return_value.eq
+        chained.assert_called_with("root_folder_id", "root-1")
+        chained.return_value.eq.assert_called_with("notion_page_id", "p1")
+        supabase.table.return_value.insert.assert_called_once()
+
+    def test_replace_existing_page_keeps_old_rows_when_embed_fails(self):
+        from services.queue.tasks import embed_and_store_batch_task
+
+        supabase = MagicMock()
+
+        payload = {
+            "job_id": "job-1",
+            "row_template": {
+                "user_id": "u1",
+                "root_folder_id": "root-1",
+                "source_type": "notion",
+                "notion_page_id": "p1",
+                "status": "completed",
+            },
+            "chunks": ["a"],
+            "replace_existing_page": True,
+        }
+
+        with (
+            patch(
+                "services.queue.tasks.get_supabase_thread_safe",
+                return_value=supabase,
+                create=True,
+            ),
+            patch(
+                "services.queue.tasks.embed_batch",
+                side_effect=RuntimeError("401 api key invalid"),
+            ),
+            patch("services.queue.tasks.mark_failed"),
+        ):
+            with self.assertRaises(RuntimeError):
+                self._run(embed_and_store_batch_task({"redis": None}, payload))
+
+        supabase.table.return_value.delete.assert_not_called()
+        supabase.table.return_value.insert.assert_not_called()
+
+    def test_no_delete_without_replace_flag(self):
+        from services.queue.tasks import embed_and_store_batch_task
+
+        supabase = MagicMock()
+        supabase.table.return_value.insert.return_value.execute.return_value.data = []
+
+        payload = {
+            "job_id": "job-1",
+            "row_template": {
+                "user_id": "u1",
+                "root_folder_id": "root-1",
+                "source_type": "notion",
+                "notion_page_id": "p1",
+                "status": "completed",
+            },
+            "chunks": ["a"],
+        }
+
+        with (
+            patch(
+                "services.queue.tasks.get_supabase_thread_safe",
+                return_value=supabase,
+                create=True,
+            ),
+            patch("services.queue.tasks.embed_batch", return_value=[[0.0] * 1024]),
+            patch("services.queue.tasks.extract_metadata", return_value={}),
+            patch(
+                "services.queue.tasks.increment_processed_batches",
+                return_value={"completed": True},
+            ),
+        ):
+            self._run(embed_and_store_batch_task({"redis": None}, payload))
+
+        supabase.table.return_value.delete.assert_not_called()
+
     def test_marks_failed_on_exception(self):
         from services.queue.tasks import embed_and_store_batch_task
 
