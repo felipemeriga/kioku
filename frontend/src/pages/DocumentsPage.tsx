@@ -79,7 +79,14 @@ export default function DocumentsPage() {
   } | null>(null);
   const [globalDropActive, setGlobalDropActive] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  // Persisted so the choice survives navigation and reloads — without this
+  // the toggle silently reset to grid on every visit.
+  const [viewMode, setViewMode] = useState<"grid" | "list">(() =>
+    localStorage.getItem("kioku.documents.viewMode") === "list" ? "list" : "grid"
+  );
+  useEffect(() => {
+    localStorage.setItem("kioku.documents.viewMode", viewMode);
+  }, [viewMode]);
   const [breadcrumbs, setBreadcrumbs] = useState<Breadcrumb[]>([]);
   const [folderTab, setFolderTab] = useState<"files" | "briefing">("files");
 
