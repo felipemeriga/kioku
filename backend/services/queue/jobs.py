@@ -101,14 +101,12 @@ def fail_stale_jobs(
     return len(rows)
 
 
-def mark_running(supabase, *, job_id: str) -> None:
+def mark_running(supabase, *, job_id: str, current_step: str | None = None) -> None:
     now = datetime.now(timezone.utc).isoformat()
-    (
-        supabase.table("ingestion_jobs")
-        .update({"status": "running", "started_at": now})
-        .eq("id", job_id)
-        .execute()
-    )
+    update: dict[str, Any] = {"status": "running", "started_at": now}
+    if current_step is not None:
+        update["current_step"] = current_step
+    (supabase.table("ingestion_jobs").update(update).eq("id", job_id).execute())
 
 
 def set_total_batches(supabase, *, job_id: str, total: int) -> None:

@@ -34,13 +34,15 @@ class TestIngestNotionPageTask(unittest.TestCase):
         pool.enqueue_job = MagicMock(side_effect=_enqueue)
         return pool
 
-    def test_deletes_existing_chunks_and_enqueues_one_batch(self):
+    def test_single_batch_defers_delete_to_batch_task(self):
+        # One batch (the common case): the old rows must survive until the
+        # batch task has embedded successfully — no upfront delete here. The
+        # batch payload carries replace_existing_page so the batch task swaps
+        # the rows itself.
         from services.queue.tasks import ingest_notion_page_task
 
         supabase = MagicMock()
         table = supabase.table.return_value
-        delete_chain = table.delete.return_value.eq.return_value.eq.return_value.eq.return_value
-        delete_chain.execute.return_value.data = [{}]
 
         notion_mock = MagicMock()
         notion_mock.get_page.return_value = _page()
@@ -92,7 +94,7 @@ class TestIngestNotionPageTask(unittest.TestCase):
         ):
             _run(ingest_notion_page_task({"redis": pool}, payload))
 
-        supabase.table.assert_any_call("documents")
+        table.delete.assert_not_called()
         set_total_mock.assert_called_once()
         self.assertEqual(set_total_mock.call_args.kwargs["total"], 1)
         # Exactly one enqueue call
@@ -103,6 +105,7 @@ class TestIngestNotionPageTask(unittest.TestCase):
         self.assertEqual(batch_payload["chunks"], ["c1", "c2", "c3"])
         self.assertEqual(batch_payload["row_template"]["notion_page_id"], "p1")
         self.assertEqual(batch_payload["row_template"]["source_type"], "notion")
+        self.assertTrue(batch_payload["replace_existing_page"])
 
     def test_empty_page_finalizes_and_cascades_to_parent(self):
         # A page with no embeddable text produces zero batches. No batch task
@@ -211,3 +214,8 @@ class TestIngestNotionPageTask(unittest.TestCase):
             _run(ingest_notion_page_task({"redis": pool}, payload))
 
         self.assertEqual(pool.enqueue_job.call_count, 2)
+        # Multi-batch pages keep the upfront delete: their batches run
+        # concurrently and a deferred delete would race sibling inserts.
+        table.delete.assert_called_once()
+        for call in pool.enqueue_job.call_args_list:
+            self.assertFalse(call.args[1]["replace_existing_page"])

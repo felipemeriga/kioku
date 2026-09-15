@@ -19,6 +19,8 @@ class NotionPage:
     title: str
     last_edited_time: datetime
     parent_page_id: str | None  # None if top-level (workspace-level parent)
+    parent_block_id: str | None = None  # set when the page sits inside a block (column, toggle…)
+    archived: bool = False  # archived or in-trash in Notion
 
 
 class NotionClient:
@@ -30,6 +32,24 @@ class NotionClient:
     def get_page(self, page_id: str) -> NotionPage:
         page = self._client.pages.retrieve(page_id=page_id)
         return _page_from_raw(page)
+
+    def get_page_or_none(self, page_id: str) -> NotionPage | None:
+        """Like get_page, but returns None when Notion says the page is gone
+        (deleted, or no longer shared with the integration). Other errors
+        propagate so callers don't mistake an outage for a deletion."""
+        from notion_client.errors import APIResponseError
+
+        try:
+            return self.get_page(page_id)
+        except APIResponseError as exc:
+            if exc.status in (403, 404):
+                return None
+            raise
+
+    def get_block_parent(self, block_id: str) -> dict:
+        """Return the raw parent object of a block ({type: page_id|block_id|...})."""
+        block = self._client.blocks.retrieve(block_id=block_id)
+        return block.get("parent", {})
 
     def iter_child_blocks(self, block_id: str) -> Iterator[dict]:
         """Yield all children of a block (page or block), paginated."""
@@ -71,12 +91,15 @@ class NotionClient:
 def _page_from_raw(raw: dict) -> NotionPage:
     parent = raw.get("parent", {})
     parent_page_id = parent.get("page_id") if parent.get("type") == "page_id" else None
+    parent_block_id = parent.get("block_id") if parent.get("type") == "block_id" else None
     title = _extract_title(raw)
     return NotionPage(
         page_id=raw["id"],
         title=title,
         last_edited_time=datetime.fromisoformat(raw["last_edited_time"].replace("Z", "+00:00")),
         parent_page_id=parent_page_id,
+        parent_block_id=parent_block_id,
+        archived=bool(raw.get("archived") or raw.get("in_trash")),
     )
 
 

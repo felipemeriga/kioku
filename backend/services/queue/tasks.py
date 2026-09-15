@@ -39,6 +39,7 @@ from services.queue.jobs import (
     increment_processed_pages,
     mark_completed,
     mark_failed,
+    mark_running,
     set_total_batches,
     set_total_pages,
 )
@@ -56,6 +57,8 @@ async def embed_and_store_batch_task(ctx: dict, payload: dict) -> None:
         "metadata_base": dict = {},        # jsonb defaults merged with per-chunk metadata
         "chunks": list[str],               # up to 128 chunk texts
         "chunk_index_offset": int = 0,     # first chunk_index for upload/drop (not notion)
+        "replace_existing_page": bool,     # notion re-ingest: delete the page's old rows
+                                           # here, after embedding succeeds, not before
     }
     """
     job_id = payload["job_id"]
@@ -88,6 +91,20 @@ async def embed_and_store_batch_task(ctx: dict, payload: dict) -> None:
             if row_template.get("source_type") != "notion":
                 row["chunk_index"] = chunk_index_offset + i
             rows.append(row)
+
+        if payload.get("replace_existing_page") and row_template.get("notion_page_id"):
+            # Every fallible external call (Voyage, Anthropic) is behind us —
+            # only now is it safe to drop the previous version of this page.
+            await asyncio.to_thread(
+                lambda: (
+                    supabase.table("documents")
+                    .delete()
+                    .eq("user_id", row_template["user_id"])
+                    .eq("root_folder_id", row_template["root_folder_id"])
+                    .eq("notion_page_id", row_template["notion_page_id"])
+                    .execute()
+                )
+            )
 
         if rows:
             await asyncio.to_thread(lambda: supabase.table("documents").insert(rows).execute())
@@ -129,6 +146,7 @@ async def ingest_notion_page_task(ctx: dict, payload: dict) -> None:
 
 async def _ingest_notion_page_task_impl(ctx: dict, payload: dict) -> None:
     supabase = get_supabase_thread_safe()
+    mark_running(supabase, job_id=payload["job_id"], current_step="parsing")
     notion = NotionClient(payload["integration_token"])
     page = notion.get_page(payload["page_id"])
     blocks = list(fetch_block_tree(notion, payload["page_id"]))
@@ -144,18 +162,29 @@ async def _ingest_notion_page_task_impl(ctx: dict, payload: dict) -> None:
         ancestor_titles=titles,
     )
 
-    (
-        supabase.table("documents")
-        .delete()
-        .eq("user_id", payload["user_id"])
-        .eq("root_folder_id", payload["root_folder_id"])
-        .eq("notion_page_id", payload["page_id"])
-        .execute()
-    )
+    def _delete_existing_rows() -> None:
+        (
+            supabase.table("documents")
+            .delete()
+            .eq("user_id", payload["user_id"])
+            .eq("root_folder_id", payload["root_folder_id"])
+            .eq("notion_page_id", payload["page_id"])
+            .execute()
+        )
 
     chunks = chunk_text(markdown)
     batches = list(into_batches(chunks, size=128))
     set_total_batches(supabase, job_id=payload["job_id"], total=len(batches))
+
+    # The old rows for this page must not be deleted until the replacement
+    # chunks are safely embedded — with an upfront delete, an embed failure
+    # (bad API key, outage) destroys the only copy we have. For the common
+    # single-batch page the batch task deletes right before inserting, after
+    # every external call has succeeded. Multi-batch pages fall back to the
+    # upfront delete: their batches run concurrently, and a deferred delete in
+    # one batch would race the inserts of another.
+    if len(batches) != 1:
+        _delete_existing_rows()
 
     if not batches:
         # The page had no embeddable text (e.g. a container/index page whose
@@ -188,6 +217,7 @@ async def _ingest_notion_page_task_impl(ctx: dict, payload: dict) -> None:
                 "job_id": payload["job_id"],
                 "row_template": row_template,
                 "chunks": batch,
+                "replace_existing_page": len(batches) == 1,
             },
         )
 
@@ -230,6 +260,7 @@ async def _notion_sync_task_impl(ctx: dict, payload: dict) -> None:
         mark_failed(supabase, job_id=payload["job_id"], error="config not found")
         return
     cfg = cfg_rows[0]
+    mark_running(supabase, job_id=payload["job_id"])
 
     token = decrypt_secret(cfg["integration_token_encrypted"])
     notion = NotionClient(token)
@@ -258,15 +289,28 @@ async def _notion_sync_task_impl(ctx: dict, payload: dict) -> None:
         diff = diff_pages(reachable_snaps, db_page_map)
         page_ids = diff.to_ingest
 
-        # Hard-delete pages that disappeared from Notion.
+        # Hard-delete pages that disappeared from Notion — but verify each one
+        # against the live API first. Search-index lag once tombstoned ~18
+        # perfectly healthy pages right after a reorg; never again.
         if diff.to_tombstone:
-            _remove_pages(
-                supabase,
-                user_id=cfg["user_id"],
-                root_folder_id=cfg["root_folder_id"],
-                page_ids=diff.to_tombstone,
-            )
-            logger.info("full reconciliation: removed %d pages", len(diff.to_tombstone))
+            confirmed = [
+                pid for pid in diff.to_tombstone if _confirmed_gone(notion, pid, mapped_root)
+            ]
+            skipped = len(diff.to_tombstone) - len(confirmed)
+            if skipped:
+                logger.warning(
+                    "full reconciliation: kept %d page(s) the search API missed "
+                    "but that are still under the root",
+                    skipped,
+                )
+            if confirmed:
+                _remove_pages(
+                    supabase,
+                    user_id=cfg["user_id"],
+                    root_folder_id=cfg["root_folder_id"],
+                    page_ids=confirmed,
+                )
+                logger.info("full reconciliation: removed %d pages", len(confirmed))
     else:
         since = _parse_ts(cfg.get("last_fast_sync_at"))
         page_ids = []
@@ -326,17 +370,50 @@ async def _notion_sync_task_impl(ctx: dict, payload: dict) -> None:
     )
 
 
+def _resolve_parent_page_id(notion: "NotionClient", page: NotionPage) -> str | None:
+    """Return the id of the page containing `page`, walking through any
+    intermediate blocks (columns, toggles…) the page may be nested in."""
+    if page.parent_page_id:
+        return page.parent_page_id
+    block_id = page.parent_block_id
+    safety = 16
+    while block_id and safety > 0:
+        parent = notion.get_block_parent(block_id)
+        if parent.get("type") == "page_id":
+            return parent.get("page_id")
+        block_id = parent.get("block_id")
+        safety -= 1
+    return None
+
+
 def _is_under_root(notion: "NotionClient", page: NotionPage, mapped_root: str) -> bool:
     if page.page_id == mapped_root:
         return False
     current = page
     safety = 32
-    while current.parent_page_id and safety > 0:
-        if current.parent_page_id == mapped_root:
+    while safety > 0:
+        parent_page_id = _resolve_parent_page_id(notion, current)
+        if not parent_page_id:
+            return False
+        if parent_page_id == mapped_root:
             return True
-        current = notion.get_page(current.parent_page_id)
+        current = notion.get_page(parent_page_id)
         safety -= 1
     return False
+
+
+def _confirmed_gone(notion: "NotionClient", page_id: str, mapped_root: str) -> bool:
+    """Double-check a tombstone candidate against the live page before hard
+    deleting. The full-reconcile enumeration relies on Notion's search API,
+    which is eventually consistent — right after pages are moved around it can
+    omit pages that still exist under the root. Only pages that are really
+    deleted, archived, or moved out of the root may be removed."""
+    page = notion.get_page_or_none(page_id)
+    if page is None:
+        return True
+    if page.archived:
+        return True
+    return not _is_under_root(notion, page, mapped_root)
 
 
 def _load_db_page_edit_map(supabase, *, user_id: str, root_folder_id: str) -> dict[str, datetime]:
@@ -439,6 +516,10 @@ async def ingest_document_task(ctx: dict, payload: dict) -> None:
     job_id = payload["job_id"]
     try:
         supabase = get_supabase_thread_safe()
+        # Move off "queued" right away: the UI otherwise shows "uploading"
+        # through the whole download+parse phase (minutes for a big PDF), which
+        # is indistinguishable from a dead worker.
+        mark_running(supabase, job_id=job_id, current_step="parsing")
 
         # Download file bytes
         bucket = supabase.storage.from_(payload["storage_bucket"])
