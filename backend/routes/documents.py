@@ -410,6 +410,23 @@ async def move_document(
     """Move all chunks of a document to a different folder (or root if folder_id is null)."""
     sb = get_supabase()
 
+    # Notion-synced documents mirror the Notion page tree: a local move would
+    # be reverted (or duplicated) by the next sync's folder-path resolution.
+    notion_rows = (
+        sb.table("documents")
+        .select("id")
+        .eq("source_filename", filename)
+        .eq("user_id", user_id)
+        .eq("source_type", "notion")
+        .limit(1)
+        .execute()
+    ).data or []
+    if notion_rows:
+        raise HTTPException(
+            status_code=400,
+            detail="Notion-synced documents can't be moved — reorganize them in Notion instead.",
+        )
+
     # Verify target folder belongs to user if specified
     if body.folder_id:
         folder = (
