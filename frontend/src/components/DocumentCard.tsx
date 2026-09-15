@@ -112,9 +112,25 @@ export default function DocumentCard({
     onSelect?.(doc.source_filename);
   };
 
+  // Notion-synced docs mirror the Notion page tree — moving them locally
+  // would be undone (or fought) by the next sync, so they can't be dragged.
+  const movable = doc.source_type !== "notion";
+
   return (
     <>
       <Box
+        draggable={movable}
+        onDragStart={
+          movable
+            ? (e: React.DragEvent) => {
+                e.dataTransfer.setData(
+                  "application/x-document-filename",
+                  doc.source_filename
+                );
+                e.dataTransfer.effectAllowed = "move";
+              }
+            : undefined
+        }
         onContextMenu={handleContextMenu}
         onClick={handleClick}
         sx={{
@@ -257,7 +273,7 @@ export default function DocumentCard({
             <ListItemText>Download</ListItemText>
           </MenuItem>
         )}
-        {onMove && (
+        {onMove && movable && (
           <MenuItem onClick={handleMoveOpen}>
             <ListItemIcon>
               <DriveFileMoveIcon fontSize="small" />
