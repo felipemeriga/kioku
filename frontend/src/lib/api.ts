@@ -800,6 +800,27 @@ export async function reconcileNotionNow(
   return res.json();
 }
 
+export interface NotionPendingPage {
+  page_id: string;
+  title: string;
+  reason: "missing" | "outdated";
+}
+
+export interface NotionPendingResponse {
+  total_in_notion: number;
+  total_synced: number;
+  pending: NotionPendingPage[];
+}
+
+/** What a Reconcile would ingest right now. Walks the live Notion API, so
+ *  it can take a few seconds on large trees — call on demand, don't poll. */
+export async function fetchNotionPending(
+  configId: string
+): Promise<NotionPendingResponse> {
+  const res = await apiFetch(`/api/notion/configs/${configId}/pending`);
+  return res.json();
+}
+
 export async function listNotionPages(
   integrationToken: string,
   query: string

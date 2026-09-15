@@ -9,6 +9,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from services.notion_sync.client import NotionPage
 
 
 @dataclass(frozen=True)
@@ -47,3 +51,27 @@ def diff_pages(
     to_tombstone = [pid for pid in db_page_map.keys() if pid not in reachable]
 
     return ReconciliationDiff(to_ingest=to_ingest, to_tombstone=to_tombstone)
+
+
+@dataclass(frozen=True)
+class PendingPage:
+    page_id: str
+    title: str
+    reason: str  # "missing" (not in kioku) | "outdated" (edited since last ingest)
+
+
+def pending_pages(
+    notion_pages: list[NotionPage],
+    db_page_map: dict[str, datetime],
+) -> list[PendingPage]:
+    """The UI-facing preview of a reconcile: which pages it would ingest and
+    why. Must stay in lockstep with diff_pages.to_ingest — same inputs, same
+    pages — just enriched with titles and reasons."""
+    pending: list[PendingPage] = []
+    for p in notion_pages:
+        stored = db_page_map.get(p.page_id)
+        if stored is None:
+            pending.append(PendingPage(page_id=p.page_id, title=p.title, reason="missing"))
+        elif p.last_edited_time > stored:
+            pending.append(PendingPage(page_id=p.page_id, title=p.title, reason="outdated"))
+    return pending
