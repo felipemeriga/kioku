@@ -21,6 +21,7 @@ import DownloadIcon from "@mui/icons-material/Download";
 import DeleteIcon from "@mui/icons-material/Delete";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import DriveFileMoveIcon from "@mui/icons-material/DriveFileMove";
+import VisibilityIcon from "@mui/icons-material/Visibility";
 import type { DocumentInfo } from "../lib/api";
 import MoveDialog from "./MoveDialog";
 
@@ -31,6 +32,9 @@ interface DocumentCardProps {
   onDelete: (filename: string) => void;
   onDownload: (filename: string) => void;
   onMove?: (filename: string, folderId: string | null) => void;
+  /** When set, clicking the card opens the document (selection stays on the
+   *  checkbox); without it, clicking falls back to toggling selection. */
+  onOpen?: (filename: string) => void;
 }
 
 const FILE_ICONS: Record<string, { icon: React.ReactNode; color: string }> = {
@@ -67,6 +71,7 @@ export default function DocumentCard({
   onDelete,
   onDownload,
   onMove,
+  onOpen,
 }: DocumentCardProps) {
   const ext = doc.source_filename.split(".").pop()?.toLowerCase() || "txt";
   const fileStyle = FILE_ICONS[ext] || FILE_ICONS.txt;
@@ -109,7 +114,16 @@ export default function DocumentCard({
   };
 
   const handleClick = () => {
-    onSelect?.(doc.source_filename);
+    if (onOpen) {
+      onOpen(doc.source_filename);
+    } else {
+      onSelect?.(doc.source_filename);
+    }
+  };
+
+  const handleOpenFromMenu = () => {
+    closeMenu();
+    onOpen?.(doc.source_filename);
   };
 
   // Notion-synced docs mirror the Notion page tree — moving them locally
@@ -143,7 +157,7 @@ export default function DocumentCard({
           WebkitBackdropFilter: "blur(10px)",
           transition: "all 0.2s ease",
           position: "relative",
-          cursor: "context-menu",
+          cursor: onOpen ? "pointer" : "context-menu",
           ...(selected && {
             bgcolor: alpha("#FF2E93", 0.08),
             boxShadow: `0 0 0 1px ${alpha("#FF2E93", 0.3)}`,
@@ -259,6 +273,14 @@ export default function DocumentCard({
           contextMenu ? { top: contextMenu.y, left: contextMenu.x } : undefined
         }
       >
+        {onOpen && (
+          <MenuItem onClick={handleOpenFromMenu}>
+            <ListItemIcon>
+              <VisibilityIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>Open</ListItemText>
+          </MenuItem>
+        )}
         <MenuItem onClick={handleCopy}>
           <ListItemIcon>
             <ContentCopyIcon fontSize="small" />
