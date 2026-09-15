@@ -32,7 +32,14 @@ log = logging.getLogger(__name__)
 
 
 def _redis_settings() -> RedisSettings:
-    return RedisSettings.from_dsn(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
+    settings = RedisSettings.from_dsn(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
+    # arq defaults conn_timeout to 1s, and the worker's runtime reconnect path
+    # (heart_beat → enqueue_job) has no retry around it — one slow TCP connect
+    # on a loaded host kills the whole worker process. Be patient instead.
+    settings.conn_timeout = 10
+    settings.conn_retries = 5
+    settings.conn_retry_delay = 2
+    return settings
 
 
 async def _reap_stale_jobs(ctx: dict) -> None:
