@@ -32,12 +32,14 @@ import {
   fetchFolders,
   fetchIngestionJob,
   fetchNotionConfigs,
+  fetchNotionPending,
   listNotionPages,
   reconcileNotionNow,
   syncNotionNow,
   type IngestionJob,
   type NotionConfig,
   type NotionPageOption,
+  type NotionPendingResponse,
 } from "../lib/api";
 import { notionSyncProgress } from "../lib/notionProgress";
 
@@ -53,6 +55,9 @@ export function NotionIntegrationSection() {
   } | null>(null);
   const [activeJobsByConfig, setActiveJobsByConfig] = useState<
     Record<string, IngestionJob>
+  >({});
+  const [pendingByConfig, setPendingByConfig] = useState<
+    Record<string, NotionPendingResponse | "loading">
   >({});
   const pollTimers = useRef<Record<string, number>>({});
 
@@ -150,9 +155,30 @@ export function NotionIntegrationSection() {
     try {
       const { job_id } = await reconcileNotionNow(id);
       startPolling(id, job_id);
+      // The pending list is about to change — clear the stale snapshot.
+      setPendingByConfig((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
       toast.showSuccess("Full reconciliation started.");
     } catch (err) {
       toast.showError(err, "Couldn't start reconciliation.");
+    }
+  };
+
+  const handleCheckPending = async (id: string) => {
+    setPendingByConfig((prev) => ({ ...prev, [id]: "loading" }));
+    try {
+      const result = await fetchNotionPending(id);
+      setPendingByConfig((prev) => ({ ...prev, [id]: result }));
+    } catch (err) {
+      setPendingByConfig((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      toast.showError(err, "Couldn't check pending pages.");
     }
   };
 
@@ -245,6 +271,15 @@ export function NotionIntegrationSection() {
                     }}
                   >
                     <Button
+                      onClick={() => handleCheckPending(cfg.id)}
+                      disabled={pendingByConfig[cfg.id] === "loading"}
+                      title="List pages in Notion that are missing from kioku or edited since their last ingest — exactly what Reconcile would sync"
+                    >
+                      {pendingByConfig[cfg.id] === "loading"
+                        ? "Checking…"
+                        : "Check pending"}
+                    </Button>
+                    <Button
                       startIcon={<RefreshIcon />}
                       onClick={() => handleSync(cfg.id)}
                       disabled={syncing}
@@ -305,6 +340,48 @@ export function NotionIntegrationSection() {
                       </Box>
                     );
                   })()}
+                {(() => {
+                  const pending = pendingByConfig[cfg.id];
+                  if (!pending || pending === "loading") return null;
+                  return (
+                    <Box sx={{ mt: 1.5 }}>
+                      {pending.pending.length === 0 ? (
+                        <Alert severity="success" sx={{ py: 0 }}>
+                          All {pending.total_in_notion} Notion pages are
+                          synced.
+                        </Alert>
+                      ) : (
+                        <Alert severity="info" sx={{ py: 0.5 }}>
+                          <Typography variant="body2" sx={{ mb: 0.5 }}>
+                            {pending.pending.length} of{" "}
+                            {pending.total_in_notion} pages left to sync — run
+                            Reconcile to ingest them:
+                          </Typography>
+                          <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
+                            {pending.pending.map((p) => (
+                              <Typography
+                                key={p.page_id}
+                                component="li"
+                                variant="body2"
+                              >
+                                {p.title || p.page_id}{" "}
+                                <Typography
+                                  component="span"
+                                  variant="caption"
+                                  color="text.secondary"
+                                >
+                                  ({p.reason === "missing"
+                                    ? "not in kioku"
+                                    : "edited since last ingest"})
+                                </Typography>
+                              </Typography>
+                            ))}
+                          </Box>
+                        </Alert>
+                      )}
+                    </Box>
+                  );
+                })()}
               </Box>
             );
           })}

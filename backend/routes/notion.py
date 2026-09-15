@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from arq import create_pool
@@ -10,8 +11,9 @@ from pydantic import BaseModel
 
 from auth import get_current_user
 from db.client import get_supabase
-from services.crypto import encrypt_secret
+from services.crypto import decrypt_secret, encrypt_secret
 from services.notion_sync.client import NotionClient
+from services.notion_sync.reconciliation import pending_pages
 from services.queue.jobs import create_job, get_active_job, is_job_stale, mark_failed
 from services.queue.settings import _redis_settings
 
@@ -206,6 +208,70 @@ async def sync_now(config_id: str, user_id: str = Depends(get_current_user)):
 @router.post("/configs/{config_id}/reconcile")
 async def reconcile_now(config_id: str, user_id: str = Depends(get_current_user)):
     return await _enqueue_sync(config_id, user_id, full_reconcile=True)
+
+
+class PendingPageOut(BaseModel):
+    page_id: str
+    title: str
+    reason: str  # "missing" | "outdated"
+
+
+class PendingResponse(BaseModel):
+    total_in_notion: int
+    total_synced: int
+    pending: list[PendingPageOut]
+
+
+def _compute_pending(cfg: dict) -> PendingResponse:
+    """Enumerate the live Notion tree exactly like a full reconcile would and
+    diff it against the documents table. Sync — runs in a worker thread."""
+    from services.queue.tasks import _is_under_root, _load_db_page_edit_map
+
+    notion = NotionClient(decrypt_secret(cfg["integration_token_encrypted"]))
+    mapped_root = cfg["notion_page_id"]
+    reachable = [
+        page
+        for page in notion.iter_pages_edited_since(None)
+        if _is_under_root(notion, page, mapped_root)
+    ]
+    db_map = _load_db_page_edit_map(
+        get_supabase(),
+        user_id=cfg["user_id"],
+        root_folder_id=cfg["root_folder_id"],
+    )
+    pending = pending_pages(reachable, db_map)
+    return PendingResponse(
+        total_in_notion=len(reachable),
+        total_synced=len(reachable) - len(pending),
+        pending=[
+            PendingPageOut(page_id=p.page_id, title=p.title, reason=p.reason) for p in pending
+        ],
+    )
+
+
+@router.get("/configs/{config_id}/pending", response_model=PendingResponse)
+async def list_pending(config_id: str, user_id: str = Depends(get_current_user)):
+    """What would a Reconcile ingest right now? Pages in Notion that are
+    missing from kioku or edited since their last ingest. Walks the live
+    Notion API, so expect a few seconds on large trees."""
+    if not _is_uuid(config_id):
+        raise HTTPException(status_code=404, detail="Config not found")
+    sb = get_supabase()
+    rows = (
+        sb.table("notion_sync_configs")
+        .select("*")
+        .eq("id", config_id)
+        .eq("user_id", user_id)
+        .execute()
+        .data
+    ) or []
+    if not rows:
+        raise HTTPException(status_code=404, detail="Config not found")
+
+    try:
+        return await asyncio.to_thread(_compute_pending, rows[0])
+    except Exception as exc:  # noqa: BLE001 — surface Notion API failures as 502
+        raise HTTPException(status_code=502, detail=f"Notion enumeration failed: {exc}") from exc
 
 
 @router.get("/pages", response_model=list[NotionPageOption])
