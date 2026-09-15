@@ -221,47 +221,21 @@ async def list_documents(
     folder_id: str | None = None,
     user_id: str = Depends(get_current_user),
 ):
-    """List user's uploaded documents, grouped by source filename, optionally filtered by folder."""
+    """List user's uploaded documents, grouped by source filename, optionally filtered by folder.
+
+    Grouping happens in SQL (list_documents_grouped) — the previous
+    implementation pulled one row per CHUNK and grouped in Python, which made
+    folder navigation O(chunks) instead of O(files)."""
     if folder_id:
         require_uuid(folder_id, "Folder not found")
     sb = get_supabase()
-    query = (
-        sb.table("documents")
-        .select("id, source_filename, source_type, metadata, status, created_at, folder_id")
-        .eq("user_id", user_id)
-    )
-
-    if folder_id:
-        query = query.eq("folder_id", folder_id)
-    else:
-        query = query.is_("folder_id", "null")
-
-    result = query.order("created_at", desc=True).execute()
-
-    # Group by source_filename
-    files: dict[str, dict] = {}
-    for doc in result.data:
-        fname = doc.get("source_filename") or "unknown"
-        if fname not in files:
-            meta = doc.get("metadata") or {}
-            has_file = bool(meta.get("file_url") or meta.get("image_url") or meta.get("audio_url"))
-            files[fname] = {
-                "source_filename": fname,
-                "source_type": doc.get("source_type", "text"),
-                "has_file": has_file,
-                "chunks": 0,
-                "status": doc.get("status", "completed"),
-                "created_at": doc["created_at"],
-                "folder_id": doc.get("folder_id"),
-            }
-        files[fname]["chunks"] += 1
-        # If any chunk is processing or failed, reflect that
-        if doc.get("status") == "processing":
-            files[fname]["status"] = "processing"
-        elif doc.get("status") == "failed" and files[fname]["status"] != "processing":
-            files[fname]["status"] = "failed"
-
-    return list(files.values())
+    rows = (
+        sb.rpc(
+            "list_documents_grouped",
+            {"p_user_id": user_id, "p_folder_id": folder_id},
+        ).execute()
+    ).data or []
+    return rows
 
 
 def _infer_viewable_as(filename: str, source_type: str | None, metadata: dict) -> str:
