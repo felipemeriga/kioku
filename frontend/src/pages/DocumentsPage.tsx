@@ -51,6 +51,7 @@ import {
 } from "../lib/api";
 import type { Breadcrumb } from "../lib/api";
 import DocumentCard from "../components/DocumentCard";
+import DocumentViewerDrawer from "../components/DocumentViewerDrawer";
 import MoveDialog from "../components/MoveDialog";
 import IngestionDrawer from "../components/IngestionDrawer";
 import BriefingPanel from "../components/BriefingPanel";
@@ -89,6 +90,7 @@ export default function DocumentsPage() {
   }, [viewMode]);
   const [breadcrumbs, setBreadcrumbs] = useState<Breadcrumb[]>([]);
   const [folderTab, setFolderTab] = useState<"files" | "briefing">("files");
+  const [viewerFile, setViewerFile] = useState<string | null>(null);
 
   // Audio recording
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -1022,6 +1024,7 @@ export default function DocumentsPage() {
                     onMove={(filename, folderId) => {
                       move(filename, folderId);
                     }}
+                    onOpen={(filename) => setViewerFile(filename)}
                   />
                 ))}
               </Box>
@@ -1330,6 +1333,13 @@ export default function DocumentsPage() {
         open={!!integrationsTarget}
         folder={integrationsTarget}
         onClose={() => setIntegrationsTarget(null)}
+      />
+
+      {/* Document viewer drawer — opened by clicking a file card */}
+      <DocumentViewerDrawer
+        filename={viewerFile}
+        folderId={currentFolderId}
+        onClose={() => setViewerFile(null)}
       />
     </Box>
   );
