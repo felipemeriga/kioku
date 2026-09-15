@@ -8,9 +8,13 @@ from services.notion_sync.client import NotionClient, NotionPage
 
 
 def fetch_block_tree(notion: NotionClient, block_id: str) -> Iterable[dict]:
-    """Yield blocks and recursively attach children under `.children`."""
+    """Yield blocks and recursively attach children under `.children`.
+
+    child_page / child_database subtrees are not descended into: each subpage
+    is ingested as its own document, so fetching its blocks here would cost a
+    full API walk per descendant page just to throw the result away."""
     for block in notion.iter_child_blocks(block_id):
-        if block.get("has_children"):
+        if block.get("has_children") and block.get("type") not in ("child_page", "child_database"):
             block["children"] = list(fetch_block_tree(notion, block["id"]))
         yield block
 

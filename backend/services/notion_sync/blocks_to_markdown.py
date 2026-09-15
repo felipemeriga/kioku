@@ -14,6 +14,13 @@ def blocks_to_markdown(blocks: list[dict]) -> str:
     return "\n".join(lines).strip() + "\n"
 
 
+# Blocks whose children must NOT be rendered by the generic recursion:
+# a table renders its own rows, and a child_page/child_database subtree is
+# ingested as its own document — rendering it here would duplicate every
+# descendant page into the parent.
+_OPAQUE_CHILDREN = {"table", "child_page", "child_database"}
+
+
 def _render(blocks: list[dict], depth: int) -> list[str]:
     out: list[str] = []
     numbered_index = 0
@@ -25,11 +32,13 @@ def _render(blocks: list[dict], depth: int) -> list[str]:
         rendered = _render_one(block, depth, numbered_index + 1)
         if btype == "numbered_list_item":
             numbered_index += 1
-        if rendered is None:
-            continue
-        out.extend(rendered)
-        if block.get("has_children"):
-            out.extend(_render(block.get("children", []), depth + 1))
+        if rendered is not None:
+            out.extend(rendered)
+        if block.get("has_children") and btype not in _OPAQUE_CHILDREN:
+            # Blocks we don't render (column_list, column, synced_block…) are
+            # layout containers: stay transparent — same depth, children only.
+            child_depth = depth + 1 if rendered is not None else depth
+            out.extend(_render(block.get("children", []), child_depth))
 
     return out
 
@@ -88,6 +97,21 @@ def _render_one(block: dict, depth: int, numbered_index: int) -> list[str] | Non
         url = _file_url(block.get("file", {}))
         name = block.get("file", {}).get("name", "")
         return [f"{indent}[[NOTION_FILE:{name}|{url}]]", ""]
+
+    if btype == "table":
+        rows = [b for b in block.get("children", []) if b.get("type") == "table_row"]
+        if not rows:
+            return None
+        lines: list[str] = []
+        for i, row in enumerate(rows):
+            cells = [_rich_text_field(c) for c in row.get("table_row", {}).get("cells", [])]
+            lines.append(f"{indent}| " + " | ".join(cells) + " |")
+            if i == 0:
+                # Markdown tables need a separator row to parse; emit it after
+                # the first row whether or not Notion marks it as a header.
+                lines.append(f"{indent}| " + " | ".join(["---"] * len(cells)) + " |")
+        lines.append("")
+        return lines
 
     if btype == "bookmark":
         url = block[btype].get("url", "")
