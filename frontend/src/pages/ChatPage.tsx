@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useState, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import ChatArea from "../components/ChatArea";
 import ScopePickerDialog from "../components/ScopePickerDialog";
@@ -18,16 +18,6 @@ function readScopes(): Record<string, ChatScope> {
   }
 }
 
-function persistScope(conversationId: string, scope: ChatScope | null) {
-  const all = readScopes();
-  if (scope) {
-    all[conversationId] = scope;
-  } else {
-    delete all[conversationId];
-  }
-  localStorage.setItem(SCOPE_STORE_KEY, JSON.stringify(all));
-}
-
 export default function ChatPage() {
   const toast = useToast();
   const { selectedId, messages, setMessages, loadConversations } =
@@ -39,38 +29,44 @@ export default function ChatPage() {
   const [currentStage, setCurrentStage] = useState<StageEvent | null>(null);
   const streamingRef = useRef("");
 
-  const [scope, setScopeState] = useState<ChatScope | null>(null);
+  const [scopes, setScopes] = useState<Record<string, ChatScope>>(() =>
+    readScopes()
+  );
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  // Load the persisted scope when the conversation changes.
-  useEffect(() => {
-    if (!selectedId) {
-      setScopeState(null);
-      return;
-    }
-    setScopeState(readScopes()[selectedId] ?? null);
-  }, [selectedId]);
-
   // A "Chat with this" navigation from the Documents page pre-scopes the
-  // conversation via query params; consume them once and clean the URL.
-  useEffect(() => {
-    const folderId = searchParams.get("scope_folder");
-    const folderName = searchParams.get("scope_name");
-    const filename = searchParams.get("scope_file");
-    if (!selectedId || (!folderId && !filename)) return;
-    const incoming: ChatScope = {
-      folderId: folderId || null,
-      folderName: folderName || filename || "selection",
-      filename: filename || null,
-    };
-    setScopeState(incoming);
-    persistScope(selectedId, incoming);
-    setSearchParams({}, { replace: true });
-  }, [selectedId, searchParams, setSearchParams]);
+  // conversation via query params. The scope is DERIVED (no effect needed):
+  // URL params win until they're consumed on the first send or scope change.
+  const urlFolder = searchParams.get("scope_folder");
+  const urlName = searchParams.get("scope_name");
+  const urlFile = searchParams.get("scope_file");
+  const urlScope: ChatScope | null =
+    urlFolder || urlFile
+      ? {
+          folderId: urlFolder || null,
+          folderName: urlName || urlFile || "selection",
+          filename: urlFile || null,
+        }
+      : null;
+
+  const scope: ChatScope | null = selectedId
+    ? urlScope ?? scopes[selectedId] ?? null
+    : urlScope;
+
+  const applyScope = (conversationId: string, next: ChatScope | null) => {
+    const all = readScopes();
+    if (next) {
+      all[conversationId] = next;
+    } else {
+      delete all[conversationId];
+    }
+    localStorage.setItem(SCOPE_STORE_KEY, JSON.stringify(all));
+    setScopes(all);
+  };
 
   const setScope = (next: ChatScope | null) => {
-    setScopeState(next);
-    if (selectedId) persistScope(selectedId, next);
+    if (selectedId) applyScope(selectedId, next);
+    if (urlScope) setSearchParams({}, { replace: true });
   };
 
   const handleSend = async (
@@ -79,6 +75,13 @@ export default function ChatPage() {
     fastMode?: boolean
   ) => {
     if (!selectedId || isStreaming) return;
+
+    // Consume a URL-provided scope on first use: persist it to this
+    // conversation and clean the address bar.
+    if (urlScope) {
+      applyScope(selectedId, urlScope);
+      setSearchParams({}, { replace: true });
+    }
 
     const userMsg: Message = {
       id: crypto.randomUUID(),
