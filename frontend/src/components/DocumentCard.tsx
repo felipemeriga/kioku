@@ -35,6 +35,8 @@ interface DocumentCardProps {
   /** When set, clicking the card opens the document (selection stays on the
    *  checkbox); without it, clicking falls back to toggling selection. */
   onOpen?: (filename: string) => void;
+  /** "grid" (default) renders the tile; "list" renders a compact single row. */
+  variant?: "grid" | "list";
 }
 
 const FILE_ICONS: Record<string, { icon: React.ReactNode; color: string }> = {
@@ -72,6 +74,7 @@ export default function DocumentCard({
   onDownload,
   onMove,
   onOpen,
+  variant = "grid",
 }: DocumentCardProps) {
   const ext = doc.source_filename.split(".").pop()?.toLowerCase() || "txt";
   const fileStyle = FILE_ICONS[ext] || FILE_ICONS.txt;
@@ -148,8 +151,8 @@ export default function DocumentCard({
         onContextMenu={handleContextMenu}
         onClick={handleClick}
         sx={{
-          p: 2,
-          borderRadius: 3,
+          p: variant === "list" ? 0 : 2,
+          borderRadius: variant === "list" ? 2 : 3,
           bgcolor: alpha("#1e1e2e", 0.6),
           border: 1,
           borderColor: selected ? alpha("#FF2E93", 0.5) : alpha("#ffffff", 0.06),
@@ -170,98 +173,199 @@ export default function DocumentCard({
           },
         }}
       >
-        <Box
-          className="doc-actions"
-          sx={{
-            position: "absolute",
-            top: 8,
-            right: 8,
-            display: "flex",
-            gap: 0.25,
-            opacity: 0,
-            transition: "opacity 0.15s",
-          }}
-        >
-          {doc.has_file && (
-            <IconButton
-              size="small"
-              onClick={(e) => { e.stopPropagation(); onDownload(doc.source_filename); }}
-              sx={{ p: 0.5 }}
-            >
-              <DownloadIcon sx={{ fontSize: 16 }} />
-            </IconButton>
-          )}
-          <IconButton
-            size="small"
-            onClick={(e) => { e.stopPropagation(); onDelete(doc.source_filename); }}
-            sx={{ p: 0.5 }}
+        {variant === "list" ? (
+          <Box
+            sx={{ display: "flex", alignItems: "center", gap: 1.25, px: 1.5, py: 0.75 }}
           >
-            <DeleteIcon sx={{ fontSize: 16 }} />
-          </IconButton>
-        </Box>
-
-        {/* File icon row with optional checkbox */}
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
-          {onSelect && (
-            <Checkbox
-              className="doc-checkbox"
-              checked={selected}
-              size="small"
-              onClick={(e) => e.stopPropagation()}
-              onChange={() => onSelect(doc.source_filename)}
+            {onSelect && (
+              <Checkbox
+                className="doc-checkbox"
+                checked={selected}
+                size="small"
+                onClick={(e) => e.stopPropagation()}
+                onChange={() => onSelect(doc.source_filename)}
+                sx={{
+                  opacity: selected ? 1 : 0,
+                  transition: "opacity 0.15s",
+                  p: 0,
+                  color: alpha("#FF2E93", 0.5),
+                  "&.Mui-checked": { color: "#FF2E93" },
+                }}
+              />
+            )}
+            <Box
               sx={{
-                opacity: selected ? 1 : 0,
-                transition: "opacity 0.15s",
-                p: 0,
-                color: alpha("#FF2E93", 0.5),
-                "&.Mui-checked": { color: "#FF2E93" },
+                width: 26,
+                height: 26,
+                borderRadius: 1.5,
+                bgcolor: alpha(fileStyle.color, 0.1),
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: fileStyle.color,
+                flexShrink: 0,
+                "& .MuiSvgIcon-root": { fontSize: 15 },
+              }}
+            >
+              {fileStyle.icon}
+            </Box>
+            <Typography
+              variant="body2"
+              noWrap
+              sx={{ fontWeight: 500, flex: 1, minWidth: 0 }}
+            >
+              {doc.source_filename}
+            </Typography>
+            <Typography
+              variant="caption"
+              noWrap
+              sx={{ color: alpha("#ffffff", 0.4), flexShrink: 0 }}
+            >
+              {doc.chunks} chunks · {timeAgo(doc.created_at)}
+            </Typography>
+            <Chip
+              label={doc.status}
+              size="small"
+              sx={{
+                height: 18,
+                fontSize: "0.65rem",
+                fontWeight: 500,
+                flexShrink: 0,
+                bgcolor: alpha(STATUS_COLORS[doc.status] || "#ffffff", 0.12),
+                color: STATUS_COLORS[doc.status] || alpha("#ffffff", 0.5),
+                ...(doc.status === "processing" && {
+                  animation: "pulse 1.5s infinite",
+                  "@keyframes pulse": {
+                    "0%, 100%": { opacity: 1 },
+                    "50%": { opacity: 0.5 },
+                  },
+                }),
               }}
             />
-          )}
-          <Box
-            sx={{
-              width: 36,
-              height: 36,
-              borderRadius: 2,
-              bgcolor: alpha(fileStyle.color, 0.1),
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: fileStyle.color,
-              "& .MuiSvgIcon-root": { fontSize: 20 },
-            }}
-          >
-            {fileStyle.icon}
+            <Box
+              className="doc-actions"
+              sx={{
+                display: "flex",
+                gap: 0.25,
+                opacity: 0,
+                transition: "opacity 0.15s",
+                flexShrink: 0,
+              }}
+            >
+              {doc.has_file && (
+                <IconButton
+                  size="small"
+                  onClick={(e) => { e.stopPropagation(); onDownload(doc.source_filename); }}
+                  sx={{ p: 0.5 }}
+                >
+                  <DownloadIcon sx={{ fontSize: 15 }} />
+                </IconButton>
+              )}
+              <IconButton
+                size="small"
+                onClick={(e) => { e.stopPropagation(); onDelete(doc.source_filename); }}
+                sx={{ p: 0.5 }}
+              >
+                <DeleteIcon sx={{ fontSize: 15 }} />
+              </IconButton>
+            </Box>
           </Box>
-        </Box>
-        <Typography variant="body2" noWrap sx={{ fontWeight: 500, mb: 0.75 }}>
-          {doc.source_filename}
-        </Typography>
-        <Chip
-          label={doc.status}
-          size="small"
-          sx={{
-            height: 20,
-            fontSize: "0.7rem",
-            fontWeight: 500,
-            bgcolor: alpha(STATUS_COLORS[doc.status] || "#ffffff", 0.12),
-            color: STATUS_COLORS[doc.status] || alpha("#ffffff", 0.5),
-            mb: 1,
-            ...(doc.status === "processing" && {
-              animation: "pulse 1.5s infinite",
-              "@keyframes pulse": {
-                "0%, 100%": { opacity: 1 },
-                "50%": { opacity: 0.5 },
-              },
-            }),
-          }}
-        />
-        <Typography
-          variant="caption"
-          sx={{ color: alpha("#ffffff", 0.4), display: "block" }}
-        >
-          {doc.chunks} chunks · {timeAgo(doc.created_at)}
-        </Typography>
+        ) : (
+          <>
+            <Box
+              className="doc-actions"
+              sx={{
+                position: "absolute",
+                top: 8,
+                right: 8,
+                display: "flex",
+                gap: 0.25,
+                opacity: 0,
+                transition: "opacity 0.15s",
+              }}
+            >
+              {doc.has_file && (
+                <IconButton
+                  size="small"
+                  onClick={(e) => { e.stopPropagation(); onDownload(doc.source_filename); }}
+                  sx={{ p: 0.5 }}
+                >
+                  <DownloadIcon sx={{ fontSize: 16 }} />
+                </IconButton>
+              )}
+              <IconButton
+                size="small"
+                onClick={(e) => { e.stopPropagation(); onDelete(doc.source_filename); }}
+                sx={{ p: 0.5 }}
+              >
+                <DeleteIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </Box>
+
+            {/* File icon row with optional checkbox */}
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
+              {onSelect && (
+                <Checkbox
+                  className="doc-checkbox"
+                  checked={selected}
+                  size="small"
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={() => onSelect(doc.source_filename)}
+                  sx={{
+                    opacity: selected ? 1 : 0,
+                    transition: "opacity 0.15s",
+                    p: 0,
+                    color: alpha("#FF2E93", 0.5),
+                    "&.Mui-checked": { color: "#FF2E93" },
+                  }}
+                />
+              )}
+              <Box
+                sx={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 2,
+                  bgcolor: alpha(fileStyle.color, 0.1),
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: fileStyle.color,
+                  "& .MuiSvgIcon-root": { fontSize: 20 },
+                }}
+              >
+                {fileStyle.icon}
+              </Box>
+            </Box>
+            <Typography variant="body2" noWrap sx={{ fontWeight: 500, mb: 0.75 }}>
+              {doc.source_filename}
+            </Typography>
+            <Chip
+              label={doc.status}
+              size="small"
+              sx={{
+                height: 20,
+                fontSize: "0.7rem",
+                fontWeight: 500,
+                bgcolor: alpha(STATUS_COLORS[doc.status] || "#ffffff", 0.12),
+                color: STATUS_COLORS[doc.status] || alpha("#ffffff", 0.5),
+                mb: 1,
+                ...(doc.status === "processing" && {
+                  animation: "pulse 1.5s infinite",
+                  "@keyframes pulse": {
+                    "0%, 100%": { opacity: 1 },
+                    "50%": { opacity: 0.5 },
+                  },
+                }),
+              }}
+            />
+            <Typography
+              variant="caption"
+              sx={{ color: alpha("#ffffff", 0.4), display: "block" }}
+            >
+              {doc.chunks} chunks · {timeAgo(doc.created_at)}
+            </Typography>
+          </>
+        )}
       </Box>
 
       {/* Right-click context menu */}

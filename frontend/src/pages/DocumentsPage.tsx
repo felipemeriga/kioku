@@ -854,7 +854,7 @@ export default function DocumentsPage() {
                     viewMode === "grid"
                       ? "repeat(auto-fill, minmax(160px, 1fr))"
                       : "1fr",
-                  gap: 1.5,
+                  gap: viewMode === "grid" ? 1.5 : 0.5,
                 }}
               >
                 {filteredFolders.map((folder) => (
@@ -898,13 +898,14 @@ export default function DocumentsPage() {
                       }
                     }}
                     sx={{
-                      p: 1.5,
+                      p: viewMode === "grid" ? 1.5 : 1,
+                      px: viewMode === "grid" ? 1.5 : 1.75,
                       position: "relative",
                       cursor: "pointer",
                       display: "flex",
-                      flexDirection: "column",
+                      flexDirection: viewMode === "grid" ? "column" : "row",
                       alignItems: "center",
-                      gap: 0.5,
+                      gap: viewMode === "grid" ? 0.5 : 1.25,
                       borderRadius: 2.5,
                       overflow: "hidden",
                       bgcolor:
@@ -948,10 +949,18 @@ export default function DocumentsPage() {
                     </IconButton>
                     {folder.kind === "repo" ? (
                       <AccountTreeIcon
-                        sx={{ fontSize: 36, color: "#06b6d4" }}
+                        sx={{
+                          fontSize: viewMode === "grid" ? 36 : 22,
+                          color: "#06b6d4",
+                        }}
                       />
                     ) : (
-                      <FolderIcon sx={{ fontSize: 36, color: "#FF2E93" }} />
+                      <FolderIcon
+                        sx={{
+                          fontSize: viewMode === "grid" ? 36 : 22,
+                          color: "#FF2E93",
+                        }}
+                      />
                     )}
                     <Typography
                       variant="caption"
@@ -959,7 +968,7 @@ export default function DocumentsPage() {
                       sx={{
                         maxWidth: "100%",
                         fontWeight: 500,
-                        textAlign: "center",
+                        textAlign: viewMode === "grid" ? "center" : "left",
                       }}
                     >
                       {folder.name}
@@ -1004,7 +1013,7 @@ export default function DocumentsPage() {
                     viewMode === "grid"
                       ? "repeat(auto-fill, minmax(220px, 1fr))"
                       : "1fr",
-                  gap: 1.25,
+                  gap: viewMode === "grid" ? 1.25 : 0.5,
                 }}
               >
                 {filteredDocs.map((doc) => (
@@ -1025,6 +1034,7 @@ export default function DocumentsPage() {
                       move(filename, folderId);
                     }}
                     onOpen={(filename) => setViewerFile(filename)}
+                    variant={viewMode}
                   />
                 ))}
               </Box>
