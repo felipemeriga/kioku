@@ -153,12 +153,15 @@ async def _search_docs(
     user_id: str,
     folder_id: str | None,
     limit: int,
+    folder_ids: list[str] | None = None,
+    source_filename: str | None = None,
 ) -> tuple[list[UnifiedHit], int]:
     t0 = time.perf_counter()
 
     def _run() -> list[dict]:
         # Resolve the workspace root in-thread (one quick lookup) so a session
-        # scoped to a sub-folder still searches the whole tree.
+        # scoped to a sub-folder still searches the whole tree — unless the
+        # caller narrowed retrieval to an explicit subtree or file.
         root_id = _resolve_root_folder_id(sb, folder_id, user_id)
         return search_documents(
             embedding,
@@ -167,6 +170,8 @@ async def _search_docs(
             root_folder_id=root_id,
             fast_mode=True,
             top_k=limit,
+            folder_ids=folder_ids,
+            source_filename=source_filename,
         )
 
     try:
@@ -251,12 +256,20 @@ async def fanout_search(
     channel: str = "mcp",
     conversation_id: str | None = None,
     include_mem0: bool = True,
+    folder_ids: list[str] | None = None,
+    source_filename: str | None = None,
 ) -> FanoutResult:
-    """Public entry point. Kicks RAG + Mem0 in parallel, merges, and logs."""
+    """Public entry point. Kicks RAG + Mem0 in parallel, merges, and logs.
+
+    folder_ids / source_filename narrow the DOCUMENT search to a folder
+    subtree or a single file; Mem0 remains folder-level (memories aren't
+    tied to individual documents)."""
     t0 = time.perf_counter()
     mem0 = get_client_for_folder(sb, folder_id, user_id) if (include_mem0 and folder_id) else None
 
-    doc_task = _search_docs(sb, embedding, query_text, user_id, folder_id, limit)
+    doc_task = _search_docs(
+        sb, embedding, query_text, user_id, folder_id, limit, folder_ids, source_filename
+    )
     mem0_task = _search_mem0(mem0, query_text, limit)
 
     (doc_hits, doc_ms), (m_eternal, m_episodic, mem0_ms) = await asyncio.gather(doc_task, mem0_task)

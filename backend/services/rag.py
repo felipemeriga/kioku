@@ -37,6 +37,8 @@ def answer_question(
     keyword: str | None = None,
     fast_mode: bool = False,
     history: list[dict] | None = None,
+    scope_folder_ids: list[str] | None = None,
+    scope_filename: str | None = None,
 ) -> dict:
     """Run the agent loop end-to-end, return final answer + retrieved chunks.
 
@@ -92,6 +94,8 @@ def answer_question(
                         topic,
                         keyword,
                         fast_mode=fast_mode,
+                        scope_folder_ids=scope_folder_ids,
+                        scope_filename=scope_filename,
                     )
                 return {
                     "type": "tool_result",
@@ -153,9 +157,19 @@ def stream_rag_response(
     topic: str | None = None,
     keyword: str | None = None,
     fast_mode: bool = False,
+    scope_folder_id: str | None = None,
+    scope_filename: str | None = None,
 ) -> Generator[str, None, None]:
     """Agentic RAG pipeline: save message, run tool-use loop, stream response."""
     sb = get_supabase()
+
+    # Resolve a folder scope to its subtree once — the agent may call the
+    # search tool several times per turn.
+    scope_folder_ids: list[str] | None = None
+    if scope_folder_id:
+        from services.scope import descendant_folder_ids
+
+        scope_folder_ids = descendant_folder_ids(sb, scope_folder_id, user_id)
 
     with collect_request(f"rag chat turn ({'fast' if fast_mode else 'full'})"):
         with request(f"rag chat turn ({'fast' if fast_mode else 'full'})"):
@@ -223,6 +237,8 @@ def stream_rag_response(
                     keyword=keyword,
                     fast_mode=fast_mode,
                     history=prior_messages,
+                    scope_folder_ids=scope_folder_ids,
+                    scope_filename=scope_filename,
                 ):
                     if chunk_kind == "text_delta":
                         if not gen_started:
@@ -261,6 +277,8 @@ def _run_loop_and_stream_final(
     keyword: str | None,
     fast_mode: bool,
     history: list[dict] | None,
+    scope_folder_ids: list[str] | None = None,
+    scope_filename: str | None = None,
 ) -> Generator[tuple[str, str], None, None]:
     """Tool-use loop that streams text deltas via Anthropic's streaming API.
 
@@ -308,6 +326,8 @@ def _run_loop_and_stream_final(
                             topic,
                             keyword,
                             fast_mode=fast_mode,
+                            scope_folder_ids=scope_folder_ids,
+                            scope_filename=scope_filename,
                         )
                     except Exception as exc:  # noqa: BLE001
                         return {

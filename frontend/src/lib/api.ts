@@ -295,6 +295,16 @@ export async function fetchConversation(
 export interface ChatFilters {
   topic?: string;
   keyword?: string;
+  /** Restrict retrieval to a folder subtree and/or a single document. */
+  scopeFolderId?: string | null;
+  scopeFilename?: string | null;
+}
+
+/** A user-selected RAG scope, attached to a conversation. */
+export interface ChatScope {
+  folderId: string | null;
+  folderName: string;
+  filename?: string | null;
 }
 
 export type ChatStage = "searching" | "analyzing" | "generating";
@@ -354,6 +364,8 @@ export async function streamChat(
         topic: filters?.topic || null,
         keyword: filters?.keyword || null,
         fast_mode: fastMode ?? false,
+        scope_folder_id: filters?.scopeFolderId || null,
+        scope_filename: filters?.scopeFilename || null,
       }),
     });
   } catch (err) {

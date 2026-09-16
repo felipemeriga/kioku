@@ -23,12 +23,13 @@ import {
   Tabs,
   Tab,
 } from "@mui/material";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { keyframes } from "@mui/system";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import DeleteIcon from "@mui/icons-material/Delete";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import FolderIcon from "@mui/icons-material/Folder";
+import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import MicIcon from "@mui/icons-material/Mic";
 import DriveFileMoveIcon from "@mui/icons-material/DriveFileMove";
@@ -100,6 +101,7 @@ export default function DocumentsPage() {
 
   // Folder navigation via URL search params (shared with ContextPanel)
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const currentFolderId = searchParams.get("folder") || null;
   const setCurrentFolderId = useCallback(
     (id: string | null) => {
@@ -930,6 +932,30 @@ export default function DocumentsPage() {
                     <IconButton
                       className="folder-card-delete"
                       size="small"
+                      title="Chat with this folder"
+                      sx={{
+                        position: "absolute",
+                        top: 6,
+                        right: 28,
+                        opacity: 0,
+                        transition: "opacity 0.15s",
+                        p: 0.25,
+                        bgcolor: alpha("#000000", 0.3),
+                        "&:hover": { bgcolor: alpha("#FF2E93", 0.3) },
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(
+                          `/?scope_folder=${folder.id}` +
+                            `&scope_name=${encodeURIComponent(folder.name)}`
+                        );
+                      }}
+                    >
+                      <ChatBubbleOutlineIcon sx={{ fontSize: 14 }} />
+                    </IconButton>
+                    <IconButton
+                      className="folder-card-delete"
+                      size="small"
                       sx={{
                         position: "absolute",
                         top: 6,
@@ -1034,6 +1060,14 @@ export default function DocumentsPage() {
                       move(filename, folderId);
                     }}
                     onOpen={(filename) => setViewerFile(filename)}
+                    onChat={(filename) =>
+                      navigate(
+                        `/?scope_file=${encodeURIComponent(filename)}` +
+                          (currentFolderId
+                            ? `&scope_folder=${currentFolderId}`
+                            : "")
+                      )
+                    }
                     variant={viewMode}
                   />
                 ))}

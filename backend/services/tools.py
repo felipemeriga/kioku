@@ -75,6 +75,8 @@ def execute_tool(
     topic: str | None = None,
     keyword: str | None = None,
     fast_mode: bool = False,
+    scope_folder_ids: list[str] | None = None,
+    scope_filename: str | None = None,
 ) -> str:
     """Execute a tool call and return the result as a string."""
     if tool_name == "knowledge_base_search":
@@ -87,6 +89,8 @@ def execute_tool(
             topic=topic,
             keyword=keyword,
             fast_mode=fast_mode,
+            folder_ids=scope_folder_ids,
+            source_filename=scope_filename,
         )
         if not results:
             return "No relevant documents found in the knowledge base."

@@ -22,6 +22,8 @@ def _vector_search(
     topic: str | None,
     keyword: str | None,
     root_folder_id: str | None = None,
+    folder_ids: list[str] | None = None,
+    source_filename: str | None = None,
 ) -> list[dict]:
     """Search documents by cosine similarity."""
     sb = get_supabase()
@@ -34,6 +36,10 @@ def _vector_search(
         params["filter_keyword"] = keyword
     if root_folder_id:
         params["filter_root_folder_id"] = root_folder_id
+    if folder_ids:
+        params["filter_folder_ids"] = folder_ids
+    if source_filename:
+        params["filter_source_filename"] = source_filename
 
     result = sb.rpc("match_documents", params).execute()
     return result.data
@@ -46,6 +52,8 @@ def _keyword_search(
     topic: str | None,
     keyword: str | None,
     root_folder_id: str | None = None,
+    folder_ids: list[str] | None = None,
+    source_filename: str | None = None,
 ) -> list[dict]:
     """Search documents by full-text keyword matching."""
     sb = get_supabase()
@@ -58,6 +66,10 @@ def _keyword_search(
         params["filter_keyword"] = keyword
     if root_folder_id:
         params["filter_root_folder_id"] = root_folder_id
+    if folder_ids:
+        params["filter_folder_ids"] = folder_ids
+    if source_filename:
+        params["filter_source_filename"] = source_filename
 
     result = sb.rpc("keyword_search", params).execute()
     return result.data
@@ -97,6 +109,8 @@ def _run_hybrid_search(
     topic: str | None,
     keyword: str | None,
     root_folder_id: str | None,
+    folder_ids: list[str] | None = None,
+    source_filename: str | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """Run vector + keyword search for a single query, in parallel.
 
@@ -113,6 +127,8 @@ def _run_hybrid_search(
             topic,
             keyword,
             root_folder_id,
+            folder_ids,
+            source_filename,
         )
         kw_future = (
             submit_with_context(
@@ -124,6 +140,8 @@ def _run_hybrid_search(
                 topic,
                 keyword,
                 root_folder_id,
+                folder_ids,
+                source_filename,
             )
             if query_text
             else None
@@ -151,6 +169,8 @@ def _embed_and_search(
     keyword: str | None,
     root_folder_id: str | None,
     precomputed_embedding: list[float] | None = None,
+    folder_ids: list[str] | None = None,
+    source_filename: str | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """Embed a query variant (if needed) then run parallel hybrid search."""
     embedding = precomputed_embedding
@@ -161,7 +181,15 @@ def _embed_and_search(
             logger.warning("Embed failed for variant %r", variant_text, exc_info=True)
             return [], []
     return _run_hybrid_search(
-        embedding, variant_text, user_id, fetch_k, topic, keyword, root_folder_id
+        embedding,
+        variant_text,
+        user_id,
+        fetch_k,
+        topic,
+        keyword,
+        root_folder_id,
+        folder_ids,
+        source_filename,
     )
 
 
@@ -175,6 +203,8 @@ def search_documents(
     keyword: str | None = None,
     root_folder_id: str | None = None,
     fast_mode: bool = False,
+    folder_ids: list[str] | None = None,
+    source_filename: str | None = None,
 ) -> list[dict]:
     """Hybrid search pipeline with optional query enhancement.
 
@@ -188,7 +218,15 @@ def search_documents(
             # Fast path: skip query rewriting and multi-query, use original query directly
             with stage("hybrid_search (vector || keyword)", indent=3):
                 vector_results, keyword_results = _run_hybrid_search(
-                    query_embedding, query_text, user_id, fetch_k, topic, keyword, root_folder_id
+                    query_embedding,
+                    query_text,
+                    user_id,
+                    fetch_k,
+                    topic,
+                    keyword,
+                    root_folder_id,
+                    folder_ids,
+                    source_filename,
                 )
 
             _record_search_metrics([vector_results], [keyword_results])
@@ -263,6 +301,8 @@ def search_documents(
                         keyword,
                         root_folder_id,
                         emb,
+                        folder_ids,
+                        source_filename,
                     )
                     for vt, emb in variant_specs
                 ]
