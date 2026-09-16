@@ -54,6 +54,30 @@ class TestApplyRecencyDecay(unittest.TestCase):
         out = _apply_recency_decay([stale, fresh])
         self.assertEqual([d["id"] for d in out], ["fresh", "stale"])
 
+    def test_marginal_fresh_chunk_cannot_bury_relevant_old_one(self):
+        # The anchor-pollution case: a corpus of year-old SMT docs holds the
+        # real answer, and one recent chunk merely mentions 'smt'. The fresh
+        # chunk anchors the cohort at factor 1.0 — but freshness is a bounded
+        # additive boost (RECENCY_WEIGHT), so the highly-relevant old chunk
+        # still ranks first.
+        from services.search import _apply_recency_decay
+
+        now = datetime.now(timezone.utc)
+        old_relevant = {
+            "id": "old-smt-doc",
+            "source_type": "meeting",
+            "created_at": (now - timedelta(days=365)).isoformat(),
+            "rerank_score": 0.9,
+        }
+        fresh_marginal = {
+            "id": "fresh-mention",
+            "source_type": "meeting",
+            "created_at": now.isoformat(),
+            "rerank_score": 0.3,
+        }
+        out = _apply_recency_decay([old_relevant, fresh_marginal])
+        self.assertEqual([d["id"] for d in out], ["old-smt-doc", "fresh-mention"])
+
     def test_all_old_cohort_keeps_pure_relevance_order(self):
         # Decay is cohort-relative: when every relevant chunk is old (e.g. a
         # folder whose documents all date from last year, with no updates),
