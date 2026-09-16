@@ -309,7 +309,13 @@ function DocumentRenderer({
   } else if (viewable_as === "markdown") {
     primary = <MarkdownRender content={content} />;
   } else if (viewable_as === "code") {
-    primary = <CodeRender content={content} />;
+    primary = (
+      <CodeRender
+        content={content}
+        filename={doc.source_filename}
+        fileUrl={file_url}
+      />
+    );
   } else {
     primary = <TextRender content={content} />;
   }
@@ -395,7 +401,112 @@ function TextRender({ content }: { content: string }) {
   );
 }
 
-function CodeRender({ content }: { content: string }) {
+const EXT_TO_LANG: Record<string, string> = {
+  json: "json",
+  yaml: "yaml",
+  yml: "yaml",
+  toml: "toml",
+  py: "python",
+  ts: "typescript",
+  tsx: "tsx",
+  js: "javascript",
+  jsx: "jsx",
+  rs: "rust",
+  go: "go",
+  java: "java",
+  c: "c",
+  cpp: "cpp",
+  sh: "bash",
+  sql: "sql",
+  html: "markup",
+  css: "css",
+};
+
+/** Lazy-load the Prism highlighter (like ReactMarkdown above) so it only
+ *  ships for users who actually open a code document. */
+function useHighlighter() {
+  const [hl, setHl] = useState<{
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    SyntaxHighlighter: React.ComponentType<any>;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    style: any;
+  } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      import("react-syntax-highlighter"),
+      import("react-syntax-highlighter/dist/esm/styles/prism/one-dark"),
+    ]).then(([m, s]) => {
+      if (!cancelled)
+        setHl({ SyntaxHighlighter: m.PrismAsync, style: s.default });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return hl;
+}
+
+function CodeRender({
+  content,
+  filename,
+  fileUrl,
+}: {
+  content: string;
+  filename?: string;
+  fileUrl?: string | null;
+}) {
+  const hl = useHighlighter();
+  // The extracted `content` is the document's chunks re-joined with blank
+  // lines — fine for prose, mangled for JSON/code. When the original file is
+  // stored, fetch it from the signed URL and show the real thing.
+  const [original, setOriginal] = useState<string | null>(null);
+  useEffect(() => {
+    if (!fileUrl) return;
+    let cancelled = false;
+    fetch(fileUrl)
+      .then((r) => (r.ok ? r.text() : null))
+      .then((t) => {
+        if (!cancelled && t !== null) setOriginal(t);
+      })
+      .catch(() => {
+        // Fall back to extracted content silently.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [fileUrl]);
+
+  let text = original ?? content;
+  const ext = filename?.split(".").pop()?.toLowerCase() ?? "";
+  if (ext === "json") {
+    try {
+      text = JSON.stringify(JSON.parse(text), null, 2);
+    } catch {
+      // Not valid JSON as-is (e.g. chunk-joined extract) — show unformatted.
+    }
+  }
+  const lang = EXT_TO_LANG[ext];
+
+  if (hl && lang) {
+    return (
+      <hl.SyntaxHighlighter
+        language={lang}
+        style={hl.style}
+        customStyle={{
+          margin: 0,
+          padding: "16px",
+          background: "transparent",
+          fontSize: "0.82rem",
+        }}
+        codeTagProps={{ style: { fontFamily: fonts.mono } }}
+        wrapLongLines
+      >
+        {text || "(empty)"}
+      </hl.SyntaxHighlighter>
+    );
+  }
+
   return (
     <Box
       component="pre"
@@ -411,12 +522,13 @@ function CodeRender({ content }: { content: string }) {
         overflow: "auto",
       }}
     >
-      <code>{content || "(empty)"}</code>
+      <code>{text || "(empty)"}</code>
     </Box>
   );
 }
 
 function MarkdownRender({ content }: { content: string }) {
+  const hl = useHighlighter();
   // Lazy-import ReactMarkdown + remark-gfm so they don't ship in the initial
   // bundle for folks who never open a markdown document. GFM adds tables,
   // task lists, strikethrough — the syntax GitHub commit/PR/issue bodies use.
@@ -425,6 +537,8 @@ function MarkdownRender({ content }: { content: string }) {
       children: string;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       remarkPlugins?: any[];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      components?: any;
     }>;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     gfm: any;
@@ -505,7 +619,39 @@ function MarkdownRender({ content }: { content: string }) {
         "& th, & td": { border: `1px solid ${brand.line}`, px: 1, py: 0.5 },
       }}
     >
-      <Renderer remarkPlugins={[gfm]}>{content || "(empty)"}</Renderer>
+      <Renderer
+        remarkPlugins={[gfm]}
+        components={{
+          // Fenced blocks with a language tag get real syntax highlighting;
+          // inline code and untagged blocks keep the default styling.
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          code: (props: any) => {
+            const { className, children } = props;
+            const match = /language-(\w+)/.exec(className || "");
+            const body = String(children ?? "");
+            if (hl && match && body.includes("\n")) {
+              return (
+                <hl.SyntaxHighlighter
+                  language={match[1]}
+                  style={hl.style}
+                  customStyle={{
+                    margin: 0,
+                    padding: "12px",
+                    background: "transparent",
+                    fontSize: "0.82rem",
+                  }}
+                  codeTagProps={{ style: { fontFamily: fonts.mono } }}
+                >
+                  {body.replace(/\n$/, "")}
+                </hl.SyntaxHighlighter>
+              );
+            }
+            return <code className={className}>{children}</code>;
+          },
+        }}
+      >
+        {content || "(empty)"}
+      </Renderer>
     </Box>
   );
 }
