@@ -9,7 +9,8 @@
  *
  * Extracted from FolderDetailPage so the Documents page can open docs too.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { List, type RowComponentProps } from "react-window";
 import {
   Alert,
   Box,
@@ -383,6 +384,13 @@ function NoOriginalFallback({ msg }: { msg: string }) {
 }
 
 function TextRender({ content }: { content: string }) {
+  if (content.length > HIGHLIGHT_CHAR_LIMIT) {
+    return (
+      <Box sx={{ height: "100%", minHeight: 240 }}>
+        <VirtualCode text={content} />
+      </Box>
+    );
+  }
   return (
     <Typography
       component="pre"
@@ -491,8 +499,11 @@ function CodeRender({
 
   if (fetching && original === null) {
     return (
-      <Box sx={{ p: 3 }}>
+      <Box sx={{ p: 3, display: "flex", alignItems: "center", gap: 1.5 }}>
         <CircularProgress size={20} sx={{ color: brand.violet2 }} />
+        <Typography variant="body2" sx={{ color: brand.muted }}>
+          Loading and rendering your file…
+        </Typography>
       </Box>
     );
   }
@@ -528,33 +539,83 @@ function CodeRender({
     );
   }
 
-  return (
-    <>
-      {tooBigToHighlight && (
+  if (tooBigToHighlight) {
+    return (
+      <Box
+        sx={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}
+      >
         <Typography
           variant="caption"
-          sx={{ display: "block", px: 2, pt: 1.5, color: brand.muted }}
+          sx={{ display: "block", px: 2, py: 1, color: brand.muted, flexShrink: 0 }}
         >
-          Large file — syntax highlighting disabled.
+          Large file — rendering only the visible lines (highlighting off).
         </Typography>
-      )}
-      <Box
-        component="pre"
-        sx={{
-          m: 0,
-          px: 2,
-          py: 2,
-          fontFamily: fonts.mono,
-          fontSize: "0.82rem",
-          color: brand.text,
-          bgcolor: alpha("#000", 0.15),
-          whiteSpace: "pre",
-          overflow: "auto",
-        }}
-      >
-        <code>{text || "(empty)"}</code>
+        <Box sx={{ flex: 1, minHeight: 0, bgcolor: alpha("#000", 0.15) }}>
+          <VirtualCode text={text} />
+        </Box>
       </Box>
-    </>
+    );
+  }
+
+  return (
+    <Box
+      component="pre"
+      sx={{
+        m: 0,
+        px: 2,
+        py: 2,
+        fontFamily: fonts.mono,
+        fontSize: "0.82rem",
+        color: brand.text,
+        bgcolor: alpha("#000", 0.15),
+        whiteSpace: "pre",
+        overflow: "auto",
+      }}
+    >
+      <code>{text || "(empty)"}</code>
+    </Box>
+  );
+}
+
+const VIRTUAL_ROW_HEIGHT = 19;
+
+function VirtualRow({
+  index,
+  style,
+  lines,
+}: RowComponentProps<{ lines: string[] }>) {
+  return (
+    <div
+      style={{
+        ...style,
+        fontFamily: fonts.mono,
+        fontSize: "0.8rem",
+        lineHeight: `${VIRTUAL_ROW_HEIGHT}px`,
+        whiteSpace: "pre",
+        overflow: "hidden",
+        paddingLeft: 16,
+        paddingRight: 16,
+        color: brand.text,
+      }}
+    >
+      {lines[index]}
+    </div>
+  );
+}
+
+/** Windowed renderer for huge code/text files: only the visible lines exist
+ *  in the DOM, so a multi-MB document scrolls like a small one. */
+function VirtualCode({ text }: { text: string }) {
+  const lines = useMemo(() => text.split("\n"), [text]);
+  return (
+    <List
+      rowComponent={VirtualRow}
+      rowCount={lines.length}
+      rowHeight={VIRTUAL_ROW_HEIGHT}
+      rowProps={{ lines }}
+      overscanCount={20}
+      style={{ height: "100%" }}
+    />
   );
 }
 
