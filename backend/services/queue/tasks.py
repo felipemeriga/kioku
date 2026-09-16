@@ -210,6 +210,7 @@ async def _ingest_notion_page_task_impl(ctx: dict, payload: dict) -> None:
         "status": "completed",
     }
 
+    offset = 0
     for batch in batches:
         await ctx["redis"].enqueue_job(
             "embed_and_store_batch_task",
@@ -217,9 +218,14 @@ async def _ingest_notion_page_task_impl(ctx: dict, payload: dict) -> None:
                 "job_id": payload["job_id"],
                 "row_template": row_template,
                 "chunks": batch,
+                # Without the offset every batch numbers its chunks from 0,
+                # and the viewer's metadata->chunk_index ordering scrambles
+                # multi-batch pages on re-join.
+                "chunk_index_offset": offset,
                 "replace_existing_page": len(batches) == 1,
             },
         )
+        offset += len(batch)
 
     # NOTE: parent_job_id's processed_pages is bumped by the batch task via
     # increment_processed_batches when the last batch completes. Bumping here

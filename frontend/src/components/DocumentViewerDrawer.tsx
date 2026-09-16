@@ -130,6 +130,9 @@ function DrawerBody({
   if (!doc) return null;
   const meta = doc.metadata || {};
   const githubUrl = typeof meta.url === "string" ? (meta.url as string) : null;
+  const notionUrl = doc.notion_page_id
+    ? `https://www.notion.so/${doc.notion_page_id.replace(/-/g, "")}`
+    : null;
   const canShowExtracted =
     !!doc.content &&
     doc.viewable_as !== "text" &&
@@ -171,6 +174,20 @@ function DrawerBody({
             </IconButton>
           </span>
         </Tooltip>
+        {notionUrl && (
+          <Tooltip title="Open in Notion">
+            <IconButton
+              size="small"
+              component={MuiLink}
+              href={notionUrl}
+              target="_blank"
+              rel="noopener"
+              sx={{ color: brand.muted, "&:hover": { color: brand.cyan } }}
+            >
+              <OpenInNewIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        )}
         {githubUrl && (
           <Tooltip title="Open on GitHub">
             <IconButton

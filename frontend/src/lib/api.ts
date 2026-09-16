@@ -978,6 +978,8 @@ export interface DocumentContent {
   /** Short-lived signed URL (15 min) to view the original file inline. */
   file_url: string | null;
   bucket: string | null;
+  /** Set for Notion-synced documents — links back to the source page. */
+  notion_page_id?: string | null;
 }
 
 export async function fetchDocumentContent(
