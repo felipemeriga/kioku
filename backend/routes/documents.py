@@ -244,6 +244,10 @@ def _infer_viewable_as(filename: str, source_type: str | None, metadata: dict) -
     name = filename.lower()
     if source_type in ("github_commit", "github_pr", "github_issue"):
         return "markdown"
+    # Notion pages have no file extension — but their stored content is the
+    # blocks-to-markdown conversion, so render it as markdown.
+    if source_type == "notion":
+        return "markdown"
     if name.endswith((".md", ".markdown")):
         return "markdown"
     if name.endswith((".htm", ".html")):
