@@ -398,6 +398,10 @@ RECENCY_HALF_LIFE_DAYS: dict[str, float] = {
     "audio": 180.0,
 }
 
+# Cap on how much freshness can move the final ranking. Relevance keeps 80%
+# of the say — recency is a tiebreaker, never a gate.
+RECENCY_WEIGHT = 0.2
+
 
 def _recency_factor(doc: dict, now: datetime | None = None) -> float:
     """0..1 decay multiplier: 1.0 for undated or non-decaying content, halving
@@ -438,8 +442,15 @@ def _apply_recency_decay(docs: list[dict]) -> list[dict]:
 
     any_decayed = any(d["recency_factor"] < 1.0 for d in out)
     if any_decayed and any("rerank_score" in d for d in out):
+        # Weighted ADDITIVE blend, not a multiplier: freshness contributes at
+        # most RECENCY_WEIGHT, so one marginally-relevant fresh chunk can
+        # never bury a highly-relevant old one (relevance gaps larger than
+        # the weight always win); equal-relevance ties still break fresh.
         out.sort(
-            key=lambda d: d.get("rerank_score", 0.0) * d["recency_factor"],
+            key=lambda d: (
+                (1 - RECENCY_WEIGHT) * d.get("rerank_score", 0.0)
+                + RECENCY_WEIGHT * d["recency_factor"]
+            ),
             reverse=True,
         )
         record("recency_decay", n_decayed=sum(1 for d in out if d["recency_factor"] < 1.0))
