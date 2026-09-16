@@ -948,6 +948,116 @@ async def repo_graph_upload(body: RepoGraphDelta, request: Request):
     return {"ok": True, **result}
 
 
+class CodeChunkIn(BaseModel):
+    symbol: str | None = None
+    start_line: int | None = None
+    end_line: int | None = None
+    content: str = Field(max_length=20_000)
+
+
+class CodeFileIn(BaseModel):
+    file: str
+    language: str | None = None
+    file_hash: str
+    chunks: list[CodeChunkIn] = Field(default_factory=list, max_length=500)
+
+
+class CodeChunksDelta(BaseModel):
+    folder_id: str
+    files: list[CodeFileIn] = Field(default_factory=list, max_length=2_000)
+    deleted_files: list[str] = Field(default_factory=list, max_length=5_000)
+
+
+def _code_chunks_scope(request: Request, folder_id: str) -> str:
+    """Shared auth for the code-chunks endpoints: scoped api key whose subtree
+    contains folder_id. Returns user_id."""
+    user_id, scope_id = _api_key_scope(request)
+    sb = get_supabase()
+    from mcp_server import _descendant_folder_ids
+
+    if folder_id not in _descendant_folder_ids(sb, scope_id, user_id):
+        raise HTTPException(status_code=403, detail="folder_id not in api key scope")
+    return user_id
+
+
+@router.get("/code-chunks")
+async def code_chunks_state(folder_id: str, request: Request):
+    """Per-file content hashes for a folder's indexed code, so the CLI can
+    diff locally and upload only changed files."""
+    user_id = _code_chunks_scope(request, folder_id)
+    sb = get_supabase()
+    rows = (
+        sb.table("code_chunks")
+        .select("file, file_hash")
+        .eq("folder_id", folder_id)
+        .eq("user_id", user_id)
+        .execute()
+        .data
+        or []
+    )
+    files = {r["file"]: r["file_hash"] for r in rows}
+    return {"files": files, "chunk_count": len(rows)}
+
+
+@router.post("/code-chunks")
+async def code_chunks_upload(body: CodeChunksDelta, request: Request):
+    """Replace the chunks of the given files (delete + re-embed via the queue).
+    Embedding runs in the arq worker with voyage-code-3 — the endpoint itself
+    only stages rows, so big uploads return fast."""
+    user_id = _code_chunks_scope(request, body.folder_id)
+    sb = get_supabase()
+
+    doomed = [f.file for f in body.files] + list(body.deleted_files)
+    if doomed:
+        (
+            sb.table("code_chunks")
+            .delete()
+            .eq("folder_id", body.folder_id)
+            .eq("user_id", user_id)
+            .in_("file", doomed)
+            .execute()
+        )
+
+    rows: list[dict] = []
+    for f in body.files:
+        for c in f.chunks:
+            if not c.content.strip():
+                continue
+            rows.append(
+                {
+                    "user_id": user_id,
+                    "folder_id": body.folder_id,
+                    "file": f.file,
+                    "language": f.language,
+                    "file_hash": f.file_hash,
+                    "symbol": c.symbol,
+                    "start_line": c.start_line,
+                    "end_line": c.end_line,
+                    "content": c.content,
+                }
+            )
+
+    if rows:
+        from arq import create_pool
+
+        from services.queue.settings import _redis_settings
+
+        pool = await create_pool(_redis_settings())
+        try:
+            batch_size = 128
+            for i in range(0, len(rows), batch_size):
+                await pool.enqueue_job("embed_code_chunks_task", {"rows": rows[i : i + batch_size]})
+        finally:
+            await pool.close()
+
+    return {
+        "ok": True,
+        "files": len(body.files),
+        "deleted_files": len(body.deleted_files),
+        "chunks_queued": len(rows),
+    }
+
+
 @router.get("/repo-graph")
 async def repo_graph_meta(folder_id: str, request: Request):
     """Return the code-graph watermark for a folder so a fresh machine can seed

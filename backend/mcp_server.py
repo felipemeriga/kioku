@@ -1948,6 +1948,71 @@ def _resolve_repo(sb, user_id, folder):
 
 
 @mcp.tool()
+def code_search(
+    query: str,
+    folder: str | None = None,
+    language: str | None = None,
+    top_k: int = 8,
+) -> str:
+    """Semantic search over indexed repo SOURCE CODE — finds code by what it
+    DOES, not by its name. Use when you don't know the identifier ('where do
+    we retry with backoff?', 'how are signed URLs generated?'); once you have
+    a symbol, switch to find_definition / find_references / impact_of.
+
+    Args:
+        query: concept to find, e.g. 'exponential backoff on reconnect'.
+        folder: which repo subtree (name / slash-path / UUID). Omit to search
+            every indexed repo in your scope.
+        language: optional filter, e.g. 'python', 'typescript', 'rust'.
+        top_k: max results (default 8).
+
+    Returns file:line-ranked chunks with symbols, or a note if unindexed.
+    """
+    if not _current_user_id.get():
+        return "Error: Not authenticated."
+    sb = get_supabase()
+    user_id = _current_user_id.get()
+
+    folder_ids: list[str] | None = None
+    if folder:
+        resolved_id, resolved = _resolve_repo(sb, user_id, folder)
+        if not resolved_id:
+            return f"Error: {resolved}"
+        folder_ids = _descendant_folder_ids(sb, resolved_id, user_id)
+    elif _current_scope_folder_id.get():
+        # Constrain to the api key's scope subtree, never beyond it.
+        folder_ids = _descendant_folder_ids(sb, _current_scope_folder_id.get(), user_id)
+
+    from services.embeddings import embed_code_query
+
+    embedding = embed_code_query(query)
+    params: dict = {
+        "query_embedding": embedding,
+        "match_count": max(1, min(top_k, 25)),
+        "filter_user_id": user_id,
+    }
+    if folder_ids:
+        params["filter_folder_ids"] = folder_ids
+    if language:
+        params["filter_language"] = language
+    rows = (sb.rpc("code_search", params).execute()).data or []
+    if not rows:
+        return (
+            "No code matches. The repo may not have code chunks indexed yet — "
+            "run `kioku index` in the repo to build them."
+        )
+
+    lines = [f"Code matches for {query!r}:"]
+    for r in rows:
+        loc = f"{r['file']}:{r.get('start_line') or '?'}"
+        sym = f" [{r['symbol']}]" if r.get("symbol") else ""
+        sim = f" (sim {r['similarity']:.2f})" if r.get("similarity") is not None else ""
+        snippet = (r.get("content") or "")[:600]
+        lines.append(f"\n— {loc}{sym}{sim}\n{snippet}")
+    return "\n".join(lines)
+
+
+@mcp.tool()
 def find_definition(symbol: str, folder: str | None = None) -> str:
     """Find where a symbol (function/type/method) is DEFINED — use instead of
     grepping for a definition.
