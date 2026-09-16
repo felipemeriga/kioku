@@ -54,6 +54,31 @@ class TestApplyRecencyDecay(unittest.TestCase):
         out = _apply_recency_decay([stale, fresh])
         self.assertEqual([d["id"] for d in out], ["fresh", "stale"])
 
+    def test_all_old_cohort_keeps_pure_relevance_order(self):
+        # Decay is cohort-relative: when every relevant chunk is old (e.g. a
+        # folder whose documents all date from last year, with no updates),
+        # they normalize against each other and the relevance order stands —
+        # old-only answers are never suppressed.
+        from services.search import _apply_recency_decay
+
+        now = datetime.now(timezone.utc)
+        best = {
+            "id": "best",
+            "source_type": "meeting",
+            "created_at": (now - timedelta(days=370)).isoformat(),
+            "rerank_score": 0.9,
+        }
+        weaker = {
+            "id": "weaker",
+            "source_type": "meeting",
+            "created_at": (now - timedelta(days=350)).isoformat(),
+            "rerank_score": 0.5,
+        }
+        out = _apply_recency_decay([best, weaker])
+        self.assertEqual([d["id"] for d in out], ["best", "weaker"])
+        # The most-recent chunk in the cohort anchors at factor 1.0.
+        self.assertEqual(max(d["recency_factor"] for d in out), 1.0)
+
     def test_reference_docs_keep_relevance_order(self):
         from services.search import _apply_recency_decay
 

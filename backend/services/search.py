@@ -417,19 +417,26 @@ def _recency_factor(doc: dict, now: datetime | None = None) -> float:
 
 def _apply_recency_decay(docs: list[dict]) -> list[dict]:
     """Downrank stale episodic chunks: multiply the rerank score by a per-type
-    time decay and re-sort. A recent meeting beats an equally-relevant one from
-    months ago; reference docs are untouched. No-op when nothing decays."""
+    time decay and re-sort. Decay is COHORT-RELATIVE — factors are normalized
+    by the best factor in this result set — so freshness only matters when the
+    results actually differ in age. A corpus (or folder) whose only relevant
+    material is old keeps its pure relevance order; nothing is ever dropped,
+    only reordered. Reference docs (no half-life entry) are untouched."""
     if not docs:
         return docs
     out = []
-    any_decayed = False
     for doc in docs:
-        factor = _recency_factor(doc)
         d = doc.copy()
-        d["recency_factor"] = round(factor, 4)
-        if factor < 1.0:
-            any_decayed = True
+        d["recency_factor"] = _recency_factor(doc)
         out.append(d)
+
+    best = max(d["recency_factor"] for d in out)
+    if best <= 0:
+        return out
+    for d in out:
+        d["recency_factor"] = round(d["recency_factor"] / best, 4)
+
+    any_decayed = any(d["recency_factor"] < 1.0 for d in out)
     if any_decayed and any("rerank_score" in d for d in out):
         out.sort(
             key=lambda d: d.get("rerank_score", 0.0) * d["recency_factor"],
