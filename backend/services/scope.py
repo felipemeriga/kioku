@@ -42,6 +42,30 @@ def resolve_root_folder_id(folder_id: str, user_id: str) -> str:
     raise HTTPException(status_code=400, detail="Folder tree too deep")
 
 
+def descendant_folder_ids(sb, folder_id: str, user_id: str) -> list[str]:
+    """BFS the folders tree — returns folder_id + all descendants (inclusive).
+    The user_id filter at each hop means a misconfigured parent_id can never
+    leak another user's folder into the traversal."""
+    result = [folder_id]
+    frontier = [folder_id]
+    while frontier:
+        rows = (
+            sb.table("folders")
+            .select("id")
+            .in_("parent_id", frontier)
+            .eq("user_id", user_id)
+            .execute()
+            .data
+            or []
+        )
+        next_ids = [row["id"] for row in rows]
+        if not next_ids:
+            break
+        result.extend(next_ids)
+        frontier = next_ids
+    return result
+
+
 def validate_scope_folder(scope_folder_id: str, user_id: str) -> None:
     """Validate that a folder ID belongs to the user. Root or sub-folder both OK.
 

@@ -4,7 +4,7 @@ import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import MessageBubble from "./MessageBubble";
 import ChatInput from "./ChatInput";
 import ThinkingBar from "./ThinkingBar";
-import type { Message, ChatFilters, StageEvent } from "../lib/api";
+import type { Message, ChatFilters, ChatScope, StageEvent } from "../lib/api";
 import { brand, fonts } from "../theme";
 
 interface ChatAreaProps {
@@ -13,6 +13,9 @@ interface ChatAreaProps {
   isStreaming: boolean;
   currentStage: StageEvent | null;
   onSend: (message: string, filters?: ChatFilters, fastMode?: boolean) => void;
+  scope?: ChatScope | null;
+  onPickScope?: () => void;
+  onClearScope?: () => void;
 }
 
 const SUGGESTIONS = [
@@ -28,6 +31,9 @@ export default function ChatArea({
   isStreaming,
   currentStage,
   onSend,
+  scope,
+  onPickScope,
+  onClearScope,
 }: ChatAreaProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -134,7 +140,13 @@ export default function ChatArea({
           <div ref={bottomRef} />
         </Box>
       </Box>
-      <ChatInput onSend={onSend} disabled={isStreaming} />
+      <ChatInput
+        onSend={onSend}
+        disabled={isStreaming}
+        scope={scope}
+        onPickScope={onPickScope}
+        onClearScope={onClearScope}
+      />
     </Box>
   );
 }

@@ -15,16 +15,27 @@ import SendIcon from "@mui/icons-material/Send";
 import AttachFileIcon from "@mui/icons-material/AttachFile";
 import FilterListIcon from "@mui/icons-material/FilterList";
 import BoltIcon from "@mui/icons-material/Bolt";
+import CenterFocusStrongIcon from "@mui/icons-material/CenterFocusStrong";
 import { uploadDocument, fetchDocumentFilters } from "../lib/api";
-import type { ChatFilters, DocumentFilters } from "../lib/api";
+import type { ChatFilters, ChatScope, DocumentFilters } from "../lib/api";
 import { useToast } from "./ToastProvider";
 
 interface ChatInputProps {
   onSend: (message: string, filters?: ChatFilters, fastMode?: boolean) => void;
   disabled: boolean;
+  /** Active RAG scope for this conversation (chip + picker managed above). */
+  scope?: ChatScope | null;
+  onPickScope?: () => void;
+  onClearScope?: () => void;
 }
 
-export default function ChatInput({ onSend, disabled }: ChatInputProps) {
+export default function ChatInput({
+  onSend,
+  disabled,
+  scope,
+  onPickScope,
+  onClearScope,
+}: ChatInputProps) {
   const toast = useToast();
   const [input, setInput] = useState("");
   const [uploading, setUploading] = useState(false);
@@ -91,6 +102,11 @@ export default function ChatInput({ onSend, disabled }: ChatInputProps) {
   const hasFilters = activeFilters.topic || activeFilters.keyword;
   const hasAvailableFilters =
     availableFilters.topics.length > 0 || availableFilters.keywords.length > 0;
+  const scopeLabel = scope
+    ? scope.filename
+      ? `File: ${scope.filename}`
+      : `Folder: ${scope.folderName}`
+    : null;
 
   return (
     <Box
@@ -103,7 +119,20 @@ export default function ChatInput({ onSend, disabled }: ChatInputProps) {
       }}
     >
       <Box sx={{ px: 2, py: 2 }}>
-      <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mb: uploadedFile || hasFilters ? 1 : 0 }}>
+      <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mb: uploadedFile || hasFilters || scopeLabel ? 1 : 0 }}>
+        {scopeLabel && (
+          <Chip
+            icon={<CenterFocusStrongIcon sx={{ fontSize: 15 }} />}
+            label={scopeLabel}
+            size="small"
+            sx={{
+              bgcolor: alpha("#FF2E93", 0.12),
+              color: "#FF2E93",
+              "& .MuiChip-icon": { color: "#FF2E93" },
+            }}
+            onDelete={onClearScope}
+          />
+        )}
         {uploadedFile && (
           <Chip
             label={`Uploaded: ${uploadedFile}`}
@@ -142,6 +171,29 @@ export default function ChatInput({ onSend, disabled }: ChatInputProps) {
         >
           {uploading ? <CircularProgress size={20} /> : <AttachFileIcon />}
         </IconButton>
+        {onPickScope && (
+          <Tooltip
+            title={
+              scope
+                ? "Change the folder/file this chat searches"
+                : "Limit this chat to one folder or file"
+            }
+          >
+            <IconButton
+              onClick={onPickScope}
+              disabled={disabled}
+              sx={{
+                color: scope ? "#FF2E93" : undefined,
+                bgcolor: scope ? alpha("#FF2E93", 0.1) : undefined,
+                "&:hover": {
+                  bgcolor: scope ? alpha("#FF2E93", 0.2) : undefined,
+                },
+              }}
+            >
+              <CenterFocusStrongIcon />
+            </IconButton>
+          </Tooltip>
+        )}
         <Tooltip title={hasAvailableFilters ? "Filter search" : "No filters available yet"}>
           <span>
             <IconButton

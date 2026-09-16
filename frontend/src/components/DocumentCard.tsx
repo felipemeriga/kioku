@@ -22,6 +22,7 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import DriveFileMoveIcon from "@mui/icons-material/DriveFileMove";
 import VisibilityIcon from "@mui/icons-material/Visibility";
+import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
 import type { DocumentInfo } from "../lib/api";
 import MoveDialog from "./MoveDialog";
 
@@ -35,6 +36,8 @@ interface DocumentCardProps {
   /** When set, clicking the card opens the document (selection stays on the
    *  checkbox); without it, clicking falls back to toggling selection. */
   onOpen?: (filename: string) => void;
+  /** Opens a chat scoped to just this document. */
+  onChat?: (filename: string) => void;
   /** "grid" (default) renders the tile; "list" renders a compact single row. */
   variant?: "grid" | "list";
 }
@@ -74,6 +77,7 @@ export default function DocumentCard({
   onDownload,
   onMove,
   onOpen,
+  onChat,
   variant = "grid",
 }: DocumentCardProps) {
   const ext = doc.source_filename.split(".").pop()?.toLowerCase() || "txt";
@@ -383,6 +387,19 @@ export default function DocumentCard({
               <VisibilityIcon fontSize="small" />
             </ListItemIcon>
             <ListItemText>Open</ListItemText>
+          </MenuItem>
+        )}
+        {onChat && (
+          <MenuItem
+            onClick={() => {
+              closeMenu();
+              onChat(doc.source_filename);
+            }}
+          >
+            <ListItemIcon>
+              <ChatBubbleOutlineIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>Chat with this file</ListItemText>
           </MenuItem>
         )}
         <MenuItem onClick={handleCopy}>

@@ -270,7 +270,9 @@ def _folder_tree_under_scope(
 
 
 @mcp.tool()
-async def knowledge_base_search(query: str) -> str:
+async def knowledge_base_search(
+    query: str, folder: str | None = None, file: str | None = None
+) -> str:
     """Search across all knowledge for this scope: documents AND any connected
     memory (Mem0) — fanned out in parallel, merged, and audited.
 
@@ -281,20 +283,40 @@ async def knowledge_base_search(query: str) -> str:
 
     Args:
         query: The search query.
+        folder: Optional — narrow document search to one folder subtree
+            inside your scope. Accepts a folder name ('c360-lead'), a
+            slash-path ('cosm/c360-lead'), or a folder UUID.
+        file: Optional — narrow document search to a single document by its
+            exact source filename (as shown by list_documents).
     """
     if not _current_user_id.get():
         return "Error: Not authenticated. Provide a valid API key."
+    sb = get_supabase()
+    user_id = _current_user_id.get()
+    scope_folder_id = _current_scope_folder_id.get()
+
+    folder_ids: list[str] | None = None
+    if folder:
+        resolved_id, resolved = resolve_focus_folder(
+            sb, scope_folder_id=scope_folder_id, user_id=user_id, focus=folder
+        )
+        if resolved_id is None:
+            return f"Error: {resolved}"
+        folder_ids = _descendant_folder_ids(sb, resolved_id, user_id)
+
     # Tool is async so FastMCP's own event loop drives fanout_search directly
     # (previously we tried asyncio.run which nested loops and crashed).
     embedding = embed_query(query)
     result = await fanout_search(
-        get_supabase(),
+        sb,
         embedding=embedding,
         query_text=query,
-        user_id=_current_user_id.get(),
-        folder_id=_current_scope_folder_id.get(),
+        user_id=user_id,
+        folder_id=scope_folder_id,
         limit=10,
         channel="mcp",
+        folder_ids=folder_ids,
+        source_filename=file,
     )
     if not result.hits:
         return "No relevant content found in documents or memory."
