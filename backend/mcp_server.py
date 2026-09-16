@@ -271,7 +271,11 @@ def _folder_tree_under_scope(
 
 @mcp.tool()
 async def knowledge_base_search(
-    query: str, folder: str | None = None, file: str | None = None
+    query: str,
+    folder: str | None = None,
+    file: str | None = None,
+    created_after: str | None = None,
+    created_before: str | None = None,
 ) -> str:
     """Search across all knowledge for this scope: documents AND any connected
     memory (Mem0) — fanned out in parallel, merged, and audited.
@@ -288,6 +292,10 @@ async def knowledge_base_search(
             slash-path ('cosm/c360-lead'), or a folder UUID.
         file: Optional — narrow document search to a single document by its
             exact source filename (as shown by list_documents).
+        created_after: Optional ISO date (YYYY-MM-DD) — only content created
+            on/after this date. Use for 'recent'/'since X' questions.
+        created_before: Optional ISO date (YYYY-MM-DD) — only content created
+            on/before this date. Use for historical questions.
     """
     if not _current_user_id.get():
         return "Error: Not authenticated. Provide a valid API key."
@@ -317,6 +325,8 @@ async def knowledge_base_search(
         channel="mcp",
         folder_ids=folder_ids,
         source_filename=file,
+        created_after=created_after,
+        created_before=created_before,
     )
     if not result.hits:
         return "No relevant content found in documents or memory."
@@ -325,7 +335,9 @@ async def knowledge_base_search(
     for h in result.hits:
         if h.source == "docs":
             src = (h.metadata or {}).get("source_filename", "unknown")
-            parts.append(f"[Document: {src}]\n{h.content}")
+            date = str((h.metadata or {}).get("created_at") or "")[:10]
+            label = f"[Document: {src} — {date}]" if date else f"[Document: {src}]"
+            parts.append(f"{label}\n{h.content}")
         elif h.source == "mem0_eternal":
             cat = (h.metadata or {}).get("category", "preference")
             parts.append(f"[Eternal preference · {cat}]\n{h.content}")

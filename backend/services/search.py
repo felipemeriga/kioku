@@ -2,6 +2,7 @@
 
 import logging
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 
 from langsmith import traceable
 
@@ -24,6 +25,8 @@ def _vector_search(
     root_folder_id: str | None = None,
     folder_ids: list[str] | None = None,
     source_filename: str | None = None,
+    created_after: str | None = None,
+    created_before: str | None = None,
 ) -> list[dict]:
     """Search documents by cosine similarity."""
     sb = get_supabase()
@@ -40,6 +43,10 @@ def _vector_search(
         params["filter_folder_ids"] = folder_ids
     if source_filename:
         params["filter_source_filename"] = source_filename
+    if created_after:
+        params["filter_created_after"] = created_after
+    if created_before:
+        params["filter_created_before"] = created_before
 
     result = sb.rpc("match_documents", params).execute()
     return result.data
@@ -54,6 +61,8 @@ def _keyword_search(
     root_folder_id: str | None = None,
     folder_ids: list[str] | None = None,
     source_filename: str | None = None,
+    created_after: str | None = None,
+    created_before: str | None = None,
 ) -> list[dict]:
     """Search documents by full-text keyword matching."""
     sb = get_supabase()
@@ -70,6 +79,10 @@ def _keyword_search(
         params["filter_folder_ids"] = folder_ids
     if source_filename:
         params["filter_source_filename"] = source_filename
+    if created_after:
+        params["filter_created_after"] = created_after
+    if created_before:
+        params["filter_created_before"] = created_before
 
     result = sb.rpc("keyword_search", params).execute()
     return result.data
@@ -111,6 +124,8 @@ def _run_hybrid_search(
     root_folder_id: str | None,
     folder_ids: list[str] | None = None,
     source_filename: str | None = None,
+    created_after: str | None = None,
+    created_before: str | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """Run vector + keyword search for a single query, in parallel.
 
@@ -129,6 +144,8 @@ def _run_hybrid_search(
             root_folder_id,
             folder_ids,
             source_filename,
+            created_after,
+            created_before,
         )
         kw_future = (
             submit_with_context(
@@ -142,6 +159,8 @@ def _run_hybrid_search(
                 root_folder_id,
                 folder_ids,
                 source_filename,
+                created_after,
+                created_before,
             )
             if query_text
             else None
@@ -171,6 +190,8 @@ def _embed_and_search(
     precomputed_embedding: list[float] | None = None,
     folder_ids: list[str] | None = None,
     source_filename: str | None = None,
+    created_after: str | None = None,
+    created_before: str | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """Embed a query variant (if needed) then run parallel hybrid search."""
     embedding = precomputed_embedding
@@ -190,6 +211,8 @@ def _embed_and_search(
         root_folder_id,
         folder_ids,
         source_filename,
+        created_after,
+        created_before,
     )
 
 
@@ -205,6 +228,8 @@ def search_documents(
     fast_mode: bool = False,
     folder_ids: list[str] | None = None,
     source_filename: str | None = None,
+    created_after: str | None = None,
+    created_before: str | None = None,
 ) -> list[dict]:
     """Hybrid search pipeline with optional query enhancement.
 
@@ -227,6 +252,8 @@ def search_documents(
                     root_folder_id,
                     folder_ids,
                     source_filename,
+                    created_after,
+                    created_before,
                 )
 
             _record_search_metrics([vector_results], [keyword_results])
@@ -243,6 +270,7 @@ def search_documents(
 
             with stage("rerank", indent=3):
                 reranked = rerank(query_text or "query", fused, top_k=top_k)
+            reranked = _apply_recency_decay(reranked)
             with stage("neighbor_expansion (parallel)", indent=3):
                 return _expand_with_neighbors(reranked)
 
@@ -303,6 +331,8 @@ def search_documents(
                         emb,
                         folder_ids,
                         source_filename,
+                        created_after,
+                        created_before,
                     )
                     for vt, emb in variant_specs
                 ]
@@ -353,10 +383,67 @@ def search_documents(
         # Step 5: Rerank with score threshold filtering
         with stage("rerank", indent=3):
             reranked = rerank(query_text or "query", fused, top_k=top_k)
+        reranked = _apply_recency_decay(reranked)
 
         # Step 6: Parent document retrieval — expand each result with adjacent chunks
         with stage("neighbor_expansion (parallel)", indent=3):
             return _expand_with_neighbors(reranked)
+
+
+# Recency half-life (days) per source_type. Episodic content (meetings, voice
+# recordings) loses relevance over time and decays; reference material (docs,
+# notion pages, code) ranks purely on relevance and is absent from this map.
+RECENCY_HALF_LIFE_DAYS: dict[str, float] = {
+    "meeting": 90.0,
+    "audio": 180.0,
+}
+
+
+def _recency_factor(doc: dict, now: datetime | None = None) -> float:
+    """0..1 decay multiplier: 1.0 for undated or non-decaying content, halving
+    every RECENCY_HALF_LIFE_DAYS for episodic source types."""
+    half_life = RECENCY_HALF_LIFE_DAYS.get(doc.get("source_type") or "")
+    ts = doc.get("created_at")
+    if not half_life or not ts:
+        return 1.0
+    try:
+        created = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+    except ValueError:
+        return 1.0
+    now = now or datetime.now(timezone.utc)
+    age_days = max((now - created).total_seconds() / 86400.0, 0.0)
+    return 0.5 ** (age_days / half_life)
+
+
+def _apply_recency_decay(docs: list[dict]) -> list[dict]:
+    """Downrank stale episodic chunks: multiply the rerank score by a per-type
+    time decay and re-sort. Decay is COHORT-RELATIVE — factors are normalized
+    by the best factor in this result set — so freshness only matters when the
+    results actually differ in age. A corpus (or folder) whose only relevant
+    material is old keeps its pure relevance order; nothing is ever dropped,
+    only reordered. Reference docs (no half-life entry) are untouched."""
+    if not docs:
+        return docs
+    out = []
+    for doc in docs:
+        d = doc.copy()
+        d["recency_factor"] = _recency_factor(doc)
+        out.append(d)
+
+    best = max(d["recency_factor"] for d in out)
+    if best <= 0:
+        return out
+    for d in out:
+        d["recency_factor"] = round(d["recency_factor"] / best, 4)
+
+    any_decayed = any(d["recency_factor"] < 1.0 for d in out)
+    if any_decayed and any("rerank_score" in d for d in out):
+        out.sort(
+            key=lambda d: d.get("rerank_score", 0.0) * d["recency_factor"],
+            reverse=True,
+        )
+        record("recency_decay", n_decayed=sum(1 for d in out if d["recency_factor"] < 1.0))
+    return out
 
 
 def _expand_with_neighbors(results: list[dict]) -> list[dict]:
