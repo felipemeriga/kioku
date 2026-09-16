@@ -305,7 +305,10 @@ async def get_document_content(
     sb = get_supabase()
     q = (
         sb.table("documents")
-        .select("content, chunk_index, source_type, metadata, folder_id, status, created_at")
+        .select(
+            "content, chunk_index, source_type, metadata, folder_id, status, "
+            "created_at, notion_page_id"
+        )
         .eq("source_filename", filename)
         .eq("user_id", user_id)
     )
@@ -337,6 +340,7 @@ async def get_document_content(
         "viewable_as": viewable_as,
         "file_url": view_url,
         "bucket": bucket,
+        "notion_page_id": first.get("notion_page_id"),
     }
 
 

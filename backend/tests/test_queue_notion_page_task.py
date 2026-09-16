@@ -219,3 +219,7 @@ class TestIngestNotionPageTask(unittest.TestCase):
         table.delete.assert_called_once()
         for call in pool.enqueue_job.call_args_list:
             self.assertFalse(call.args[1]["replace_existing_page"])
+        # Chunk indexes must continue across batches — without the offset the
+        # second batch renumbers from 0 and the viewer re-joins out of order.
+        offsets = [c.args[1]["chunk_index_offset"] for c in pool.enqueue_job.call_args_list]
+        self.assertEqual(offsets, [0, 128])
