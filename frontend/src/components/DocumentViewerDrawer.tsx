@@ -308,7 +308,13 @@ function DocumentRenderer({
       <NoOriginalFallback msg="Original video not available." />
     );
   } else if (viewable_as === "markdown") {
-    primary = <MarkdownRender content={content} />;
+    primary = (
+      <MarkdownRender
+        key={doc.source_filename}
+        content={content}
+        fileUrl={file_url}
+      />
+    );
   } else if (viewable_as === "code") {
     primary = (
       <CodeRender
@@ -460,22 +466,12 @@ function useHighlighter() {
 // freezes the tab. Bigger files render as a plain (fast) <pre> instead.
 const HIGHLIGHT_CHAR_LIMIT = 120_000;
 
-function CodeRender({
-  content,
-  filename,
-  fileUrl,
-}: {
-  content: string;
-  filename?: string;
-  fileUrl?: string | null;
-}) {
-  const hl = useHighlighter();
-  // The extracted `content` is the document's chunks re-joined with blank
-  // lines — fine for prose, mangled for JSON/code. When the original file is
-  // stored, fetch it from the signed URL and show the real thing. While the
-  // download runs, show a spinner rather than flashing the mangled extract.
-  // Initial state covers the reset: the call site keys this component by
-  // filename, so a new document remounts it with fresh state.
+/** Download the stored original file from its signed URL. The extracted
+ *  `content` is the document's chunks re-joined with blank lines — fine for
+ *  prose search, but it mangles JSON/code and can break markdown fencing
+ *  (and legacy uploads may join out of order). Callers key their component
+ *  by filename so a new document remounts with fresh state. */
+function useOriginalText(fileUrl?: string | null) {
   const [original, setOriginal] = useState<string | null>(null);
   const [fetching, setFetching] = useState(!!fileUrl);
   useEffect(() => {
@@ -496,16 +492,34 @@ function CodeRender({
       cancelled = true;
     };
   }, [fileUrl]);
+  return { original, fetching };
+}
+
+function LoadingFile() {
+  return (
+    <Box sx={{ p: 3, display: "flex", alignItems: "center", gap: 1.5 }}>
+      <CircularProgress size={20} sx={{ color: brand.violet2 }} />
+      <Typography variant="body2" sx={{ color: brand.muted }}>
+        Loading and rendering your file…
+      </Typography>
+    </Box>
+  );
+}
+
+function CodeRender({
+  content,
+  filename,
+  fileUrl,
+}: {
+  content: string;
+  filename?: string;
+  fileUrl?: string | null;
+}) {
+  const hl = useHighlighter();
+  const { original, fetching } = useOriginalText(fileUrl);
 
   if (fetching && original === null) {
-    return (
-      <Box sx={{ p: 3, display: "flex", alignItems: "center", gap: 1.5 }}>
-        <CircularProgress size={20} sx={{ color: brand.violet2 }} />
-        <Typography variant="body2" sx={{ color: brand.muted }}>
-          Loading and rendering your file…
-        </Typography>
-      </Box>
-    );
+    return <LoadingFile />;
   }
 
   let text = original ?? content;
@@ -619,8 +633,18 @@ function VirtualCode({ text }: { text: string }) {
   );
 }
 
-function MarkdownRender({ content }: { content: string }) {
+function MarkdownRender({
+  content,
+  fileUrl,
+}: {
+  content: string;
+  fileUrl?: string | null;
+}) {
   const hl = useHighlighter();
+  // Prefer the stored original .md: the chunk-joined extract can re-join out
+  // of order (legacy uploads) or split a code fence, which flips the whole
+  // rest of the document into a code block.
+  const { original, fetching } = useOriginalText(fileUrl);
   // Lazy-import ReactMarkdown + remark-gfm so they don't ship in the initial
   // bundle for folks who never open a markdown document. GFM adds tables,
   // task lists, strikethrough — the syntax GitHub commit/PR/issue bodies use.
@@ -646,8 +670,21 @@ function MarkdownRender({ content }: { content: string }) {
       cancelled = true;
     };
   }, []);
+  if (fetching && original === null) {
+    return <LoadingFile />;
+  }
+  const text = original ?? content;
   if (!state) {
-    return <TextRender content={content} />;
+    return <TextRender content={text} />;
+  }
+  // ReactMarkdown builds the full element tree at once — for a huge document
+  // that would stall the tab, so fall back to the windowed plain view.
+  if (text.length > HIGHLIGHT_CHAR_LIMIT * 3) {
+    return (
+      <Box sx={{ height: "100%", minHeight: 240 }}>
+        <VirtualCode text={text} />
+      </Box>
+    );
   }
   const { Renderer, gfm } = state;
   return (
@@ -742,7 +779,7 @@ function MarkdownRender({ content }: { content: string }) {
           },
         }}
       >
-        {content || "(empty)"}
+        {text || "(empty)"}
       </Renderer>
     </Box>
   );
