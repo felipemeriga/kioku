@@ -24,6 +24,22 @@ TOOL_DEFINITIONS = [
                     "type": "string",
                     "description": "The search query to find relevant document chunks.",
                 },
+                "created_after": {
+                    "type": "string",
+                    "description": (
+                        "Optional ISO date (YYYY-MM-DD). Only search content created "
+                        "on/after this date — use when the user asks about a specific "
+                        "period ('last month', 'since March', 'recent')."
+                    ),
+                },
+                "created_before": {
+                    "type": "string",
+                    "description": (
+                        "Optional ISO date (YYYY-MM-DD). Only search content created "
+                        "on/before this date — use for historical questions "
+                        "('back in January', 'before the migration')."
+                    ),
+                },
             },
             "required": ["query"],
         },
@@ -91,13 +107,19 @@ def execute_tool(
             fast_mode=fast_mode,
             folder_ids=scope_folder_ids,
             source_filename=scope_filename,
+            created_after=tool_input.get("created_after"),
+            created_before=tool_input.get("created_before"),
         )
         if not results:
             return "No relevant documents found in the knowledge base."
         chunks = []
         for r in results:
             source = (r.get("metadata") or {}).get("source_filename", "unknown")
-            chunks.append(f"[Source: {source}]\n{r['content']}")
+            # Date in the header lets the model weigh freshness and cite
+            # as-of dates — retrieval alone can't resolve conflicting facts.
+            date = str(r.get("created_at") or "")[:10]
+            header = f"[Source: {source} — {date}]" if date else f"[Source: {source}]"
+            chunks.append(f"{header}\n{r['content']}")
         return "\n\n---\n\n".join(chunks)
 
     if tool_name == "query_documents_metadata":

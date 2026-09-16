@@ -42,12 +42,16 @@ class FanoutResult:
 def _hits_from_docs(rag_rows: list[dict]) -> list[UnifiedHit]:
     out: list[UnifiedHit] = []
     for r in rag_rows or []:
+        # Surface the source date so MCP consumers can weigh freshness.
+        metadata = dict(r.get("metadata") or {})
+        if r.get("created_at") and "created_at" not in metadata:
+            metadata["created_at"] = str(r["created_at"])
         out.append(
             UnifiedHit(
                 source="docs",
                 id=f"docs:{r.get('id')}",
                 content=(r.get("content") or "")[:2000],
-                metadata=r.get("metadata") or {},
+                metadata=metadata,
                 score=r.get("similarity") or r.get("score"),
             )
         )
@@ -155,6 +159,8 @@ async def _search_docs(
     limit: int,
     folder_ids: list[str] | None = None,
     source_filename: str | None = None,
+    created_after: str | None = None,
+    created_before: str | None = None,
 ) -> tuple[list[UnifiedHit], int]:
     t0 = time.perf_counter()
 
@@ -172,6 +178,8 @@ async def _search_docs(
             top_k=limit,
             folder_ids=folder_ids,
             source_filename=source_filename,
+            created_after=created_after,
+            created_before=created_before,
         )
 
     try:
@@ -258,6 +266,8 @@ async def fanout_search(
     include_mem0: bool = True,
     folder_ids: list[str] | None = None,
     source_filename: str | None = None,
+    created_after: str | None = None,
+    created_before: str | None = None,
 ) -> FanoutResult:
     """Public entry point. Kicks RAG + Mem0 in parallel, merges, and logs.
 
@@ -268,7 +278,16 @@ async def fanout_search(
     mem0 = get_client_for_folder(sb, folder_id, user_id) if (include_mem0 and folder_id) else None
 
     doc_task = _search_docs(
-        sb, embedding, query_text, user_id, folder_id, limit, folder_ids, source_filename
+        sb,
+        embedding,
+        query_text,
+        user_id,
+        folder_id,
+        limit,
+        folder_ids,
+        source_filename,
+        created_after,
+        created_before,
     )
     mem0_task = _search_mem0(mem0, query_text, limit)
 

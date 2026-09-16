@@ -26,7 +26,14 @@ topics).
 Pick one tool per turn unless you genuinely need two different tools (e.g., knowledge_base_search \
 plus web_search). Do not call the same tool more than once per turn — pick the best query.
 If a tool returns no results, try a different approach or a different tool on the next turn.
-When answering, cite your sources when possible."""
+When answering, cite your sources when possible.
+
+Temporal awareness: retrieved chunks carry their source date in the header. Treat content as a \
+point-in-time record — when sources conflict, prefer the most recent and note that the older \
+source says otherwise. For time-sensitive answers, state the as-of date. If the only supporting \
+material is old, say so explicitly. When the user asks about a specific period ('last month', \
+'since March', 'back in January'), pass created_after / created_before to knowledge_base_search \
+instead of filtering by words in the query."""
 
 
 @traceable(name="answer_question", run_type="chain")
