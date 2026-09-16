@@ -311,7 +311,11 @@ async def get_document_content(
     )
     if folder_id:
         q = q.eq("folder_id", folder_id)
-    r = q.order("chunk_index").execute()
+    # Order by the metadata copy of chunk_index: the COLUMN is null on legacy
+    # uploads (pre-July backfill never happened), which made the joined text
+    # come back in arbitrary chunk order. The jsonb value is written by every
+    # ingest path (uploads, drops, notion) since the beginning.
+    r = q.order("metadata->chunk_index").order("id").execute()
     if not r.data:
         raise HTTPException(status_code=404, detail="Document not found")
 

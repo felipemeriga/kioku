@@ -311,6 +311,7 @@ function DocumentRenderer({
   } else if (viewable_as === "code") {
     primary = (
       <CodeRender
+        key={doc.source_filename}
         content={content}
         filename={doc.source_filename}
         fileUrl={file_url}
@@ -447,6 +448,10 @@ function useHighlighter() {
   return hl;
 }
 
+// Prism emits a DOM node per token — past this size the element count
+// freezes the tab. Bigger files render as a plain (fast) <pre> instead.
+const HIGHLIGHT_CHAR_LIMIT = 120_000;
+
 function CodeRender({
   content,
   filename,
@@ -459,8 +464,12 @@ function CodeRender({
   const hl = useHighlighter();
   // The extracted `content` is the document's chunks re-joined with blank
   // lines — fine for prose, mangled for JSON/code. When the original file is
-  // stored, fetch it from the signed URL and show the real thing.
+  // stored, fetch it from the signed URL and show the real thing. While the
+  // download runs, show a spinner rather than flashing the mangled extract.
+  // Initial state covers the reset: the call site keys this component by
+  // filename, so a new document remounts it with fresh state.
   const [original, setOriginal] = useState<string | null>(null);
+  const [fetching, setFetching] = useState(!!fileUrl);
   useEffect(() => {
     if (!fileUrl) return;
     let cancelled = false;
@@ -471,11 +480,22 @@ function CodeRender({
       })
       .catch(() => {
         // Fall back to extracted content silently.
+      })
+      .finally(() => {
+        if (!cancelled) setFetching(false);
       });
     return () => {
       cancelled = true;
     };
   }, [fileUrl]);
+
+  if (fetching && original === null) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <CircularProgress size={20} sx={{ color: brand.violet2 }} />
+      </Box>
+    );
+  }
 
   let text = original ?? content;
   const ext = filename?.split(".").pop()?.toLowerCase() ?? "";
@@ -487,8 +507,9 @@ function CodeRender({
     }
   }
   const lang = EXT_TO_LANG[ext];
+  const tooBigToHighlight = text.length > HIGHLIGHT_CHAR_LIMIT;
 
-  if (hl && lang) {
+  if (hl && lang && !tooBigToHighlight) {
     return (
       <hl.SyntaxHighlighter
         language={lang}
@@ -508,22 +529,32 @@ function CodeRender({
   }
 
   return (
-    <Box
-      component="pre"
-      sx={{
-        m: 0,
-        px: 2,
-        py: 2,
-        fontFamily: fonts.mono,
-        fontSize: "0.82rem",
-        color: brand.text,
-        bgcolor: alpha("#000", 0.15),
-        whiteSpace: "pre",
-        overflow: "auto",
-      }}
-    >
-      <code>{text || "(empty)"}</code>
-    </Box>
+    <>
+      {tooBigToHighlight && (
+        <Typography
+          variant="caption"
+          sx={{ display: "block", px: 2, pt: 1.5, color: brand.muted }}
+        >
+          Large file — syntax highlighting disabled.
+        </Typography>
+      )}
+      <Box
+        component="pre"
+        sx={{
+          m: 0,
+          px: 2,
+          py: 2,
+          fontFamily: fonts.mono,
+          fontSize: "0.82rem",
+          color: brand.text,
+          bgcolor: alpha("#000", 0.15),
+          whiteSpace: "pre",
+          overflow: "auto",
+        }}
+      >
+        <code>{text || "(empty)"}</code>
+      </Box>
+    </>
   );
 }
 
