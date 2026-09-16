@@ -986,17 +986,31 @@ async def code_chunks_state(folder_id: str, request: Request):
     diff locally and upload only changed files."""
     user_id = _code_chunks_scope(request, folder_id)
     sb = get_supabase()
-    rows = (
-        sb.table("code_chunks")
-        .select("file, file_hash")
-        .eq("folder_id", folder_id)
-        .eq("user_id", user_id)
-        .execute()
-        .data
-        or []
-    )
-    files = {r["file"]: r["file_hash"] for r in rows}
-    return {"files": files, "chunk_count": len(rows)}
+    # Paginate: PostgREST caps responses at 1000 rows, and a mid-size repo has
+    # more chunks than that — a truncated map made the CLI re-upload files
+    # that never changed, on every single index run.
+    files: dict[str, str] = {}
+    count = 0
+    page = 1000
+    offset = 0
+    while True:
+        rows = (
+            sb.table("code_chunks")
+            .select("file, file_hash")
+            .eq("folder_id", folder_id)
+            .eq("user_id", user_id)
+            .range(offset, offset + page - 1)
+            .execute()
+            .data
+            or []
+        )
+        for r in rows:
+            files[r["file"]] = r["file_hash"]
+        count += len(rows)
+        if len(rows) < page:
+            break
+        offset += page
+    return {"files": files, "chunk_count": count}
 
 
 @router.post("/code-chunks")

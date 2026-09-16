@@ -14,14 +14,13 @@ import {
 import { isLoggedIn } from "../lib/config.js";
 import { detectGit, headSha } from "../lib/git.js";
 import { mcpUrlToRestBase } from "../lib/urls.js";
+import { registerWithWatcher } from "../lib/watcher.js";
 import {
   graphIndex,
   graphifyAvailable,
   seedWatermarkFromServer,
 } from "./graph-index.js";
 import {
-  installPostPushHook,
-  installPrePushGitHook,
   installSessionStartHook,
   installStopHook,
   readMcpEntry,
@@ -34,7 +33,6 @@ import {
 import {
   installCodexSessionStartHook,
   installCodexStopHook,
-  installCodexPostPushHook,
   updateAgentsMd,
   writeCodexMcpConfig,
 } from "../lib/codex.js";
@@ -370,15 +368,6 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
             kleur.dim("(captures learnings to Mem0)")
         : "Codex Stop hook already present"
     );
-    // PostToolUse hook — after a `git push`, nudges the session to refresh the
-    // repo's `activity` briefing from the new commits (parity with Claude).
-    const cxPush = installCodexPostPushHook();
-    ok(
-      cxPush.addedHook
-        ? "Codex Push hook installed  " +
-            kleur.dim("(refreshes activity on git push)")
-        : "Codex Push hook already present"
-    );
   } else {
     const mcp = writeMcpConfig(repoRoot, mcpEntry);
     ok(`.mcp.json ${mcp.existed ? "updated" : "written"}`);
@@ -400,26 +389,20 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
         : "Stop hook already present"
     );
 
-    // PostToolUse hook — after a `git push`, nudges the session to
-    //          refresh the repo's `activity` briefing from the new commits.
-    const push = installPostPushHook(repoRoot);
-    ok(
-      push.addedHook
-        ? "Push hook installed  " +
-            kleur.dim("(refreshes activity on git push)")
-        : "Push hook already present"
-    );
   }
 
-  // Step 6c.2: native git pre-push hook — fires on EVERY push (any terminal),
-  //            so the code graph refreshes even when you push by hand.
-  const prePush = installPrePushGitHook(repoRoot);
-  ok(
-    prePush.addedHook
-      ? "git pre-push hook installed  " +
-          kleur.dim("(re-indexes the graph on any push)")
-      : "git pre-push hook already present"
-  );
+  // Step 6c: server-side watcher registration — replaces the old push hooks.
+  //          The backend polls the principal branch twice a day and re-indexes
+  //          graph + code chunks when it moves, so agents never burn turns on
+  //          indexing and teammate merges are picked up too. Idempotent: the
+  //          same repo can be linked from any number of computers.
+  await registerWithWatcher({
+    repoRoot,
+    base: mcpUrlToRestBase(mcpEntry.url),
+    apiKey: key.key,
+    folderId: repoFolder.id,
+    remoteUrl: git.remoteUrl,
+  });
 
   // Step 6d: state file the Stop/Push hooks read — which folder to save to,
   //          how much transcript is captured, and the HEAD the activity was

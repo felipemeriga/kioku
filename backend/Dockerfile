@@ -13,7 +13,7 @@ FROM --platform=linux/amd64 python:3.10-slim-bookworm
 RUN echo "APT::Sandbox::User \"root\";" > /etc/apt/apt.conf.d/99-sandbox-disable && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
-        ca-certificates curl \
+        ca-certificates curl git openssh-client \
         libgl1 libglib2.0-0 libsm6 libxext6 libxrender1 libxcb1 libx11-6 \
         libgomp1 libjpeg62-turbo libtiff6 libwebp7 libfreetype6 && \
     rm -rf /var/lib/apt/lists/*
