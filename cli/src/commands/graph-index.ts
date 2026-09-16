@@ -22,6 +22,7 @@ import { readMcpEntry } from "../lib/claude.js";
 import { headSha } from "../lib/git.js";
 import { section, ok, info, warn, bad } from "../lib/banner.js";
 import { mcpUrlToRestBase } from "../lib/urls.js";
+import { uploadCodeChunks } from "../lib/code-chunks.js";
 
 interface GraphNode {
   id: string;
@@ -371,5 +372,28 @@ async function runExtractionAndUpload(
     warn(
       `Skipped ${body.skipped_shrink.length} file(s) with a suspicious empty re-extraction (kept existing).`
     );
+  }
+
+  // Semantic code search: chunk the same changed files (symbol-aware, using
+  // the graph we just extracted) and stage them for server-side embedding.
+  // Best-effort like the graph upload — never fails the index run.
+  info("Uploading code chunks for semantic search…");
+  const state = readState(repoRoot);
+  const queued = await uploadCodeChunks({
+    repoRoot,
+    base,
+    apiKey: mcp.key,
+    folderId,
+    folderName: (state.folder_name as string) || "repo",
+    files: filesForDelta,
+    deletedFiles,
+    nodes: allNodes,
+    norm,
+    log: { info, warn },
+  });
+  if (queued > 0) {
+    ok(`Queued ${queued} code chunks for embedding (voyage-code-3).`);
+  } else if (queued === -1) {
+    warn("Code-chunk upload incomplete — re-run `kioku index` to retry.");
   }
 }

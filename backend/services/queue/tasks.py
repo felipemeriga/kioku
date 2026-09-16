@@ -599,6 +599,28 @@ async def ingest_document_task(ctx: dict, payload: dict) -> None:
         raise
 
 
+async def embed_code_chunks_task(ctx: dict, payload: dict) -> None:
+    """Embed staged code_chunks rows with voyage-code-3 and insert them.
+
+    payload = {"rows": [ {user_id, folder_id, file, language, file_hash,
+                          symbol, start_line, end_line, content}, ... ]}
+    Rows arrive WITHOUT embeddings (staged by POST /api/cli/code-chunks);
+    this task is the only writer that attaches vectors.
+    """
+    from services.embeddings import CODE_EMBEDDING_MODEL, embed_code_batch
+
+    rows: list[dict] = payload.get("rows") or []
+    if not rows:
+        return
+    supabase = get_supabase_thread_safe()
+    embeddings = await asyncio.to_thread(embed_code_batch, [r["content"] for r in rows])
+    for row, embedding in zip(rows, embeddings, strict=True):
+        row["embedding"] = embedding
+        row["embedding_model"] = CODE_EMBEDDING_MODEL
+    await asyncio.to_thread(lambda: supabase.table("code_chunks").insert(rows).execute())
+    logger.info("embed_code_chunks_task: embedded %d chunks", len(rows))
+
+
 async def _parallel_metadata(chunks: list[str]) -> list[dict]:
     """Run extract_metadata(chunk) concurrently with a semaphore."""
     sem = asyncio.Semaphore(_METADATA_CONCURRENCY)
