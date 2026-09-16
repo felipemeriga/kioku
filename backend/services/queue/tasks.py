@@ -617,7 +617,12 @@ async def embed_code_chunks_task(ctx: dict, payload: dict) -> None:
     for row, embedding in zip(rows, embeddings, strict=True):
         row["embedding"] = embedding
         row["embedding_model"] = CODE_EMBEDDING_MODEL
-    await asyncio.to_thread(lambda: supabase.table("code_chunks").insert(rows).execute())
+    # Sub-batch the inserts: 128 rows of 1024-dim vectors is a multi-MB JSON
+    # payload that overruns the PostgREST client read timeout.
+    insert_size = 25
+    for i in range(0, len(rows), insert_size):
+        batch = rows[i : i + insert_size]
+        await asyncio.to_thread(lambda b=batch: supabase.table("code_chunks").insert(b).execute())
     logger.info("embed_code_chunks_task: embedded %d chunks", len(rows))
 
 

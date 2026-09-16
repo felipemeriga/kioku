@@ -24,6 +24,7 @@ from routes.mem0 import router as mem0_router
 from routes.notes import router as notes_router
 from routes.notion import router as notion_router
 from routes.retrieval_log import router as retrieval_log_router
+from routes.watcher import router as watcher_router
 from services.notion_sync.sync_engine import sync_loop
 
 load_dotenv()
@@ -67,6 +68,7 @@ app.include_router(mem0_router)
 app.include_router(briefing_router)
 app.include_router(cli_router)
 app.include_router(retrieval_log_router)
+app.include_router(watcher_router)
 
 
 log = logging.getLogger("kioku")
