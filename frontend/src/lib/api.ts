@@ -200,6 +200,14 @@ export interface BriefingResponse {
   schema_version: number;
   sections: Record<BriefingSectionKey, BriefingSection>;
   last_generated_at: string | null;
+  /** Watcher-computed staleness vs the repo's git history. */
+  freshness?: {
+    head_sha: string | null;
+    commits_behind: number;
+    stale_sections: string[];
+    changed_files: number;
+    checked_at: string;
+  } | null;
 }
 
 export async function fetchBriefing(

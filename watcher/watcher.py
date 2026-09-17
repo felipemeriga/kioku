@@ -35,7 +35,26 @@ SUPABASE_URL = os.environ["SUPABASE_URL"].rstrip("/")
 SERVICE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
 FERNET = Fernet(os.environ["SECRETS_ENCRYPTION_KEY"].encode())
 MCP_URL = os.environ["KIOKU_MCP_URL"]
+API_URL = os.environ.get("KIOKU_API_URL", "").rstrip("/")
 DATA = Path(os.environ.get("WATCHER_DATA", "/data"))
+
+# Which briefing prose sections go stale when which paths change. Prose is
+# never auto-regenerated — this only powers the staleness WARNING.
+SECTION_PATH_RULES: dict[str, list[str]] = {
+    "dependencies": [
+        "package.json",
+        "package-lock.json",
+        "pyproject.toml",
+        "uv.lock",
+        "cargo.toml",
+        "go.mod",
+        "requirements",
+    ],
+    "deployment": [".github/workflows/", "deploy/", "dockerfile"],
+    "how_it_runs": ["docker-compose", "makefile", "scripts/", "run_", ".env.example"],
+}
+# architecture/overview go stale on broad source churn, not specific paths.
+ARCH_CHURN_THRESHOLD = 10
 
 REST = f"{SUPABASE_URL}/rest/v1"
 HEADERS = {
@@ -129,6 +148,135 @@ def kioku_index(clone: Path) -> tuple[bool, str]:
     return proc.returncode == 0, tail
 
 
+def rest_post(path: str, body, headers_extra: dict | None = None) -> None:
+    h = {**HEADERS, **(headers_extra or {})}
+    r = requests.post(f"{REST}/{path}", headers=h, json=body, timeout=30)
+    r.raise_for_status()
+
+
+def compute_freshness(clone: Path, repo: dict, env: dict) -> None:
+    """Compare git history against briefing section timestamps and record
+    which prose sections are likely stale. Warning-only — never regenerates."""
+    rows = rest_get(
+        "folder_summaries",
+        {
+            "folder_id": f"eq.{repo['folder_id']}",
+            "select": "generated_at,content",
+            "order": "generated_at.desc",
+            "limit": "1",
+        },
+    )
+    if not rows:
+        return  # no briefing yet — nothing to be stale
+    generated_at = rows[0]["generated_at"]
+    content = rows[0].get("content") or {}
+    sections = content.get("sections") if isinstance(content.get("sections"), dict) else content
+
+    code, head, _ = run_git(["rev-parse", "HEAD"], env, cwd=str(clone))
+    if code != 0:
+        return
+    code, behind, _ = run_git(
+        ["rev-list", "--count", f"--since={generated_at}", "HEAD"], env, cwd=str(clone)
+    )
+    commits_behind = int(behind or 0) if code == 0 else 0
+
+    stale: list[str] = []
+    changed_total = 0
+    for section, rules in SECTION_PATH_RULES.items():
+        since = ((sections or {}).get(section) or {}).get("updated_at") or generated_at
+        code, out, _ = run_git(
+            ["log", f"--since={since}", "--name-only", "--pretty=format:"],
+            env,
+            cwd=str(clone),
+        )
+        if code != 0:
+            continue
+        changed = {line.strip() for line in out.split("\n") if line.strip()}
+        changed_total = max(changed_total, len(changed))
+        if any(any(rule in f.lower() for rule in rules) for f in changed):
+            stale.append(section)
+
+    # Architecture/overview: stale on broad source churn since their update.
+    for section in ("architecture", "overview"):
+        since = ((sections or {}).get(section) or {}).get("updated_at") or generated_at
+        code, out, _ = run_git(
+            ["log", f"--since={since}", "--name-only", "--pretty=format:"],
+            env,
+            cwd=str(clone),
+        )
+        if code != 0:
+            continue
+        source_changed = {
+            f
+            for f in (line.strip() for line in out.split("\n"))
+            if f and not f.lower().endswith((".md", ".txt", ".json", ".lock", ".yml", ".yaml"))
+        }
+        changed_total = max(changed_total, len(source_changed))
+        if len(source_changed) >= ARCH_CHURN_THRESHOLD:
+            stale.append(section)
+
+    rest_post(
+        "repo_freshness",
+        [
+            {
+                "folder_id": repo["folder_id"],
+                "user_id": repo["user_id"],
+                "head_sha": head,
+                "commits_behind": commits_behind,
+                "stale_sections": stale,
+                "changed_files": changed_total,
+                "checked_at": datetime.now(timezone.utc).isoformat(),
+            }
+        ],
+        {"Prefer": "resolution=merge-duplicates"},
+    )
+    if stale or commits_behind:
+        log(
+            f"{repo['remote_url']}: freshness — {commits_behind} commits since briefing, "
+            f"stale sections: {stale or 'none'}"
+        )
+
+
+def refresh_activity(clone: Path, repo: dict, old_sha: str | None, new_sha: str, env: dict) -> None:
+    """Fold the new commit range into the briefing's activity section via the
+    backend (Haiku) — the one auto-maintained section."""
+    if not API_URL or not repo.get("api_key_encrypted"):
+        return
+    rng = f"{old_sha}..{new_sha}" if old_sha else "-20"
+    code, out, _ = run_git(
+        ["log", rng, "--pretty=format:%H|%s|%an|%aI", "--no-merges", "-50"],
+        env,
+        cwd=str(clone),
+    )
+    if code != 0 or not out.strip():
+        return
+    commits = []
+    for line in out.split("\n"):
+        parts = line.split("|", 3)
+        if len(parts) == 4:
+            commits.append(
+                {"sha": parts[0], "subject": parts[1][:300], "author": parts[2], "date": parts[3]}
+            )
+    if not commits:
+        return
+    try:
+        r = requests.post(
+            f"{API_URL}/api/watcher/activity",
+            headers={
+                "Authorization": f"Bearer {decrypt(repo['api_key_encrypted'])}",
+                "Content-Type": "application/json",
+            },
+            json={"folder_id": repo["folder_id"], "head_sha": new_sha, "commits": commits},
+            timeout=120,
+        )
+        if r.ok and (r.json() or {}).get("updated"):
+            log(f"{repo['remote_url']}: activity section refreshed ({len(commits)} commits)")
+        else:
+            log(f"{repo['remote_url']}: activity refresh skipped — {r.text[:150]}")
+    except Exception as exc:  # noqa: BLE001 — activity is best-effort
+        log(f"{repo['remote_url']}: activity refresh failed — {exc}")
+
+
 def process_repo(repo: dict, key_row: dict) -> None:
     rid = repo["id"]
     name = f"{repo['remote_url']} ({repo['branch']})"
@@ -162,6 +310,11 @@ def process_repo(repo: dict, key_row: dict) -> None:
 
         if remote_sha == repo.get("last_sha"):
             log(f"{name}: up-to-date ({remote_sha[:10]})")
+            clone = DATA / repo["user_id"] / repo["folder_id"]
+            if (clone / ".git").exists():
+                # Prose staleness moves when briefings regenerate, not only
+                # when the branch does — keep the freshness row current.
+                compute_freshness(clone, repo, git_env(kf.name))
             record({"last_error": None})
             return
 
@@ -198,12 +351,18 @@ def process_repo(repo: dict, key_row: dict) -> None:
     seed_bindings(clone, repo["folder_id"], folder_name, decrypt(repo["api_key_encrypted"]))
 
     ok, tail = kioku_index(clone)
+    plain_env = {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "HOME": os.environ.get("HOME", "/root"),
+    }
     if ok:
         log(f"{name}: indexed {remote_sha[:10]}")
         record({"last_sha": remote_sha, "last_error": None})
+        refresh_activity(clone, repo, repo.get("last_sha"), remote_sha, plain_env)
     else:
         log(f"ERROR {name}: kioku index failed — {tail[-200:]}")
         record({"last_error": f"index: {tail[-300:]}"})
+    compute_freshness(clone, repo, plain_env)
 
 
 def main() -> int:

@@ -186,9 +186,23 @@ export default function BriefingPanel({ folderId }: Props) {
   if (!data) return null;
 
   const hasBriefing = Boolean(data.last_generated_at);
+  const freshness = data.freshness;
+  const isStale =
+    !!freshness &&
+    (freshness.commits_behind > 0 || (freshness.stale_sections?.length ?? 0) > 0);
 
   return (
     <Stack spacing={2}>
+      {hasBriefing && isStale && (
+        <Alert severity="warning" sx={{ py: 0.5 }}>
+          The repo has {freshness!.commits_behind} commit(s) newer than this
+          briefing
+          {freshness!.stale_sections?.length
+            ? ` — likely stale: ${freshness!.stale_sections.join(", ")}`
+            : ""}
+          . Regenerate with <code>kioku init --force</code> when convenient.
+        </Alert>
+      )}
       <Stack
         direction="row"
         alignItems="flex-start"
