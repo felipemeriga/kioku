@@ -23,6 +23,7 @@ import {
 import {
   installSessionStartHook,
   installStopHook,
+  removeLegacyPushHooks,
   readMcpEntry,
   readRepoState,
   updateClaudeMd,
@@ -389,6 +390,14 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
         : "Stop hook already present"
     );
 
+  }
+
+  // Step 6b.5: remove legacy push hooks (pre-v0.3.0 installed a Claude
+  //             PostToolUse hook + a native git pre-push hook; the watcher
+  //             replaces both).
+  const legacy = removeLegacyPushHooks(repoRoot);
+  if (legacy.removedSettingsHook || legacy.removedGitHook) {
+    ok("Legacy push hooks removed  " + kleur.dim("(watcher handles indexing now)"));
   }
 
   // Step 6c: server-side watcher registration — replaces the old push hooks.

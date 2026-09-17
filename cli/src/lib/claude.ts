@@ -13,6 +13,7 @@ import {
   writeFileSync,
   chmodSync,
   realpathSync,
+  rmSync,
 } from "node:fs";
 import { join, dirname, isAbsolute } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -607,4 +608,64 @@ export function updateGitignore(repoRoot: string): {
   const block = ["", "# kioku CLI", ...missing, ""].join("\n");
   writeFileSync(path, existing + block);
   return { path, changed: true };
+}
+
+
+// ── Legacy push-hook removal ──────────────────────────────────────
+// v0.3.0 replaced push hooks with the server-side watcher. Existing repos
+// (other machines, older inits) still carry them — init now cleans up.
+
+export function removeLegacyPushHooks(repoRoot: string): {
+  removedSettingsHook: boolean;
+  removedGitHook: boolean;
+} {
+  let removedSettingsHook = false;
+  const settingsPath = join(repoRoot, ".claude", "settings.local.json");
+  if (existsSync(settingsPath)) {
+    try {
+      const settings = JSON.parse(readFileSync(settingsPath, "utf8")) as {
+        hooks?: Record<string, unknown[]>;
+      };
+      const post = settings.hooks?.["PostToolUse"];
+      if (Array.isArray(post)) {
+        const kept = post.filter((h) => !JSON.stringify(h).includes("on-push"));
+        if (kept.length !== post.length) {
+          if (kept.length === 0) delete settings.hooks!["PostToolUse"];
+          else settings.hooks!["PostToolUse"] = kept;
+          writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
+          removedSettingsHook = true;
+        }
+      }
+    } catch {
+      // unreadable settings — leave untouched
+    }
+  }
+
+  let removedGitHook = false;
+  const hookPath = join(gitHooksDir(repoRoot), "pre-push");
+  if (existsSync(hookPath)) {
+    try {
+      const existing = readFileSync(hookPath, "utf8");
+      if (existing.includes(GIT_HOOK_MARKER)) {
+        const lines = existing.split("\n");
+        const start = lines.findIndex((l) => l.includes(GIT_HOOK_MARKER));
+        let end = lines.findIndex(
+          (l, i) => i >= start && l.trim() === "# end kioku"
+        );
+        if (end === -1) end = start;
+        lines.splice(start, end - start + 1);
+        const rest = lines.join("\n").trim();
+        // If only a shebang (or nothing) remains, drop the hook entirely.
+        if (!rest || /^#!.*$/.test(rest)) {
+          rmSync(hookPath, { force: true });
+        } else {
+          writeFileSync(hookPath, lines.join("\n"));
+        }
+        removedGitHook = true;
+      }
+    } catch {
+      // best-effort
+    }
+  }
+  return { removedSettingsHook, removedGitHook };
 }
