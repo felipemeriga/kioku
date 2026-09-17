@@ -1,7 +1,7 @@
 {
   "name": "@felipemeriga/kioku",
-  "version": "0.3.0",
-  "description": "Kioku (\u8a18\u61b6) \u2014 second brain for your repos. Wires a local repo to your Kioku instance: MCP server, SessionStart hook, capture Stop hook, CLAUDE.md snippet.",
+  "version": "0.3.1",
+  "description": "Kioku (記憶) — second brain for your repos. Wires a local repo to your Kioku instance: MCP server, SessionStart hook, capture Stop hook, CLAUDE.md snippet.",
   "type": "module",
   "license": "MIT",
   "author": "felipemeriga",

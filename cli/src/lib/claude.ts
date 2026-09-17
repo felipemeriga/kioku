@@ -459,18 +459,11 @@ export function stampLastSessionAt(repoRoot: string, iso: string): void {
 // which hooks are wired. `secondBrainSnippet` builds it for a given agent so
 // CLAUDE.md and AGENTS.md share one source of truth.
 
-/** Build the fenced second-brain instructions block. `pushHook` toggles the
- *  sentence about the git-push activity-refresh hook, which only the Claude
- *  Code surface installs (Codex wires just SessionStart + Stop). */
-export function secondBrainSnippet(opts: { pushHook: boolean }): string {
-  const pushLine = opts.pushHook
-    ? `After a \`git push\`, a PostToolUse hook asks you to refresh this repo's
-\`activity\` briefing from the newly-pushed commits (via
-\`update_folder_briefing_section\`) so the web UI stays current — just
-follow the injected instruction when you see it.
-
-`
-    : "";
+/** Build the fenced second-brain instructions block. Shared verbatim by the
+ *  Claude Code (CLAUDE.md) and Codex (AGENTS.md) surfaces — since the watcher
+ *  took over indexing, neither installs push hooks, so there is nothing
+ *  surface-specific left in the text. */
+export function secondBrainSnippet(): string {
   return `${MARKER_BEGIN}
 
 ## Kioku second-brain
@@ -485,7 +478,7 @@ minutes or every 5 assistant turns (whichever comes first), the Stop
 hook automatically distills recent turns into Mem0 — preferences,
 findings, decisions, issues, and session summaries.
 
-${pushLine}If you want to reload the briefing manually:
+If you want to reload the briefing manually:
 
 - \`get_folder_briefing()\` — 9-section briefing for this repo
   (overview, architecture, preferences, important_files, how_it_runs,
@@ -519,18 +512,24 @@ Persist it. It'll survive the session, the PC, the team:
 - \`read_folder_documents()\` — full text of every doc already uploaded to
   this folder (specs, architecture, ecosystem context beyond the code).
 
-### Navigating the code — query the graph, don't grep
+### Navigating the code — query the index, don't grep
 
-This repo is indexed into a code graph. Prefer these over \`grep\`/\`glob\`
-to locate and trace code — they return exact \`file:line\` answers:
+This repo is indexed into a code graph plus a semantic code index. Prefer
+these over \`grep\`/\`glob\` to locate and trace code — they return exact
+\`file:line\` answers:
 
 - \`find_definition(symbol)\` — where a function/type/method is defined.
 - \`find_references(symbol)\` — who calls/uses it (all sites).
 - \`outline(path)\` — the symbols under a file or directory.
 - \`impact_of(symbol)\` — blast radius: what transitively depends on it.
+- \`code_search(query)\` — semantic search over the source itself. Use it
+  when you don't know the symbol name — concept queries like "where do
+  we retry failed uploads" or "recency decay scoring". It searches every
+  indexed repo in scope, so it can also cross-reference sibling repos.
 
-The graph refreshes on \`git push\` (and via \`kioku index\`). If a lookup
-returns nothing, fall back to a normal search.
+The index refreshes automatically after merges to the principal branch
+(a server-side watcher polls twice daily) or on demand via \`kioku index\`.
+If a lookup returns nothing, fall back to a normal search.
 
 ### Convention
 
@@ -547,7 +546,7 @@ ${MARKER_END}
 `;
 }
 
-const CLAUDE_MD_SNIPPET = secondBrainSnippet({ pushHook: true });
+const CLAUDE_MD_SNIPPET = secondBrainSnippet();
 
 /** Idempotently write a fenced snippet into a markdown file — create it, update
  *  the existing block in place, or append. Shared by CLAUDE.md and AGENTS.md. */
@@ -609,7 +608,6 @@ export function updateGitignore(repoRoot: string): {
   writeFileSync(path, existing + block);
   return { path, changed: true };
 }
-
 
 // ── Legacy push-hook removal ──────────────────────────────────────
 // v0.3.0 replaced push hooks with the server-side watcher. Existing repos
