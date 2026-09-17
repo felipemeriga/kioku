@@ -267,13 +267,13 @@ export function installCodexPostPushHook(): {
 
 /** Mirror updateClaudeMd into AGENTS.md (Codex's project-instructions file).
  *  Uses the push-hook snippet — the Codex surface now wires SessionStart, Stop,
- *  and a PostToolUse activity-refresh hook (parity with Claude Code). */
+ *  (same fenced block as CLAUDE.md — one source of truth). */
 export function updateAgentsMd(repoRoot: string): {
   path: string;
   action: "created" | "appended" | "updated";
 } {
   return upsertMarkdownSnippet(
     join(repoRoot, "AGENTS.md"),
-    secondBrainSnippet({ pushHook: true })
+    secondBrainSnippet()
   );
 }
