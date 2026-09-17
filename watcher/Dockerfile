@@ -15,10 +15,12 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:${PATH}"
 RUN uv tool install graphifyy
 
-# kioku CLI from source
+# kioku CLI from source. Install the PACKED tarball, not the directory —
+# `npm install -g <dir>` symlinks into the build dir, which we delete.
 COPY cli /tmp/kioku-cli
-RUN cd /tmp/kioku-cli && npm ci && npm run build && npm install -g . && \
-    rm -rf /tmp/kioku-cli
+RUN cd /tmp/kioku-cli && npm ci && npm run build && npm pack && \
+    npm install -g ./felipemeriga-kioku-*.tgz && \
+    cd / && rm -rf /tmp/kioku-cli && kioku --version
 
 # watcher runtime deps in a venv (PEP 668-safe)
 RUN python3 -m venv /opt/watcher-venv && \

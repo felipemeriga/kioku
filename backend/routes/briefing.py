@@ -140,11 +140,15 @@ async def read_briefing(folder_id: str, user_id: str = Depends(get_current_user)
     folder = _folder_must_be_repo(sb, folder_id, user_id)
     sections = _current_briefing(sb, folder_id, user_id)
     latest = get_latest_summary(sb, folder_id, user_id)
+    freshness = (
+        sb.table("repo_freshness").select("*").eq("folder_id", folder_id).limit(1).execute()
+    ).data or []
     return {
         "folder": folder,
         "schema_version": BRIEFING_SCHEMA_VERSION,
         "sections": sections,
         "last_generated_at": (latest or {}).get("generated_at"),
+        "freshness": freshness[0] if freshness else None,
     }
 
 

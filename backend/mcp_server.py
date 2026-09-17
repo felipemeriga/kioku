@@ -1135,8 +1135,28 @@ def get_folder_briefing(folder: str | None = None) -> str:
     sections = None
     if latest:
         sections = latest.get("sections") or ((latest.get("content") or {}).get("sections"))
+
+    # Freshness: the watcher compares git history against section timestamps.
+    # Prose is never auto-regenerated — but consumers must know when it lags.
+    freshness_warning = None
+    fresh_rows = (
+        sb.table("repo_freshness").select("*").eq("folder_id", resolved_id).limit(1).execute()
+    ).data or []
+    if fresh_rows:
+        fr = fresh_rows[0]
+        if fr.get("commits_behind", 0) > 0 or fr.get("stale_sections"):
+            stale = ", ".join(fr.get("stale_sections") or []) or "none flagged"
+            freshness_warning = (
+                f"⚠ The repo has {fr.get('commits_behind', 0)} commit(s) newer than "
+                f"this briefing ({fr.get('changed_files', 0)} files changed; checked "
+                f"{str(fr.get('checked_at'))[:16]}). Sections likely stale: {stale}. "
+                "Treat those sections as possibly outdated; regenerate via "
+                "`kioku init --force` or update_folder_briefing_section."
+            )
+
     payload = {
         "folder": folder_row.get("name"),
+        "freshness_warning": freshness_warning,
         "sections": sections or empty_briefing(),
         "last_generated_at": (latest or {}).get("generated_at"),
         "hint": (

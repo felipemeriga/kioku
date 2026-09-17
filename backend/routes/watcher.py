@@ -179,6 +179,88 @@ async def test_access(body: TestAccessRequest, request: Request):
     }
 
 
+class ActivityCommit(BaseModel):
+    sha: str = Field(max_length=64)
+    subject: str = Field(max_length=300)
+    author: str = Field(default="", max_length=120)
+    date: str = Field(default="", max_length=40)
+
+
+class ActivityRefreshRequest(BaseModel):
+    folder_id: str
+    head_sha: str = Field(max_length=64)
+    commits: list[ActivityCommit] = Field(default_factory=list, max_length=100)
+
+
+@router.post("/activity")
+async def refresh_activity(body: ActivityRefreshRequest, request: Request):
+    """Fold new commits into the briefing's `activity` section — the one
+    section that IS auto-maintained (cheap Haiku call, no agent session).
+    Prose sections (overview/architecture/…) are never touched here."""
+    user_id, scope_id, _raw = _api_key_auth(request)
+    sb = get_supabase()
+
+    from mcp_server import _descendant_folder_ids
+
+    if body.folder_id not in _descendant_folder_ids(sb, scope_id, user_id):
+        raise HTTPException(status_code=403, detail="folder_id not in api key scope")
+    if not body.commits:
+        return {"ok": True, "updated": False, "reason": "no commits"}
+
+    from services.folder_summary.repo import get_latest_summary
+
+    latest = get_latest_summary(sb, body.folder_id, user_id)
+    if not latest:
+        return {"ok": True, "updated": False, "reason": "no briefing yet"}
+
+    sections = latest.get("sections") or ((latest.get("content") or {}).get("sections")) or {}
+    current_activity = (sections.get("activity") or {}).get("content") or {}
+
+    import json as _json
+
+    from services.llm import Task, complete
+
+    commit_lines = "\n".join(
+        f"- {c.sha[:8]} {c.subject} ({c.author}, {c.date[:10]})" for c in body.commits
+    )
+    prompt = (
+        "You maintain the `activity` section of a repository briefing. "
+        "Fold the NEW commits into the existing section: keep it a narrative "
+        "summary (4-8 sentences) plus 5-10 concrete highlight bullets, newest "
+        "work first, dropping stale items as needed. Group related commits "
+        "into themes; never output a raw commit list.\n\n"
+        f"CURRENT SECTION (JSON):\n{_json.dumps(current_activity)[:6000]}\n\n"
+        f"NEW COMMITS:\n{commit_lines}\n\n"
+        'Reply with ONLY valid JSON: {"summary": "...", "highlights": ["...", ...]}'
+    )
+    response = complete(
+        task=Task.FOLDER_SUMMARY_ROLLUP,
+        max_tokens=1500,
+        system="You update repo activity summaries. Output only valid JSON.",
+        messages=[{"role": "user", "content": prompt}],
+    )
+    text = "".join(b.text for b in response.content if hasattr(b, "text")).strip()
+    if text.startswith("```"):
+        text = text.strip("`").removeprefix("json").strip()
+    try:
+        new_activity = _json.loads(text)
+    except _json.JSONDecodeError:
+        raise HTTPException(status_code=502, detail="activity model returned invalid JSON")
+
+    from services.folder_summary.briefing_schema import new_section
+
+    sections["activity"] = new_section(
+        new_activity, status="auto", provenance="auto", updated_by="watcher"
+    )
+    content = latest.get("content") or {}
+    if "sections" in content:
+        content["sections"] = sections
+    else:
+        content = sections
+    sb.table("folder_summaries").update({"content": content}).eq("id", latest["id"]).execute()
+    return {"ok": True, "updated": True, "commits": len(body.commits)}
+
+
 class RegisterRepoRequest(BaseModel):
     folder_id: str
     remote_url: str = Field(min_length=8, max_length=500)
