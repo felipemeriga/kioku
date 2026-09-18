@@ -1,0 +1,278 @@
+:root {
+  --bg: #0f1115;
+  --surface: #171a21;
+  --surface-2: #1f2430;
+  --border: #2a2f3a;
+  --text: #e6e9ef;
+  --muted: #9aa4b2;
+  --brand: #5b8cff;
+  --success: #3ecf8e;
+  --warn: #f5a623;
+  --danger: #f5566b;
+  --info: #5b8cff;
+  --radius: 10px;
+  font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.app {
+  display: grid;
+  grid-template-columns: 248px 1fr;
+  min-height: 100vh;
+}
+
+.sidebar {
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  padding: 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.brand {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.brand__mark {
+  font-size: 28px;
+  color: var(--brand);
+}
+.brand small {
+  display: block;
+  color: var(--muted);
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.nav__link {
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: var(--muted);
+  text-decoration: none;
+  font-weight: 500;
+}
+.nav__link:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.nav__link--active {
+  background: var(--surface-2);
+  color: var(--text);
+  box-shadow: inset 3px 0 0 var(--brand);
+}
+.sidebar__footer {
+  margin-top: auto;
+  color: var(--muted);
+}
+
+.content {
+  padding: 32px 40px;
+  overflow: auto;
+}
+
+.page-header h1 {
+  margin: 0 0 4px;
+}
+.page-subtitle {
+  margin: 0 0 24px;
+  color: var(--muted);
+}
+.section-title {
+  margin: 32px 0 12px;
+}
+
+.filters {
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+select,
+input {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 14px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.table th,
+.table td {
+  text-align: left;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+.table th {
+  color: var(--muted);
+  font-weight: 600;
+  background: var(--surface-2);
+}
+.table tr:last-child td {
+  border-bottom: none;
+}
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.mono {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 13px;
+  color: var(--muted);
+}
+.actions {
+  text-align: right;
+}
+
+.money--negative {
+  color: var(--danger);
+}
+
+.badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  text-transform: capitalize;
+  font-weight: 600;
+}
+.badge--neutral {
+  background: #2a2f3a;
+  color: var(--muted);
+}
+.badge--info {
+  background: rgba(91, 140, 255, 0.15);
+  color: var(--info);
+}
+.badge--success {
+  background: rgba(62, 207, 142, 0.15);
+  color: var(--success);
+}
+.badge--warn {
+  background: rgba(245, 166, 35, 0.15);
+  color: var(--warn);
+}
+.badge--danger {
+  background: rgba(245, 86, 107, 0.15);
+  color: var(--danger);
+}
+
+.btn {
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 14px;
+  cursor: pointer;
+  font-weight: 600;
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn--primary {
+  background: var(--brand);
+  color: #fff;
+}
+.btn--danger {
+  background: var(--danger);
+  color: #fff;
+}
+.btn--danger-outline {
+  background: transparent;
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.btn--ghost {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+.refund-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--surface-2);
+  padding: 12px;
+  border-radius: 8px;
+  min-width: 260px;
+}
+.refund-form__actions {
+  display: flex;
+  gap: 8px;
+}
+.refund-form__error {
+  color: var(--danger);
+  font-size: 13px;
+  margin: 4px 0 0;
+}
+
+.balance-cards {
+  display: flex;
+  gap: 16px;
+  margin: 20px 0;
+  flex-wrap: wrap;
+}
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  min-width: 220px;
+}
+.card h2 {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.card__amount {
+  font-size: 30px;
+  font-weight: 700;
+  margin: 8px 0 6px;
+}
+.card__meta {
+  color: var(--muted);
+}
+
+.empty,
+.loading {
+  color: var(--muted);
+  padding: 16px 0;
+}
+.error {
+  color: var(--danger);
+  padding: 12px 0;
+}

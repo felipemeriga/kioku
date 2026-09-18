@@ -1,0 +1,38 @@
+{
+  "name": "obol-console",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Obol Console — the marketplace operator's dashboard (React SPA + Node/Express BFF).",
+  "license": "UNLICENSED",
+  "workspaces": [
+    "shared",
+    "bff",
+    "web"
+  ],
+  "scripts": {
+    "dev": "npm-run-all --parallel dev:bff dev:web",
+    "dev:bff": "npm --workspace bff run dev",
+    "dev:web": "npm --workspace web run dev",
+    "build": "npm-run-all build:shared build:bff build:web",
+    "build:shared": "npm --workspace shared run build",
+    "build:bff": "npm --workspace bff run build",
+    "build:web": "npm --workspace web run build",
+    "test": "npm-run-all test:bff test:web",
+    "test:bff": "npm --workspace bff run test",
+    "test:web": "npm --workspace web run test",
+    "typecheck": "npm-run-all typecheck:bff typecheck:web",
+    "typecheck:bff": "npm --workspace bff run typecheck",
+    "typecheck:web": "npm --workspace web run typecheck",
+    "lint": "eslint . --ext .ts,.tsx"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^7.13.0",
+    "@typescript-eslint/parser": "^7.13.0",
+    "eslint": "^8.57.0",
+    "npm-run-all": "^4.1.5",
+    "typescript": "^5.4.5"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -16,12 +16,49 @@ from services.timing import stage
 logger = logging.getLogger(__name__)
 
 # How many code chunks may enter the joint rerank pool. They compete with doc
-# chunks for the final top_k slots on equal footing (same cross-encoder), so
-# irrelevant code drops out on doc questions and relevant code surfaces on
-# implementation questions. Kept bounded: code chunks run up to ~120 lines.
-CODE_BLEND_TOP_N = 8
-# Over-fetch factor before junk filtering (see _is_code_junk).
-CODE_BLEND_FETCH = 25
+# chunks on equal footing (same cross-encoder), so irrelevant code drops out on
+# doc questions. Sized for multi-repo scopes: a cross-repo relationship question
+# needs enough candidates that code from several repos can enter the pool.
+CODE_BLEND_TOP_N = 20
+# Over-fetch before junk filtering (see _is_code_junk).
+CODE_BLEND_FETCH = 40
+
+# Reserve a few final slots for code that is genuinely relevant, so a rich set
+# of docs can't sweep every slot and starve the code side. Only code clearing
+# CODE_RESERVE_THRESHOLD (well above the 0.2 doc threshold, below the ~0.55+
+# that real matching code scores) is eligible — so doc-only questions, where no
+# code clears the bar, are unaffected. This is what makes knowledge_base_search
+# surface code+doc relationships together instead of docs-only.
+CODE_RESERVE_SLOTS = 4
+CODE_RESERVE_THRESHOLD = 0.45
+
+
+def _rerank_with_code_reservation(
+    query_text: str, fused: list[dict], code_results: list[dict], top_k: int
+) -> list[dict]:
+    """Rerank docs + code jointly, then guarantee up to CODE_RESERVE_SLOTS of
+    the most relevant code chunks a place in the top_k (promoting them past
+    docs only when they clear CODE_RESERVE_THRESHOLD)."""
+    if not code_results:
+        return rerank(query_text or "query", fused, top_k=top_k)
+    pool = rerank(query_text or "query", fused + code_results, top_k=top_k + 8)
+    strong_code = [
+        d
+        for d in pool
+        if d.get("source_type") == "code" and d.get("rerank_score", 0.0) >= CODE_RESERVE_THRESHOLD
+    ][:CODE_RESERVE_SLOTS]
+    if not strong_code:
+        return pool[:top_k]
+    keep = {id(d) for d in strong_code}
+    final = list(strong_code)
+    for d in pool:
+        if len(final) >= top_k:
+            break
+        if id(d) not in keep:
+            final.append(d)
+            keep.add(id(d))
+    final.sort(key=lambda d: pool.index(d))  # restore relevance order
+    return final[:top_k]
 
 
 def _is_code_junk(row: dict) -> bool:
@@ -378,7 +415,7 @@ def search_documents(
                 fused = _reciprocal_rank_fusion(vector_results, keyword_results)
 
             with stage("rerank", indent=3):
-                reranked = rerank(query_text or "query", fused + code_results, top_k=top_k)
+                reranked = _rerank_with_code_reservation(query_text, fused, code_results, top_k)
             reranked = _apply_recency_decay(reranked)
             with stage("neighbor_expansion (parallel)", indent=3):
                 return _expand_with_neighbors(reranked)
@@ -506,7 +543,7 @@ def search_documents(
         # Step 5: Rerank with score threshold filtering — code candidates join
         # the pool here and compete with doc chunks on the same cross-encoder.
         with stage("rerank", indent=3):
-            reranked = rerank(query_text or "query", fused + code_results, top_k=top_k)
+            reranked = _rerank_with_code_reservation(query_text, fused, code_results, top_k)
         reranked = _apply_recency_decay(reranked)
 
         # Step 6: Parent document retrieval — expand each result with adjacent chunks

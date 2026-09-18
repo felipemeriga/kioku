@@ -1,0 +1,40 @@
+[project]
+name = "obol-ledger"
+version = "0.1.0"
+description = "Obol double-entry accounting core — consumes gateway events, posts immutable journal entries, derives balances, builds payout batches."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [{ name = "Obol Payments" }]
+
+dependencies = [
+    "fastapi>=0.110",
+    "pydantic>=2.6",
+    "httpx>=0.27",
+    "uvicorn[standard]>=0.29",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
+[project.scripts]
+obol-ledger = "obol_ledger.main:run"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["obol_ledger"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

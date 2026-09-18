@@ -51,6 +51,9 @@ dev = [
 [tool.ruff]
 target-version = "py310"
 line-length = 100
+# Fixture repos under the Obol golden dataset represent an external company's
+# code and are intentionally not held to this repo's lint/format rules.
+extend-exclude = ["eval/obol/repos"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]
