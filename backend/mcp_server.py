@@ -277,13 +277,17 @@ async def knowledge_base_search(
     created_after: str | None = None,
     created_before: str | None = None,
 ) -> str:
-    """Search across all knowledge for this scope: documents AND any connected
-    memory (Mem0) — fanned out in parallel, merged, and audited.
+    """Search across all knowledge for this scope: documents, indexed source
+    CODE, and any connected memory (Mem0) — fanned out in parallel, merged,
+    and reranked together.
 
     Use this for any factual lookup: past decisions, code architecture,
-    ingested documents, notes, learnings. If Mem0 is connected for this
-    folder, eternal preferences are always prepended and episodic memories
-    are searched semantically alongside documents.
+    ingested documents, notes, learnings. Relevant code chunks (labeled
+    [Code: file:lines — symbol]) compete with document chunks in the same
+    reranker, so implementation questions surface actual source alongside
+    prose. For code-only precision search, use code_search instead. If Mem0
+    is connected for this folder, eternal preferences are always prepended
+    and episodic memories are searched semantically alongside documents.
 
     Args:
         query: The search query.
@@ -334,9 +338,15 @@ async def knowledge_base_search(
     parts = []
     for h in result.hits:
         if h.source == "docs":
-            src = (h.metadata or {}).get("source_filename", "unknown")
-            date = str((h.metadata or {}).get("created_at") or "")[:10]
-            label = f"[Document: {src} — {date}]" if date else f"[Document: {src}]"
+            md = h.metadata or {}
+            src = md.get("source_filename", "unknown")
+            if md.get("source_type") == "code":
+                # Blended code hit — actual source, not documentation.
+                sym = md.get("code_symbol")
+                label = f"[Code: {src} — {sym}]" if sym else f"[Code: {src}]"
+            else:
+                date = str(md.get("created_at") or "")[:10]
+                label = f"[Document: {src} — {date}]" if date else f"[Document: {src}]"
             parts.append(f"{label}\n{h.content}")
         elif h.source == "mem0_eternal":
             cat = (h.metadata or {}).get("category", "preference")

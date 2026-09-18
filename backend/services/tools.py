@@ -114,11 +114,18 @@ def execute_tool(
             return "No relevant documents found in the knowledge base."
         chunks = []
         for r in results:
-            source = (r.get("metadata") or {}).get("source_filename", "unknown")
-            # Date in the header lets the model weigh freshness and cite
-            # as-of dates — retrieval alone can't resolve conflicting facts.
-            date = str(r.get("created_at") or "")[:10]
-            header = f"[Source: {source} — {date}]" if date else f"[Source: {source}]"
+            meta = r.get("metadata") or {}
+            source = meta.get("source_filename", "unknown")
+            if r.get("source_type") == "code":
+                # Code hits are actual source, not documentation — label them so
+                # the model can distinguish ground truth from narrative.
+                symbol = meta.get("code_symbol")
+                header = f"[Code: {source} — {symbol}]" if symbol else f"[Code: {source}]"
+            else:
+                # Date in the header lets the model weigh freshness and cite
+                # as-of dates — retrieval alone can't resolve conflicting facts.
+                date = str(r.get("created_at") or "")[:10]
+                header = f"[Source: {source} — {date}]" if date else f"[Source: {source}]"
             chunks.append(f"{header}\n{r['content']}")
         return "\n\n---\n\n".join(chunks)
 
