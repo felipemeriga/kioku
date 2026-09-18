@@ -234,8 +234,7 @@ def run(user_id: str) -> int:
         r = _search(user_id, "how does the repo watcher decrypt git keys?")
         code_hits = [x for x in r if _is_code(x)]
         ok = bool(code_hits) and all(
-            ":" in (x.get("metadata") or {}).get("source_filename", "")
-            and x.get("created_at")
+            ":" in (x.get("metadata") or {}).get("source_filename", "") and x.get("created_at")
             for x in code_hits
         )
         failures += not _report("D1 code-hit-shape", ok, f"n_code={len(code_hits)}")
