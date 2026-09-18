@@ -1,6 +1,6 @@
 """kioku-watcher — multi-user repo poller.
 
-Twice a day (host cron), for every row in watched_repos:
+Twice a day, for every row in watched_repos:
   1. decrypt the owner's git key, ls-remote the principal branch
   2. if the SHA moved: clone/fetch the repo, seed the CLI bindings
      (.mcp.json + .claude/kioku-state.json) and run `kioku index`
@@ -15,6 +15,13 @@ environment — a malicious repo exploiting the parser sees no secrets.
 Env: SUPABASE_URL, SUPABASE_SERVICE_KEY, SECRETS_ENCRYPTION_KEY
      (same Fernet master key as the backend's NOTION_TOKEN_ENCRYPTION_KEY),
      KIOKU_MCP_URL (e.g. https://kioku.mcp.example.com/sse)
+
+Two run modes:
+  - one-shot (default): run a single pass and exit — for manual runs.
+  - service: set WATCH_SCHEDULE to comma-separated UTC times
+    ("06:00,18:00") and the process runs a pass at startup, then sleeps
+    until each scheduled time, forever. This is how the Dokploy-managed
+    kioku-watcher container runs it.
 """
 
 from __future__ import annotations
@@ -25,7 +32,8 @@ import stat
 import subprocess
 import sys
 import tempfile
-from datetime import datetime, timezone
+import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import requests
@@ -75,7 +83,9 @@ def rest_get(path: str, params: dict) -> list[dict]:
 
 
 def rest_patch(path: str, params: dict, body: dict) -> None:
-    r = requests.patch(f"{REST}/{path}", headers=HEADERS, params=params, json=body, timeout=30)
+    r = requests.patch(
+        f"{REST}/{path}", headers=HEADERS, params=params, json=body, timeout=30
+    )
     r.raise_for_status()
 
 
@@ -170,7 +180,11 @@ def compute_freshness(clone: Path, repo: dict, env: dict) -> None:
         return  # no briefing yet — nothing to be stale
     generated_at = rows[0]["generated_at"]
     content = rows[0].get("content") or {}
-    sections = content.get("sections") if isinstance(content.get("sections"), dict) else content
+    sections = (
+        content.get("sections")
+        if isinstance(content.get("sections"), dict)
+        else content
+    )
 
     code, head, _ = run_git(["rev-parse", "HEAD"], env, cwd=str(clone))
     if code != 0:
@@ -209,7 +223,10 @@ def compute_freshness(clone: Path, repo: dict, env: dict) -> None:
         source_changed = {
             f
             for f in (line.strip() for line in out.split("\n"))
-            if f and not f.lower().endswith((".md", ".txt", ".json", ".lock", ".yml", ".yaml"))
+            if f
+            and not f.lower().endswith(
+                (".md", ".txt", ".json", ".lock", ".yml", ".yaml")
+            )
         }
         changed_total = max(changed_total, len(source_changed))
         if len(source_changed) >= ARCH_CHURN_THRESHOLD:
@@ -237,7 +254,9 @@ def compute_freshness(clone: Path, repo: dict, env: dict) -> None:
         )
 
 
-def refresh_activity(clone: Path, repo: dict, old_sha: str | None, new_sha: str, env: dict) -> None:
+def refresh_activity(
+    clone: Path, repo: dict, old_sha: str | None, new_sha: str, env: dict
+) -> None:
     """Fold the new commit range into the briefing's activity section via the
     backend (Haiku) — the one auto-maintained section."""
     if not API_URL or not repo.get("api_key_encrypted"):
@@ -255,7 +274,12 @@ def refresh_activity(clone: Path, repo: dict, old_sha: str | None, new_sha: str,
         parts = line.split("|", 3)
         if len(parts) == 4:
             commits.append(
-                {"sha": parts[0], "subject": parts[1][:300], "author": parts[2], "date": parts[3]}
+                {
+                    "sha": parts[0],
+                    "subject": parts[1][:300],
+                    "author": parts[2],
+                    "date": parts[3],
+                }
             )
     if not commits:
         return
@@ -266,11 +290,17 @@ def refresh_activity(clone: Path, repo: dict, old_sha: str | None, new_sha: str,
                 "Authorization": f"Bearer {decrypt(repo['api_key_encrypted'])}",
                 "Content-Type": "application/json",
             },
-            json={"folder_id": repo["folder_id"], "head_sha": new_sha, "commits": commits},
+            json={
+                "folder_id": repo["folder_id"],
+                "head_sha": new_sha,
+                "commits": commits,
+            },
             timeout=120,
         )
         if r.ok and (r.json() or {}).get("updated"):
-            log(f"{repo['remote_url']}: activity section refreshed ({len(commits)} commits)")
+            log(
+                f"{repo['remote_url']}: activity section refreshed ({len(commits)} commits)"
+            )
         else:
             log(f"{repo['remote_url']}: activity refresh skipped — {r.text[:150]}")
     except Exception as exc:  # noqa: BLE001 — activity is best-effort
@@ -323,14 +353,17 @@ def process_repo(repo: dict, key_row: dict) -> None:
             clone.parent.mkdir(parents=True, exist_ok=True)
             log(f"{name}: initial clone")
             code, _, err = run_git(
-                ["clone", "--branch", repo["branch"], repo["remote_url"], str(clone)], env
+                ["clone", "--branch", repo["branch"], repo["remote_url"], str(clone)],
+                env,
             )
             if code != 0:
                 log(f"ERROR {name}: clone failed — {err[:300]}")
                 record({"last_error": f"clone: {err[:300]}"})
                 return
         else:
-            code, _, err = run_git(["fetch", "origin", repo["branch"]], env, cwd=str(clone))
+            code, _, err = run_git(
+                ["fetch", "origin", repo["branch"]], env, cwd=str(clone)
+            )
             if code == 0:
                 code, _, err = run_git(
                     ["reset", "--hard", f"origin/{repo['branch']}"], env, cwd=str(clone)
@@ -348,7 +381,9 @@ def process_repo(repo: dict, key_row: dict) -> None:
         log(f"ERROR {name}: no api key registered — re-run kioku init in the repo")
         record({"last_error": "no api key registered"})
         return
-    seed_bindings(clone, repo["folder_id"], folder_name, decrypt(repo["api_key_encrypted"]))
+    seed_bindings(
+        clone, repo["folder_id"], folder_name, decrypt(repo["api_key_encrypted"])
+    )
 
     ok, tail = kioku_index(clone)
     plain_env = {
@@ -374,7 +409,9 @@ def main() -> int:
         k["user_id"]: k
         for k in rest_get("user_git_keys", {"select": "user_id,private_key_encrypted"})
     }
-    log(f"watching {len(repos)} repo(s) across {len({r['user_id'] for r in repos})} user(s)")
+    log(
+        f"watching {len(repos)} repo(s) across {len({r['user_id'] for r in repos})} user(s)"
+    )
     failures = 0
     for repo in repos:
         key_row = keys.get(repo["user_id"])
@@ -389,5 +426,38 @@ def main() -> int:
     return 1 if failures else 0
 
 
+def run_service(schedule_raw: str) -> None:
+    """Run a pass now, then at each WATCH_SCHEDULE time (UTC), forever.
+
+    A crashed pass is logged and the loop keeps going — the container's
+    restart policy only matters for crashes outside a pass (e.g. bad env).
+    """
+    times = sorted(
+        (int(h), int(m))
+        for h, m in (t.strip().split(":") for t in schedule_raw.split(","))
+    )
+    log(
+        f"service mode — schedule (UTC): {', '.join(f'{h:02d}:{m:02d}' for h, m in times)}"
+    )
+    while True:
+        try:
+            main()
+        except Exception as exc:  # noqa: BLE001 — the loop must outlive any pass
+            log(f"ERROR pass crashed: {exc}")
+        now = datetime.now(timezone.utc)
+        candidates = [
+            now.replace(hour=h, minute=m, second=0, microsecond=0) + timedelta(days=d)
+            for d in (0, 1)
+            for h, m in times
+        ]
+        nxt = min(c for c in candidates if c > now)
+        log(f"next pass at {nxt.isoformat(timespec='minutes')}")
+        time.sleep((nxt - now).total_seconds())
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    schedule = os.environ.get("WATCH_SCHEDULE", "").strip()
+    if schedule:
+        run_service(schedule)
+    else:
+        sys.exit(main())

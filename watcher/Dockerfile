@@ -1,5 +1,6 @@
-# kioku-watcher — polls watched repos twice a day (host cron runs the
-# container), re-indexing graph + code chunks when the principal branch moves.
+# kioku-watcher — polls watched repos on WATCH_SCHEDULE (Dokploy runs it as a
+# long-lived service), re-indexing graph + code chunks when the principal
+# branch moves. Without WATCH_SCHEDULE it runs one pass and exits.
 # Build context is the REPO ROOT (the CLI is built from source, so the watcher
 # never depends on the npm registry being current):
 #   docker build -f watcher/Dockerfile -t felipemeriga1/kioku-watcher:latest .
