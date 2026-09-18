@@ -351,6 +351,13 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
     // Codex surface: global ~/.codex/config.toml (MCP + SessionStart/Stop) +
     // AGENTS.md. The url is rewritten to the streamable-HTTP path (/mcp) inside
     // writeCodexMcpConfig, since Codex speaks streamable HTTP, not SSE.
+    //
+    // ALSO upsert the repo-local .mcp.json: every repo-scoped consumer (graph
+    // upload, session-start, capture, key reuse on re-init) resolves the key
+    // from .mcp.json first. Leaving a stale copy there strands them on a key
+    // this mint just rotated dead (401 "Invalid or unscoped api key").
+    const mcp = writeMcpConfig(repoRoot, mcpEntry);
+    ok(`.mcp.json ${mcp.existed ? "updated" : "written"}`);
     const cx = writeCodexMcpConfig(mcpEntry);
     ok(
       `~/.codex/config.toml MCP entry ${cx.existed ? "updated" : "written"}  ` +
