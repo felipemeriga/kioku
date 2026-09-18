@@ -318,15 +318,35 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
     !Number.isNaN(priorMintedAt) &&
     Date.now() - priorMintedAt < RECENT_KEY_WINDOW_MS;
 
+  // The reuse artifacts can disagree: 0.3.0/0.3.1 Codex inits stamped
+  // api_key_minted_at without writing .mcp.json, leaving a fresh timestamp
+  // paired with a long-rotated key. Never trust the pair — round-trip the
+  // key against the server and mint fresh if it doesn't authenticate.
+  let reusableKey: string | null = null;
+  if (canReuseKey && priorState?.api_key_minted_at) {
+    try {
+      const base = mcpUrlToRestBase(priorMcp!.entry.url);
+      const probe = await fetch(
+        `${base}/api/cli/repo-graph?folder_id=${encodeURIComponent(
+          repoFolder.id
+        )}`,
+        { headers: { Authorization: `Bearer ${priorMcp!.key}` } }
+      );
+      if (probe.ok) reusableKey = priorMcp!.key;
+    } catch {
+      reusableKey = null; // network hiccup — mint to be safe
+    }
+  }
+
   let key: { key: string; mcp_config: unknown };
   let keyMintedAt: string;
-  if (canReuseKey && priorState?.api_key_minted_at) {
+  if (reusableKey && priorState?.api_key_minted_at) {
     key = {
-      key: priorMcp!.key,
+      key: reusableKey,
       mcp_config: { mcpServers: { kioku: priorMcp!.entry } },
     };
     keyMintedAt = priorState.api_key_minted_at;
-    ok(`Reusing API key minted ${relTime(keyMintedAt)}`);
+    ok(`Reusing API key minted ${relTime(keyMintedAt)}  (verified)`);
   } else {
     key = await step("Minting API key", () =>
       mintScopedApiKey({
@@ -396,7 +416,6 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
         ? "Stop hook installed  " + kleur.dim("(captures learnings to Mem0)")
         : "Stop hook already present"
     );
-
   }
 
   // Step 6b.5: remove legacy push hooks (pre-v0.3.0 installed a Claude
@@ -404,7 +423,10 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
   //             replaces both).
   const legacy = removeLegacyPushHooks(repoRoot);
   if (legacy.removedSettingsHook || legacy.removedGitHook) {
-    ok("Legacy push hooks removed  " + kleur.dim("(watcher handles indexing now)"));
+    ok(
+      "Legacy push hooks removed  " +
+        kleur.dim("(watcher handles indexing now)")
+    );
   }
 
   // Step 6c: server-side watcher registration — replaces the old push hooks.
