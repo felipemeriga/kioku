@@ -15,6 +15,93 @@ from services.timing import stage
 
 logger = logging.getLogger(__name__)
 
+# How many code chunks may enter the joint rerank pool. They compete with doc
+# chunks for the final top_k slots on equal footing (same cross-encoder), so
+# irrelevant code drops out on doc questions and relevant code surfaces on
+# implementation questions. Kept bounded: code chunks run up to ~120 lines.
+CODE_BLEND_TOP_N = 8
+# Over-fetch factor before junk filtering (see _is_code_junk).
+CODE_BLEND_FETCH = 25
+
+
+def _is_code_junk(row: dict) -> bool:
+    """Chunks that pollute blended retrieval without ever answering anything.
+
+    The index contains non-source files (json schemas, READMEs, lockfiles —
+    language NULL) and one-to-two-line fragments (a package.json version line,
+    a bare type alias). Measured on the real corpus: ~1.7k NULL-language
+    chunks, more than half of them under two lines. They embed close to prose
+    queries and leak past the reranker, so they never reach the pool.
+    """
+    if not row.get("language"):
+        return True
+    span = (row.get("end_line") or 0) - (row.get("start_line") or 0)
+    return span < 2
+
+
+def _code_candidates(
+    query_text: str,
+    user_id: str | None,
+    folder_ids: list[str] | None,
+    root_folder_id: str | None = None,
+    top_n: int = CODE_BLEND_TOP_N,
+) -> list[dict]:
+    """Top code chunks for the query, shaped like doc rows so they can join
+    the rerank pool.
+
+    Purely additive and best-effort: any failure (no code index, embed error)
+    returns [] and the doc pipeline proceeds untouched. The chunk content
+    already carries its own '[repo …] [file …] [symbol …]' header from
+    indexing, so the cross-encoder scores it with full context.
+    """
+    if not query_text or not user_id:
+        return []
+    try:
+        from services.embeddings import embed_code_query
+
+        embedding = embed_code_query(query_text)
+        sb = get_supabase()
+        scope_ids = folder_ids
+        if not scope_ids and root_folder_id:
+            from services.scope import descendant_folder_ids
+
+            scope_ids = descendant_folder_ids(sb, root_folder_id, user_id)
+        params: dict = {
+            "query_embedding": embedding,
+            "match_count": CODE_BLEND_FETCH,
+            "filter_user_id": user_id,
+        }
+        if scope_ids:
+            params["filter_folder_ids"] = scope_ids
+        rows = sb.rpc("code_search", params).execute().data or []
+    except Exception:
+        logger.warning("code candidate search failed", exc_info=True)
+        return []
+    out: list[dict] = []
+    for r in rows:
+        if len(out) >= top_n:
+            break
+        if _is_code_junk(r):
+            continue
+        location = f"{r.get('file')}:{r.get('start_line')}-{r.get('end_line')}"
+        out.append(
+            {
+                "id": str(r.get("id")),
+                "content": r.get("content") or "",
+                "similarity": r.get("similarity"),
+                "source_type": "code",
+                "created_at": r.get("created_at"),
+                "metadata": {
+                    "source_filename": location,
+                    "source_type": "code",
+                    "code_symbol": r.get("symbol"),
+                    "code_language": r.get("language"),
+                    "folder_id": r.get("folder_id"),
+                },
+            }
+        )
+    return out
+
 
 def _vector_search(
     query_embedding: list[float],
@@ -230,18 +317,32 @@ def search_documents(
     source_filename: str | None = None,
     created_after: str | None = None,
     created_before: str | None = None,
+    include_code: bool = True,
 ) -> list[dict]:
     """Hybrid search pipeline with optional query enhancement.
 
     fast_mode=False (UI chat): rewrite + multi-query + hybrid search + RRF + rerank + neighbors
     fast_mode=True (MCP): hybrid search + RRF + rerank + neighbors (skips LLM calls)
+
+    include_code=True blends top code chunks into the rerank pool so answers
+    can draw on source code alongside documents. Skipped automatically when
+    retrieval is narrowed to a single file or a date window — those filters
+    describe documents, not code.
     """
     fetch_k = 20
+    blend_code = include_code and not source_filename and not created_after and not created_before
 
     if fast_mode:
         with stage("search_documents (fast)", indent=2):
-            # Fast path: skip query rewriting and multi-query, use original query directly
-            with stage("hybrid_search (vector || keyword)", indent=3):
+            # Fast path: skip query rewriting and multi-query, use original query
+            # directly. Code candidates fetch in parallel with the hybrid search.
+            with stage("hybrid_search (vector || keyword || code)", indent=3):
+                code_future = None
+                pool = ThreadPoolExecutor(max_workers=1) if blend_code else None
+                if pool:
+                    code_future = submit_with_context(
+                        pool, _code_candidates, query_text, user_id, folder_ids, root_folder_id
+                    )
                 vector_results, keyword_results = _run_hybrid_search(
                     query_embedding,
                     query_text,
@@ -255,10 +356,18 @@ def search_documents(
                     created_after,
                     created_before,
                 )
+                code_results: list[dict] = []
+                if code_future is not None:
+                    try:
+                        code_results = code_future.result()
+                    except Exception:
+                        logger.warning("code candidates failed", exc_info=True)
+                    finally:
+                        pool.shutdown(wait=False)
 
             _record_search_metrics([vector_results], [keyword_results])
 
-            if not vector_results and not keyword_results:
+            if not vector_results and not keyword_results and not code_results:
                 return []
 
             if not keyword_results:
@@ -269,7 +378,7 @@ def search_documents(
                 fused = _reciprocal_rank_fusion(vector_results, keyword_results)
 
             with stage("rerank", indent=3):
-                reranked = rerank(query_text or "query", fused, top_k=top_k)
+                reranked = rerank(query_text or "query", fused + code_results, top_k=top_k)
             reranked = _apply_recency_decay(reranked)
             with stage("neighbor_expansion (parallel)", indent=3):
                 return _expand_with_neighbors(reranked)
@@ -311,13 +420,22 @@ def search_documents(
         for v in variants:
             variant_specs.append((v, None))
 
-        # Phase 2: run all variants in parallel.
+        # Phase 2: run all variants in parallel; code candidates ride the same
+        # pool (they only need one worker and the original query text).
         per_variant_vec: list[list[dict]] = []
         per_variant_kw: list[list[dict]] = []
         all_vector: list[dict] = []
         all_keyword: list[dict] = []
+        code_results: list[dict] = []
         with stage(f"phase2: {len(variant_specs)} variants (parallel)", indent=3):
-            with ThreadPoolExecutor(max_workers=max(len(variant_specs), 1)) as pool:
+            with ThreadPoolExecutor(max_workers=max(len(variant_specs), 1) + 1) as pool:
+                code_future = (
+                    submit_with_context(
+                        pool, _code_candidates, query_text, user_id, folder_ids, root_folder_id
+                    )
+                    if blend_code
+                    else None
+                )
                 futures = [
                     submit_with_context(
                         pool,
@@ -348,6 +466,11 @@ def search_documents(
                     per_variant_kw.append(kw)
                     all_vector.extend(vec)
                     all_keyword.extend(kw)
+                if code_future is not None:
+                    try:
+                        code_results = code_future.result()
+                    except Exception:
+                        logger.warning("code candidates failed", exc_info=True)
 
         _record_search_metrics(
             per_variant_vec,
@@ -369,7 +492,7 @@ def search_documents(
                 seen_kw.add(doc["id"])
                 deduped_keyword.append(doc)
 
-        if not deduped_vector and not deduped_keyword:
+        if not deduped_vector and not deduped_keyword and not code_results:
             return []
 
         # Step 4: RRF fusion
@@ -380,9 +503,10 @@ def search_documents(
         else:
             fused = _reciprocal_rank_fusion(deduped_vector, deduped_keyword)
 
-        # Step 5: Rerank with score threshold filtering
+        # Step 5: Rerank with score threshold filtering — code candidates join
+        # the pool here and compete with doc chunks on the same cross-encoder.
         with stage("rerank", indent=3):
-            reranked = rerank(query_text or "query", fused, top_k=top_k)
+            reranked = rerank(query_text or "query", fused + code_results, top_k=top_k)
         reranked = _apply_recency_decay(reranked)
 
         # Step 6: Parent document retrieval — expand each result with adjacent chunks
@@ -474,6 +598,13 @@ def _expand_with_neighbors(results: list[dict]) -> list[dict]:
     """
     if not results:
         return []
+
+    # Code chunks have no document neighbors — they pass through as-is, in rank
+    # order, while doc hits expand below (order/length preserved by pool.map).
+    if any(d.get("source_type") == "code" for d in results):
+        doc_hits = [d for d in results if d.get("source_type") != "code"]
+        expanded_docs = iter(_expand_with_neighbors(doc_hits))
+        return [d if d.get("source_type") == "code" else next(expanded_docs) for d in results]
 
     sb = get_supabase()
 
