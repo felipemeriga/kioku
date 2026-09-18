@@ -251,12 +251,23 @@ def _index_repo(sb, user_id: str, repo_name: str, folder_id: str) -> int:
     if not rows:
         print(f"  {repo_name}: no source chunks")
         return 0
-    # Embed (128/API call) then insert in 25-row sub-batches (PostgREST timeout).
+    # Embed (128/API call) then insert in small sub-batches. 1024-dim vectors
+    # make the JSON payload heavy, so keep batches tiny and retry on the
+    # PostgREST read-timeout that larger batches trigger.
     embeddings = embed_code_batch([r["content"] for r in rows])
     for r, emb in zip(rows, embeddings, strict=True):
         r["embedding"] = emb
-    for i in range(0, len(rows), 25):
-        sb.table("code_chunks").insert(rows[i : i + 25]).execute()
+    for i in range(0, len(rows), 10):
+        batch = rows[i : i + 10]
+        for attempt in range(4):
+            try:
+                sb.table("code_chunks").insert(batch).execute()
+                break
+            except Exception as exc:  # noqa: BLE001 — retry heavy inserts
+                if attempt == 3:
+                    raise
+                print(f"    insert retry {attempt + 1} ({type(exc).__name__})")
+                time.sleep(2 * (attempt + 1))
     print(f"  {repo_name}: {len(rows)} code chunks")
     return len(rows)
 
@@ -278,19 +289,35 @@ def _clear(sb, user_id: str, root_id: str, repo_ids: dict[str, str]) -> None:
         sb.table("code_chunks").delete().eq("folder_id", fid).execute()
 
 
-def seed(user_id: str) -> int:
+def _index_all(sb, user_id: str, repo_ids: dict[str, str]) -> int:
+    total = 0
+    for name, fid in repo_ids.items():
+        sb.table("code_chunks").delete().eq("folder_id", fid).execute()
+        total += _index_repo(sb, user_id, name, fid)
+    return total
+
+
+def seed(user_id: str, code_only: bool = False) -> int:
     sb = get_supabase()
     root, repo_ids = _build_tree(sb, user_id)
     print(f"tree: {ROOT_NAME}={root}  repos={ {k: v[:8] for k, v in repo_ids.items()} }")
+
+    if code_only:
+        # Leave already-ingested docs in place; re-index code only.
+        total_chunks = _index_all(sb, user_id, repo_ids)
+        doc_chunks = (
+            sb.table("documents").select("id", count="exact").eq("root_folder_id", root).execute()
+        ).count
+        print(f"\nCODE-ONLY OK: {doc_chunks} doc chunks (kept), {total_chunks} code chunks")
+        return 0 if total_chunks else 1
+
     _clear(sb, user_id, root, repo_ids)
 
     job_ids = asyncio.run(_ingest_docs(sb, user_id, root))
     print(f"ingesting {len(job_ids)} docs...")
     docs_ok = _wait_for_ingestion(sb, job_ids)
 
-    total_chunks = 0
-    for name, fid in repo_ids.items():
-        total_chunks += _index_repo(sb, user_id, name, fid)
+    total_chunks = _index_all(sb, user_id, repo_ids)
 
     doc_chunks = (
         sb.table("documents").select("id", count="exact").eq("root_folder_id", root).execute()
@@ -318,7 +345,9 @@ def teardown(user_id: str) -> int:
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("usage: python -m eval.obol.seed <user_id> [--teardown]")
+        print("usage: python -m eval.obol.seed <user_id> [--teardown|--code-only]")
         sys.exit(2)
     uid = sys.argv[1]
-    sys.exit(teardown(uid) if "--teardown" in sys.argv else seed(uid))
+    if "--teardown" in sys.argv:
+        sys.exit(teardown(uid))
+    sys.exit(seed(uid, code_only="--code-only" in sys.argv))
