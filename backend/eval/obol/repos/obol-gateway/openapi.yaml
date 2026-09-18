@@ -1,0 +1,318 @@
+openapi: 3.0.3
+info:
+  title: Obol Gateway API
+  version: "1.0.0"
+  description: >
+    The Obol payment API edge. Owns charges, refunds, payouts, idempotency, the
+    (mock) card-processor adapter, fee/pricing computation, and event
+    publishing. It never performs accounting itself — it emits events that the
+    obol-ledger consumes to post double-entry journal entries.
+servers:
+  - url: https://api.obol.example.com
+    description: production
+  - url: http://localhost:8080
+    description: local
+
+security:
+  - bearerAuth: []
+
+paths:
+  /healthz:
+    get:
+      summary: Liveness/readiness probe
+      security: []
+      responses:
+        "200":
+          description: service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+
+  /v1/charges:
+    post:
+      summary: Create (authorize + settle) a charge
+      description: >
+        Requires an Idempotency-Key header. The key is checked BEFORE any
+        processor call; a retry with the same key and body replays the original
+        response verbatim (Idempotent-Replayed: true).
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateChargeRequest"
+            examples:
+              chg_0001:
+                summary: The canonical sample charge
+                value:
+                  seller_id: sell_atelier
+                  amount: { amount_minor: 12000, currency: EUR }
+                  card_token: tok_visa
+      responses:
+        "201":
+          description: charge created and settled
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Charge" }
+              examples:
+                chg_0001:
+                  value:
+                    id: chg_0001
+                    platform_id: plat_marisqueira
+                    seller_id: sell_atelier
+                    amount: { amount_minor: 12000, currency: EUR }
+                    platform_fee: { amount_minor: 348, currency: EUR }
+                    processor_fee: { amount_minor: 205, currency: EUR }
+                    seller_net: { amount_minor: 11447, currency: EUR }
+                    status: settled
+                    processor_ref: pi_9f2a1c...
+                    idempotency_key: idem-chg-0001
+                    created_at: "2024-01-16T10:00:00Z"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "402":
+          description: the card processor declined the charge
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: a request with this Idempotency-Key is already in progress
+        "422":
+          description: idempotency key reused with a different payload, or a business rule was violated
+
+  /v1/charges/{id}:
+    get:
+      summary: Fetch a charge
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: the charge
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Charge" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/charges/{id}/refunds:
+    post:
+      summary: Refund all or part of a charge
+      description: >
+        Calls processor.Refund then publishes refund.completed, which the ledger
+        consumes to post the reversal entry. Omit `amount` to refund the full
+        remaining balance.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateRefundRequest" }
+            examples:
+              full_refund:
+                value: { reason: customer_request }
+              partial_refund:
+                value:
+                  amount: { amount_minor: 5000, currency: EUR }
+                  reason: item_damaged
+      responses:
+        "201":
+          description: refund completed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Refund" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422":
+          description: charge not settled, or amount exceeds remaining refundable
+
+  /v1/refunds/{id}:
+    get:
+      summary: Fetch a refund
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: the refund
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Refund" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/payouts:
+    post:
+      summary: Execute a seller payout
+      description: >
+        Typically called by the ledger's payout-batch builder. Calls
+        processor.Payout and, on success, emits payout.scheduled then
+        payout.paid; the ledger marks the batch paid and debits seller_payable.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreatePayoutRequest" }
+            examples:
+              atelier_payout:
+                value:
+                  batch_id: pyt_20240201
+                  seller_id: sell_atelier
+                  amount: { amount_minor: 11447, currency: EUR }
+      responses:
+        "201":
+          description: payout executed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PayoutBatch" }
+        "402":
+          description: the processor declined the payout
+        "422":
+          description: seller not verified, or currency mismatch
+
+  /v1/payouts/{id}:
+    get:
+      summary: Fetch a payout batch
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: the payout batch
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PayoutBatch" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: "Platform API key: Authorization: Bearer <api_key>"
+
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string }
+      description: unique key per logical charge attempt
+    PathId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+
+  responses:
+    BadRequest:
+      description: malformed or invalid request
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: missing or invalid API key
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: resource not found
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Money:
+      type: object
+      required: [amount_minor, currency]
+      properties:
+        amount_minor:
+          type: integer
+          format: int64
+          description: integer minor units (e.g. cents)
+        currency:
+          type: string
+          description: ISO-4217 code
+          example: EUR
+
+    CreateChargeRequest:
+      type: object
+      required: [seller_id, amount, card_token]
+      properties:
+        seller_id: { type: string, example: sell_atelier }
+        amount: { $ref: "#/components/schemas/Money" }
+        card_token: { type: string, example: tok_visa }
+        descriptor: { type: string }
+        platform_fee_bps:
+          type: integer
+          format: int64
+          description: optional per-charge override of the platform fee rate (bps)
+
+    Charge:
+      type: object
+      properties:
+        id: { type: string }
+        platform_id: { type: string }
+        seller_id: { type: string }
+        amount: { $ref: "#/components/schemas/Money" }
+        platform_fee: { $ref: "#/components/schemas/Money" }
+        processor_fee: { $ref: "#/components/schemas/Money" }
+        seller_net: { $ref: "#/components/schemas/Money" }
+        status:
+          type: string
+          enum: [pending, authorized, settled, failed, refunded, partially_refunded]
+        processor_ref: { type: string }
+        idempotency_key: { type: string }
+        created_at: { type: string, format: date-time }
+
+    CreateRefundRequest:
+      type: object
+      properties:
+        amount:
+          allOf: [{ $ref: "#/components/schemas/Money" }]
+          description: optional; full remaining balance if omitted
+        reason: { type: string }
+
+    Refund:
+      type: object
+      properties:
+        id: { type: string }
+        charge_id: { type: string }
+        amount: { $ref: "#/components/schemas/Money" }
+        reason: { type: string }
+        status: { type: string, enum: [pending, completed, failed] }
+        processor_ref: { type: string }
+        created_at: { type: string, format: date-time }
+
+    CreatePayoutRequest:
+      type: object
+      required: [seller_id, amount]
+      properties:
+        batch_id: { type: string }
+        seller_id: { type: string }
+        amount: { $ref: "#/components/schemas/Money" }
+        descriptor: { type: string }
+        scheduled_for: { type: string, format: date-time }
+
+    PayoutBatch:
+      type: object
+      properties:
+        id: { type: string }
+        seller_id: { type: string }
+        amount: { $ref: "#/components/schemas/Money" }
+        status: { type: string, enum: [scheduled, processing, paid, failed] }
+        scheduled_for: { type: string, format: date-time }
+        processor_ref: { type: string }
+        created_at: { type: string, format: date-time }
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string, example: payment_declined }
+            message: { type: string }
+            details:
+              type: object
+              additionalProperties: { type: string }
