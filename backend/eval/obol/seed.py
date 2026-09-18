@@ -29,12 +29,14 @@ import hashlib
 import re
 import sys
 import time
+import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from arq import create_pool
 
 from db.client import get_supabase
-from services.embeddings import embed_code_batch
+from services.embeddings import embed_batch, embed_code_batch
 from services.ingestion import compute_content_hash, upload_document_to_storage
 from services.queue.jobs import create_job
 from services.queue.settings import _redis_settings
@@ -46,6 +48,75 @@ REPO_DIRS = ["obol-gateway", "obol-ledger", "obol-console"]
 BASE = Path(__file__).parent
 DOCS_DIR = BASE / "docs"
 REPOS_DIR = BASE / "repos"
+
+# Prefix for the synthetic DATED corpus so the temporal eval can isolate its
+# own rows from the static docs/code.
+DATED_PREFIX = "obol-dated-"
+
+# Backdated meeting/decision notes for temporal scenarios (recency decay, date
+# filters). Inserted directly with real embeddings + a chosen created_at and
+# source_type — meetings decay (half-life 90d), reference text does not. Written
+# in Obol's domain so the whole company exercises time too.
+# Topics are deliberately MEETING-ONLY (incidents, migrations, team policy) —
+# absent from the 12 product docs — so a query about them cleanly retrieves the
+# dated rows instead of being swamped by the rich static corpus.
+#   (name, age_days, source_type, content)
+DATED = [
+    (
+        "inc204-decision",
+        400,
+        "meeting",
+        "Incident INC-204 review — the Lisbon region checkout outage. Decision: "
+        "add a regional failover for the checkout path and run a synthetic canary "
+        "every 60 seconds against each region. Owner: platform team. This is the "
+        "agreed remediation for the INC-204 Lisbon outage.",
+    ),
+    (
+        "inc204-mention",
+        2,
+        "meeting",
+        "Standup: quick mention that the INC-204 follow-ups are on track; nothing "
+        "new. Most of the time went to the offsite agenda and hiring.",
+    ),
+    (
+        "lighthouse-strong-old",
+        365,
+        "meeting",
+        "Project Lighthouse migration decision: move the ledger store to the new "
+        "partitioned schema over three weekend windows, dual-writing during "
+        "cutover and backfilling historical journal entries in batches. This is "
+        "the agreed Lighthouse ledger migration plan.",
+    ),
+    (
+        "lighthouse-weak-old",
+        350,
+        "meeting",
+        "Standup notes: Project Lighthouse was briefly noted as on track this "
+        "sprint; no decisions taken.",
+    ),
+    (
+        "prpolicy-twin-old",
+        200,
+        "meeting",
+        "Sprint 47 retro: agreed to cap pull requests at 400 changed lines and "
+        "require two reviewers for any change to the ledger service.",
+    ),
+    (
+        "prpolicy-twin-fresh",
+        2,
+        "meeting",
+        "Sprint 61 retro: reaffirmed capping pull requests at 400 changed lines "
+        "and requiring two reviewers for any change to the ledger service.",
+    ),
+    (
+        "escalation-ref",
+        380,
+        "text",
+        "Reference — incident escalation matrix: a Sev1 pages the CTO within 10 "
+        "minutes; a Sev2 pages the on-call lead within 30 minutes; Sev3 is "
+        "handled next business day. Stable reference material.",
+    ),
+]
 
 # Extension -> language, mirroring the CLI's EXT_LANGUAGE. Files whose
 # extension isn't here are NOT indexed as code (matches production hygiene).
@@ -145,6 +216,40 @@ async def _ingest_docs(sb, user_id: str, root_id: str) -> list[str]:
     finally:
         await pool.close()
     return job_ids
+
+
+def _seed_dated(sb, user_id: str, root_id: str) -> int:
+    """Insert the backdated meeting/decision corpus directly (real doc
+    embeddings, chosen created_at + source_type) so temporal scenarios have
+    controlled ages. Bypasses the queue because the ingest task always stamps
+    created_at = now."""
+    now = datetime.now(timezone.utc)
+    embeddings = embed_batch([content for _, _, _, content in DATED])
+    rows = []
+    for (name, age_days, source_type, content), emb in zip(DATED, embeddings, strict=True):
+        src = f"{DATED_PREFIX}{name}"
+        rows.append(
+            {
+                "user_id": user_id,
+                # folder_id is what match_documents/keyword_search filter on for
+                # scope; root_folder_id alone would exclude these from a
+                # folder-scoped search. Both point at the Obol root.
+                "folder_id": root_id,
+                "root_folder_id": root_id,
+                "source_filename": src,
+                "source_type": source_type,
+                "content": content,
+                "embedding": emb,
+                "status": "completed",
+                "content_hash": uuid.uuid4().hex,
+                "created_at": (now - timedelta(days=age_days)).isoformat(),
+                "metadata": {"source_filename": src, "chunk_index": 0},
+            }
+        )
+    for i in range(0, len(rows), 10):
+        sb.table("documents").insert(rows[i : i + 10]).execute()
+    print(f"  dated: {len(rows)} backdated docs")
+    return len(rows)
 
 
 def _wait_for_ingestion(sb, job_ids: list[str], timeout_s: int = 600) -> bool:
@@ -316,6 +421,8 @@ def seed(user_id: str, code_only: bool = False) -> int:
     job_ids = asyncio.run(_ingest_docs(sb, user_id, root))
     print(f"ingesting {len(job_ids)} docs...")
     docs_ok = _wait_for_ingestion(sb, job_ids)
+
+    _seed_dated(sb, user_id, root)
 
     total_chunks = _index_all(sb, user_id, repo_ids)
 
