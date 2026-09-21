@@ -1617,8 +1617,11 @@ def update_folder_briefing_section(
         pin: If True (default), the section is marked pinned — auto-regen
             will NOT overwrite it. Set False for 'suggestion' behavior
             where the next regen re-drafts the section.
-        folder: Which repo to update. Same resolver as get_folder_briefing
-            (name / slash-path / UUID). Omit to target the scope folder.
+        folder: REQUIRED — which repo to update (name / slash-path / UUID,
+            same resolver as get_folder_briefing). Pass the repo you are
+            editing; it is named in your session briefing. It is required
+            (not defaulted to the key's scope) because one MCP key can span
+            several repos, so a silent default could edit the wrong repo.
 
     Records provenance='agent_mcp' so the UI can attribute the edit.
     """
@@ -1652,6 +1655,36 @@ def update_folder_briefing_section(
         )
     sb = get_supabase()
     user_id = _current_user_id.get()
+    # Require an explicit folder for briefing WRITES. A single MCP key can span
+    # multiple repos — the Codex surface uses one global config with one key —
+    # so silently defaulting to the key's scope folder can land the edit on the
+    # wrong repo (observed: c360-lead edits written onto c360-cx-video-hub-cloud).
+    # The reader tools still default to scope; only writes must name their target.
+    if folder is None:
+        scope_id = _current_scope_folder_id.get()
+        scope_name = None
+        if scope_id:
+            srow = (
+                sb.table("folders")
+                .select("name")
+                .eq("id", scope_id)
+                .eq("user_id", user_id)
+                .limit(1)
+                .execute()
+                .data
+            )
+            scope_name = srow[0]["name"] if srow else None
+        hint = (
+            f" Your session briefing names the repo; it is likely '{scope_name}'."
+            if scope_name
+            else ""
+        )
+        return (
+            "Error: pass an explicit folder= for briefing edits. One MCP key can "
+            "span several repos (e.g. the Codex global config), so writing to the "
+            "key's scope by default can hit the wrong repo." + hint + " Retry with "
+            "folder='<the repo you are editing>'."
+        )
     resolved_id, resolved_name = resolve_focus_folder(
         sb,
         scope_folder_id=_current_scope_folder_id.get(),
