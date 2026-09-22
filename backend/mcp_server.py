@@ -1233,7 +1233,11 @@ def replace_folder_briefing(
         return f"Error: {resolved_name}"
     folder_row = get_folder(sb, resolved_id, user_id)
     if not folder_row or (folder_row.get("kind") or "folder") != "repo":
-        return f"Error: '{resolved_name}' is not a repo folder."
+        return (
+            f"Error: '{resolved_name}' is not a repo folder. Your key may span "
+            "several repos (e.g. the Codex global config) — pass folder='<the "
+            "repo you are generating>' to target a specific repo."
+        )
 
     try:
         payload_sections = json.loads(sections)
@@ -1355,7 +1359,11 @@ def save_repo_documentation(
         return f"Error: {resolved_name}"
     folder_row = get_folder(sb, resolved_id, user_id)
     if not folder_row or (folder_row.get("kind") or "folder") != "repo":
-        return f"Error: '{resolved_name}' is not a repo folder."
+        return (
+            f"Error: '{resolved_name}' is not a repo folder. Your key may span "
+            "several repos (e.g. the Codex global config) — pass folder='<the "
+            "repo you are documenting>' to target a specific repo."
+        )
     if not (content or "").strip():
         return "Error: content is empty."
 

@@ -21,12 +21,28 @@ async function fetchJson(url: string, headers: Record<string, string>) {
  *  hook injects it into a session that opens without a briefing. Grounded,
  *  process-oriented, and points at the schema tool so per-section shapes stay
  *  defined in one place (the backend). */
-export function generateInstruction(sectionOrder: string[]): string {
+export function generateInstruction(
+  sectionOrder: string[],
+  folder?: string
+): string {
+  // A single MCP key can span several repos (the Codex surface uses one global
+  // key scoped to the whole root), so every WRITE must name THIS repo. `folder`
+  // is this repo's folder id/name; thread it into the write calls below.
+  const f = folder ? `, folder="${folder}"` : "";
+  const folderNote = folder
+    ? [
+        "",
+        `IMPORTANT: your MCP key may span several repos, so pass folder="${folder}"`,
+        "on every write call below (replace_folder_briefing, save_repo_documentation)",
+        "so the briefing lands on THIS repo and not a sibling.",
+      ]
+    : [];
   return [
     "Generate the COMPLETE kioku knowledge for THIS repository: the concise",
     "briefing AND a detailed architecture document. Both are grounded in the",
     "real code (not generic) and injected/available in future Claude Code",
     "sessions here, so accuracy matters.",
+    ...folderNote,
     "",
     "Do this:",
     "1. Call the `get_folder_briefing_schema` MCP tool to get the exact expected",
@@ -57,15 +73,15 @@ export function generateInstruction(sectionOrder: string[]): string {
     "   Code sessions still get live git activity separately — this is the stored",
     "   web-UI section.)",
     "6. Save the concise sections + activity in ONE call to",
-    "   `replace_folder_briefing` — a JSON object mapping each section name to its",
-    "   content.",
+    `   \`replace_folder_briefing(sections=<json>${f})\` — a JSON object mapping`,
+    "   each section name to its content.",
     "7. Then produce the DETAILED documentation — a comprehensive, structured",
     "   markdown architecture document: a COMPLETE overview of the whole repo",
     "   (purpose; subsystems/crates and their responsibilities; data & control",
     "   flows; key files with their roles; build/run/test; deployment & CI; and",
     "   notable risks/gotchas), grounded in REAL file paths. Save it with",
-    "   `save_repo_documentation(content=<the full markdown>, abstract=<a short",
-    "   3–8 line summary>)`. This is the 'complete overview' large document.",
+    `   \`save_repo_documentation(content=<the full markdown>, abstract=<a short`,
+    `   3–8 line summary>${f})\`. This is the 'complete overview' large document.`,
     "",
     "Be dense and grounded. Do not ask questions; produce and save BOTH the",
     "briefing (with activity) and the detailed documentation.",
@@ -170,7 +186,7 @@ export async function sessionStart(): Promise<void> {
           "This repo has no kioku briefing yet. Generate it now as your FIRST " +
             "task, before responding to anything else:\n"
         );
-        console.log(generateInstruction(s.section_order));
+        console.log(generateInstruction(s.section_order, folderId));
       }
     } else if (s.sections) {
       // Inject the stable sections + the `documentation` abstract (the full
