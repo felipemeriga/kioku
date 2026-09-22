@@ -24,7 +24,6 @@ import {
   installSessionStartHook,
   installStopHook,
   removeLegacyPushHooks,
-  readMcpEntry,
   readRepoState,
   updateClaudeMd,
   updateGitignore,
@@ -34,10 +33,10 @@ import {
 import {
   installCodexSessionStartHook,
   installCodexStopHook,
-  readCodexMcpEntry,
   updateAgentsMd,
   writeCodexMcpConfig,
 } from "../lib/codex.js";
+import { getRootKey, saveRootKey } from "../lib/root-keys.js";
 import { bad, info, ok, section, step, warn } from "../lib/banner.js";
 import { panel } from "../ui/panel.js";
 import { generateInstruction } from "./session-start.js";
@@ -87,10 +86,6 @@ async function resolveAgent(opts: InitOptions): Promise<Agent> {
     ],
   });
 }
-
-/** Reuse an existing scoped api key if it was minted within this window,
- *  instead of rotating it on every init. */
-const RECENT_KEY_WINDOW_MS = 1000 * 60 * 60 * 24; // 24h
 
 /** Compact "2h ago" style relative time for the last-generated hint. */
 function relTime(iso: string): string {
@@ -295,44 +290,25 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
     ok("Folder marked as repo");
   }
 
-  // Step 4: mint an api key. Scope depends on the agent surface (see keyScopeId
-  // below): Claude Code gets a per-REPO key; Codex gets a ROOT-scoped key.
+  // Step 4: get the ROOT-scoped api key for this repo's root.
   //
-  // The api_keys table has a unique constraint on (user_id, scope_folder_id) and
-  // minting deletes any prior key for the same scope. For Claude Code (per-repo
-  // .mcp.json) a root scope would let a sibling repo's init revoke this repo's
-  // key and 401 its .mcp.json — so Claude stays per-repo. Codex has ONE global
-  // key across all repos, so per-repo scoping is actively wrong there (a session
-  // in repo A would read/write repo B); it gets a root scope, and we REUSE the
-  // existing global key instead of re-minting so siblings aren't revoked.
-  // Reuse a recently-minted key for THIS repo instead of rotating it on every
-  // init. The plaintext key already lives in .mcp.json; minting deletes the old
-  // key, so a needless re-mint churns it (and can 401 other machines still
-  // holding the previous one). Only re-mint when there's no recent local key.
+  // Every repo under a root shares ONE root-scoped key, so a coding session in
+  // ANY repo can search/reference EVERY repo of that root — the cross-app
+  // interaction that per-repo scoping breaks. Both surfaces read the same key:
+  // Claude from its per-repo .mcp.json, Codex from its global config, and both
+  // from the shared root-key store below. The api_keys table allows one key per
+  // (user, scope); minting deletes the prior same-scope key, so we REUSE the
+  // stored root key whenever it's still valid and only mint on the first init of
+  // a root — that way a sibling repo's init never revokes this repo's key.
   const priorState = readRepoState(repoRoot);
-  const priorMcp = readMcpEntry(repoRoot);
-  const priorMintedAt = priorState?.api_key_minted_at
-    ? Date.parse(priorState.api_key_minted_at)
-    : NaN;
-  const canReuseKey =
-    priorState?.folder_id === repoFolder.id &&
-    !!priorMcp?.key &&
-    !Number.isNaN(priorMintedAt) &&
-    Date.now() - priorMintedAt < RECENT_KEY_WINDOW_MS;
-
-  // The reuse artifacts can disagree: 0.3.0/0.3.1 Codex inits stamped
-  // api_key_minted_at without writing .mcp.json, leaving a fresh timestamp
-  // paired with a long-rotated key. Never trust the pair — round-trip the
-  // key against the server and mint fresh if it doesn't authenticate.
   type McpEntry = { url: string; headers: Record<string, string> };
-  let reusableKey: string | null = null;
-  let reusableEntry: McpEntry | null = null;
-  let reusableMintedAt: string | null = null;
 
   const probeKey = async (
     entry: McpEntry,
     apiKey: string
   ): Promise<boolean> => {
+    // A root-scoped key can reach every repo under the root; probing THIS repo
+    // confirms the key both authenticates and covers us.
     try {
       const base = mcpUrlToRestBase(entry.url);
       const res = await fetch(
@@ -347,30 +323,15 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
     }
   };
 
-  if (canReuseKey && priorState?.api_key_minted_at) {
-    if (await probeKey(priorMcp!.entry, priorMcp!.key)) {
-      reusableKey = priorMcp!.key;
-      reusableEntry = priorMcp!.entry;
-      reusableMintedAt = priorState.api_key_minted_at;
-    }
-  }
-
-  // Codex uses ONE global key (~/.codex/config.toml). We scope it to the ROOT
-  // so it covers EVERY repo the user works on — reads default to the root
-  // subtree (narrowable via folder=), writes must name the repo. That fixes the
-  // mis-scoping where a repo-scoped global key made a session in repo A read and
-  // write repo B. Before minting a new root key (which would revoke the prior
-  // one and 401 sibling repos' .mcp.json), reuse the existing global key if it
-  // already covers this repo. Claude Code keeps per-repo scoping — its .mcp.json
-  // is per-repo, so a shared scope would revoke siblings.
-  const keyScopeId = agent === "codex" ? rootId : repoFolder.id;
-  if (agent === "codex" && !reusableKey) {
-    const cx = readCodexMcpEntry();
-    if (cx?.key && (await probeKey(cx.entry, cx.key))) {
-      reusableKey = cx.key;
-      reusableEntry = cx.entry;
-      reusableMintedAt = new Date().toISOString();
-    }
+  let reusableKey: string | null = null;
+  let reusableEntry: McpEntry | null = null;
+  const stored = getRootKey(rootId!);
+  if (
+    stored &&
+    (await probeKey({ url: stored.url, headers: stored.headers }, stored.key))
+  ) {
+    reusableKey = stored.key;
+    reusableEntry = { url: stored.url, headers: stored.headers };
   }
 
   let key: { key: string; mcp_config: unknown };
@@ -380,13 +341,13 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
       key: reusableKey,
       mcp_config: { mcpServers: { kioku: reusableEntry } },
     };
-    keyMintedAt = reusableMintedAt ?? new Date().toISOString();
-    ok(`Reusing API key minted ${relTime(keyMintedAt)}  (verified)`);
+    keyMintedAt = priorState?.api_key_minted_at ?? new Date().toISOString();
+    ok(`Reusing the "${rootName}" root key  (shared across its repos)`);
   } else {
     key = await step("Minting API key", () =>
       mintScopedApiKey({
-        scope_folder_id: keyScopeId,
-        name: `cli-${desiredName}-${new Date().toISOString().slice(0, 10)}`,
+        scope_folder_id: rootId!,
+        name: `cli-${rootName}-${new Date().toISOString().slice(0, 10)}`,
       })
     );
     keyMintedAt = new Date().toISOString();
@@ -401,6 +362,14 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
       >;
     }
   ).mcpServers["kioku"];
+
+  // Persist the root key so every OTHER repo of this root (and re-inits) reuse
+  // it instead of minting a fresh one that would revoke this one.
+  saveRootKey(rootId!, {
+    key: key.key,
+    url: mcpEntry.url,
+    headers: mcpEntry.headers,
+  });
 
   if (agent === "codex") {
     // Codex surface: global ~/.codex/config.toml (MCP + SessionStart/Stop) +

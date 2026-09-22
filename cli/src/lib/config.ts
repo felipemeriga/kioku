@@ -12,7 +12,13 @@
  * project and easy to revoke by deleting the repo binding.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+  chmodSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 
@@ -45,11 +51,9 @@ function resolveApiBase(fromFile: string | undefined): string {
   return process.env.KIOKU_API_BASE || fromFile || DEFAULT_API_BASE;
 }
 
-function configDir(): string {
+export function configDir(): string {
   const xdg = process.env.XDG_CONFIG_HOME;
-  return xdg
-    ? join(xdg, "kioku")
-    : join(homedir(), ".config", "kioku");
+  return xdg ? join(xdg, "kioku") : join(homedir(), ".config", "kioku");
 }
 
 function configPath(): string {
