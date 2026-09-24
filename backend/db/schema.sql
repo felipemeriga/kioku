@@ -440,9 +440,6 @@ ALTER TABLE ONLY "public"."api_keys"
 
 
 
-ALTER TABLE ONLY "public"."api_keys"
-    ADD CONSTRAINT "api_keys_user_scope_unique" UNIQUE ("user_id", "scope_folder_id");
-
 
 
 ALTER TABLE ONLY "public"."checkpoint_blobs"
