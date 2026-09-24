@@ -89,13 +89,17 @@ async def create_api_key(
     body: CreateKeyRequest,
     user_id: str = Depends(get_current_user),
 ) -> CreateKeyResponse:
-    """Generate a new API key scoped to a root folder. Replaces existing key for same scope."""
+    """Generate a new API key scoped to a folder.
+
+    Multiple keys are allowed per (user, scope) — the CLI mints one root-scoped
+    key per MACHINE (each computer has its own local key store), and a second
+    machine's key must NOT revoke the first's. So we do not delete existing
+    same-scope keys here; the (user_id, scope_folder_id) unique constraint was
+    dropped for the same reason. Keys are cheap and independent (looked up by
+    key_hash); the user can revoke any from the UI.
+    """
     sb = get_supabase()
     validate_scope_folder(body.scope_folder_id, user_id)
-
-    sb.table("api_keys").delete().eq("user_id", user_id).eq(
-        "scope_folder_id", body.scope_folder_id
-    ).execute()
 
     raw_key = f"rag_{secrets.token_hex(32)}"
     key_hash = _hash_key(raw_key)
