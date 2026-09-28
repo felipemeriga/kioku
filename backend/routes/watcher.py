@@ -261,6 +261,101 @@ async def refresh_activity(body: ActivityRefreshRequest, request: Request):
     return {"ok": True, "updated": True, "commits": len(body.commits)}
 
 
+# Sections the watcher may auto-maintain from the changed files themselves —
+# concrete, path-driven sections that a diff updates accurately. The holistic
+# sections (architecture/overview) still need a full regen and are only warned
+# about, never auto-written here.
+WATCHER_MAINTAINED_SECTIONS = {"dependencies", "deployment", "how_it_runs", "important_files"}
+
+
+class SectionFile(BaseModel):
+    path: str = Field(max_length=400)
+    content: str = Field(max_length=12000)
+
+
+class SectionRefreshRequest(BaseModel):
+    folder_id: str
+    section: str = Field(max_length=40)
+    head_sha: str = Field(default="", max_length=64)
+    files: list[SectionFile] = Field(default_factory=list, max_length=12)
+
+
+@router.post("/section")
+async def refresh_section(body: SectionRefreshRequest, request: Request):
+    """Fold the CURRENT content of changed files into one concrete briefing
+    section (dependencies/deployment/how_it_runs/important_files) via a cheap
+    Haiku call — the same treatment activity gets, extended to the path-driven
+    prose sections. Holistic sections (architecture/overview) are rejected;
+    they need a full regen. Preserves the section's existing JSON shape."""
+    if body.section not in WATCHER_MAINTAINED_SECTIONS:
+        return {"ok": True, "updated": False, "reason": f"'{body.section}' not auto-maintained"}
+    if not body.files:
+        return {"ok": True, "updated": False, "reason": "no files"}
+
+    user_id, scope_id, _raw = _api_key_auth(request)
+    sb = get_supabase()
+
+    from mcp_server import _descendant_folder_ids
+
+    if body.folder_id not in _descendant_folder_ids(sb, scope_id, user_id):
+        raise HTTPException(status_code=403, detail="folder_id not in api key scope")
+
+    from services.folder_summary.repo import get_latest_summary
+
+    latest = get_latest_summary(sb, body.folder_id, user_id)
+    if not latest:
+        return {"ok": True, "updated": False, "reason": "no briefing yet"}
+
+    sections = latest.get("sections") or ((latest.get("content") or {}).get("sections")) or {}
+    current = (sections.get(body.section) or {}).get("content")
+    if current is None:
+        # Nothing to update in place — a section that was never generated needs
+        # the full regen path, not a diff fold.
+        return {"ok": True, "updated": False, "reason": "section not present"}
+
+    import json as _json
+
+    from services.llm import Task, complete
+
+    file_blobs = "\n\n".join(f"--- {f.path} ---\n{f.content}" for f in body.files)
+    prompt = (
+        f"You maintain the `{body.section}` section of a repository briefing. "
+        "Update it to reflect the CURRENT state of the files below (they changed "
+        "since the section was last written). Keep it accurate and concise, and "
+        "return it in EXACTLY the same JSON shape as the current section — same "
+        "keys, same structure — just with updated values.\n\n"
+        f"CURRENT SECTION (JSON):\n{_json.dumps(current)[:6000]}\n\n"
+        f"CHANGED FILES:\n{file_blobs[:9000]}\n\n"
+        "Reply with ONLY the updated section as valid JSON, same shape as CURRENT."
+    )
+    response = complete(
+        task=Task.FOLDER_SUMMARY_ROLLUP,
+        max_tokens=1500,
+        system="You update repo briefing sections from source files. Output only valid JSON.",
+        messages=[{"role": "user", "content": prompt}],
+    )
+    text = "".join(b.text for b in response.content if hasattr(b, "text")).strip()
+    if text.startswith("```"):
+        text = text.strip("`").removeprefix("json").strip()
+    try:
+        new_content = _json.loads(text)
+    except _json.JSONDecodeError:
+        raise HTTPException(status_code=502, detail="section model returned invalid JSON")
+
+    from services.folder_summary.briefing_schema import new_section
+
+    sections[body.section] = new_section(
+        new_content, status="auto", provenance="auto", updated_by="watcher"
+    )
+    content = latest.get("content") or {}
+    if "sections" in content:
+        content["sections"] = sections
+    else:
+        content = sections
+    sb.table("folder_summaries").update({"content": content}).eq("id", latest["id"]).execute()
+    return {"ok": True, "updated": True, "section": body.section}
+
+
 class RegisterRepoRequest(BaseModel):
     folder_id: str
     remote_url: str = Field(min_length=8, max_length=500)

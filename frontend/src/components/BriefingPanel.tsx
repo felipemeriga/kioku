@@ -187,20 +187,20 @@ export default function BriefingPanel({ folderId }: Props) {
 
   const hasBriefing = Boolean(data.last_generated_at);
   const freshness = data.freshness;
-  const isStale =
-    !!freshness &&
-    (freshness.commits_behind > 0 || (freshness.stale_sections?.length ?? 0) > 0);
+  // Only the holistic sections (architecture/overview) are warned about — the
+  // concrete ones (dependencies/deployment/how_it_runs) are auto-maintained by
+  // the watcher, so a "commits behind" count alone is not a staleness signal.
+  const staleSections = freshness?.stale_sections ?? [];
+  const isStale = staleSections.length > 0;
 
   return (
     <Stack spacing={2}>
       {hasBriefing && isStale && (
         <Alert severity="warning" sx={{ py: 0.5 }}>
-          The repo has {freshness!.commits_behind} commit(s) newer than this
-          briefing
-          {freshness!.stale_sections?.length
-            ? ` — likely stale: ${freshness!.stale_sections.join(", ")}`
-            : ""}
-          . Regenerate with <code>kioku init --force</code> when convenient.
+          <strong>{staleSections.join(", ")}</strong> may be out of date — these
+          sections need a full pass to stay accurate (the watcher keeps the rest
+          fresh automatically). Regenerate with{" "}
+          <code>kioku init --force</code> when convenient.
         </Alert>
       )}
       <Stack
