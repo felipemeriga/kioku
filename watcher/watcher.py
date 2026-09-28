@@ -46,8 +46,9 @@ MCP_URL = os.environ["KIOKU_MCP_URL"]
 API_URL = os.environ.get("KIOKU_API_URL", "").rstrip("/")
 DATA = Path(os.environ.get("WATCHER_DATA", "/data"))
 
-# Which briefing prose sections go stale when which paths change. Prose is
-# never auto-regenerated — this only powers the staleness WARNING.
+# Which files drive which concrete briefing section. refresh_sections folds a
+# section's changed files back into it (auto-maintained, like activity); the
+# holistic sections (architecture/overview) are only warned about, never folded.
 SECTION_PATH_RULES: dict[str, list[str]] = {
     "dependencies": [
         "package.json",
@@ -83,9 +84,7 @@ def rest_get(path: str, params: dict) -> list[dict]:
 
 
 def rest_patch(path: str, params: dict, body: dict) -> None:
-    r = requests.patch(
-        f"{REST}/{path}", headers=HEADERS, params=params, json=body, timeout=30
-    )
+    r = requests.patch(f"{REST}/{path}", headers=HEADERS, params=params, json=body, timeout=30)
     r.raise_for_status()
 
 
@@ -180,11 +179,7 @@ def compute_freshness(clone: Path, repo: dict, env: dict) -> None:
         return  # no briefing yet — nothing to be stale
     generated_at = rows[0]["generated_at"]
     content = rows[0].get("content") or {}
-    sections = (
-        content.get("sections")
-        if isinstance(content.get("sections"), dict)
-        else content
-    )
+    sections = content.get("sections") if isinstance(content.get("sections"), dict) else content
 
     code, head, _ = run_git(["rev-parse", "HEAD"], env, cwd=str(clone))
     if code != 0:
@@ -196,19 +191,9 @@ def compute_freshness(clone: Path, repo: dict, env: dict) -> None:
 
     stale: list[str] = []
     changed_total = 0
-    for section, rules in SECTION_PATH_RULES.items():
-        since = ((sections or {}).get(section) or {}).get("updated_at") or generated_at
-        code, out, _ = run_git(
-            ["log", f"--since={since}", "--name-only", "--pretty=format:"],
-            env,
-            cwd=str(clone),
-        )
-        if code != 0:
-            continue
-        changed = {line.strip() for line in out.split("\n") if line.strip()}
-        changed_total = max(changed_total, len(changed))
-        if any(any(rule in f.lower() for rule in rules) for f in changed):
-            stale.append(section)
+    # dependencies/deployment/how_it_runs are AUTO-MAINTAINED by refresh_sections
+    # (the watcher folds their changed files in), so they are not warned about
+    # here — only the holistic sections below, which need a full regen.
 
     # Architecture/overview: stale on broad source churn since their update.
     for section in ("architecture", "overview"):
@@ -223,10 +208,7 @@ def compute_freshness(clone: Path, repo: dict, env: dict) -> None:
         source_changed = {
             f
             for f in (line.strip() for line in out.split("\n"))
-            if f
-            and not f.lower().endswith(
-                (".md", ".txt", ".json", ".lock", ".yml", ".yaml")
-            )
+            if f and not f.lower().endswith((".md", ".txt", ".json", ".lock", ".yml", ".yaml"))
         }
         changed_total = max(changed_total, len(source_changed))
         if len(source_changed) >= ARCH_CHURN_THRESHOLD:
@@ -254,9 +236,7 @@ def compute_freshness(clone: Path, repo: dict, env: dict) -> None:
         )
 
 
-def refresh_activity(
-    clone: Path, repo: dict, old_sha: str | None, new_sha: str, env: dict
-) -> None:
+def refresh_activity(clone: Path, repo: dict, old_sha: str | None, new_sha: str, env: dict) -> None:
     """Fold the new commit range into the briefing's activity section via the
     backend (Haiku) — the one auto-maintained section."""
     if not API_URL or not repo.get("api_key_encrypted"):
@@ -298,13 +278,74 @@ def refresh_activity(
             timeout=120,
         )
         if r.ok and (r.json() or {}).get("updated"):
-            log(
-                f"{repo['remote_url']}: activity section refreshed ({len(commits)} commits)"
-            )
+            log(f"{repo['remote_url']}: activity section refreshed ({len(commits)} commits)")
         else:
             log(f"{repo['remote_url']}: activity refresh skipped — {r.text[:150]}")
     except Exception as exc:  # noqa: BLE001 — activity is best-effort
         log(f"{repo['remote_url']}: activity refresh failed — {exc}")
+
+
+def refresh_sections(clone: Path, repo: dict, env: dict) -> None:
+    """Fold changed path-driven files into their concrete briefing sections
+    (dependencies/deployment/how_it_runs) via the backend (cheap Haiku) — the
+    same treatment activity gets. Holistic sections (architecture/overview) are
+    left for a full regen; compute_freshness only warns about those."""
+    if not API_URL or not repo.get("api_key_encrypted"):
+        return
+    rows = rest_get(
+        "folder_summaries",
+        {
+            "folder_id": f"eq.{repo['folder_id']}",
+            "select": "generated_at,content",
+            "order": "generated_at.desc",
+            "limit": "1",
+        },
+    )
+    if not rows:
+        return
+    generated_at = rows[0]["generated_at"]
+    content = rows[0].get("content") or {}
+    sections = content.get("sections") if isinstance(content.get("sections"), dict) else content
+    sections = sections or {}
+    key = decrypt(repo["api_key_encrypted"])
+
+    for section, rules in SECTION_PATH_RULES.items():
+        sec = sections.get(section) or {}
+        if not sec.get("content"):
+            continue  # never generated — needs a full regen, not a diff fold
+        since = sec.get("updated_at") or generated_at
+        code, out, _ = run_git(
+            ["log", f"--since={since}", "--name-only", "--pretty=format:"],
+            env,
+            cwd=str(clone),
+        )
+        if code != 0:
+            continue
+        changed = {line.strip() for line in out.split("\n") if line.strip()}
+        matched = sorted(f for f in changed if any(r in f.lower() for r in rules))
+        if not matched:
+            continue
+        files = []
+        for f in matched[:8]:
+            p = clone / f
+            try:
+                if p.is_file() and p.stat().st_size < 60_000:
+                    files.append({"path": f, "content": p.read_text(errors="replace")[:10000]})
+            except OSError:
+                continue
+        if not files:
+            continue
+        try:
+            r = requests.post(
+                f"{API_URL}/api/watcher/section",
+                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                json={"folder_id": repo["folder_id"], "section": section, "files": files},
+                timeout=120,
+            )
+            if r.ok and (r.json() or {}).get("updated"):
+                log(f"{repo['remote_url']}: {section} section refreshed ({len(files)} file(s))")
+        except Exception as exc:  # noqa: BLE001 — best-effort
+            log(f"{repo['remote_url']}: {section} refresh failed — {exc}")
 
 
 def process_repo(repo: dict, key_row: dict) -> None:
@@ -361,9 +402,7 @@ def process_repo(repo: dict, key_row: dict) -> None:
                 record({"last_error": f"clone: {err[:300]}"})
                 return
         else:
-            code, _, err = run_git(
-                ["fetch", "origin", repo["branch"]], env, cwd=str(clone)
-            )
+            code, _, err = run_git(["fetch", "origin", repo["branch"]], env, cwd=str(clone))
             if code == 0:
                 code, _, err = run_git(
                     ["reset", "--hard", f"origin/{repo['branch']}"], env, cwd=str(clone)
@@ -373,17 +412,13 @@ def process_repo(repo: dict, key_row: dict) -> None:
                 record({"last_error": f"fetch: {err[:300]}"})
                 return
 
-    folder = rest_get(
-        "folders", {"id": f"eq.{repo['folder_id']}", "select": "name", "limit": "1"}
-    )
+    folder = rest_get("folders", {"id": f"eq.{repo['folder_id']}", "select": "name", "limit": "1"})
     folder_name = folder[0]["name"] if folder else "repo"
     if not repo.get("api_key_encrypted"):
         log(f"ERROR {name}: no api key registered — re-run kioku init in the repo")
         record({"last_error": "no api key registered"})
         return
-    seed_bindings(
-        clone, repo["folder_id"], folder_name, decrypt(repo["api_key_encrypted"])
-    )
+    seed_bindings(clone, repo["folder_id"], folder_name, decrypt(repo["api_key_encrypted"]))
 
     ok, tail = kioku_index(clone)
     plain_env = {
@@ -394,6 +429,7 @@ def process_repo(repo: dict, key_row: dict) -> None:
         log(f"{name}: indexed {remote_sha[:10]}")
         record({"last_sha": remote_sha, "last_error": None})
         refresh_activity(clone, repo, repo.get("last_sha"), remote_sha, plain_env)
+        refresh_sections(clone, repo, plain_env)
     else:
         log(f"ERROR {name}: kioku index failed — {tail[-200:]}")
         record({"last_error": f"index: {tail[-300:]}"})
@@ -409,9 +445,7 @@ def main() -> int:
         k["user_id"]: k
         for k in rest_get("user_git_keys", {"select": "user_id,private_key_encrypted"})
     }
-    log(
-        f"watching {len(repos)} repo(s) across {len({r['user_id'] for r in repos})} user(s)"
-    )
+    log(f"watching {len(repos)} repo(s) across {len({r['user_id'] for r in repos})} user(s)")
     failures = 0
     for repo in repos:
         key_row = keys.get(repo["user_id"])
@@ -433,12 +467,9 @@ def run_service(schedule_raw: str) -> None:
     restart policy only matters for crashes outside a pass (e.g. bad env).
     """
     times = sorted(
-        (int(h), int(m))
-        for h, m in (t.strip().split(":") for t in schedule_raw.split(","))
+        (int(h), int(m)) for h, m in (t.strip().split(":") for t in schedule_raw.split(","))
     )
-    log(
-        f"service mode — schedule (UTC): {', '.join(f'{h:02d}:{m:02d}' for h, m in times)}"
-    )
+    log(f"service mode — schedule (UTC): {', '.join(f'{h:02d}:{m:02d}' for h, m in times)}")
     while True:
         try:
             main()
