@@ -955,11 +955,19 @@ class CodeChunkIn(BaseModel):
     content: str = Field(max_length=20_000)
 
 
+# A single file that chunks into more pieces than this has its tail dropped
+# server-side rather than 422-ing the whole upload batch. A hard Pydantic
+# max_length here used to reject the entire request when one generated file
+# exceeded it, which made the CLI abort the run and leave every file after it
+# (whole crates) unindexed. Clamp, don't reject.
+MAX_CHUNKS_PER_FILE = 2_000
+
+
 class CodeFileIn(BaseModel):
     file: str
     language: str | None = None
     file_hash: str
-    chunks: list[CodeChunkIn] = Field(default_factory=list, max_length=500)
+    chunks: list[CodeChunkIn] = Field(default_factory=list)
 
 
 class CodeChunksDelta(BaseModel):
@@ -1034,7 +1042,7 @@ async def code_chunks_upload(body: CodeChunksDelta, request: Request):
 
     rows: list[dict] = []
     for f in body.files:
-        for c in f.chunks:
+        for c in f.chunks[:MAX_CHUNKS_PER_FILE]:
             if not c.content.strip():
                 continue
             rows.append(
