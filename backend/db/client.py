@@ -15,9 +15,16 @@ def _make_httpx_client() -> httpx.Client:
     Uses HTTP/1.1 and retries to avoid stale HTTP/2 connection errors
     (RemoteProtocolError: Server disconnected) that occur when the server
     closes idle pooled connections.
+
+    The default httpx read timeout is 5s, which is too aggressive for
+    inserts into the HNSW-indexed `code_chunks` table under load: a burst
+    of vector inserts (e.g. a first full code index) legitimately takes
+    longer than 5s and was failing with ReadTimeout. Give all Supabase
+    calls a generous 60s read/write budget (connect stays tight).
     """
     transport = httpx.HTTPTransport(retries=3, http2=False)
-    return httpx.Client(transport=transport)
+    timeout = httpx.Timeout(60.0, connect=10.0)
+    return httpx.Client(transport=transport, timeout=timeout)
 
 
 def _create_supabase_client() -> Client:
