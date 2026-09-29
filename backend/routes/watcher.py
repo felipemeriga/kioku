@@ -249,15 +249,19 @@ async def refresh_activity(body: ActivityRefreshRequest, request: Request):
 
     from services.folder_summary.briefing_schema import new_section
 
-    sections["activity"] = new_section(
-        new_activity, status="auto", provenance="auto", updated_by="watcher"
-    )
-    content = latest.get("content") or {}
-    if "sections" in content:
-        content["sections"] = sections
-    else:
-        content = sections
-    sb.table("folder_summaries").update({"content": content}).eq("id", latest["id"]).execute()
+    # Atomic single-section write (jsonb_set under the row lock) so a concurrent
+    # section refresh in the same watcher pass can't clobber this one.
+    sb.rpc(
+        "set_briefing_section",
+        {
+            "p_folder_id": body.folder_id,
+            "p_user_id": user_id,
+            "p_section": "activity",
+            "p_value": new_section(
+                new_activity, status="auto", provenance="auto", updated_by="watcher"
+            ),
+        },
+    ).execute()
     return {"ok": True, "updated": True, "commits": len(body.commits)}
 
 
@@ -344,15 +348,19 @@ async def refresh_section(body: SectionRefreshRequest, request: Request):
 
     from services.folder_summary.briefing_schema import new_section
 
-    sections[body.section] = new_section(
-        new_content, status="auto", provenance="auto", updated_by="watcher"
-    )
-    content = latest.get("content") or {}
-    if "sections" in content:
-        content["sections"] = sections
-    else:
-        content = sections
-    sb.table("folder_summaries").update({"content": content}).eq("id", latest["id"]).execute()
+    # Atomic single-section write (see /activity) — never overwrite the whole
+    # content, so parallel section refreshes compose instead of clobbering.
+    sb.rpc(
+        "set_briefing_section",
+        {
+            "p_folder_id": body.folder_id,
+            "p_user_id": user_id,
+            "p_section": body.section,
+            "p_value": new_section(
+                new_content, status="auto", provenance="auto", updated_by="watcher"
+            ),
+        },
+    ).execute()
     return {"ok": True, "updated": True, "section": body.section}
 
 
