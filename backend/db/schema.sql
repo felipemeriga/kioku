@@ -175,12 +175,18 @@ BEGIN
         RETURN false;
     END IF;
     UPDATE public.folder_summaries
-    SET content = jsonb_set(
-        COALESCE(content, '{}'::jsonb),
-        ARRAY['sections', p_section],
-        p_value,
-        true
-    )
+    SET sections = jsonb_set(
+            COALESCE(sections, '{}'::jsonb),
+            ARRAY[p_section],
+            p_value,
+            true
+        ),
+        content = jsonb_set(
+            COALESCE(content, '{}'::jsonb),
+            ARRAY['sections', p_section],
+            p_value,
+            true
+        )
     WHERE id = v_id;
     RETURN true;
 END;
