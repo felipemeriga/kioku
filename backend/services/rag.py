@@ -56,6 +56,23 @@ Ground every claim in what you retrieved and cite sources — file:line for code
 for documents. If after honest effort the knowledge base does not cover it, say so plainly rather \
 than guessing."""
 
+# Extended-thinking budget for deep (full-mode) agent turns. < max_tokens so
+# thinking and the answer share the ceiling.
+_DEEP_THINKING_BUDGET = 2048
+
+
+def _agent_params(fast_mode: bool) -> tuple[Task, int, int | None]:
+    """(task, max_tokens, thinking_budget) for the agent loop.
+
+    Full mode routes to a stronger reasoner with extended thinking so the loop
+    can plan, cross-check, and verify. Fast mode stays on Haiku with no thinking
+    for quick, cheap lookups. Both share the same prompt, tools, and loop — only
+    the model + thinking differ, so the eval path can never drift from prod.
+    """
+    if fast_mode:
+        return Task.RAG_AGENT, 4096, None
+    return Task.RAG_AGENT_DEEP, 8192, _DEEP_THINKING_BUDGET
+
 
 @traceable(name="answer_question", run_type="chain")
 def answer_question(
@@ -92,16 +109,15 @@ def answer_question(
     max_rounds = 10
     tool_call_count = 0
     rounds_used = 0
+    task, max_tokens, thinking_budget = _agent_params(fast_mode)
 
     for round_num in range(max_rounds):
         rounds_used = round_num + 1
         with stage(f"round {round_num + 1}: anthropic call"):
             response = complete(
-                task=Task.RAG_AGENT,
-                # 1024 truncated rich answers on comparison/multi-hop questions.
-                # Haiku supports up to 8192; 4096 is plenty for thorough answers
-                # without leaving the runaway-loop ceiling too open.
-                max_tokens=4096,
+                task=task,
+                max_tokens=max_tokens,
+                thinking_budget=thinking_budget,
                 system=SYSTEM_PROMPT,
                 messages=messages,
                 tools=TOOL_DEFINITIONS,
@@ -319,12 +335,14 @@ def _run_loop_and_stream_final(
     """
     messages = list(history or []) + [{"role": "user", "content": user_message}]
     max_rounds = 10
+    task, max_tokens, thinking_budget = _agent_params(fast_mode)
 
     for round_num in range(max_rounds):
         with stage(f"round {round_num + 1}: anthropic stream"):
             with stream_complete(
-                task=Task.RAG_AGENT,
-                max_tokens=4096,
+                task=task,
+                max_tokens=max_tokens,
+                thinking_budget=thinking_budget,
                 system=SYSTEM_PROMPT,
                 messages=messages,
                 tools=TOOL_DEFINITIONS,
