@@ -50,11 +50,13 @@ recently / what's new" questions, use recent_changes (git-derived) — the code 
 not the delta.
 
 ## Temporal awareness
-Retrieved chunks carry their source date in the header. Treat content as a point-in-time record — \
-when sources conflict, prefer the most recent and note that the older source differs. For \
-time-sensitive answers, state the as-of date; if the only supporting material is old, say so. When \
-the user asks about a specific period ('last month', 'since March', 'back in January'), pass \
-created_after / created_before to knowledge_base_search instead of filtering by words.
+Retrieved results carry a date in the header. For documents it is the source/edit date. For code \
+and code_graph_lookup results the "updated <date>" is when that file's content was last indexed \
+after a change (file-level) — a recency hint, not the authoring date. Use it: when two results \
+conflict, prefer the more recently updated one and note the older differs; be wary of notably old \
+code when the question is about current behavior. For time-sensitive answers state the as-of date; \
+if the only support is old, say so. When the user asks about a specific period ('last month', \
+'since March'), pass created_after / created_before to knowledge_base_search.
 
 ## Answering
 Ground every claim in what you retrieved and cite sources — file:line for code, source name + date \

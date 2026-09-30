@@ -167,23 +167,34 @@ def _code_graph_lookup(tool_input: dict, scope_folder_ids: list[str] | None) -> 
 
     sb = get_supabase()
     names = _folder_names(sb, folders)
+
+    def _when(row: dict) -> str:
+        # File's last-(re)indexed-after-change date, so the agent can weigh recency.
+        d = str(row.get("updated_at") or "")[:10]
+        return f" (updated {d})" if d else ""
+
     lines: list[str] = []
     for fid in folders:
         repo = names.get(fid, fid)
         if op == "definition":
             for r in graph_store.find_definition(sb, folder_id=fid, symbol=symbol):
-                lines.append(f"[{repo}] {r['kind']} {r['symbol']} — {r['file']}:{r['start_line']}")
+                lines.append(
+                    f"[{repo}] {r['kind']} {r['symbol']} — {r['file']}:{r['start_line']}{_when(r)}"
+                )
         elif op == "references":
             for r in graph_store.find_references(sb, folder_id=fid, symbol=symbol):
                 lines.append(f"[{repo}] {r['relation']} at {r['ref_file']}:{r['ref_line']}")
         elif op == "impact":
             for r in graph_store.impact_of(sb, folder_id=fid, symbol=symbol):
                 lines.append(
-                    f"[{repo}] depth {r['depth']}: {r['symbol']} — {r['file']}:{r['start_line']}"
+                    f"[{repo}] depth {r['depth']}: {r['symbol']} — "
+                    f"{r['file']}:{r['start_line']}{_when(r)}"
                 )
         elif op == "outline":
             for r in graph_store.outline(sb, folder_id=fid, path=path):
-                lines.append(f"[{repo}] {r['kind']} {r['symbol']} — {r['file']}:{r['start_line']}")
+                lines.append(
+                    f"[{repo}] {r['kind']} {r['symbol']} — {r['file']}:{r['start_line']}{_when(r)}"
+                )
         else:
             return f"Unknown code_graph_lookup operation: '{op}'."
 
@@ -269,9 +280,13 @@ def execute_tool(
             source = meta.get("source_filename", "unknown")
             if r.get("source_type") == "code":
                 # Code hits are actual source, not documentation — label them so
-                # the model can distinguish ground truth from narrative.
+                # the model can distinguish ground truth from narrative. The date
+                # is when this file's content was last (re)indexed after a change
+                # (file-level), so the agent can weigh recency.
                 symbol = meta.get("code_symbol")
-                header = f"[Code: {source} — {symbol}]" if symbol else f"[Code: {source}]"
+                updated = str(r.get("created_at") or "")[:10]
+                label = f"{source} — {symbol}" if symbol else source
+                header = f"[Code: {label} — updated {updated}]" if updated else f"[Code: {label}]"
             else:
                 # Date in the header lets the model weigh freshness and cite
                 # as-of dates — retrieval alone can't resolve conflicting facts.
