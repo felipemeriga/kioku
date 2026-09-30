@@ -10,9 +10,16 @@ describe("ThinkingBar", () => {
     expect(container.querySelector('[data-testid="thinking-bar"]')).toBeNull();
   });
 
-  it('renders "Searching documents..." for searching stage', () => {
+  it('renders "Reasoning..." for thinking stage', () => {
+    renderWithProviders(<ThinkingBar stage={{ stage: "thinking" }} />);
+    expect(screen.getByText("Reasoning...")).toBeInTheDocument();
+  });
+
+  it("renders the searching stage", () => {
     renderWithProviders(<ThinkingBar stage={{ stage: "searching" }} />);
-    expect(screen.getByText("Searching documents...")).toBeInTheDocument();
+    expect(
+      screen.getByText("Searching documents & code...")
+    ).toBeInTheDocument();
   });
 
   it("renders analyzing stage with doc count", () => {
@@ -38,7 +45,9 @@ describe("ThinkingBar", () => {
     const activeSegments = container.querySelectorAll(
       '[data-segment-status="active"]'
     );
-    expect(completedSegments).toHaveLength(2);
+    // STAGES = [thinking, searching, analyzing, generating] → generating is
+    // last, so the three prior segments are completed.
+    expect(completedSegments).toHaveLength(3);
     expect(activeSegments).toHaveLength(1);
   });
 });

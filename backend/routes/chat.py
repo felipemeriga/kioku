@@ -1,3 +1,5 @@
+from typing import Literal
+
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -15,7 +17,9 @@ class ChatRequest(BaseModel):
     content: str
     topic: str | None = None
     keyword: str | None = None
-    fast_mode: bool = False
+    # Two independent knobs: which model, and whether to use extended thinking.
+    model: Literal["haiku", "sonnet"] = "sonnet"
+    reasoning: bool = True
     # RAG scope: restrict retrieval to a folder subtree and/or one document.
     scope_folder_id: str | None = None
     scope_filename: str | None = None
@@ -38,7 +42,8 @@ async def chat(request: ChatRequest, user_id: str = Depends(get_current_user)):
             user_id=user_id,
             topic=request.topic,
             keyword=request.keyword,
-            fast_mode=request.fast_mode,
+            model=request.model,
+            reasoning=request.reasoning,
             scope_folder_id=request.scope_folder_id,
             scope_filename=request.scope_filename,
         )

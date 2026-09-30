@@ -18,11 +18,11 @@ class Task(str, Enum):
     TEXT_TO_SQL = "text_to_sql"
     EVAL_JUDGE = "eval_judge"
     RAG_AGENT = "rag_agent"
-    # Deep agentic chat: full (non-fast) mode routes here for a stronger
-    # reasoner + extended thinking, so the loop can plan, cross-check, and
-    # verify instead of answering from the first retrieval. Fast mode stays on
-    # RAG_AGENT (Haiku) for quick lookups.
-    RAG_AGENT_DEEP = "rag_agent_deep"
+    # Sonnet route for the agentic chat. Model (Haiku vs Sonnet) and reasoning
+    # (extended thinking on/off) are independent knobs now — RAG_AGENT is the
+    # Haiku route, RAG_AGENT_SONNET the Sonnet route; either can run with or
+    # without thinking (see rag._agent_params).
+    RAG_AGENT_SONNET = "rag_agent_sonnet"
     FOLDER_SUMMARY_DOC = "folder_summary_doc"
     FOLDER_SUMMARY_ROLLUP = "folder_summary_rollup"
 
@@ -35,7 +35,7 @@ MODEL_FOR_TASK: dict[Task, str] = {
     Task.TEXT_TO_SQL: "claude-haiku-4-5-20251001",
     Task.EVAL_JUDGE: "claude-haiku-4-5-20251001",
     Task.RAG_AGENT: "claude-haiku-4-5-20251001",
-    Task.RAG_AGENT_DEEP: "claude-sonnet-4-6",
+    Task.RAG_AGENT_SONNET: "claude-sonnet-4-6",
     Task.FOLDER_SUMMARY_DOC: "claude-haiku-4-5-20251001",
     Task.FOLDER_SUMMARY_ROLLUP: "claude-haiku-4-5-20251001",
 }

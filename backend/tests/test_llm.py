@@ -103,7 +103,7 @@ class TestComplete(unittest.TestCase):
         mock_client = self._patched_client()
         with patch("services.llm.get_client", return_value=mock_client):
             complete(
-                task=Task.RAG_AGENT_DEEP,
+                task=Task.RAG_AGENT_SONNET,
                 messages=[{"role": "user", "content": "hi"}],
                 max_tokens=8192,
                 thinking_budget=2048,
@@ -126,21 +126,24 @@ class TestComplete(unittest.TestCase):
 
 
 class TestAgentParams(unittest.TestCase):
-    def test_fast_mode_is_haiku_no_thinking(self):
+    def test_model_and_reasoning_are_independent(self):
         from services.llm import MODEL_FOR_TASK
         from services.rag import _agent_params
 
-        task, max_tokens, thinking = _agent_params(fast_mode=True)
-        self.assertIn("haiku", MODEL_FOR_TASK[task])
-        self.assertIsNone(thinking)
-
-    def test_full_mode_is_deep_with_thinking(self):
-        from services.llm import MODEL_FOR_TASK
-        from services.rag import _agent_params
-
-        task, max_tokens, thinking = _agent_params(fast_mode=False)
-        self.assertIn("sonnet", MODEL_FOR_TASK[task])
-        self.assertTrue(thinking and thinking < max_tokens)
+        # model picks the model; reasoning picks thinking — orthogonally.
+        cases = [
+            ("haiku", False, "haiku", False),
+            ("haiku", True, "haiku", True),
+            ("sonnet", False, "sonnet", False),
+            ("sonnet", True, "sonnet", True),
+        ]
+        for model, reasoning, want_model, want_thinking in cases:
+            task, max_tokens, thinking = _agent_params(model, reasoning)
+            self.assertIn(want_model, MODEL_FOR_TASK[task])
+            if want_thinking:
+                self.assertTrue(thinking and thinking < max_tokens)
+            else:
+                self.assertIsNone(thinking)
 
 
 if __name__ == "__main__":

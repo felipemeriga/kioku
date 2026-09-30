@@ -2,7 +2,13 @@ import { useState, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import ChatArea from "../components/ChatArea";
 import ScopePickerDialog from "../components/ScopePickerDialog";
-import type { Message, ChatFilters, ChatScope, StageEvent } from "../lib/api";
+import type {
+  Message,
+  ChatFilters,
+  ChatModel,
+  ChatScope,
+  StageEvent,
+} from "../lib/api";
 import { streamChat } from "../lib/api";
 import { useConversationsContext } from "../hooks/useConversationsContext";
 import { useToast, messageFromError } from "../components/ToastProvider";
@@ -72,7 +78,8 @@ export default function ChatPage() {
   const handleSend = async (
     content: string,
     filters?: ChatFilters,
-    fastMode?: boolean
+    model?: ChatModel,
+    reasoning?: boolean
   ) => {
     if (!selectedId || isStreaming) return;
 
@@ -128,7 +135,8 @@ export default function ChatPage() {
         },
         scopedFilters,
         (stage) => setCurrentStage(stage),
-        fastMode
+        model,
+        reasoning
       );
     } catch (err) {
       // Preserve any partial content the assistant already streamed by

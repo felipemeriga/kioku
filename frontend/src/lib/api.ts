@@ -317,6 +317,8 @@ export interface ChatScope {
 
 export type ChatStage = "thinking" | "searching" | "analyzing" | "generating";
 
+export type ChatModel = "haiku" | "sonnet";
+
 export interface StageEvent {
   stage: ChatStage;
   docs?: number;
@@ -339,7 +341,8 @@ export async function streamChat(
   onDone: () => void,
   filters?: ChatFilters,
   onStage?: (event: StageEvent) => void,
-  fastMode?: boolean,
+  model?: ChatModel,
+  reasoning?: boolean,
   onError?: (err: ApiError) => void
 ): Promise<void> {
   // A stream is "clean" only if it emits a data.done frame. Anything else —
@@ -371,7 +374,8 @@ export async function streamChat(
         content,
         topic: filters?.topic || null,
         keyword: filters?.keyword || null,
-        fast_mode: fastMode ?? false,
+        model: model ?? "sonnet",
+        reasoning: reasoning ?? true,
         scope_folder_id: filters?.scopeFolderId || null,
         scope_filename: filters?.scopeFilename || null,
       }),

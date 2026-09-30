@@ -15,13 +15,24 @@ import SendIcon from "@mui/icons-material/Send";
 import AttachFileIcon from "@mui/icons-material/AttachFile";
 import FilterListIcon from "@mui/icons-material/FilterList";
 import BoltIcon from "@mui/icons-material/Bolt";
+import PsychologyIcon from "@mui/icons-material/Psychology";
 import CenterFocusStrongIcon from "@mui/icons-material/CenterFocusStrong";
 import { uploadDocument, fetchDocumentFilters } from "../lib/api";
-import type { ChatFilters, ChatScope, DocumentFilters } from "../lib/api";
+import type {
+  ChatFilters,
+  ChatModel,
+  ChatScope,
+  DocumentFilters,
+} from "../lib/api";
 import { useToast } from "./ToastProvider";
 
 interface ChatInputProps {
-  onSend: (message: string, filters?: ChatFilters, fastMode?: boolean) => void;
+  onSend: (
+    message: string,
+    filters?: ChatFilters,
+    model?: ChatModel,
+    reasoning?: boolean
+  ) => void;
   disabled: boolean;
   /** Active RAG scope for this conversation (chip + picker managed above). */
   scope?: ChatScope | null;
@@ -41,7 +52,10 @@ export default function ChatInput({
   const [uploading, setUploading] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<string | null>(null);
   const [activeFilters, setActiveFilters] = useState<ChatFilters>({});
-  const [fastMode, setFastMode] = useState(false);
+  // Two independent knobs (default: Sonnet + Reasoning).
+  const [reasoning, setReasoning] = useState(true);
+  const [model, setModel] = useState<ChatModel>("sonnet");
+  const [modelAnchor, setModelAnchor] = useState<null | HTMLElement>(null);
   const [availableFilters, setAvailableFilters] = useState<DocumentFilters>({
     topics: [],
     keywords: [],
@@ -54,7 +68,6 @@ export default function ChatInput({
     fetchDocumentFilters()
       .then(setAvailableFilters)
       .catch((err) => {
-        // eslint-disable-next-line no-console
         console.warn("[ChatInput] failed to load document filters:", err);
       });
   }, []);
@@ -64,7 +77,7 @@ export default function ChatInput({
     if (!trimmed) return;
     const filters =
       activeFilters.topic || activeFilters.keyword ? activeFilters : undefined;
-    onSend(trimmed, filters, fastMode);
+    onSend(trimmed, filters, model, reasoning);
     setInput("");
     setUploadedFile(null);
   };
@@ -88,7 +101,6 @@ export default function ChatInput({
       fetchDocumentFilters()
         .then(setAvailableFilters)
         .catch((err) => {
-          // eslint-disable-next-line no-console
           console.warn("[ChatInput] failed to refresh filters:", err);
         });
     } catch (err) {
@@ -119,171 +131,223 @@ export default function ChatInput({
       }}
     >
       <Box sx={{ px: 2, py: 2 }}>
-      <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mb: uploadedFile || hasFilters || scopeLabel ? 1 : 0 }}>
-        {scopeLabel && (
-          <Chip
-            icon={<CenterFocusStrongIcon sx={{ fontSize: 15 }} />}
-            label={scopeLabel}
-            size="small"
-            sx={{
-              bgcolor: alpha("#FF2E93", 0.12),
-              color: "#FF2E93",
-              "& .MuiChip-icon": { color: "#FF2E93" },
-            }}
-            onDelete={onClearScope}
-          />
-        )}
-        {uploadedFile && (
-          <Chip
-            label={`Uploaded: ${uploadedFile}`}
-            size="small"
-            onDelete={() => setUploadedFile(null)}
-          />
-        )}
-        {activeFilters.topic && (
-          <Chip
-            label={`Topic: ${activeFilters.topic}`}
-            size="small"
-            color="primary"
-            onDelete={() => setActiveFilters((f) => ({ ...f, topic: undefined }))}
-          />
-        )}
-        {activeFilters.keyword && (
-          <Chip
-            label={`Keyword: ${activeFilters.keyword}`}
-            size="small"
-            color="secondary"
-            onDelete={() => setActiveFilters((f) => ({ ...f, keyword: undefined }))}
-          />
-        )}
-      </Box>
-      <Box sx={{ display: "flex", gap: 1 }}>
-        <input
-          type="file"
-          ref={fileInputRef}
-          hidden
-          accept=".txt,.text,.md,.markdown,.pdf,.docx,.html,.htm,.json,.yaml,.yml"
-          onChange={handleFileSelect}
-        />
-        <IconButton
-          onClick={() => fileInputRef.current?.click()}
-          disabled={disabled || uploading}
+        <Box
+          sx={{
+            display: "flex",
+            gap: 0.5,
+            flexWrap: "wrap",
+            mb: uploadedFile || hasFilters || scopeLabel ? 1 : 0,
+          }}
         >
-          {uploading ? <CircularProgress size={20} /> : <AttachFileIcon />}
-        </IconButton>
-        {onPickScope && (
+          {scopeLabel && (
+            <Chip
+              icon={<CenterFocusStrongIcon sx={{ fontSize: 15 }} />}
+              label={scopeLabel}
+              size="small"
+              sx={{
+                bgcolor: alpha("#FF2E93", 0.12),
+                color: "#FF2E93",
+                "& .MuiChip-icon": { color: "#FF2E93" },
+              }}
+              onDelete={onClearScope}
+            />
+          )}
+          {uploadedFile && (
+            <Chip
+              label={`Uploaded: ${uploadedFile}`}
+              size="small"
+              onDelete={() => setUploadedFile(null)}
+            />
+          )}
+          {activeFilters.topic && (
+            <Chip
+              label={`Topic: ${activeFilters.topic}`}
+              size="small"
+              color="primary"
+              onDelete={() =>
+                setActiveFilters((f) => ({ ...f, topic: undefined }))
+              }
+            />
+          )}
+          {activeFilters.keyword && (
+            <Chip
+              label={`Keyword: ${activeFilters.keyword}`}
+              size="small"
+              color="secondary"
+              onDelete={() =>
+                setActiveFilters((f) => ({ ...f, keyword: undefined }))
+              }
+            />
+          )}
+        </Box>
+        <Box sx={{ display: "flex", gap: 1 }}>
+          <input
+            type="file"
+            ref={fileInputRef}
+            hidden
+            accept=".txt,.text,.md,.markdown,.pdf,.docx,.html,.htm,.json,.yaml,.yml"
+            onChange={handleFileSelect}
+          />
+          <IconButton
+            onClick={() => fileInputRef.current?.click()}
+            disabled={disabled || uploading}
+          >
+            {uploading ? <CircularProgress size={20} /> : <AttachFileIcon />}
+          </IconButton>
+          {onPickScope && (
+            <Tooltip
+              title={
+                scope
+                  ? "Change the folder/file this chat searches"
+                  : "Limit this chat to one folder or file"
+              }
+            >
+              <IconButton
+                onClick={onPickScope}
+                disabled={disabled}
+                sx={{
+                  color: scope ? "#FF2E93" : undefined,
+                  bgcolor: scope ? alpha("#FF2E93", 0.1) : undefined,
+                  "&:hover": {
+                    bgcolor: scope ? alpha("#FF2E93", 0.2) : undefined,
+                  },
+                }}
+              >
+                <CenterFocusStrongIcon />
+              </IconButton>
+            </Tooltip>
+          )}
           <Tooltip
             title={
-              scope
-                ? "Change the folder/file this chat searches"
-                : "Limit this chat to one folder or file"
+              hasAvailableFilters ? "Filter search" : "No filters available yet"
+            }
+          >
+            <span>
+              <IconButton
+                onClick={(e) => setFilterAnchor(e.currentTarget)}
+                disabled={disabled || !hasAvailableFilters}
+                color={hasFilters ? "primary" : "default"}
+              >
+                <FilterListIcon />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Tooltip
+            title={
+              reasoning
+                ? "Reasoning mode — extended thinking + deeper search. Click for Fast."
+                : "Fast mode — quick, no extended thinking. Click for Reasoning."
             }
           >
             <IconButton
-              onClick={onPickScope}
+              onClick={() => setReasoning((prev) => !prev)}
               disabled={disabled}
               sx={{
-                color: scope ? "#FF2E93" : undefined,
-                bgcolor: scope ? alpha("#FF2E93", 0.1) : undefined,
+                color: reasoning ? "#a78bfa" : "#f59e0b",
+                bgcolor: alpha(reasoning ? "#a78bfa" : "#f59e0b", 0.1),
                 "&:hover": {
-                  bgcolor: scope ? alpha("#FF2E93", 0.2) : undefined,
+                  bgcolor: alpha(reasoning ? "#a78bfa" : "#f59e0b", 0.2),
                 },
               }}
             >
-              <CenterFocusStrongIcon />
+              {reasoning ? <PsychologyIcon /> : <BoltIcon />}
             </IconButton>
           </Tooltip>
-        )}
-        <Tooltip title={hasAvailableFilters ? "Filter search" : "No filters available yet"}>
-          <span>
-            <IconButton
-              onClick={(e) => setFilterAnchor(e.currentTarget)}
-              disabled={disabled || !hasAvailableFilters}
-              color={hasFilters ? "primary" : "default"}
-            >
-              <FilterListIcon />
-            </IconButton>
-          </span>
-        </Tooltip>
-        <Tooltip title={fastMode
-          ? "Fast mode ON — skips query rewriting and multi-query expansion for quicker responses"
-          : "Fast mode OFF — uses query rewriting and multi-query for deeper, more accurate search"
-        }>
-          <IconButton
-            onClick={() => setFastMode((prev) => !prev)}
-            disabled={disabled}
-            sx={{
-              color: fastMode ? "#f59e0b" : undefined,
-              bgcolor: fastMode ? alpha("#f59e0b", 0.1) : undefined,
-              "&:hover": {
-                bgcolor: fastMode ? alpha("#f59e0b", 0.2) : undefined,
-              },
-            }}
+          <Tooltip title="Model — pick Sonnet (stronger) or Haiku (faster/cheaper)">
+            <Chip
+              label={model === "sonnet" ? "Sonnet" : "Haiku"}
+              size="small"
+              variant="outlined"
+              disabled={disabled}
+              onClick={(e) => setModelAnchor(e.currentTarget)}
+              sx={{ fontWeight: 600, cursor: "pointer" }}
+            />
+          </Tooltip>
+          <Menu
+            anchorEl={modelAnchor}
+            open={Boolean(modelAnchor)}
+            onClose={() => setModelAnchor(null)}
           >
-            <BoltIcon />
+            <MenuItem
+              selected={model === "sonnet"}
+              onClick={() => {
+                setModel("sonnet");
+                setModelAnchor(null);
+              }}
+            >
+              Sonnet — stronger reasoning
+            </MenuItem>
+            <MenuItem
+              selected={model === "haiku"}
+              onClick={() => {
+                setModel("haiku");
+                setModelAnchor(null);
+              }}
+            >
+              Haiku — faster & cheaper
+            </MenuItem>
+          </Menu>
+          <Menu
+            anchorEl={filterAnchor}
+            open={Boolean(filterAnchor)}
+            onClose={() => setFilterAnchor(null)}
+          >
+            {availableFilters.topics.length > 0 && (
+              <ListSubheader>Topics</ListSubheader>
+            )}
+            {availableFilters.topics.map((t) => (
+              <MenuItem
+                key={`topic-${t}`}
+                selected={activeFilters.topic === t}
+                onClick={() => {
+                  setActiveFilters((f) => ({
+                    ...f,
+                    topic: f.topic === t ? undefined : t,
+                  }));
+                  setFilterAnchor(null);
+                }}
+              >
+                {t}
+              </MenuItem>
+            ))}
+            {availableFilters.keywords.length > 0 && (
+              <ListSubheader>Keywords</ListSubheader>
+            )}
+            {availableFilters.keywords.map((k) => (
+              <MenuItem
+                key={`kw-${k}`}
+                selected={activeFilters.keyword === k}
+                onClick={() => {
+                  setActiveFilters((f) => ({
+                    ...f,
+                    keyword: f.keyword === k ? undefined : k,
+                  }));
+                  setFilterAnchor(null);
+                }}
+              >
+                {k}
+              </MenuItem>
+            ))}
+          </Menu>
+          <TextField
+            fullWidth
+            multiline
+            maxRows={4}
+            placeholder="Ask a question about your documents..."
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            disabled={disabled}
+            size="small"
+          />
+          <IconButton
+            color="primary"
+            onClick={handleSend}
+            disabled={disabled || !input.trim()}
+          >
+            <SendIcon />
           </IconButton>
-        </Tooltip>
-        <Menu
-          anchorEl={filterAnchor}
-          open={Boolean(filterAnchor)}
-          onClose={() => setFilterAnchor(null)}
-        >
-          {availableFilters.topics.length > 0 && (
-            <ListSubheader>Topics</ListSubheader>
-          )}
-          {availableFilters.topics.map((t) => (
-            <MenuItem
-              key={`topic-${t}`}
-              selected={activeFilters.topic === t}
-              onClick={() => {
-                setActiveFilters((f) => ({
-                  ...f,
-                  topic: f.topic === t ? undefined : t,
-                }));
-                setFilterAnchor(null);
-              }}
-            >
-              {t}
-            </MenuItem>
-          ))}
-          {availableFilters.keywords.length > 0 && (
-            <ListSubheader>Keywords</ListSubheader>
-          )}
-          {availableFilters.keywords.map((k) => (
-            <MenuItem
-              key={`kw-${k}`}
-              selected={activeFilters.keyword === k}
-              onClick={() => {
-                setActiveFilters((f) => ({
-                  ...f,
-                  keyword: f.keyword === k ? undefined : k,
-                }));
-                setFilterAnchor(null);
-              }}
-            >
-              {k}
-            </MenuItem>
-          ))}
-        </Menu>
-        <TextField
-          fullWidth
-          multiline
-          maxRows={4}
-          placeholder="Ask a question about your documents..."
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          disabled={disabled}
-          size="small"
-        />
-        <IconButton
-          color="primary"
-          onClick={handleSend}
-          disabled={disabled || !input.trim()}
-        >
-          <SendIcon />
-        </IconButton>
-      </Box>
+        </Box>
       </Box>
     </Box>
   );
