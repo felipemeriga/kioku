@@ -58,7 +58,7 @@ def _ask(user_id, scope, question):
         user_message=question,
         user_id=user_id,
         model="haiku",
-        reasoning=False,
+        mode="agentic",
         scope_folder_ids=scope,
     )
     return out["response"], out.get("retrieved_chunks", [])

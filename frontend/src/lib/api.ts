@@ -349,6 +349,7 @@ export interface ChatScope {
 export type ChatStage = "thinking" | "searching" | "analyzing" | "generating";
 
 export type ChatModel = "haiku" | "sonnet";
+export type ChatMode = "plain" | "agentic" | "deep";
 
 export interface StageEvent {
   stage: ChatStage;
@@ -373,7 +374,7 @@ export async function streamChat(
   filters?: ChatFilters,
   onStage?: (event: StageEvent) => void,
   model?: ChatModel,
-  reasoning?: boolean,
+  mode?: ChatMode,
   debug?: boolean,
   onDebug?: (trace: DebugTrace) => void,
   onError?: (err: ApiError) => void
@@ -408,7 +409,7 @@ export async function streamChat(
         topic: filters?.topic || null,
         keyword: filters?.keyword || null,
         model: model ?? "sonnet",
-        reasoning: reasoning ?? true,
+        mode: mode ?? "deep",
         debug: debug ?? false,
         scope_folder_id: filters?.scopeFolderId || null,
         scope_filename: filters?.scopeFilename || null,

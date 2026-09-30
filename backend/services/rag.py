@@ -63,25 +63,38 @@ Ground every claim in what you retrieved and cite sources — file:line for code
 for documents. If after honest effort the knowledge base does not cover it, say so plainly rather \
 than guessing."""
 
-# Extended-thinking budget for deep (full-mode) agent turns. < max_tokens so
-# thinking and the answer share the ceiling.
+# Plain (non-agentic) RAG: one retrieval, then answer. No tool loop, no code
+# graph / recent-changes / web, no extended thinking — the classic path.
+PLAIN_PROMPT = """You are a helpful assistant answering from the user's knowledge base.
+
+Call knowledge_base_search once with the user's question, then answer using the retrieved content. \
+Cite your sources — file:line for code, source name + date for documents. If the retrieved content \
+does not answer the question, say so plainly; do not guess or rely on outside knowledge."""
+
+# Extended-thinking budget for deep-mode turns. < max_tokens so thinking and the
+# answer share the ceiling.
 _DEEP_THINKING_BUDGET = 2048
 
 
-def _agent_params(model: str, reasoning: bool) -> tuple[Task, int, int | None]:
-    """(task, max_tokens, thinking_budget) for the agent loop.
-
-    Model and reasoning are INDEPENDENT knobs:
-      * model — "sonnet" (stronger) or "haiku" (cheaper/faster)
-      * reasoning — extended thinking on/off (either model supports it)
-
-    Both share the same prompt, tools, and loop — only the model + thinking
-    differ, so the eval path can never drift from prod.
-    """
+def _agent_params(model: str, mode: str) -> tuple[Task, int, int | None]:
+    """(task, max_tokens, thinking_budget) — model picks the route, mode picks
+    thinking. Only 'deep' enables extended thinking."""
     task = Task.RAG_AGENT_SONNET if model == "sonnet" else Task.RAG_AGENT
-    if reasoning:
+    if mode == "deep":
         return task, 8192, _DEEP_THINKING_BUDGET
     return task, 4096, None
+
+
+def _mode_config(mode: str) -> tuple[str, list[dict]]:
+    """(system_prompt, tools) for a mode.
+
+    plain            → classic RAG: minimal prompt, knowledge_base_search only.
+    agentic / deep   → the agentic prompt + all tools (loop, code graph, etc).
+    """
+    if mode == "plain":
+        kb_only = [t for t in TOOL_DEFINITIONS if t["name"] == "knowledge_base_search"]
+        return PLAIN_PROMPT, kb_only
+    return SYSTEM_PROMPT, TOOL_DEFINITIONS
 
 
 @traceable(name="answer_question", run_type="chain")
@@ -91,7 +104,7 @@ def answer_question(
     topic: str | None = None,
     keyword: str | None = None,
     model: str = "sonnet",
-    reasoning: bool = True,
+    mode: str = "deep",
     history: list[dict] | None = None,
     scope_folder_ids: list[str] | None = None,
     scope_filename: str | None = None,
@@ -120,10 +133,8 @@ def answer_question(
     max_rounds = 10
     tool_call_count = 0
     rounds_used = 0
-    task, max_tokens, thinking_budget = _agent_params(model, reasoning)
-    # Reasoning mode does the full (LLM query-rewrite + multi-query) retrieval;
-    # fast mode uses the lighter retrieval path.
-    retrieval_fast = not reasoning
+    task, max_tokens, thinking_budget = _agent_params(model, mode)
+    system_prompt, tools = _mode_config(mode)
 
     for round_num in range(max_rounds):
         rounds_used = round_num + 1
@@ -132,9 +143,9 @@ def answer_question(
                 task=task,
                 max_tokens=max_tokens,
                 thinking_budget=thinking_budget,
-                system=SYSTEM_PROMPT,
+                system=system_prompt,
                 messages=messages,
-                tools=TOOL_DEFINITIONS,
+                tools=tools,
             )
 
         if response.stop_reason == "tool_use":
@@ -151,7 +162,7 @@ def answer_question(
                         user_id,
                         topic,
                         keyword,
-                        fast_mode=retrieval_fast,
+                        fast_mode=False,
                         scope_folder_ids=scope_folder_ids,
                         scope_filename=scope_filename,
                     )
@@ -215,7 +226,7 @@ def stream_rag_response(
     topic: str | None = None,
     keyword: str | None = None,
     model: str = "sonnet",
-    reasoning: bool = True,
+    mode: str = "deep",
     debug: bool = False,
     scope_folder_id: str | None = None,
     scope_filename: str | None = None,
@@ -231,7 +242,7 @@ def stream_rag_response(
 
         scope_folder_ids = descendant_folder_ids(sb, scope_folder_id, user_id)
 
-    _label = f"{model}{'+reasoning' if reasoning else ''}"
+    _label = f"{model}/{mode}"
     with collect_request(f"rag chat turn ({_label})"):
         with request(f"rag chat turn ({_label})"):
             # 1. Save user message + update title + fetch history
@@ -296,7 +307,7 @@ def stream_rag_response(
                     topic=topic,
                     keyword=keyword,
                     model=model,
-                    reasoning=reasoning,
+                    mode=mode,
                     debug=debug,
                     history=prior_messages,
                     scope_folder_ids=scope_folder_ids,
@@ -351,7 +362,7 @@ def _run_loop_and_stream_final(
     topic: str | None,
     keyword: str | None,
     model: str,
-    reasoning: bool,
+    mode: str,
     debug: bool = False,
     history: list[dict] | None,
     scope_folder_ids: list[str] | None = None,
@@ -368,8 +379,8 @@ def _run_loop_and_stream_final(
     """
     messages = list(history or []) + [{"role": "user", "content": user_message}]
     max_rounds = 10
-    task, max_tokens, thinking_budget = _agent_params(model, reasoning)
-    retrieval_fast = not reasoning
+    task, max_tokens, thinking_budget = _agent_params(model, mode)
+    system_prompt, tools = _mode_config(mode)
     # Debug trace for the UI's Inspect card (reasoning, tool calls, retrieval).
     debug_trace: dict | None = (
         {"model": model, "reasoning": [], "tool_calls": [], "retrieval": []} if debug else None
@@ -384,9 +395,9 @@ def _run_loop_and_stream_final(
                 task=task,
                 max_tokens=max_tokens,
                 thinking_budget=thinking_budget,
-                system=SYSTEM_PROMPT,
+                system=system_prompt,
                 messages=messages,
-                tools=TOOL_DEFINITIONS,
+                tools=tools,
             ) as stream:
                 # Anthropic's stream helper exposes text_stream (deltas) and
                 # get_final_message() (assembled). Yield deltas as they arrive.
@@ -420,7 +431,7 @@ def _run_loop_and_stream_final(
                             user_id,
                             topic,
                             keyword,
-                            fast_mode=retrieval_fast,
+                            fast_mode=False,
                             scope_folder_ids=scope_folder_ids,
                             scope_filename=scope_filename,
                             debug_retrieval=(

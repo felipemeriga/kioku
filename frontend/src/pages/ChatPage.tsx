@@ -5,6 +5,7 @@ import ScopePickerDialog from "../components/ScopePickerDialog";
 import type {
   Message,
   ChatFilters,
+  ChatMode,
   ChatModel,
   ChatScope,
   DebugTrace,
@@ -80,7 +81,7 @@ export default function ChatPage() {
     content: string,
     filters?: ChatFilters,
     model?: ChatModel,
-    reasoning?: boolean,
+    mode?: ChatMode,
     debug?: boolean
   ) => {
     if (!selectedId || isStreaming) return;
@@ -141,7 +142,7 @@ export default function ChatPage() {
         scopedFilters,
         (stage) => setCurrentStage(stage),
         model,
-        reasoning,
+        mode,
         debug,
         (trace) => {
           debugTrace = trace;
