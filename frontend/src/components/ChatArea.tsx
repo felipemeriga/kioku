@@ -7,6 +7,7 @@ import ThinkingBar from "./ThinkingBar";
 import type {
   Message,
   ChatFilters,
+  ChatMode,
   ChatModel,
   ChatScope,
   StageEvent,
@@ -22,7 +23,7 @@ interface ChatAreaProps {
     message: string,
     filters?: ChatFilters,
     model?: ChatModel,
-    reasoning?: boolean,
+    mode?: ChatMode,
     debug?: boolean
   ) => void;
   scope?: ChatScope | null;

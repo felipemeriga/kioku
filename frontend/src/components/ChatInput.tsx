@@ -14,17 +14,22 @@ import {
 import SendIcon from "@mui/icons-material/Send";
 import AttachFileIcon from "@mui/icons-material/AttachFile";
 import FilterListIcon from "@mui/icons-material/FilterList";
-import BoltIcon from "@mui/icons-material/Bolt";
-import PsychologyIcon from "@mui/icons-material/Psychology";
 import BugReportIcon from "@mui/icons-material/BugReport";
 import CenterFocusStrongIcon from "@mui/icons-material/CenterFocusStrong";
 import { uploadDocument, fetchDocumentFilters } from "../lib/api";
 import type {
   ChatFilters,
+  ChatMode,
   ChatModel,
   ChatScope,
   DocumentFilters,
 } from "../lib/api";
+
+const MODE_LABEL: Record<ChatMode, string> = {
+  plain: "Plain",
+  agentic: "Agentic",
+  deep: "Deep",
+};
 import { useToast } from "./ToastProvider";
 
 interface ChatInputProps {
@@ -32,7 +37,7 @@ interface ChatInputProps {
     message: string,
     filters?: ChatFilters,
     model?: ChatModel,
-    reasoning?: boolean,
+    mode?: ChatMode,
     debug?: boolean
   ) => void;
   disabled: boolean;
@@ -54,8 +59,9 @@ export default function ChatInput({
   const [uploading, setUploading] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<string | null>(null);
   const [activeFilters, setActiveFilters] = useState<ChatFilters>({});
-  // Two independent knobs (default: Sonnet + Reasoning).
-  const [reasoning, setReasoning] = useState(true);
+  // Two independent knobs (default: Sonnet + Deep).
+  const [mode, setMode] = useState<ChatMode>("deep");
+  const [modeAnchor, setModeAnchor] = useState<null | HTMLElement>(null);
   const [model, setModel] = useState<ChatModel>("sonnet");
   const [modelAnchor, setModelAnchor] = useState<null | HTMLElement>(null);
   // On by default so every response gets a persisted Inspect card.
@@ -81,7 +87,7 @@ export default function ChatInput({
     if (!trimmed) return;
     const filters =
       activeFilters.topic || activeFilters.keyword ? activeFilters : undefined;
-    onSend(trimmed, filters, model, reasoning, debug);
+    onSend(trimmed, filters, model, mode, debug);
     setInput("");
     setUploadedFile(null);
   };
@@ -236,27 +242,54 @@ export default function ChatInput({
               </IconButton>
             </span>
           </Tooltip>
-          <Tooltip
-            title={
-              reasoning
-                ? "Reasoning mode — extended thinking + deeper search. Click for Fast."
-                : "Fast mode — quick, no extended thinking. Click for Reasoning."
-            }
-          >
-            <IconButton
-              onClick={() => setReasoning((prev) => !prev)}
+          <Tooltip title="Mode — Plain (one-shot RAG) · Agentic (tools + loop) · Deep (+ reasoning)">
+            <Chip
+              label={MODE_LABEL[mode]}
+              size="small"
+              variant="outlined"
               disabled={disabled}
+              onClick={(e) => setModeAnchor(e.currentTarget)}
               sx={{
-                color: reasoning ? "#a78bfa" : "#f59e0b",
-                bgcolor: alpha(reasoning ? "#a78bfa" : "#f59e0b", 0.1),
-                "&:hover": {
-                  bgcolor: alpha(reasoning ? "#a78bfa" : "#f59e0b", 0.2),
-                },
+                fontWeight: 600,
+                cursor: "pointer",
+                color: "#a78bfa",
+                borderColor: alpha("#a78bfa", 0.4),
+              }}
+            />
+          </Tooltip>
+          <Menu
+            anchorEl={modeAnchor}
+            open={Boolean(modeAnchor)}
+            onClose={() => setModeAnchor(null)}
+          >
+            <MenuItem
+              selected={mode === "plain"}
+              onClick={() => {
+                setMode("plain");
+                setModeAnchor(null);
               }}
             >
-              {reasoning ? <PsychologyIcon /> : <BoltIcon />}
-            </IconButton>
-          </Tooltip>
+              Plain — classic one-shot RAG
+            </MenuItem>
+            <MenuItem
+              selected={mode === "agentic"}
+              onClick={() => {
+                setMode("agentic");
+                setModeAnchor(null);
+              }}
+            >
+              Agentic — tools + iteration
+            </MenuItem>
+            <MenuItem
+              selected={mode === "deep"}
+              onClick={() => {
+                setMode("deep");
+                setModeAnchor(null);
+              }}
+            >
+              Deep — agentic + reasoning
+            </MenuItem>
+          </Menu>
           <Tooltip title="Model — pick Sonnet (stronger) or Haiku (faster/cheaper)">
             <Chip
               label={model === "sonnet" ? "Sonnet" : "Haiku"}

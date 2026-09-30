@@ -126,24 +126,38 @@ class TestComplete(unittest.TestCase):
 
 
 class TestAgentParams(unittest.TestCase):
-    def test_model_and_reasoning_are_independent(self):
+    def test_model_and_mode_are_independent(self):
         from services.llm import MODEL_FOR_TASK
         from services.rag import _agent_params
 
-        # model picks the model; reasoning picks thinking — orthogonally.
+        # model picks the model; only 'deep' enables thinking.
         cases = [
-            ("haiku", False, "haiku", False),
-            ("haiku", True, "haiku", True),
-            ("sonnet", False, "sonnet", False),
-            ("sonnet", True, "sonnet", True),
+            ("haiku", "plain", "haiku", False),
+            ("haiku", "agentic", "haiku", False),
+            ("haiku", "deep", "haiku", True),
+            ("sonnet", "agentic", "sonnet", False),
+            ("sonnet", "deep", "sonnet", True),
         ]
-        for model, reasoning, want_model, want_thinking in cases:
-            task, max_tokens, thinking = _agent_params(model, reasoning)
+        for model, mode, want_model, want_thinking in cases:
+            task, max_tokens, thinking = _agent_params(model, mode)
             self.assertIn(want_model, MODEL_FOR_TASK[task])
             if want_thinking:
                 self.assertTrue(thinking and thinking < max_tokens)
             else:
                 self.assertIsNone(thinking)
+
+    def test_plain_mode_uses_only_kb_tool(self):
+        from services.rag import _mode_config
+
+        _prompt, tools = _mode_config("plain")
+        self.assertEqual([t["name"] for t in tools], ["knowledge_base_search"])
+
+    def test_agentic_mode_uses_all_tools(self):
+        from services.rag import _mode_config
+        from services.tools import TOOL_DEFINITIONS
+
+        _prompt, tools = _mode_config("agentic")
+        self.assertEqual(len(tools), len(TOOL_DEFINITIONS))
 
 
 if __name__ == "__main__":
