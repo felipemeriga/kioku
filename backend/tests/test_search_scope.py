@@ -107,3 +107,73 @@ class TestExecuteToolScope(unittest.TestCase):
         kwargs = search_mock.call_args.kwargs
         self.assertEqual(kwargs["folder_ids"], ["f1", "f2"])
         self.assertEqual(kwargs["source_filename"], "doc.md")
+
+
+class TestCodeGraphLookup(unittest.TestCase):
+    def test_definition_fans_out_across_scope_repos_and_labels(self):
+        from services.tools import execute_tool
+
+        # each repo returns its own definition of the symbol
+        per_folder = {
+            "f1": [{"symbol": "update_phase", "kind": "method", "file": "a.rs", "start_line": 10}],
+            "f2": [{"symbol": "update_phase", "kind": "fn", "file": "b.py", "start_line": 20}],
+        }
+
+        def _find_def(_sb, *, folder_id, symbol, limit=20):
+            self.assertEqual(symbol, "update_phase")
+            return per_folder.get(folder_id, [])
+
+        with (
+            patch("services.tools.get_supabase", return_value=MagicMock()),
+            patch("services.tools._folder_names", return_value={"f1": "repoA", "f2": "repoB"}),
+            patch("services.tools.graph_store.find_definition", side_effect=_find_def) as def_mock,
+        ):
+            out = execute_tool(
+                "code_graph_lookup",
+                {"operation": "definition", "symbol": "update_phase"},
+                "u1",
+                scope_folder_ids=["f1", "f2"],
+            )
+        # queried every repo in scope
+        self.assertEqual({c.kwargs["folder_id"] for c in def_mock.call_args_list}, {"f1", "f2"})
+        # both repos' hits present and labeled by repo name
+        self.assertIn("[repoA] method update_phase — a.rs:10", out)
+        self.assertIn("[repoB] fn update_phase — b.py:20", out)
+
+    def test_no_results_message(self):
+        from services.tools import execute_tool
+
+        with (
+            patch("services.tools.get_supabase", return_value=MagicMock()),
+            patch("services.tools._folder_names", return_value={"f1": "repoA"}),
+            patch("services.tools.graph_store.find_definition", return_value=[]),
+        ):
+            out = execute_tool(
+                "code_graph_lookup",
+                {"operation": "definition", "symbol": "nope"},
+                "u1",
+                scope_folder_ids=["f1"],
+            )
+        self.assertIn("No code-graph results", out)
+
+    def test_missing_symbol_arg_is_rejected(self):
+        from services.tools import execute_tool
+
+        out = execute_tool(
+            "code_graph_lookup",
+            {"operation": "references"},
+            "u1",
+            scope_folder_ids=["f1"],
+        )
+        self.assertIn("needs a 'symbol'", out)
+
+    def test_no_scope_is_reported(self):
+        from services.tools import execute_tool
+
+        out = execute_tool(
+            "code_graph_lookup",
+            {"operation": "definition", "symbol": "x"},
+            "u1",
+            scope_folder_ids=[],
+        )
+        self.assertIn("No repositories are in scope", out)

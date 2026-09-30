@@ -4,7 +4,9 @@ import json
 
 from langsmith import traceable
 
+from db.client import get_supabase
 from services.embeddings import embed_query
+from services.repo_graph import store as graph_store
 from services.search import search_documents
 from services.text_to_sql import generate_and_execute_sql
 from services.web_search import web_search
@@ -80,7 +82,106 @@ TOOL_DEFINITIONS = [
             "required": ["query"],
         },
     },
+    {
+        "name": "code_graph_lookup",
+        "description": (
+            "Look up EXACT code symbols in the indexed code graph (AST, not semantic "
+            "similarity). Searches every repository in scope, so it answers cross-repo "
+            "structural questions precisely. Prefer this over knowledge_base_search when "
+            "the user names a specific function/class/method and wants exact structure:\n"
+            "  • definition — where a symbol is defined (file:line)\n"
+            "  • references — who calls / references a symbol (call sites)\n"
+            "  • impact — transitive callers, i.e. blast radius of changing a symbol\n"
+            "  • outline — every symbol under a file or directory path\n"
+            "Examples: 'where is update_phase defined', 'who calls createGameCameras', "
+            "'what breaks if I change embed_query', 'outline the ses/ingester folder'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "operation": {
+                    "type": "string",
+                    "enum": ["definition", "references", "impact", "outline"],
+                    "description": (
+                        "definition = where a symbol is defined; references = who "
+                        "calls/uses it; impact = transitive callers (blast radius); "
+                        "outline = all symbols under a file/directory path."
+                    ),
+                },
+                "symbol": {
+                    "type": "string",
+                    "description": (
+                        "Symbol name (function/class/method) for definition, references, "
+                        "or impact. Bare name — no parentheses or module prefix."
+                    ),
+                },
+                "path": {
+                    "type": "string",
+                    "description": "File or directory path prefix for the outline operation.",
+                },
+            },
+            "required": ["operation"],
+        },
+    },
 ]
+
+# Cap the graph tool's output so a hot symbol (thousands of call sites) can't
+# flood the model's context; the model can narrow the query if it needs more.
+_GRAPH_MAX_LINES = 100
+
+
+def _folder_names(sb, folder_ids: list[str]) -> dict[str, str]:
+    """Map folder_id -> repo name for labeling cross-repo graph results."""
+    if not folder_ids:
+        return {}
+    rows = (sb.table("folders").select("id,name").in_("id", folder_ids).execute().data) or []
+    return {r["id"]: r["name"] for r in rows}
+
+
+def _code_graph_lookup(tool_input: dict, scope_folder_ids: list[str] | None) -> str:
+    """Query the code graph across every repo in scope. Symbols/edges are
+    per-folder, so we fan out over the scope folders and label each hit with
+    its repo — that's what makes the lookup cross-repo."""
+    op = (tool_input.get("operation") or "").strip()
+    symbol = (tool_input.get("symbol") or "").strip()
+    path = (tool_input.get("path") or "").strip()
+    folders = scope_folder_ids or []
+    if not folders:
+        return "No repositories are in scope to search the code graph."
+    if op in ("definition", "references", "impact") and not symbol:
+        return f"The '{op}' operation needs a 'symbol'."
+    if op == "outline" and not path:
+        return "The 'outline' operation needs a 'path'."
+
+    sb = get_supabase()
+    names = _folder_names(sb, folders)
+    lines: list[str] = []
+    for fid in folders:
+        repo = names.get(fid, fid)
+        if op == "definition":
+            for r in graph_store.find_definition(sb, folder_id=fid, symbol=symbol):
+                lines.append(f"[{repo}] {r['kind']} {r['symbol']} — {r['file']}:{r['start_line']}")
+        elif op == "references":
+            for r in graph_store.find_references(sb, folder_id=fid, symbol=symbol):
+                lines.append(f"[{repo}] {r['relation']} at {r['ref_file']}:{r['ref_line']}")
+        elif op == "impact":
+            for r in graph_store.impact_of(sb, folder_id=fid, symbol=symbol):
+                lines.append(
+                    f"[{repo}] depth {r['depth']}: {r['symbol']} — {r['file']}:{r['start_line']}"
+                )
+        elif op == "outline":
+            for r in graph_store.outline(sb, folder_id=fid, path=path):
+                lines.append(f"[{repo}] {r['kind']} {r['symbol']} — {r['file']}:{r['start_line']}")
+        else:
+            return f"Unknown code_graph_lookup operation: '{op}'."
+
+    if not lines:
+        target = symbol or path
+        return f"No code-graph results for '{target}' ({op}) in the repositories in scope."
+    if len(lines) > _GRAPH_MAX_LINES:
+        extra = len(lines) - _GRAPH_MAX_LINES
+        return "\n".join(lines[:_GRAPH_MAX_LINES]) + f"\n… (+{extra} more — narrow the query)"
+    return "\n".join(lines)
 
 
 @traceable(name="execute_tool", run_type="tool")
@@ -145,5 +246,8 @@ def execute_tool(
         for r in results:
             parts.append(f"**{r['title']}**\n{r['url']}\n{r['content']}")
         return "\n\n---\n\n".join(parts)
+
+    if tool_name == "code_graph_lookup":
+        return _code_graph_lookup(tool_input, scope_folder_ids)
 
     return f"Unknown tool: {tool_name}"
