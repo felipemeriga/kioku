@@ -20,6 +20,9 @@ class ChatRequest(BaseModel):
     # Two independent knobs: which model, and whether to use extended thinking.
     model: Literal["haiku", "sonnet"] = "sonnet"
     reasoning: bool = True
+    # When true, the stream ends with a debug frame (reasoning, tool calls,
+    # retrieved chunks + rerank scores) for the UI's Inspect card.
+    debug: bool = False
     # RAG scope: restrict retrieval to a folder subtree and/or one document.
     scope_folder_id: str | None = None
     scope_filename: str | None = None
@@ -44,6 +47,7 @@ async def chat(request: ChatRequest, user_id: str = Depends(get_current_user)):
             keyword=request.keyword,
             model=request.model,
             reasoning=request.reasoning,
+            debug=request.debug,
             scope_folder_id=request.scope_folder_id,
             scope_filename=request.scope_filename,
         )

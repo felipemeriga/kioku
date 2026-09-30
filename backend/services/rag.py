@@ -216,6 +216,7 @@ def stream_rag_response(
     keyword: str | None = None,
     model: str = "sonnet",
     reasoning: bool = True,
+    debug: bool = False,
     scope_folder_id: str | None = None,
     scope_filename: str | None = None,
 ) -> Generator[str, None, None]:
@@ -295,6 +296,7 @@ def stream_rag_response(
                     keyword=keyword,
                     model=model,
                     reasoning=reasoning,
+                    debug=debug,
                     history=prior_messages,
                     scope_folder_ids=scope_folder_ids,
                     scope_filename=scope_filename,
@@ -305,6 +307,9 @@ def stream_rag_response(
                         # has started streaming.
                         if not gen_started:
                             yield f"data: {json.dumps({'stage': payload})}\n\n"
+                    elif chunk_kind == "debug":
+                        # payload is already-serialized JSON of the debug trace.
+                        yield f"data: {json.dumps({'debug': json.loads(payload)})}\n\n"
                     elif chunk_kind == "text_delta":
                         if not gen_started:
                             yield f"data: {json.dumps({'stage': 'generating'})}\n\n"
@@ -342,6 +347,7 @@ def _run_loop_and_stream_final(
     keyword: str | None,
     model: str,
     reasoning: bool,
+    debug: bool = False,
     history: list[dict] | None,
     scope_folder_ids: list[str] | None = None,
     scope_filename: str | None = None,
@@ -359,6 +365,10 @@ def _run_loop_and_stream_final(
     max_rounds = 10
     task, max_tokens, thinking_budget = _agent_params(model, reasoning)
     retrieval_fast = not reasoning
+    # Debug trace for the UI's Inspect card (reasoning, tool calls, retrieval).
+    debug_trace: dict | None = (
+        {"model": model, "reasoning": [], "tool_calls": [], "retrieval": []} if debug else None
+    )
 
     for round_num in range(max_rounds):
         # Tell the UI what's happening before the (possibly long) model call:
@@ -379,6 +389,13 @@ def _run_loop_and_stream_final(
                     if text:
                         yield ("text_delta", text)
                 final = stream.get_final_message()
+
+        if debug_trace is not None:
+            for b in final.content:
+                if getattr(b, "type", None) == "thinking":
+                    text = getattr(b, "thinking", "") or ""
+                    if text:
+                        debug_trace["reasoning"].append({"round": round_num + 1, "text": text})
 
         if final.stop_reason == "tool_use":
             messages.append({"role": "assistant", "content": final.content})
@@ -401,6 +418,9 @@ def _run_loop_and_stream_final(
                             fast_mode=retrieval_fast,
                             scope_folder_ids=scope_folder_ids,
                             scope_filename=scope_filename,
+                            debug_retrieval=(
+                                debug_trace["retrieval"] if debug_trace is not None else None
+                            ),
                         )
                     except Exception as exc:  # noqa: BLE001
                         return {
@@ -423,10 +443,26 @@ def _run_loop_and_stream_final(
             else:
                 tool_results = [_run_tool(b) for b in tool_uses]
 
+            if debug_trace is not None:
+                for b, tr in zip(tool_uses, tool_results, strict=False):
+                    debug_trace["tool_calls"].append(
+                        {
+                            "round": round_num + 1,
+                            "name": b.name,
+                            "input": b.input,
+                            "result_preview": (tr.get("content") or "")[:1500],
+                            "is_error": bool(tr.get("is_error")),
+                        }
+                    )
+
             messages.append({"role": "user", "content": tool_results})
             continue
 
         # No tool_use → the answer streamed above; loop is done.
+        if debug_trace is not None:
+            yield ("debug", json.dumps(debug_trace, default=str))
         return
 
+    if debug_trace is not None:
+        yield ("debug", json.dumps(debug_trace, default=str))
     yield ("text_delta", "I was unable to complete the request after multiple attempts.")

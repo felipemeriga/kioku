@@ -22,7 +22,8 @@ interface ChatAreaProps {
     message: string,
     filters?: ChatFilters,
     model?: ChatModel,
-    reasoning?: boolean
+    reasoning?: boolean,
+    debug?: boolean
   ) => void;
   scope?: ChatScope | null;
   onPickScope?: () => void;
@@ -155,7 +156,12 @@ export default function ChatArea({
             </Stack>
           )}
           {messages.map((msg) => (
-            <MessageBubble key={msg.id} role={msg.role} content={msg.content} />
+            <MessageBubble
+              key={msg.id}
+              role={msg.role}
+              content={msg.content}
+              debug={msg.debug}
+            />
           ))}
           {isStreaming && currentStage && !streamingContent && (
             <ThinkingBar stage={currentStage} />

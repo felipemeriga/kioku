@@ -36,12 +36,13 @@ describe("ChatInput", () => {
       "Ask a question about your documents..."
     );
     await user.type(input, "test message{Enter}");
-    // defaults: Sonnet + Reasoning
+    // defaults: Sonnet + Reasoning, debug off
     expect(onSend).toHaveBeenCalledWith(
       "test message",
       undefined,
       "sonnet",
-      true
+      true,
+      false
     );
   });
 });

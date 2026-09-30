@@ -255,8 +255,14 @@ def execute_tool(
     fast_mode: bool = False,
     scope_folder_ids: list[str] | None = None,
     scope_filename: str | None = None,
+    debug_retrieval: list | None = None,
 ) -> str:
-    """Execute a tool call and return the result as a string."""
+    """Execute a tool call and return the result as a string.
+
+    When debug_retrieval is a list, knowledge_base_search appends a structured
+    record per retrieved chunk (content, source, type, rerank score, date) for
+    the UI's debug inspector. Purely additive — the returned text is unchanged.
+    """
     if tool_name == "knowledge_base_search":
         query = tool_input["query"]
         embedding = embed_query(query)
@@ -293,6 +299,20 @@ def execute_tool(
                 date = str(r.get("created_at") or "")[:10]
                 header = f"[Source: {source} — {date}]" if date else f"[Source: {source}]"
             chunks.append(f"{header}\n{r['content']}")
+            if debug_retrieval is not None:
+                meta = r.get("metadata") or {}
+                debug_retrieval.append(
+                    {
+                        "query": query,
+                        "source": meta.get("source_filename", "unknown"),
+                        "source_type": r.get("source_type") or "document",
+                        "symbol": meta.get("code_symbol"),
+                        "rerank_score": r.get("rerank_score"),
+                        "similarity": r.get("similarity"),
+                        "date": str(r.get("created_at") or "")[:10] or None,
+                        "content": (r.get("content") or "")[:1200],
+                    }
+                )
         return "\n\n---\n\n".join(chunks)
 
     if tool_name == "query_documents_metadata":
