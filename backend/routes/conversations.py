@@ -47,7 +47,7 @@ async def get_conversation(conversation_id: str, user_id: str = Depends(get_curr
         raise HTTPException(status_code=404, detail="Conversation not found")
     messages = (
         sb.table("messages")
-        .select("id, role, content, created_at")
+        .select("id, role, content, created_at, debug")
         .eq("conversation_id", conversation_id)
         .order("created_at")
         .execute()

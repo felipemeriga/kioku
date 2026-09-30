@@ -288,6 +288,7 @@ def stream_rag_response(
             full_response = ""
             gen_started = False
             completed_cleanly = False
+            debug_payload: dict | None = None
             try:
                 for chunk_kind, payload in _run_loop_and_stream_final(
                     user_message=user_message,
@@ -309,7 +310,8 @@ def stream_rag_response(
                             yield f"data: {json.dumps({'stage': payload})}\n\n"
                     elif chunk_kind == "debug":
                         # payload is already-serialized JSON of the debug trace.
-                        yield f"data: {json.dumps({'debug': json.loads(payload)})}\n\n"
+                        debug_payload = json.loads(payload)
+                        yield f"data: {json.dumps({'debug': debug_payload})}\n\n"
                     elif chunk_kind == "text_delta":
                         if not gen_started:
                             yield f"data: {json.dumps({'stage': 'generating'})}\n\n"
@@ -328,13 +330,16 @@ def stream_rag_response(
                     if not completed_cleanly:
                         content_to_save += "\n\n*(reply truncated — connection dropped mid-stream)*"
                     with stage("db: save assistant msg"):
-                        sb.table("messages").insert(
-                            {
-                                "conversation_id": conversation_id,
-                                "role": "assistant",
-                                "content": content_to_save,
-                            }
-                        ).execute()
+                        row = {
+                            "conversation_id": conversation_id,
+                            "role": "assistant",
+                            "content": content_to_save,
+                        }
+                        # Persist the debug trace so the Inspect card survives
+                        # reloads (only when debug mode captured one).
+                        if debug_payload is not None:
+                            row["debug"] = debug_payload
+                        sb.table("messages").insert(row).execute()
 
     yield f"data: {json.dumps({'done': True})}\n\n"
 
