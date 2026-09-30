@@ -6,6 +6,7 @@ from langsmith import traceable
 
 from db.client import get_supabase
 from services.embeddings import embed_query
+from services.folder_summary.repo import get_latest_summary
 from services.repo_graph import store as graph_store
 from services.search import search_documents
 from services.text_to_sql import generate_and_execute_sql
@@ -123,6 +124,17 @@ TOOL_DEFINITIONS = [
             "required": ["operation"],
         },
     },
+    {
+        "name": "recent_changes",
+        "description": (
+            "Get a digest of what has CHANGED RECENTLY in the repositories in scope — "
+            "recent-commit themes and highlights (with PR numbers) distilled from git "
+            "history and kept current by the indexer. Use this for 'what changed / what's "
+            "new / recent work / latest updates' questions. Semantic search over the code "
+            "shows the CURRENT state, not the delta — this is the source for what moved."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
 ]
 
 # Cap the graph tool's output so a hot symbol (thousands of call sites) can't
@@ -182,6 +194,44 @@ def _code_graph_lookup(tool_input: dict, scope_folder_ids: list[str] | None) -> 
         extra = len(lines) - _GRAPH_MAX_LINES
         return "\n".join(lines[:_GRAPH_MAX_LINES]) + f"\n… (+{extra} more — narrow the query)"
     return "\n".join(lines)
+
+
+def _recent_changes(user_id: str, scope_folder_ids: list[str] | None) -> str:
+    """Recent-work digest (commit themes + highlights) per repo in scope.
+
+    Reads the watcher-maintained `activity` briefing section — the only source
+    that captures the CHANGE DELTA (git history), which semantic search over the
+    current code cannot. Fans out over the scope folders and labels by repo."""
+    folders = scope_folder_ids or []
+    if not folders:
+        return "No repositories are in scope."
+    sb = get_supabase()
+    names = _folder_names(sb, folders)
+    blocks: list[str] = []
+    for fid in folders:
+        latest = get_latest_summary(sb, fid, user_id)
+        if not latest:
+            continue
+        sections = latest.get("sections") or (latest.get("content") or {}).get("sections") or {}
+        activity = sections.get("activity") or {}
+        content = activity.get("content") or {}
+        summary = content.get("summary")
+        highlights = content.get("highlights") or []
+        if not summary and not highlights:
+            continue
+        repo = names.get(fid, fid)
+        when = str(activity.get("updated_at") or "")[:10]
+        block = [f"## {repo}" + (f" (as of {when})" if when else "")]
+        if summary:
+            block.append(summary)
+        block.extend(f"- {h}" for h in highlights)
+        blocks.append("\n".join(block))
+    if not blocks:
+        return (
+            "No recent-changes digest is available for the repositories in scope "
+            "(the activity section hasn't been generated yet)."
+        )
+    return "\n\n".join(blocks)
 
 
 @traceable(name="execute_tool", run_type="tool")
@@ -249,5 +299,8 @@ def execute_tool(
 
     if tool_name == "code_graph_lookup":
         return _code_graph_lookup(tool_input, scope_folder_ids)
+
+    if tool_name == "recent_changes":
+        return _recent_changes(user_id, scope_folder_ids)
 
     return f"Unknown tool: {tool_name}"
