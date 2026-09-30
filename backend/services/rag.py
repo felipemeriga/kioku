@@ -27,6 +27,9 @@ file/directory. Use it for precise "where is X defined / who calls X / what depe
 questions about named functions, classes, or methods.
 - query_documents_metadata — structured questions about the document collection (counts, types, \
 topics, dates).
+- recent_changes — a digest of what changed recently across the repos in scope (commit themes + \
+highlights with PR numbers, from git history). Use it for "what changed / what's new / recent \
+work" questions — semantic search shows the CURRENT state, not the delta.
 - web_search — only when the answer is not in the user's knowledge base or code.
 
 ## How to work (agentic)
@@ -40,9 +43,11 @@ read the actual code.
 
 ## Code is ground truth
 Documentation and design notes can be out of date; the indexed code is the current reality. For \
-"how does X work / is this still true / what changed recently" questions, verify prose against the \
-actual code — knowledge_base_search for the implementation, code_graph_lookup for structure. If a \
-document conflicts with the code, trust the code and note that the doc appears outdated.
+"how does X work / is this still true" questions, verify prose against the actual code — \
+knowledge_base_search for the implementation, code_graph_lookup for structure. If a document \
+conflicts with the code, trust the code and note that the doc appears outdated. For "what changed \
+recently / what's new" questions, use recent_changes (git-derived) — the code shows current state, \
+not the delta.
 
 ## Temporal awareness
 Retrieved chunks carry their source date in the header. Treat content as a point-in-time record — \

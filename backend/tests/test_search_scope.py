@@ -177,3 +177,50 @@ class TestCodeGraphLookup(unittest.TestCase):
             scope_folder_ids=[],
         )
         self.assertIn("No repositories are in scope", out)
+
+
+class TestRecentChanges(unittest.TestCase):
+    def test_aggregates_activity_digest_per_repo(self):
+        from services.tools import execute_tool
+
+        summaries = {
+            "f1": {
+                "sections": {
+                    "activity": {
+                        "content": {"summary": "repoA moved fast", "highlights": ["#1 did X"]},
+                        "updated_at": "2026-09-30T06:00:00+00:00",
+                    }
+                }
+            },
+            # f2 has no activity content -> skipped
+            "f2": {"sections": {"activity": {"content": {}}}},
+        }
+
+        with (
+            patch("services.tools.get_supabase", return_value=MagicMock()),
+            patch("services.tools._folder_names", return_value={"f1": "repoA", "f2": "repoB"}),
+            patch(
+                "services.tools.get_latest_summary",
+                side_effect=lambda _sb, fid, _u: summaries.get(fid),
+            ),
+        ):
+            out = execute_tool("recent_changes", {}, "u1", scope_folder_ids=["f1", "f2"])
+        self.assertIn("## repoA (as of 2026-09-30)", out)
+        self.assertIn("repoA moved fast", out)
+        self.assertIn("- #1 did X", out)
+        self.assertNotIn("repoB", out)  # no digest -> omitted
+
+    def test_reads_content_sections_fallback(self):
+        from services.tools import execute_tool
+
+        latest = {
+            "content": {"sections": {"activity": {"content": {"summary": "s", "highlights": []}}}}
+        }
+        with (
+            patch("services.tools.get_supabase", return_value=MagicMock()),
+            patch("services.tools._folder_names", return_value={"f1": "repoA"}),
+            patch("services.tools.get_latest_summary", return_value=latest),
+        ):
+            out = execute_tool("recent_changes", {}, "u1", scope_folder_ids=["f1"])
+        self.assertIn("## repoA", out)
+        self.assertIn("s", out)
