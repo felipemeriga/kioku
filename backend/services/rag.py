@@ -68,17 +68,20 @@ than guessing."""
 _DEEP_THINKING_BUDGET = 2048
 
 
-def _agent_params(fast_mode: bool) -> tuple[Task, int, int | None]:
+def _agent_params(model: str, reasoning: bool) -> tuple[Task, int, int | None]:
     """(task, max_tokens, thinking_budget) for the agent loop.
 
-    Full mode routes to a stronger reasoner with extended thinking so the loop
-    can plan, cross-check, and verify. Fast mode stays on Haiku with no thinking
-    for quick, cheap lookups. Both share the same prompt, tools, and loop — only
-    the model + thinking differ, so the eval path can never drift from prod.
+    Model and reasoning are INDEPENDENT knobs:
+      * model — "sonnet" (stronger) or "haiku" (cheaper/faster)
+      * reasoning — extended thinking on/off (either model supports it)
+
+    Both share the same prompt, tools, and loop — only the model + thinking
+    differ, so the eval path can never drift from prod.
     """
-    if fast_mode:
-        return Task.RAG_AGENT, 4096, None
-    return Task.RAG_AGENT_DEEP, 8192, _DEEP_THINKING_BUDGET
+    task = Task.RAG_AGENT_SONNET if model == "sonnet" else Task.RAG_AGENT
+    if reasoning:
+        return task, 8192, _DEEP_THINKING_BUDGET
+    return task, 4096, None
 
 
 @traceable(name="answer_question", run_type="chain")
@@ -87,7 +90,8 @@ def answer_question(
     user_id: str,
     topic: str | None = None,
     keyword: str | None = None,
-    fast_mode: bool = False,
+    model: str = "sonnet",
+    reasoning: bool = True,
     history: list[dict] | None = None,
     scope_folder_ids: list[str] | None = None,
     scope_filename: str | None = None,
@@ -116,7 +120,10 @@ def answer_question(
     max_rounds = 10
     tool_call_count = 0
     rounds_used = 0
-    task, max_tokens, thinking_budget = _agent_params(fast_mode)
+    task, max_tokens, thinking_budget = _agent_params(model, reasoning)
+    # Reasoning mode does the full (LLM query-rewrite + multi-query) retrieval;
+    # fast mode uses the lighter retrieval path.
+    retrieval_fast = not reasoning
 
     for round_num in range(max_rounds):
         rounds_used = round_num + 1
@@ -144,7 +151,7 @@ def answer_question(
                         user_id,
                         topic,
                         keyword,
-                        fast_mode=fast_mode,
+                        fast_mode=retrieval_fast,
                         scope_folder_ids=scope_folder_ids,
                         scope_filename=scope_filename,
                     )
@@ -207,7 +214,8 @@ def stream_rag_response(
     user_id: str,
     topic: str | None = None,
     keyword: str | None = None,
-    fast_mode: bool = False,
+    model: str = "sonnet",
+    reasoning: bool = True,
     scope_folder_id: str | None = None,
     scope_filename: str | None = None,
 ) -> Generator[str, None, None]:
@@ -222,8 +230,9 @@ def stream_rag_response(
 
         scope_folder_ids = descendant_folder_ids(sb, scope_folder_id, user_id)
 
-    with collect_request(f"rag chat turn ({'fast' if fast_mode else 'full'})"):
-        with request(f"rag chat turn ({'fast' if fast_mode else 'full'})"):
+    _label = f"{model}{'+reasoning' if reasoning else ''}"
+    with collect_request(f"rag chat turn ({_label})"):
+        with request(f"rag chat turn ({_label})"):
             # 1. Save user message + update title + fetch history
             with stage("db: save user msg + fetch history"):
                 sb.table("messages").insert(
@@ -284,7 +293,8 @@ def stream_rag_response(
                     user_id=user_id,
                     topic=topic,
                     keyword=keyword,
-                    fast_mode=fast_mode,
+                    model=model,
+                    reasoning=reasoning,
                     history=prior_messages,
                     scope_folder_ids=scope_folder_ids,
                     scope_filename=scope_filename,
@@ -330,7 +340,8 @@ def _run_loop_and_stream_final(
     user_id: str,
     topic: str | None,
     keyword: str | None,
-    fast_mode: bool,
+    model: str,
+    reasoning: bool,
     history: list[dict] | None,
     scope_folder_ids: list[str] | None = None,
     scope_filename: str | None = None,
@@ -346,7 +357,8 @@ def _run_loop_and_stream_final(
     """
     messages = list(history or []) + [{"role": "user", "content": user_message}]
     max_rounds = 10
-    task, max_tokens, thinking_budget = _agent_params(fast_mode)
+    task, max_tokens, thinking_budget = _agent_params(model, reasoning)
+    retrieval_fast = not reasoning
 
     for round_num in range(max_rounds):
         # Tell the UI what's happening before the (possibly long) model call:
@@ -386,7 +398,7 @@ def _run_loop_and_stream_final(
                             user_id,
                             topic,
                             keyword,
-                            fast_mode=fast_mode,
+                            fast_mode=retrieval_fast,
                             scope_folder_ids=scope_folder_ids,
                             scope_filename=scope_filename,
                         )

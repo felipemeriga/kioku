@@ -4,7 +4,13 @@ import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import MessageBubble from "./MessageBubble";
 import ChatInput from "./ChatInput";
 import ThinkingBar from "./ThinkingBar";
-import type { Message, ChatFilters, ChatScope, StageEvent } from "../lib/api";
+import type {
+  Message,
+  ChatFilters,
+  ChatModel,
+  ChatScope,
+  StageEvent,
+} from "../lib/api";
 import { brand, fonts } from "../theme";
 
 interface ChatAreaProps {
@@ -12,7 +18,12 @@ interface ChatAreaProps {
   streamingContent: string;
   isStreaming: boolean;
   currentStage: StageEvent | null;
-  onSend: (message: string, filters?: ChatFilters, fastMode?: boolean) => void;
+  onSend: (
+    message: string,
+    filters?: ChatFilters,
+    model?: ChatModel,
+    reasoning?: boolean
+  ) => void;
   scope?: ChatScope | null;
   onPickScope?: () => void;
   onClearScope?: () => void;
@@ -53,7 +64,11 @@ export default function ChatArea({
       <Box sx={{ flex: 1, overflow: "auto" }}>
         <Box sx={{ py: 3, px: 3 }}>
           {messages.length === 0 && !isStreaming && (
-            <Stack alignItems="center" spacing={2.5} sx={{ height: "70vh", justifyContent: "center", px: 3 }}>
+            <Stack
+              alignItems="center"
+              spacing={2.5}
+              sx={{ height: "70vh", justifyContent: "center", px: 3 }}
+            >
               <Box
                 sx={{
                   width: 84,
@@ -62,7 +77,10 @@ export default function ChatArea({
                   display: "grid",
                   placeItems: "center",
                   background: `radial-gradient(circle at 30% 30%, ${brand.violet2} 0%, ${brand.violet} 45%, ${brand.violetDeep} 100%)`,
-                  boxShadow: `0 10px 40px ${alpha(brand.violet, 0.5)}, inset 0 0 30px ${alpha("#000", 0.3)}`,
+                  boxShadow: `0 10px 40px ${alpha(
+                    brand.violet,
+                    0.5
+                  )}, inset 0 0 30px ${alpha("#000", 0.3)}`,
                 }}
               >
                 <AutoAwesomeIcon sx={{ fontSize: 40, color: "#fff" }} />
@@ -101,11 +119,19 @@ export default function ChatArea({
                     mt: 0.5,
                   }}
                 >
-                  Query your repos, docs, and memories. Filter by topic or metadata, or reach for the web when your corpus doesn't have the answer.
+                  Query your repos, docs, and memories. Filter by topic or
+                  metadata, or reach for the web when your corpus doesn't have
+                  the answer.
                 </Typography>
               </Stack>
 
-              <Stack direction="row" spacing={1} flexWrap="wrap" justifyContent="center" sx={{ mt: 1, maxWidth: 560 }}>
+              <Stack
+                direction="row"
+                spacing={1}
+                flexWrap="wrap"
+                justifyContent="center"
+                sx={{ mt: 1, maxWidth: 560 }}
+              >
                 {SUGGESTIONS.map((text) => (
                   <Chip
                     key={text}

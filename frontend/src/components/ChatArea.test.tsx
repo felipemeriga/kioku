@@ -37,17 +37,22 @@ describe("ChatArea", () => {
         currentStage={{ stage: "searching" }}
       />
     );
-    expect(screen.getByText("Searching documents...")).toBeInTheDocument();
+    expect(
+      screen.getByText("Searching documents & code...")
+    ).toBeInTheDocument();
   });
 
   it("renders messages when provided", () => {
     const messages = [
       { id: "1", role: "user" as const, content: "Hello", created_at: "" },
-      { id: "2", role: "assistant" as const, content: "Hi there", created_at: "" },
+      {
+        id: "2",
+        role: "assistant" as const,
+        content: "Hi there",
+        created_at: "",
+      },
     ];
-    renderWithProviders(
-      <ChatArea {...defaultProps} messages={messages} />
-    );
+    renderWithProviders(<ChatArea {...defaultProps} messages={messages} />);
     expect(screen.getByText("Hello")).toBeInTheDocument();
     expect(screen.getByText("Hi there")).toBeInTheDocument();
   });
