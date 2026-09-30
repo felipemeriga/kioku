@@ -58,7 +58,8 @@ export default function ChatInput({
   const [reasoning, setReasoning] = useState(true);
   const [model, setModel] = useState<ChatModel>("sonnet");
   const [modelAnchor, setModelAnchor] = useState<null | HTMLElement>(null);
-  const [debug, setDebug] = useState(false);
+  // On by default so every response gets a persisted Inspect card.
+  const [debug, setDebug] = useState(true);
   const [availableFilters, setAvailableFilters] = useState<DocumentFilters>({
     topics: [],
     keywords: [],
