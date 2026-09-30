@@ -315,7 +315,7 @@ export interface ChatScope {
   filename?: string | null;
 }
 
-export type ChatStage = "searching" | "analyzing" | "generating";
+export type ChatStage = "thinking" | "searching" | "analyzing" | "generating";
 
 export interface StageEvent {
   stage: ChatStage;

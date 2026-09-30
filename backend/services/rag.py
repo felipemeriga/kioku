@@ -264,8 +264,6 @@ def stream_rag_response(
                 }:
                     prior_messages = prior_messages[:-1]
 
-            yield f"data: {json.dumps({'stage': 'searching'})}\n\n"
-
             # 2. Run the tool-use loop, then stream the FINAL assistant text
             # from Anthropic as it generates. Previously we blocked on
             # answer_question and emitted the whole reply as a single 'token'
@@ -284,7 +282,13 @@ def stream_rag_response(
                     scope_folder_ids=scope_folder_ids,
                     scope_filename=scope_filename,
                 ):
-                    if chunk_kind == "text_delta":
+                    if chunk_kind == "stage":
+                        # Loop-driven progress: 'thinking' (deep reasoning) or
+                        # 'searching' (tool round). Don't emit once the answer
+                        # has started streaming.
+                        if not gen_started:
+                            yield f"data: {json.dumps({'stage': payload})}\n\n"
+                    elif chunk_kind == "text_delta":
                         if not gen_started:
                             yield f"data: {json.dumps({'stage': 'generating'})}\n\n"
                             gen_started = True
@@ -338,6 +342,9 @@ def _run_loop_and_stream_final(
     task, max_tokens, thinking_budget = _agent_params(fast_mode)
 
     for round_num in range(max_rounds):
+        # Tell the UI what's happening before the (possibly long) model call:
+        # deep mode reasons first, fast mode goes straight to searching.
+        yield ("stage", "thinking" if thinking_budget else "searching")
         with stage(f"round {round_num + 1}: anthropic stream"):
             with stream_complete(
                 task=task,
@@ -357,6 +364,7 @@ def _run_loop_and_stream_final(
         if final.stop_reason == "tool_use":
             messages.append({"role": "assistant", "content": final.content})
             tool_uses = [b for b in final.content if b.type == "tool_use"]
+            yield ("stage", "searching")
 
             def _run_tool(block, _indent: int = 1) -> dict:
                 # Wrap execute_tool so a failing tool (Voyage 429, Mem0 down,
