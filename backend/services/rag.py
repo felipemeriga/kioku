@@ -12,28 +12,66 @@ from services.metrics import collect_request, record, submit_with_context
 from services.timing import request, stage
 from services.tools import TOOL_DEFINITIONS, execute_tool
 
-SYSTEM_PROMPT = """You are a helpful assistant with access to tools.
+SYSTEM_PROMPT = """You are an agentic research assistant for the user's second brain: their \
+uploaded documents plus their indexed code repositories. Reason before you answer — investigate, \
+cross-check, and verify. Do NOT answer from the first thing you retrieve.
 
-You have three tools available:
-1. knowledge_base_search - Search the user's uploaded documents. The tool already performs \
-internal query rewriting and multi-query expansion, so issue ONE focused search per turn with \
-the user's best single question. Do not decompose the question into sub-queries yourself — the \
-tool covers that internally.
-2. query_documents_metadata - Query structured info about the user's documents (counts, types, \
-topics).
-3. web_search - Search the web when the knowledge base does not have the answer.
+## Tools
+- knowledge_base_search — hybrid vector + keyword search over the user's documents AND their \
+indexed source code (real code chunks, not just prose). It performs internal query expansion, so \
+pass ONE clear question per call — but you may call it several times across rounds: if results are \
+weak, off-target, or thin, reformulate and search again.
+- code_graph_lookup — exact structural lookups in the code graph across every repo in scope: where \
+a symbol is defined, who references/calls it, its blast radius (impact), or an outline of a \
+file/directory. Use it for precise "where is X defined / who calls X / what depends on X" \
+questions about named functions, classes, or methods.
+- query_documents_metadata — structured questions about the document collection (counts, types, \
+topics, dates).
+- web_search — only when the answer is not in the user's knowledge base or code.
 
-Pick one tool per turn unless you genuinely need two different tools (e.g., knowledge_base_search \
-plus web_search). Do not call the same tool more than once per turn — pick the best query.
-If a tool returns no results, try a different approach or a different tool on the next turn.
-When answering, cite your sources when possible.
+## How to work (agentic)
+- PLAN: decide what you need and where it lives (docs? code? code graph? web?) before acting.
+- ACT & OBSERVE: retrieve, then actually read what came back. You may use multiple tools and \
+search multiple times across rounds — iterate until you have enough. Do not stop at the first hit.
+- EVALUATE: after retrieving, judge whether the results are relevant, complete, consistent, and \
+current. If they are thin, conflicting, or stale, dig further — reformulate, switch tools, or go \
+read the actual code.
+- VERIFY before you answer. Do not emit a claim you have not grounded in what you retrieved.
 
-Temporal awareness: retrieved chunks carry their source date in the header. Treat content as a \
-point-in-time record — when sources conflict, prefer the most recent and note that the older \
-source says otherwise. For time-sensitive answers, state the as-of date. If the only supporting \
-material is old, say so explicitly. When the user asks about a specific period ('last month', \
-'since March', 'back in January'), pass created_after / created_before to knowledge_base_search \
-instead of filtering by words in the query."""
+## Code is ground truth
+Documentation and design notes can be out of date; the indexed code is the current reality. For \
+"how does X work / is this still true / what changed recently" questions, verify prose against the \
+actual code — knowledge_base_search for the implementation, code_graph_lookup for structure. If a \
+document conflicts with the code, trust the code and note that the doc appears outdated.
+
+## Temporal awareness
+Retrieved chunks carry their source date in the header. Treat content as a point-in-time record — \
+when sources conflict, prefer the most recent and note that the older source differs. For \
+time-sensitive answers, state the as-of date; if the only supporting material is old, say so. When \
+the user asks about a specific period ('last month', 'since March', 'back in January'), pass \
+created_after / created_before to knowledge_base_search instead of filtering by words.
+
+## Answering
+Ground every claim in what you retrieved and cite sources — file:line for code, source name + date \
+for documents. If after honest effort the knowledge base does not cover it, say so plainly rather \
+than guessing."""
+
+# Extended-thinking budget for deep (full-mode) agent turns. < max_tokens so
+# thinking and the answer share the ceiling.
+_DEEP_THINKING_BUDGET = 2048
+
+
+def _agent_params(fast_mode: bool) -> tuple[Task, int, int | None]:
+    """(task, max_tokens, thinking_budget) for the agent loop.
+
+    Full mode routes to a stronger reasoner with extended thinking so the loop
+    can plan, cross-check, and verify. Fast mode stays on Haiku with no thinking
+    for quick, cheap lookups. Both share the same prompt, tools, and loop — only
+    the model + thinking differ, so the eval path can never drift from prod.
+    """
+    if fast_mode:
+        return Task.RAG_AGENT, 4096, None
+    return Task.RAG_AGENT_DEEP, 8192, _DEEP_THINKING_BUDGET
 
 
 @traceable(name="answer_question", run_type="chain")
@@ -71,16 +109,15 @@ def answer_question(
     max_rounds = 10
     tool_call_count = 0
     rounds_used = 0
+    task, max_tokens, thinking_budget = _agent_params(fast_mode)
 
     for round_num in range(max_rounds):
         rounds_used = round_num + 1
         with stage(f"round {round_num + 1}: anthropic call"):
             response = complete(
-                task=Task.RAG_AGENT,
-                # 1024 truncated rich answers on comparison/multi-hop questions.
-                # Haiku supports up to 8192; 4096 is plenty for thorough answers
-                # without leaving the runaway-loop ceiling too open.
-                max_tokens=4096,
+                task=task,
+                max_tokens=max_tokens,
+                thinking_budget=thinking_budget,
                 system=SYSTEM_PROMPT,
                 messages=messages,
                 tools=TOOL_DEFINITIONS,
@@ -227,8 +264,6 @@ def stream_rag_response(
                 }:
                     prior_messages = prior_messages[:-1]
 
-            yield f"data: {json.dumps({'stage': 'searching'})}\n\n"
-
             # 2. Run the tool-use loop, then stream the FINAL assistant text
             # from Anthropic as it generates. Previously we blocked on
             # answer_question and emitted the whole reply as a single 'token'
@@ -247,7 +282,13 @@ def stream_rag_response(
                     scope_folder_ids=scope_folder_ids,
                     scope_filename=scope_filename,
                 ):
-                    if chunk_kind == "text_delta":
+                    if chunk_kind == "stage":
+                        # Loop-driven progress: 'thinking' (deep reasoning) or
+                        # 'searching' (tool round). Don't emit once the answer
+                        # has started streaming.
+                        if not gen_started:
+                            yield f"data: {json.dumps({'stage': payload})}\n\n"
+                    elif chunk_kind == "text_delta":
                         if not gen_started:
                             yield f"data: {json.dumps({'stage': 'generating'})}\n\n"
                             gen_started = True
@@ -298,12 +339,17 @@ def _run_loop_and_stream_final(
     """
     messages = list(history or []) + [{"role": "user", "content": user_message}]
     max_rounds = 10
+    task, max_tokens, thinking_budget = _agent_params(fast_mode)
 
     for round_num in range(max_rounds):
+        # Tell the UI what's happening before the (possibly long) model call:
+        # deep mode reasons first, fast mode goes straight to searching.
+        yield ("stage", "thinking" if thinking_budget else "searching")
         with stage(f"round {round_num + 1}: anthropic stream"):
             with stream_complete(
-                task=Task.RAG_AGENT,
-                max_tokens=4096,
+                task=task,
+                max_tokens=max_tokens,
+                thinking_budget=thinking_budget,
                 system=SYSTEM_PROMPT,
                 messages=messages,
                 tools=TOOL_DEFINITIONS,
@@ -318,6 +364,7 @@ def _run_loop_and_stream_final(
         if final.stop_reason == "tool_use":
             messages.append({"role": "assistant", "content": final.content})
             tool_uses = [b for b in final.content if b.type == "tool_use"]
+            yield ("stage", "searching")
 
             def _run_tool(block, _indent: int = 1) -> dict:
                 # Wrap execute_tool so a failing tool (Voyage 429, Mem0 down,

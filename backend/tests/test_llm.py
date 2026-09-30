@@ -97,6 +97,51 @@ class TestComplete(unittest.TestCase):
         call_kwargs = mock_client.messages.create.call_args.kwargs
         self.assertNotIn("cache_control", call_kwargs["tools"][0])
 
+    def test_thinking_budget_enables_thinking_and_beta_header(self):
+        from services.llm import Task, complete
+
+        mock_client = self._patched_client()
+        with patch("services.llm.get_client", return_value=mock_client):
+            complete(
+                task=Task.RAG_AGENT_DEEP,
+                messages=[{"role": "user", "content": "hi"}],
+                max_tokens=8192,
+                thinking_budget=2048,
+            )
+
+        call_kwargs = mock_client.messages.create.call_args.kwargs
+        self.assertEqual(call_kwargs["thinking"], {"type": "enabled", "budget_tokens": 2048})
+        self.assertIn("anthropic-beta", call_kwargs["extra_headers"])
+
+    def test_no_thinking_budget_means_no_thinking_kwarg(self):
+        from services.llm import Task, complete
+
+        mock_client = self._patched_client()
+        with patch("services.llm.get_client", return_value=mock_client):
+            complete(task=Task.RAG_AGENT, messages=[{"role": "user", "content": "hi"}])
+
+        call_kwargs = mock_client.messages.create.call_args.kwargs
+        self.assertNotIn("thinking", call_kwargs)
+        self.assertNotIn("extra_headers", call_kwargs)
+
+
+class TestAgentParams(unittest.TestCase):
+    def test_fast_mode_is_haiku_no_thinking(self):
+        from services.llm import MODEL_FOR_TASK
+        from services.rag import _agent_params
+
+        task, max_tokens, thinking = _agent_params(fast_mode=True)
+        self.assertIn("haiku", MODEL_FOR_TASK[task])
+        self.assertIsNone(thinking)
+
+    def test_full_mode_is_deep_with_thinking(self):
+        from services.llm import MODEL_FOR_TASK
+        from services.rag import _agent_params
+
+        task, max_tokens, thinking = _agent_params(fast_mode=False)
+        self.assertIn("sonnet", MODEL_FOR_TASK[task])
+        self.assertTrue(thinking and thinking < max_tokens)
+
 
 if __name__ == "__main__":
     unittest.main()

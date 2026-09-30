@@ -18,6 +18,11 @@ class Task(str, Enum):
     TEXT_TO_SQL = "text_to_sql"
     EVAL_JUDGE = "eval_judge"
     RAG_AGENT = "rag_agent"
+    # Deep agentic chat: full (non-fast) mode routes here for a stronger
+    # reasoner + extended thinking, so the loop can plan, cross-check, and
+    # verify instead of answering from the first retrieval. Fast mode stays on
+    # RAG_AGENT (Haiku) for quick lookups.
+    RAG_AGENT_DEEP = "rag_agent_deep"
     FOLDER_SUMMARY_DOC = "folder_summary_doc"
     FOLDER_SUMMARY_ROLLUP = "folder_summary_rollup"
 
@@ -30,9 +35,14 @@ MODEL_FOR_TASK: dict[Task, str] = {
     Task.TEXT_TO_SQL: "claude-haiku-4-5-20251001",
     Task.EVAL_JUDGE: "claude-haiku-4-5-20251001",
     Task.RAG_AGENT: "claude-haiku-4-5-20251001",
+    Task.RAG_AGENT_DEEP: "claude-sonnet-4-6",
     Task.FOLDER_SUMMARY_DOC: "claude-haiku-4-5-20251001",
     Task.FOLDER_SUMMARY_ROLLUP: "claude-haiku-4-5-20251001",
 }
+
+# Interleaved thinking lets the model reason BETWEEN tool calls within a single
+# turn (plan → search → reflect → verify), not just once up front.
+_INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14"
 
 
 def _tracing_enabled() -> bool:
@@ -68,6 +78,7 @@ def _build_kwargs(
     tools: list[dict] | None,
     max_tokens: int,
     cache_system: bool,
+    thinking_budget: int | None = None,
 ) -> dict:
     kwargs: dict = {
         "model": MODEL_FOR_TASK[task],
@@ -85,6 +96,11 @@ def _build_kwargs(
         if cache_system:
             tools = [*tools[:-1], {**tools[-1], "cache_control": {"type": "ephemeral"}}]
         kwargs["tools"] = tools
+    if thinking_budget:
+        # Extended thinking: the model emits reasoning before its answer/tool
+        # calls. budget_tokens must be < max_tokens (thinking + output share it).
+        kwargs["thinking"] = {"type": "enabled", "budget_tokens": thinking_budget}
+        kwargs["extra_headers"] = {"anthropic-beta": _INTERLEAVED_THINKING_BETA}
     return kwargs
 
 
@@ -96,12 +112,15 @@ def complete(
     tools: list[dict] | None = None,
     max_tokens: int = 1024,
     cache_system: bool = True,
+    thinking_budget: int | None = None,
 ) -> anthropic.types.Message:
     """Run a Claude completion routed by task.
 
     When cache_system=True, attaches cache_control: ephemeral on the system prompt
     and on the last tool. Markers are no-ops below per-model minimum thresholds
     (Haiku 2048, Sonnet/Opus 1024 input tokens) — safe to leave on.
+
+    Pass thinking_budget to enable extended thinking (must be < max_tokens).
     """
     kwargs = _build_kwargs(
         task=task,
@@ -110,6 +129,7 @@ def complete(
         tools=tools,
         max_tokens=max_tokens,
         cache_system=cache_system,
+        thinking_budget=thinking_budget,
     )
     return get_client().messages.create(**kwargs)
 
@@ -122,6 +142,7 @@ def stream_complete(
     tools: list[dict] | None = None,
     max_tokens: int = 1024,
     cache_system: bool = True,
+    thinking_budget: int | None = None,
 ):
     """Streaming variant. Returns a context manager yielding a stream —
     caller uses `with stream_complete(...) as s: for text in s.text_stream: ...`.
@@ -136,5 +157,6 @@ def stream_complete(
         tools=tools,
         max_tokens=max_tokens,
         cache_system=cache_system,
+        thinking_budget=thinking_budget,
     )
     return get_client().messages.stream(**kwargs)

@@ -6,10 +6,11 @@ interface ThinkingBarProps {
   stage: StageEvent | null;
 }
 
-const STAGES = ["searching", "analyzing", "generating"] as const;
+const STAGES = ["thinking", "searching", "analyzing", "generating"] as const;
 
 const STAGE_TEXT: Record<string, (docs?: number) => string> = {
-  searching: () => "Searching documents...",
+  thinking: () => "Reasoning...",
+  searching: () => "Searching documents & code...",
   analyzing: (docs) => `Analyzing ${docs ?? 0} results...`,
   generating: () => "Generating response...",
 };
@@ -58,8 +59,8 @@ export default function ThinkingBar({ stage }: ThinkingBarProps) {
                 bgcolor: isCompleted
                   ? "#10b981"
                   : isActive
-                    ? "#FF2E93"
-                    : alpha("#ffffff", 0.1),
+                  ? "#FF2E93"
+                  : alpha("#ffffff", 0.1),
                 ...(isActive && {
                   animation: "pulse 1.5s infinite",
                   "@keyframes pulse": {
