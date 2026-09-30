@@ -282,11 +282,42 @@ export async function renameConversation(
   return res.json();
 }
 
+/** Live-only debug trace emitted by the agent when debug mode is on. */
+export interface DebugRetrievalChunk {
+  query?: string;
+  source: string;
+  source_type: string;
+  symbol?: string | null;
+  rerank_score?: number | null;
+  similarity?: number | null;
+  date?: string | null;
+  content: string;
+}
+export interface DebugToolCall {
+  round: number;
+  name: string;
+  input: unknown;
+  result_preview: string;
+  is_error?: boolean;
+}
+export interface DebugReasoningStep {
+  round: number;
+  text: string;
+}
+export interface DebugTrace {
+  model?: string;
+  reasoning: DebugReasoningStep[];
+  tool_calls: DebugToolCall[];
+  retrieval: DebugRetrievalChunk[];
+}
+
 export interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
   created_at: string;
+  /** Present only for assistant messages answered with debug mode on. */
+  debug?: DebugTrace;
 }
 
 export interface ConversationWithMessages extends Conversation {
@@ -343,6 +374,8 @@ export async function streamChat(
   onStage?: (event: StageEvent) => void,
   model?: ChatModel,
   reasoning?: boolean,
+  debug?: boolean,
+  onDebug?: (trace: DebugTrace) => void,
   onError?: (err: ApiError) => void
 ): Promise<void> {
   // A stream is "clean" only if it emits a data.done frame. Anything else —
@@ -376,6 +409,7 @@ export async function streamChat(
         keyword: filters?.keyword || null,
         model: model ?? "sonnet",
         reasoning: reasoning ?? true,
+        debug: debug ?? false,
         scope_folder_id: filters?.scopeFolderId || null,
         scope_filename: filters?.scopeFilename || null,
       }),
@@ -459,6 +493,9 @@ export async function streamChat(
           }
           if (data.stage && onStage) {
             onStage({ stage: data.stage, docs: data.docs });
+          }
+          if (data.debug && onDebug) {
+            onDebug(data.debug as DebugTrace);
           }
           if (data.token) {
             onToken(data.token);

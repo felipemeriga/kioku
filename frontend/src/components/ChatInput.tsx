@@ -16,6 +16,7 @@ import AttachFileIcon from "@mui/icons-material/AttachFile";
 import FilterListIcon from "@mui/icons-material/FilterList";
 import BoltIcon from "@mui/icons-material/Bolt";
 import PsychologyIcon from "@mui/icons-material/Psychology";
+import BugReportIcon from "@mui/icons-material/BugReport";
 import CenterFocusStrongIcon from "@mui/icons-material/CenterFocusStrong";
 import { uploadDocument, fetchDocumentFilters } from "../lib/api";
 import type {
@@ -31,7 +32,8 @@ interface ChatInputProps {
     message: string,
     filters?: ChatFilters,
     model?: ChatModel,
-    reasoning?: boolean
+    reasoning?: boolean,
+    debug?: boolean
   ) => void;
   disabled: boolean;
   /** Active RAG scope for this conversation (chip + picker managed above). */
@@ -56,6 +58,7 @@ export default function ChatInput({
   const [reasoning, setReasoning] = useState(true);
   const [model, setModel] = useState<ChatModel>("sonnet");
   const [modelAnchor, setModelAnchor] = useState<null | HTMLElement>(null);
+  const [debug, setDebug] = useState(false);
   const [availableFilters, setAvailableFilters] = useState<DocumentFilters>({
     topics: [],
     keywords: [],
@@ -77,7 +80,7 @@ export default function ChatInput({
     if (!trimmed) return;
     const filters =
       activeFilters.topic || activeFilters.keyword ? activeFilters : undefined;
-    onSend(trimmed, filters, model, reasoning);
+    onSend(trimmed, filters, model, reasoning, debug);
     setInput("");
     setUploadedFile(null);
   };
@@ -287,6 +290,27 @@ export default function ChatInput({
               Haiku — faster & cheaper
             </MenuItem>
           </Menu>
+          <Tooltip
+            title={
+              debug
+                ? "Debug ON — each answer gets an Inspect card (chunks, rerank, reasoning, tool calls)"
+                : "Debug OFF — turn on to inspect how each answer was produced"
+            }
+          >
+            <IconButton
+              onClick={() => setDebug((prev) => !prev)}
+              disabled={disabled}
+              sx={{
+                color: debug ? "#22d3ee" : undefined,
+                bgcolor: debug ? alpha("#22d3ee", 0.1) : undefined,
+                "&:hover": {
+                  bgcolor: debug ? alpha("#22d3ee", 0.2) : undefined,
+                },
+              }}
+            >
+              <BugReportIcon />
+            </IconButton>
+          </Tooltip>
           <Menu
             anchorEl={filterAnchor}
             open={Boolean(filterAnchor)}

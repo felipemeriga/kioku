@@ -108,6 +108,44 @@ class TestExecuteToolScope(unittest.TestCase):
         self.assertEqual(kwargs["folder_ids"], ["f1", "f2"])
         self.assertEqual(kwargs["source_filename"], "doc.md")
 
+    def test_debug_retrieval_captures_structured_chunks(self):
+        from services.tools import execute_tool
+
+        results = [
+            {
+                "content": "def f(): ...",
+                "source_type": "code",
+                "rerank_score": 0.72,
+                "created_at": "2026-09-17T00:00:00+00:00",
+                "metadata": {"source_filename": "a.py:1-3", "code_symbol": "f"},
+            },
+            {
+                "content": "some doc text",
+                "source_type": "document",
+                "rerank_score": 0.31,
+                "created_at": "2026-08-01T00:00:00+00:00",
+                "metadata": {"source_filename": "notes.md"},
+            },
+        ]
+        sink: list = []
+        with (
+            patch("services.tools.embed_query", return_value=[0.0] * 1024),
+            patch("services.tools.search_documents", return_value=results),
+        ):
+            execute_tool(
+                "knowledge_base_search",
+                {"query": "q"},
+                "u1",
+                scope_folder_ids=["f1"],
+                debug_retrieval=sink,
+            )
+        self.assertEqual(len(sink), 2)
+        self.assertEqual(sink[0]["source_type"], "code")
+        self.assertEqual(sink[0]["symbol"], "f")
+        self.assertEqual(sink[0]["rerank_score"], 0.72)
+        self.assertEqual(sink[0]["date"], "2026-09-17")
+        self.assertEqual(sink[1]["source_type"], "document")
+
 
 class TestCodeGraphLookup(unittest.TestCase):
     def test_definition_fans_out_across_scope_repos_and_labels(self):

@@ -7,6 +7,7 @@ import type {
   ChatFilters,
   ChatModel,
   ChatScope,
+  DebugTrace,
   StageEvent,
 } from "../lib/api";
 import { streamChat } from "../lib/api";
@@ -79,7 +80,8 @@ export default function ChatPage() {
     content: string,
     filters?: ChatFilters,
     model?: ChatModel,
-    reasoning?: boolean
+    reasoning?: boolean,
+    debug?: boolean
   ) => {
     if (!selectedId || isStreaming) return;
 
@@ -101,6 +103,8 @@ export default function ChatPage() {
     setStreamingContent("");
     setCurrentStage(null);
     streamingRef.current = "";
+    // Debug trace arrives just before 'done'; hold it until we build the message.
+    let debugTrace: DebugTrace | undefined;
 
     const scopedFilters: ChatFilters | undefined = scope
       ? {
@@ -125,6 +129,7 @@ export default function ChatPage() {
             role: "assistant",
             content: streamingRef.current,
             created_at: new Date().toISOString(),
+            debug: debugTrace,
           };
           setMessages((msgs) => [...msgs, assistantMsg]);
           setStreamingContent("");
@@ -136,7 +141,11 @@ export default function ChatPage() {
         scopedFilters,
         (stage) => setCurrentStage(stage),
         model,
-        reasoning
+        reasoning,
+        debug,
+        (trace) => {
+          debugTrace = trace;
+        }
       );
     } catch (err) {
       // Preserve any partial content the assistant already streamed by
