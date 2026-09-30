@@ -190,7 +190,7 @@ export default function ChatInput({
             />
           )}
         </Box>
-        <Box sx={{ display: "flex", gap: 1 }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
           <input
             type="file"
             ref={fileInputRef}
