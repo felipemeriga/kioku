@@ -123,7 +123,7 @@ def find_definition(sb, *, folder_id: str, symbol: str, limit: int = 20) -> list
     """Symbols matching `symbol` (exact first, then substring)."""
     exact = (
         sb.table("repo_symbols")
-        .select("node_id,symbol,kind,file,start_line")
+        .select("node_id,symbol,kind,file,start_line,updated_at")
         .eq("folder_id", folder_id)
         .eq("symbol", symbol)
         .limit(limit)
@@ -134,7 +134,7 @@ def find_definition(sb, *, folder_id: str, symbol: str, limit: int = 20) -> list
         return exact
     return (
         sb.table("repo_symbols")
-        .select("node_id,symbol,kind,file,start_line")
+        .select("node_id,symbol,kind,file,start_line,updated_at")
         .eq("folder_id", folder_id)
         .ilike("symbol", f"%{symbol}%")
         .limit(limit)
@@ -185,7 +185,7 @@ def outline(sb, *, folder_id: str, path: str, limit: int = 500) -> list[dict]:
     """All symbols under a file or directory prefix, ordered by file then line."""
     return (
         sb.table("repo_symbols")
-        .select("node_id,symbol,kind,file,start_line")
+        .select("node_id,symbol,kind,file,start_line,updated_at")
         .eq("folder_id", folder_id)
         .ilike("file", f"{path}%")
         .order("file")
@@ -228,7 +228,7 @@ def impact_of(
             rows.extend(
                 (
                     sb.table("repo_symbols")
-                    .select("node_id,symbol,file,start_line")
+                    .select("node_id,symbol,file,start_line,updated_at")
                     .eq("folder_id", folder_id)
                     .in_("node_id", batch)
                     .execute()

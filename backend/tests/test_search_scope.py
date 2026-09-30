@@ -140,6 +140,31 @@ class TestCodeGraphLookup(unittest.TestCase):
         self.assertIn("[repoA] method update_phase — a.rs:10", out)
         self.assertIn("[repoB] fn update_phase — b.py:20", out)
 
+    def test_definition_surfaces_updated_date(self):
+        from services.tools import execute_tool
+
+        rows = [
+            {
+                "symbol": "f",
+                "kind": "fn",
+                "file": "a.py",
+                "start_line": 3,
+                "updated_at": "2026-09-17T10:00:00+00:00",
+            }
+        ]
+        with (
+            patch("services.tools.get_supabase", return_value=MagicMock()),
+            patch("services.tools._folder_names", return_value={"f1": "repoA"}),
+            patch("services.tools.graph_store.find_definition", return_value=rows),
+        ):
+            out = execute_tool(
+                "code_graph_lookup",
+                {"operation": "definition", "symbol": "f"},
+                "u1",
+                scope_folder_ids=["f1"],
+            )
+        self.assertIn("(updated 2026-09-17)", out)
+
     def test_no_results_message(self):
         from services.tools import execute_tool
 
