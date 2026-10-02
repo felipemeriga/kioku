@@ -56,13 +56,18 @@ def _folder_must_be_repo(sb, folder_id: str, user_id: str) -> dict:
 
 def _current_briefing(sb, folder_id: str, user_id: str) -> dict:
     latest = get_latest_summary(sb, folder_id, user_id)
-    sections = None
-    if latest:
-        sections = latest.get("sections")
-        if not sections and (latest.get("content") or {}).get("sections"):
-            # Compat: pre-migration rows stashed sections inside content.
-            sections = (latest.get("content") or {}).get("sections")
-    return sections or empty_briefing()
+    if not latest:
+        return empty_briefing()
+    # Two stores exist: the top-level `sections` column (canonical) and
+    # content.sections (compat / full snapshot). The top-level column can end up
+    # PARTIAL — e.g. a watcher activity write leaves only {activity} on a row
+    # whose content.sections still holds the full briefing. Merge them:
+    # content.sections as the base, top-level overriding per key. This surfaces
+    # the complete briefing and prefers the canonical column where present.
+    content_sections = (latest.get("content") or {}).get("sections") or {}
+    top_sections = latest.get("sections") or {}
+    merged = {**content_sections, **top_sections}
+    return merged or empty_briefing()
 
 
 @router.get("/{folder_id}/briefing/schema")
