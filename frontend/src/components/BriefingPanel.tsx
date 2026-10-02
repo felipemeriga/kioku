@@ -199,8 +199,8 @@ export default function BriefingPanel({ folderId }: Props) {
         <Alert severity="warning" sx={{ py: 0.5 }}>
           <strong>{staleSections.join(", ")}</strong> may be out of date — these
           sections need a full pass to stay accurate (the watcher keeps the rest
-          fresh automatically). Regenerate with{" "}
-          <code>kioku init --force</code> when convenient.
+          fresh automatically). Regenerate with <code>kioku init --force</code>{" "}
+          when convenient.
         </Alert>
       )}
       <Stack
@@ -250,7 +250,9 @@ export default function BriefingPanel({ folderId }: Props) {
       </Stack>
 
       {hasBriefing ? (
-        BRIEFING_SECTIONS.map((key) => (
+        // Only render sections that actually exist — a partial briefing (missing
+        // some keys) must not crash the page on an undefined section.
+        BRIEFING_SECTIONS.filter((key) => data.sections[key]).map((key) => (
           <SectionCard
             key={key}
             sectionKey={key}
@@ -390,12 +392,14 @@ function SectionCard({
   onSave,
 }: {
   sectionKey: BriefingSectionKey;
-  section: BriefingSection;
+  section: BriefingSection | undefined;
   editing: boolean;
   onStartEdit: () => void;
   onCancelEdit: () => void;
   onSave: (content: unknown, status: "pinned" | "auto") => Promise<void>;
 }) {
+  // Defensive: a missing section must never crash the panel.
+  if (!section) return null;
   const visual = SECTION_VISUALS[sectionKey];
   const Icon = visual.icon;
   return (
