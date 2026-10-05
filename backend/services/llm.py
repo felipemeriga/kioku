@@ -25,6 +25,9 @@ class Task(str, Enum):
     RAG_AGENT_SONNET = "rag_agent_sonnet"
     FOLDER_SUMMARY_DOC = "folder_summary_doc"
     FOLDER_SUMMARY_ROLLUP = "folder_summary_rollup"
+    # Periodic re-ground of the holistic briefing sections (architecture /
+    # overview) from the repo's current key files — Sonnet for prose quality.
+    FOLDER_SUMMARY_REGROUND = "folder_summary_reground"
 
 
 MODEL_FOR_TASK: dict[Task, str] = {
@@ -38,6 +41,7 @@ MODEL_FOR_TASK: dict[Task, str] = {
     Task.RAG_AGENT_SONNET: "claude-sonnet-4-6",
     Task.FOLDER_SUMMARY_DOC: "claude-haiku-4-5-20251001",
     Task.FOLDER_SUMMARY_ROLLUP: "claude-haiku-4-5-20251001",
+    Task.FOLDER_SUMMARY_REGROUND: "claude-sonnet-4-6",
 }
 
 # Interleaved thinking lets the model reason BETWEEN tool calls within a single

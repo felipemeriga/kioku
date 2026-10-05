@@ -364,6 +364,102 @@ async def refresh_section(body: SectionRefreshRequest, request: Request):
     return {"ok": True, "updated": True, "section": body.section}
 
 
+class RegroundFile(BaseModel):
+    path: str = Field(max_length=400)
+    content: str = Field(max_length=16000)
+
+
+class RegroundRequest(BaseModel):
+    folder_id: str
+    head_sha: str = Field(default="", max_length=64)
+    files: list[RegroundFile] = Field(default_factory=list, max_length=14)
+    structure: str = Field(default="", max_length=4000)
+
+
+@router.post("/reground")
+async def reground_holistic(body: RegroundRequest, request: Request):
+    """Re-ground the HOLISTIC sections (architecture + overview) from the repo's
+    current key files + structure. The watcher runs this periodically (~twice a
+    month) so a repo stays fresh without a manual `kioku init --force`. Unlike
+    the concrete-section folds (Haiku, diff-driven), this re-reads the actual key
+    files and regenerates the prose with Sonnet, so it never drifts."""
+    if not body.files:
+        return {"ok": True, "updated": False, "reason": "no files"}
+
+    user_id, scope_id, _raw = _api_key_auth(request)
+    sb = get_supabase()
+
+    from mcp_server import _descendant_folder_ids
+
+    if body.folder_id not in _descendant_folder_ids(sb, scope_id, user_id):
+        raise HTTPException(status_code=403, detail="folder_id not in api key scope")
+
+    from services.folder_summary.repo import get_latest_summary
+
+    latest = get_latest_summary(sb, body.folder_id, user_id)
+    if not latest:
+        return {"ok": True, "updated": False, "reason": "no briefing yet"}
+    sections = latest.get("sections") or ((latest.get("content") or {}).get("sections")) or {}
+    cur_arch = (sections.get("architecture") or {}).get("content")
+    cur_over = (sections.get("overview") or {}).get("content")
+
+    import json as _json
+
+    from services.llm import Task, complete
+
+    file_blobs = "\n\n".join(f"--- {f.path} ---\n{f.content}" for f in body.files)
+    prompt = (
+        "You maintain a repository briefing. Regenerate the `architecture` and "
+        "`overview` sections, RE-GROUNDED in the current key files and structure "
+        "below (do not just copy the stale versions). Return EXACTLY this JSON "
+        "object and nothing else:\n"
+        '{"architecture": {"summary": "str", "components": '
+        '[{"name": "str", "role": "str", "path": "str"}], "data_flow": "str"}, '
+        '"overview": {"purpose": "str", "description": "str"}}\n\n'
+        f"FILE STRUCTURE:\n{body.structure[:3000]}\n\n"
+        f"KEY FILES:\n{file_blobs[:40000]}\n\n"
+        f"CURRENT architecture (reference, may be stale):\n"
+        f"{_json.dumps(cur_arch)[:3000] if cur_arch else 'none'}\n\n"
+        f"CURRENT overview (reference):\n"
+        f"{_json.dumps(cur_over)[:1000] if cur_over else 'none'}"
+    )
+    response = complete(
+        task=Task.FOLDER_SUMMARY_REGROUND,
+        max_tokens=3000,
+        system=(
+            "You write accurate, concise repo architecture/overview from source. "
+            "Output only valid JSON."
+        ),
+        messages=[{"role": "user", "content": prompt}],
+    )
+    text = "".join(b.text for b in response.content if hasattr(b, "text")).strip()
+    if text.startswith("```"):
+        text = text.strip("`").removeprefix("json").strip()
+    try:
+        data = _json.loads(text)
+    except _json.JSONDecodeError:
+        raise HTTPException(status_code=502, detail="reground model returned invalid JSON")
+
+    from services.folder_summary.briefing_schema import new_section
+
+    updated: list[str] = []
+    for sec in ("architecture", "overview"):
+        if isinstance(data.get(sec), dict):
+            sb.rpc(
+                "set_briefing_section",
+                {
+                    "p_folder_id": body.folder_id,
+                    "p_user_id": user_id,
+                    "p_section": sec,
+                    "p_value": new_section(
+                        data[sec], status="auto", provenance="auto", updated_by="watcher"
+                    ),
+                },
+            ).execute()
+            updated.append(sec)
+    return {"ok": True, "updated": bool(updated), "sections": updated}
+
+
 class RegisterRepoRequest(BaseModel):
     folder_id: str
     remote_url: str = Field(min_length=8, max_length=500)

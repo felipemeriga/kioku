@@ -348,6 +348,92 @@ def refresh_sections(clone: Path, repo: dict, env: dict) -> None:
             log(f"{repo['remote_url']}: {section} refresh failed — {exc}")
 
 
+# Holistic sections (architecture/overview) are RE-GROUNDED periodically from
+# the repo's current key files — no manual `kioku init --force` needed. Gated so
+# it runs roughly twice a month, and only when there's been real churn.
+HOLISTIC_REGROUND_DAYS = 14
+HOLISTIC_COMMITS_FLOOR = 3
+
+
+def maybe_reground_holistic(clone: Path, repo: dict, env: dict) -> None:
+    """Re-ground architecture/overview from the current key files (~twice a
+    month) via the backend (Sonnet) so these holistic sections stay fresh
+    without a full re-init. Gated on days-since-last-write + a commits floor."""
+    if not API_URL or not repo.get("api_key_encrypted"):
+        return
+    rows = rest_get(
+        "folder_summaries",
+        {
+            "folder_id": f"eq.{repo['folder_id']}",
+            "select": "generated_at,content",
+            "order": "generated_at.desc",
+            "limit": "1",
+        },
+    )
+    if not rows:
+        return
+    generated_at = rows[0]["generated_at"]
+    content = rows[0].get("content") or {}
+    sections = content.get("sections") if isinstance(content.get("sections"), dict) else content
+    sections = sections or {}
+
+    # Watermark: when architecture was last (re)written.
+    last = ((sections.get("architecture") or {}).get("updated_at")) or generated_at
+    try:
+        last_dt = datetime.fromisoformat(str(last).replace("Z", "+00:00"))
+    except ValueError:
+        return
+    if (datetime.now(timezone.utc) - last_dt).days < HOLISTIC_REGROUND_DAYS:
+        return  # not due yet
+    code, n, _ = run_git(["rev-list", "--count", f"--since={last}", "HEAD"], env, cwd=str(clone))
+    if code != 0 or int(n or 0) < HOLISTIC_COMMITS_FLOOR:
+        return  # not enough churn to bother
+
+    # Key files: prefer the important_files the briefing already identified.
+    imp = (sections.get("important_files") or {}).get("content") or []
+    paths: list[str] = []
+    if isinstance(imp, list):
+        paths = [i["path"] for i in imp if isinstance(i, dict) and i.get("path")]
+    if not paths:
+        for cand in ("README.md", "readme.md", "pyproject.toml", "package.json", "go.mod"):
+            if (clone / cand).is_file():
+                paths.append(cand)
+    files = []
+    for f in paths[:14]:
+        p = clone / f
+        try:
+            if p.is_file() and p.stat().st_size < 80_000:
+                files.append({"path": f, "content": p.read_text(errors="replace")[:12000]})
+        except OSError:
+            continue
+    if not files:
+        return
+
+    # Compact structure: top-two-level paths from the tracked tree.
+    code, tree, _ = run_git(["ls-files"], env, cwd=str(clone))
+    structure = ""
+    if code == 0:
+        tops = sorted({"/".join(line.split("/")[:2]) for line in tree.split("\n") if line.strip()})
+        structure = "\n".join(tops[:200])
+
+    key = decrypt(repo["api_key_encrypted"])
+    try:
+        r = requests.post(
+            f"{API_URL}/api/watcher/reground",
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            json={"folder_id": repo["folder_id"], "files": files, "structure": structure},
+            timeout=180,
+        )
+        body = r.json() if r.ok else {}
+        if (body or {}).get("updated"):
+            log(
+                f"{repo['remote_url']}: re-grounded "
+                f"{', '.join((body or {}).get('sections', []))} (Sonnet, {int(n)} commits)"
+            )
+    except Exception as exc:  # noqa: BLE001 — best-effort
+        log(f"{repo['remote_url']}: reground failed — {exc}")
+
+
 def process_repo(repo: dict, key_row: dict) -> None:
     rid = repo["id"]
     name = f"{repo['remote_url']} ({repo['branch']})"
@@ -430,6 +516,7 @@ def process_repo(repo: dict, key_row: dict) -> None:
         record({"last_sha": remote_sha, "last_error": None})
         refresh_activity(clone, repo, repo.get("last_sha"), remote_sha, plain_env)
         refresh_sections(clone, repo, plain_env)
+        maybe_reground_holistic(clone, repo, plain_env)
     else:
         log(f"ERROR {name}: kioku index failed — {tail[-200:]}")
         record({"last_error": f"index: {tail[-300:]}"})
