@@ -47,6 +47,7 @@ import TerminalOutlinedIcon from "@mui/icons-material/TerminalOutlined";
 import RocketLaunchOutlinedIcon from "@mui/icons-material/RocketLaunchOutlined";
 import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined";
 import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
+import CodeIcon from "@mui/icons-material/Code";
 import {
   BRIEFING_SECTIONS,
   clearBriefing,
@@ -113,6 +114,100 @@ const EDITABLE_SECTIONS: BriefingSectionKey[] = [
   "how_it_runs",
   "deployment",
 ];
+
+function timeAgo(iso: string | null): string {
+  if (!iso) return "never";
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+/** Three cards: when the watcher last refreshed git / graph / semantic code,
+ *  plus the main-branch HEAD it indexed. */
+function IndexStatusCards({
+  status,
+}: {
+  status: NonNullable<BriefingResponse["index_status"]>;
+}) {
+  const cards = [
+    {
+      icon: HistoryOutlinedIcon,
+      label: "Git updates",
+      at: status.git_updates_at,
+      sub: status.head_sha ? `main @ ${status.head_sha.slice(0, 7)}` : null,
+      color: brand.cyan,
+    },
+    {
+      icon: AccountTreeOutlinedIcon,
+      label: "Graph",
+      at: status.graph_at,
+      sub:
+        status.graph_nodes != null
+          ? `${status.graph_nodes} symbols · ${status.graph_edges} edges`
+          : null,
+      color: brand.magenta,
+    },
+    {
+      icon: CodeIcon,
+      label: "Semantic code",
+      at: status.semantic_code_at,
+      sub: "voyage-code-3",
+      color: brand.violet2,
+    },
+  ];
+  return (
+    <Stack direction="row" spacing={1.5} sx={{ flexWrap: "wrap" }}>
+      {cards.map((c) => {
+        const Icon = c.icon;
+        return (
+          <Box
+            key={c.label}
+            sx={{
+              flex: "1 1 180px",
+              minWidth: 160,
+              p: 1.5,
+              borderRadius: 2,
+              border: `1px solid ${alpha(c.color, 0.25)}`,
+              bgcolor: alpha(c.color, 0.06),
+            }}
+          >
+            <Stack
+              direction="row"
+              spacing={1}
+              alignItems="center"
+              sx={{ mb: 0.5 }}
+            >
+              <Icon sx={{ fontSize: 16, color: c.color }} />
+              <Typography
+                sx={{ fontSize: 11, fontWeight: 600, color: brand.muted }}
+              >
+                {c.label}
+              </Typography>
+            </Stack>
+            <Typography sx={{ fontSize: 14, color: brand.text }}>
+              {timeAgo(c.at)}
+            </Typography>
+            {c.sub && (
+              <Typography
+                sx={{
+                  fontFamily: fonts.mono,
+                  fontSize: 11,
+                  color: brand.muted,
+                }}
+              >
+                {c.sub}
+              </Typography>
+            )}
+          </Box>
+        );
+      })}
+    </Stack>
+  );
+}
 
 export default function BriefingPanel({ folderId }: Props) {
   const toast = useToast();
@@ -248,6 +343,8 @@ export default function BriefingPanel({ folderId }: Props) {
           </Tooltip>
         )}
       </Stack>
+
+      {data.index_status && <IndexStatusCards status={data.index_status} />}
 
       {hasBriefing ? (
         // Only render sections that actually exist — a partial briefing (missing

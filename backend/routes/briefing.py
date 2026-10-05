@@ -148,12 +148,52 @@ async def read_briefing(folder_id: str, user_id: str = Depends(get_current_user)
     freshness = (
         sb.table("repo_freshness").select("*").eq("folder_id", folder_id).limit(1).execute()
     ).data or []
+    fresh = freshness[0] if freshness else None
     return {
         "folder": folder,
         "schema_version": BRIEFING_SCHEMA_VERSION,
         "sections": sections,
         "last_generated_at": (latest or {}).get("generated_at"),
-        "freshness": freshness[0] if freshness else None,
+        "freshness": fresh,
+        "index_status": _index_status(sb, folder_id, user_id, fresh),
+    }
+
+
+def _index_status(sb, folder_id: str, user_id: str, fresh: dict | None) -> dict:
+    """When each subsystem was last refreshed by the watcher + the main HEAD.
+
+    - git_updates: the watcher's last check of the repo (repo_freshness.checked_at)
+    - graph: last code-graph index (repo_graph_meta.updated_at + its SHA/counts)
+    - semantic_code: last code chunk (re)indexed (max code_chunks.created_at)
+    - head_sha: latest commit on the tracked branch the watcher saw
+    """
+    graph = (
+        sb.table("repo_graph_meta")
+        .select("last_indexed_sha,node_count,edge_count,updated_at")
+        .eq("folder_id", folder_id)
+        .limit(1)
+        .execute()
+        .data
+    ) or []
+    code = (
+        sb.table("code_chunks")
+        .select("created_at")
+        .eq("folder_id", folder_id)
+        .eq("user_id", user_id)
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+        .data
+    ) or []
+    g = graph[0] if graph else {}
+    return {
+        "git_updates_at": (fresh or {}).get("checked_at"),
+        "head_sha": (fresh or {}).get("head_sha"),
+        "graph_at": g.get("updated_at"),
+        "graph_sha": g.get("last_indexed_sha"),
+        "graph_nodes": g.get("node_count"),
+        "graph_edges": g.get("edge_count"),
+        "semantic_code_at": code[0]["created_at"] if code else None,
     }
 
 

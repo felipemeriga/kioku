@@ -208,6 +208,16 @@ export interface BriefingResponse {
     changed_files: number;
     checked_at: string;
   } | null;
+  /** When each subsystem was last refreshed by the watcher + the main HEAD. */
+  index_status?: {
+    git_updates_at: string | null;
+    head_sha: string | null;
+    graph_at: string | null;
+    graph_sha: string | null;
+    graph_nodes: number | null;
+    graph_edges: number | null;
+    semantic_code_at: string | null;
+  } | null;
 }
 
 export async function fetchBriefing(
