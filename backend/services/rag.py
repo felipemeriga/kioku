@@ -314,11 +314,13 @@ def stream_rag_response(
                     scope_filename=scope_filename,
                 ):
                     if chunk_kind == "stage":
-                        # Loop-driven progress: 'thinking' (deep reasoning) or
-                        # 'searching' (tool round). Don't emit once the answer
-                        # has started streaming.
-                        if not gen_started:
-                            yield f"data: {json.dumps({'stage': payload})}\n\n"
+                        # Loop-driven progress: 'thinking' (reasoning) or
+                        # 'searching' (tool round). Emit on EVERY round, even
+                        # after the model streamed a preamble — otherwise the
+                        # agent going quiet for more tool rounds (which can take
+                        # ~20s) looks frozen. The frontend clears the indicator
+                        # on the next token, so it only shows during gaps.
+                        yield f"data: {json.dumps({'stage': payload})}\n\n"
                     elif chunk_kind == "debug":
                         # payload is already-serialized JSON of the debug trace.
                         debug_payload = json.loads(payload)

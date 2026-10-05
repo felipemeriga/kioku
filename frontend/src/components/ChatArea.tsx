@@ -170,6 +170,11 @@ export default function ChatArea({
           {isStreaming && streamingContent && (
             <MessageBubble role="assistant" content={streamingContent} />
           )}
+          {/* Mid-answer: the model streamed a preamble, then went quiet for more
+              tool rounds. Keep a "still working" indicator so it's not frozen. */}
+          {isStreaming && currentStage && streamingContent && (
+            <ThinkingBar stage={currentStage} />
+          )}
           <div ref={bottomRef} />
         </Box>
       </Box>
