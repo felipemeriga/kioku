@@ -1,16 +1,21 @@
 """Agentic RAG pipeline: tool-use loop with streaming."""
 
 import json
+import logging
+import queue as _queue
+import threading
 from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor
 
 from langsmith import traceable
 
-from db.client import get_supabase
+from db.client import get_supabase, get_supabase_thread_safe
 from services.llm import Task, complete, stream_complete
 from services.metrics import collect_request, record, submit_with_context
 from services.timing import request, stage
 from services.tools import TOOL_DEFINITIONS, execute_tool
+
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """You are an agentic research assistant for the user's second brain: their \
 uploaded documents plus their indexed code repositories. Reason before you answer — investigate, \
@@ -243,64 +248,56 @@ def stream_rag_response(
         scope_folder_ids = descendant_folder_ids(sb, scope_folder_id, user_id)
 
     _label = f"{model}/{mode}"
-    with collect_request(f"rag chat turn ({_label})"):
-        with request(f"rag chat turn ({_label})"):
-            # 1. Save user message + update title + fetch history
-            with stage("db: save user msg + fetch history"):
-                sb.table("messages").insert(
-                    {
-                        "conversation_id": conversation_id,
-                        "role": "user",
-                        "content": user_message,
-                    }
-                ).execute()
-                # Only auto-set the title if the conversation still has its
-                # default null/placeholder title. Otherwise a user rename (via
-                # PATCH /api/conversations/{id}) would be overwritten by every
-                # subsequent user message. 'New conversation' is the DB default.
-                current_title = (
-                    sb.table("conversations")
-                    .select("title")
-                    .eq("id", conversation_id)
-                    .eq("user_id", user_id)
-                    .limit(1)
-                    .execute()
-                    .data
-                )
-                _title = (current_title[0].get("title") or "") if current_title else ""
-                if _title in ("", "New conversation"):
-                    sb.table("conversations").update({"title": user_message[:50]}).eq(
-                        "id", conversation_id
-                    ).eq("user_id", user_id).execute()
-                history = (
-                    sb.table("messages")
-                    .select("role, content")
-                    .eq("conversation_id", conversation_id)
-                    .order("created_at")
-                    .execute()
-                )
-                # Exclude the user message we just inserted — answer_question
-                # appends user_message itself so we only pass prior history.
-                prior_messages = [
-                    {"role": m["role"], "content": m["content"]} for m in history.data
-                ]
-                # The last entry is the user message we just saved; drop it so
-                # answer_question can append it cleanly.
-                if prior_messages and prior_messages[-1] == {
-                    "role": "user",
-                    "content": user_message,
-                }:
-                    prior_messages = prior_messages[:-1]
+    # 1. Save the user message, set the title if still default, and fetch prior
+    # history for the model (excluding the message we just saved). The turn's
+    # timing/metrics are collected inside the generation thread below.
+    sb.table("messages").insert(
+        {"conversation_id": conversation_id, "role": "user", "content": user_message}
+    ).execute()
+    # Only auto-set the title if the conversation still has its default
+    # null/placeholder title, so a user rename (PATCH /conversations/{id}) isn't
+    # overwritten by every subsequent message. 'New conversation' is the default.
+    current_title = (
+        sb.table("conversations")
+        .select("title")
+        .eq("id", conversation_id)
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+        .data
+    )
+    _title = (current_title[0].get("title") or "") if current_title else ""
+    if _title in ("", "New conversation"):
+        sb.table("conversations").update({"title": user_message[:50]}).eq("id", conversation_id).eq(
+            "user_id", user_id
+        ).execute()
+    history = (
+        sb.table("messages")
+        .select("role, content")
+        .eq("conversation_id", conversation_id)
+        .order("created_at")
+        .execute()
+    )
+    prior_messages = [{"role": m["role"], "content": m["content"]} for m in history.data]
+    # Drop the user message we just saved — the loop appends it itself.
+    if prior_messages and prior_messages[-1] == {"role": "user", "content": user_message}:
+        prior_messages = prior_messages[:-1]
 
-            # 2. Run the tool-use loop, then stream the FINAL assistant text
-            # from Anthropic as it generates. Previously we blocked on
-            # answer_question and emitted the whole reply as a single 'token'
-            # event, giving fake streaming with ~10s first-token latency.
-            full_response = ""
-            gen_started = False
-            completed_cleanly = False
-            debug_payload: dict | None = None
-            try:
+    # 2. Run the agent loop in a BACKGROUND THREAD that pushes events to a queue;
+    # the SSE response below just relays from the queue. Generation and the
+    # assistant-message save therefore run to completion EVEN IF THE CLIENT
+    # DISCONNECTS (user navigates away / closes the tab) — so the full answer is
+    # persisted and shows up on reload, instead of being cancelled and saved
+    # truncated mid-stream.
+    events: _queue.Queue = _queue.Queue()
+    _END = object()
+
+    def _generate_and_save() -> None:
+        sb_bg = get_supabase_thread_safe()
+        full = ""
+        debug_payload: dict | None = None
+        try:
+            with collect_request(f"rag chat turn ({_label})"), request(f"rag chat turn ({_label})"):
                 for chunk_kind, payload in _run_loop_and_stream_final(
                     user_message=user_message,
                     user_id=user_id,
@@ -313,46 +310,51 @@ def stream_rag_response(
                     scope_folder_ids=scope_folder_ids,
                     scope_filename=scope_filename,
                 ):
-                    if chunk_kind == "stage":
-                        # Loop-driven progress: 'thinking' (reasoning) or
-                        # 'searching' (tool round). Emit on EVERY round, even
-                        # after the model streamed a preamble — otherwise the
-                        # agent going quiet for more tool rounds (which can take
-                        # ~20s) looks frozen. The frontend clears the indicator
-                        # on the next token, so it only shows during gaps.
-                        yield f"data: {json.dumps({'stage': payload})}\n\n"
+                    events.put((chunk_kind, payload))
+                    if chunk_kind == "text_delta":
+                        full += payload
                     elif chunk_kind == "debug":
-                        # payload is already-serialized JSON of the debug trace.
                         debug_payload = json.loads(payload)
-                        yield f"data: {json.dumps({'debug': debug_payload})}\n\n"
-                    elif chunk_kind == "text_delta":
-                        if not gen_started:
-                            yield f"data: {json.dumps({'stage': 'generating'})}\n\n"
-                            gen_started = True
-                        full_response += payload
-                        yield f"data: {json.dumps({'token': payload})}\n\n"
-                completed_cleanly = True
-            finally:
-                # Persist whatever we streamed, even if the client disconnected
-                # or an exception cut things short. Previously the message row
-                # only got saved on a clean loop exit — a mid-stream drop left
-                # orphaned user messages with no assistant reply in the
-                # conversation, corrupting future turns' history.
-                if full_response:
-                    content_to_save = full_response
-                    if not completed_cleanly:
-                        content_to_save += "\n\n*(reply truncated — connection dropped mid-stream)*"
-                    with stage("db: save assistant msg"):
-                        row = {
-                            "conversation_id": conversation_id,
-                            "role": "assistant",
-                            "content": content_to_save,
-                        }
-                        # Persist the debug trace so the Inspect card survives
-                        # reloads (only when debug mode captured one).
-                        if debug_payload is not None:
-                            row["debug"] = debug_payload
-                        sb.table("messages").insert(row).execute()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("rag generation failed", exc_info=True)
+            events.put(("error", str(exc)))
+        finally:
+            # Save the full assistant message regardless of client connection.
+            if full:
+                row: dict = {
+                    "conversation_id": conversation_id,
+                    "role": "assistant",
+                    "content": full,
+                }
+                if debug_payload is not None:
+                    row["debug"] = debug_payload
+                try:
+                    sb_bg.table("messages").insert(row).execute()
+                except Exception:  # noqa: BLE001
+                    logger.warning("failed to save assistant message", exc_info=True)
+            events.put(_END)
+
+    threading.Thread(target=_generate_and_save, name="rag-generate", daemon=True).start()
+
+    # 3. Relay queue → SSE. If the client disconnects, this generator simply
+    # stops being iterated; the thread keeps running and saves the full answer.
+    gen_started = False
+    while True:
+        item = events.get()
+        if item is _END:
+            break
+        kind, payload = item
+        if kind == "stage":
+            yield f"data: {json.dumps({'stage': payload})}\n\n"
+        elif kind == "debug":
+            yield f"data: {json.dumps({'debug': json.loads(payload)})}\n\n"
+        elif kind == "error":
+            yield f"data: {json.dumps({'error': payload})}\n\n"
+        elif kind == "text_delta":
+            if not gen_started:
+                yield f"data: {json.dumps({'stage': 'generating'})}\n\n"
+                gen_started = True
+            yield f"data: {json.dumps({'token': payload})}\n\n"
 
     yield f"data: {json.dumps({'done': True})}\n\n"
 
