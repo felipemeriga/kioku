@@ -1,0 +1,29 @@
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "Main.dc.html": {"h": 900, "title": "01 · Chat", "w": 1440, "x": 0, "y": 0},
+    "Dossier.dc.html": {"h": 1400, "title": "02 · Folder detail — Briefing", "w": 1440, "x": 1520, "y": 0},
+    "Boot.dc.html": {"h": 900, "title": "03 · Login", "w": 1440, "x": 0, "y": 1020},
+    "Archive.dc.html": {"h": 900, "title": "04 · Documents", "w": 1440, "x": 0, "y": 2040},
+    "Cache.dc.html": {"h": 900, "title": "05 · Folder detail — Memory", "w": 1440, "x": 1520, "y": 1520},
+    "Config.dc.html": {"h": 1400, "title": "06 · Settings", "w": 1440, "x": 1520, "y": 2540},
+    "Viewer.dc.html": {"h": 900, "title": "07 · Document viewer drawer", "w": 1440, "x": 0, "y": 3060},
+    "Debugger.dc.html": {"h": 900, "title": "08 · Inspect dialog", "w": 1440, "x": 0, "y": 4080},
+    "Ingest.dc.html": {"h": 900, "title": "09 · Ingestion drawer", "w": 1440, "x": 1520, "y": 4060},
+    "Integrations.dc.html": {"h": 900, "title": "10 · Folder integrations dialog", "w": 1440, "x": 0, "y": 5100},
+    "Handshake.dc.html": {"h": 900, "title": "11 · CLI auth", "w": 1440, "x": 1520, "y": 5080},
+    "Briefing.dc.html": {"h": 2300, "title": "12 · Briefing — clean (repo folder)", "w": 1440, "x": 3040, "y": 0}
+  },
+  "createdOnFiles": {"at": "2026-10-06T03:10:00Z", "v": 1},
+  "designSystems": [
+    {"artifact": "https://claude.ai/code/artifact/fa5065b9-8b45-474e-9ba5-4f1b7cc19e19", "copiedAt": "2026-10-06T03:10:00Z", "namespace": "kioku", "title": "Kioku", "version": null}
+  ],
+  "launch": {"view": "canvas"},
+  "notes": {
+    "title": {"kind": "title1", "maxW": 2960, "text": "Kioku — today's screens, Neo-Tokyo restyle", "w": 240, "x": 0, "y": -300}
+  },
+  "order": ["Main.dc.html", "Dossier.dc.html", "Boot.dc.html", "Archive.dc.html", "Cache.dc.html", "Config.dc.html", "Viewer.dc.html", "Debugger.dc.html", "Ingest.dc.html", "Integrations.dc.html", "Handshake.dc.html", "Briefing.dc.html"],
+  "pages": [],
+  "title": "Kioku — Neo-Tokyo upgrades"
+}

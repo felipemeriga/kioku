@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kioku document viewer</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;family=Noto+Sans+JP:wght@400;700;900&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#08040F}
+a{color:#00F0FF}a:hover{color:#F5F0FF}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background-color: #08040F; color: #F5F0FF; font-family: Rubik, 'Noto Sans JP', sans-serif;">
+
+  <div aria-hidden="true" style="position: absolute; inset: 0; display: flex; opacity: 0.3;">
+    <div style="width: 200px; background: #0A0517; border-right: 1px solid #2A1758;"></div>
+    <div style="width: 220px; background: #0A0517; border-right: 1px solid #2A1758;"></div>
+    <div style="flex-grow: 1; padding: 140px 28px 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; align-content: start;">
+      <div style="height: 112px; border: 1px solid #2A1758; border-radius: 4px; background: #0F0820;"></div>
+      <div style="height: 112px; border: 1px solid #2A1758; border-radius: 4px; background: #0F0820;"></div>
+      <div style="height: 112px; border: 1px solid #2A1758; border-radius: 4px; background: #0F0820;"></div>
+      <div style="height: 112px; border: 1px solid #2A1758; border-radius: 4px; background: #0F0820;"></div>
+    </div>
+  </div>
+  <div aria-hidden="true" style="position: absolute; inset: 0; background: #050208aa;"></div>
+
+  <aside role="dialog" aria-label="Document viewer" style="position: absolute; right: 0; top: 0; bottom: 0; width: 680px; display: flex; flex-direction: column; border-left: 1px solid #FF2E93; background-color: #0A0517; background-image: repeating-linear-gradient(0deg, rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 1px, transparent 1px, transparent 3px); box-shadow: -8px 0 32px rgba(0,0,0,0.6), 0 0 24px #FF2E9333;">
+    <header style="display: flex; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid #2A1758;">
+      <span style="width: 30px; height: 30px; border-radius: 3px; background: #10b98122; border: 1px solid #10b98188; display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 600; color: #10b981;">MD</span>
+      <span style="flex-grow: 1; font-family: 'JetBrains Mono', monospace; font-size: 15px;">hybrid_search_rrf.md</span>
+      <button aria-label="Copy extracted text" style="width: 34px; height: 34px; border-radius: 3px; border: 1px solid #2A1758; background: transparent; color: #9788B8;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="8" y="8" width="12" height="12" rx="1"/><path d="M4 16V4h12"/></svg></button>
+      <button aria-label="Close" style="width: 34px; height: 34px; border-radius: 3px; border: 1px solid #2A1758; background: transparent; color: #9788B8; font-size: 15px;">✕</button>
+    </header>
+    <div style="display: flex; gap: 8px; align-items: center; padding: 10px 20px; border-bottom: 1px solid #2A1758; font-family: 'JetBrains Mono', monospace; font-size: 11px;">
+      <span style="padding: 2px 8px; border-radius: 3px; border: 1px solid #4B2688;">markdown</span>
+      <span style="padding: 2px 8px; border-radius: 3px; border: 1px solid #4B2688;">18 chunks</span>
+      <span style="padding: 2px 8px; border-radius: 3px; border: 1px solid #39FF1466; color: #39FF14;">● completed</span>
+      <span style="color: #9788B8;">10/5/2026, 11:21 PM</span>
+    </div>
+    <article style="flex-grow: 1; padding: 26px 28px; display: flex; flex-direction: column; gap: 14px; overflow: hidden;">
+      <h1 style="margin: 0; font-size: 26px; font-weight: 700; text-shadow: 0 0 14px #FF2E9344;">Hybrid search with RRF</h1>
+      <p style="margin: 0; font-size: 15px; line-height: 1.7;">Kioku runs <strong style="color: #FF6DB1;">BM25</strong> (Postgres <code style="padding: 1px 5px; border-radius: 3px; background: #00F0FF14; font-family: 'JetBrains Mono', monospace; color: #00F0FF;">tsvector</code>) and <strong style="color: #FF6DB1;">vector search</strong> (pgvector, HNSW) in parallel, then fuses the two rankings with <em>Reciprocal Rank Fusion</em>.</p>
+      <h2 style="margin: 6px 0 0; font-size: 19px; font-weight: 600; display: flex; align-items: center; gap: 10px;"><span style="width: 3px; height: 18px; background: #FF2E93; box-shadow: 0 0 8px #FF2E93;"></span>Why RRF</h2>
+      <div style="display: flex; flex-direction: column; gap: 6px; font-size: 15px;">
+        <span><span style="color: #00F0FF; font-family: 'JetBrains Mono', monospace;">▸</span> No score calibration between retrievers</span>
+        <span><span style="color: #00F0FF; font-family: 'JetBrains Mono', monospace;">▸</span> One knob: <code style="padding: 1px 5px; border-radius: 3px; background: #00F0FF14; font-family: 'JetBrains Mono', monospace; color: #00F0FF;">k</code> (we use 60)</span>
+      </div>
+      <pre style="margin: 0; padding: 16px 18px; border-radius: 4px; background: #050208; border: 1px solid #2A1758; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.6;"><span style="color: #FF6DB1;">def</span> <span style="color: #00F0FF;">rrf</span>(ranks, k=<span style="color: #FFB700;">60</span>):
+    <span style="color: #FF6DB1;">return</span> sum(<span style="color: #FFB700;">1</span> / (k + r) <span style="color: #FF6DB1;">for</span> r <span style="color: #FF6DB1;">in</span> ranks)</pre>
+      <blockquote style="margin: 0; padding: 10px 16px; border-left: 2px solid #B026FF; background: #B026FF0d; font-size: 14px; line-height: 1.6; color: #9788B8;">The fused list is then reranked by a cross-encoder before it reaches the model.</blockquote>
+    </article>
+  </aside>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

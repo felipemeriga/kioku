@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kioku briefing, clean</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;family=Noto+Sans+JP:wght@700;900&amp;family=DotGothic16&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#08040F}
+a{color:#00F0FF}a:hover{color:#F5F0FF}
+</style>
+</helmet>
+<div style="width: 1440px; height: 2300px; position: relative; overflow: hidden; display: flex; background-color: #08040F; background-image: radial-gradient(circle at 8% -2%, #FF2E9320 0%, transparent 30%), repeating-linear-gradient(0deg, rgba(255,255,255,0.016) 0px, rgba(255,255,255,0.016) 1px, transparent 1px, transparent 3px); color: #F5F0FF; font-family: Rubik, 'Noto Sans JP', sans-serif;">
+
+  <nav aria-label="Main" style="width: 200px; flex-shrink: 0; display: flex; flex-direction: column; border-right: 1px solid #2A1758; background: #0A0517;">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 16px; border-bottom: 1px solid #2A1758;">
+      <div style="width: 34px; height: 34px; border-radius: 6px; border: 1.5px solid #FF2E93; display: flex; align-items: center; justify-content: center; font-family: 'Noto Sans JP', sans-serif; font-weight: 900; font-size: 18px; color: #FF6DB1; box-shadow: 0 0 4px #FF2E9388, 0 0 16px #FF2E9344;">記</div>
+      <div style="display: flex; flex-direction: column; line-height: 1;"><span style="font-family: DotGothic16, monospace; font-size: 10px; letter-spacing: 0.3em; color: #00F0FF;">キオク</span><span style="font-weight: 700; font-size: 18px; letter-spacing: 0.06em; text-shadow: 0 0 10px #FF2E9366;">KIOKU</span></div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 4px; padding: 12px;">
+      <a href="#" style="display: flex; align-items: center; height: 42px; padding: 0 12px; border-radius: 3px; text-decoration: none; color: #9788B8; font-size: 14px;">Chat</a>
+      <a href="#" style="display: flex; align-items: center; height: 42px; padding: 0 12px; border-radius: 3px; text-decoration: none; background: #FF2E9322; box-shadow: inset 2px 0 0 #FF2E93; color: #F5F0FF; font-weight: 600; font-size: 14px;">Documents</a>
+      <a href="#" style="display: flex; align-items: center; height: 42px; padding: 0 12px; border-radius: 3px; text-decoration: none; color: #9788B8; font-size: 14px;">Settings</a>
+    </div>
+  </nav>
+
+  <main style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column;">
+    <!-- folder toolbar (existing) -->
+    <div style="display: flex; flex-direction: column; gap: 12px; padding: 16px 32px 0; border-bottom: 1px solid #2A1758;">
+      <div style="display: flex; align-items: center; gap: 10px; font-size: 14px;">
+        <span style="color: #9788B8;">⌂</span><span style="color: #4B2688;">/</span>
+        <a href="#" style="color: #9788B8; text-decoration: none;">cosm</a><span style="color: #4B2688;">/</span>
+        <a href="#" style="color: #9788B8; text-decoration: none;">repositories</a><span style="color: #4B2688;">/</span>
+        <span style="font-weight: 700; font-size: 18px;">c360-lead</span>
+        <span style="padding: 1px 7px; border-radius: 3px; border: 1px solid #00F0FF66; color: #00F0FF; font-family: 'JetBrains Mono', monospace; font-size: 11px;">5 items</span>
+        <div style="flex-grow: 1;"></div>
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #9788B8;"><span style="color: #39FF14;">●</span> Notion synced · 10/5, 8:28 PM</span>
+        <button style="height: 34px; padding: 0 12px; border-radius: 4px; border: 1px solid #4B2688; background: transparent; color: #F5F0FF; font-size: 13px; font-weight: 600;">New folder</button>
+        <button style="height: 34px; padding: 0 14px; border: 0; border-radius: 4px; background-image: linear-gradient(90deg, #D31877 0%, #B026FF 100%); color: #ffffff; font-size: 13px; font-weight: 600;">Upload</button>
+      </div>
+      <div style="display: flex; align-items: flex-end; gap: 2px;">
+        <a href="#" style="padding: 10px 16px; text-decoration: none; color: #9788B8; font-weight: 600; font-size: 14px;">Files</a>
+        <a href="#" style="padding: 10px 16px; text-decoration: none; color: #00F0FF; font-weight: 600; font-size: 14px; background: #00F0FF12; box-shadow: inset 0 -2px 0 #00F0FF;">Briefing</a>
+        <a href="#" style="padding: 10px 16px; text-decoration: none; color: #9788B8; font-weight: 600; font-size: 14px;">Status</a>
+      </div>
+    </div>
+
+    <div style="display: flex; gap: 40px; padding: 32px 32px 48px;">
+      <!-- section index -->
+      <aside aria-label="Briefing sections" style="width: 210px; flex-shrink: 0; display: flex; flex-direction: column; gap: 2px;">
+        <span style="padding: 0 10px 10px; font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.3em; color: #9788B8;">SECTIONS</span>
+        <sc-for list="{{index}}" as="s" hint-placeholder-count="8">
+          <a href="#" style="{{s.row}}">
+            <span style="width: 18px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #9788B8;">{{s.n}}</span>
+            <span style="flex-grow: 1;">{{s.title}}</span>
+            <span title="{{s.status}}" style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: {{s.c}}; text-shadow: {{s.glow}};">{{s.glyph}}</span>
+          </a>
+        </sc-for>
+        <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 16px; padding: 12px 10px; border-top: 1px solid #2A1758; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #9788B8;">
+          <span><span style="color: #FF2E93;">●</span> pinned</span>
+          <span><span style="color: #00F0FF;">◐</span> hybrid</span>
+          <span><span style="color: #9788B8;">○</span> auto</span>
+        </div>
+      </aside>
+
+      <!-- reading column -->
+      <div style="flex-grow: 1; min-width: 0; max-width: 820px; display: flex; flex-direction: column; gap: 40px;">
+        <div style="display: flex; align-items: flex-end; gap: 16px; padding-bottom: 18px; border-bottom: 1px solid #2A1758;">
+          <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 6px;">
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.3em; color: #00F0FF;">BRIEFING</span>
+            <h1 style="margin: 0; font-size: 34px; font-weight: 700; letter-spacing: -0.4px; text-shadow: 0 0 18px #FF2E9344;">c360-lead</h1>
+            <span style="font-size: 14px; color: #9788B8;">Session-start context for coding agents. Edit any section to pin it.</span>
+          </div>
+          <button style="height: 32px; padding: 0 12px; border-radius: 4px; border: 1px solid #2A1758; background: transparent; color: #9788B8; font-size: 12px; font-weight: 600;">Clear &amp; regenerate</button>
+        </div>
+
+        <!-- 01 overview -->
+        <section style="display: flex; flex-direction: column; gap: 14px;">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #00F0FF;">01</span>
+            <h2 style="margin: 0; font-size: 20px; font-weight: 600;">Overview</h2>
+            <div style="flex-grow: 1; height: 1px; background-image: linear-gradient(90deg, #00F0FF66, transparent);"></div>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #FF6DB1;">● pinned</span>
+            <button aria-label="Edit Overview" style="width: 28px; height: 28px; border: 0; border-radius: 3px; background: transparent; color: #9788B8;">✎</button>
+          </div>
+          <p style="margin: 0; font-size: 20px; line-height: 1.5; font-weight: 500;">Cosm’s Rust workspace for producing <span style="color: #FF6DB1;">low-latency 360° sports video</span> and operating the <span style="color: #00F0FF;">Sports Event Service (SES)</span>.</p>
+          <p style="margin: 0; font-size: 15px; line-height: 1.7; color: #CFC6E6;">The lead player fetches tiled TiledMedia feeds, decodes left/right subgrids with NVDEC, stitches and dewarps with CUDA, encodes with NVENC, and sends GStreamer output to OME/SRT or MP4. SES ingests, stores, and serves sports tracking used for player targeting and camera selection.</p>
+          <p style="margin: 0; font-size: 15px; line-height: 1.7; color: #CFC6E6;">The workspace also includes GPU/TiledMedia wrappers, an on-prem management tool, player UI, regression tooling, and deployment automation.</p>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #9788B8;">agent_mcp · 9/28/2026</span>
+        </section>
+
+        <!-- 02 architecture -->
+        <section style="display: flex; flex-direction: column; gap: 18px;">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #FF2E93;">02</span>
+            <h2 style="margin: 0; font-size: 20px; font-weight: 600;">Architecture</h2>
+            <div style="flex-grow: 1; height: 1px; background-image: linear-gradient(90deg, #FF2E9366, transparent);"></div>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #FF6DB1;">● pinned</span>
+            <button aria-label="Edit Architecture" style="width: 28px; height: 28px; border: 0; border-radius: 3px; background: transparent; color: #9788B8;">✎</button>
+          </div>
+          <p style="margin: 0; font-size: 15px; line-height: 1.7; color: #CFC6E6;"><code style="font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #00F0FF;">lead/src/main.rs</code> enters cli/config, then <code style="font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #00F0FF;">player::main</code>. A player loop owns playback, selection and control; two SideWorkers own left/right TiledMedia cursors and NVDEC caches; a same-index frame gate feeds CUDA stitch/dewarp and NVENC; an async output worker passes zero-copy encoded outcomes through GStreamer. SES is a parallel ingestion/Mongo/gRPC subsystem supplying tracking data.</p>
+
+          <div style="display: flex; flex-direction: column; gap: 10px;">
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.3em; color: #9788B8;">DATA FLOW</span>
+            <sc-for list="{{flows}}" as="f" hint-placeholder-count="2">
+              <div style="display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border-radius: 4px; background: #0A0517; border: 1px solid #2A1758;">
+                <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.16em; color: {{f.c}};">{{f.label}}</span>
+                <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px 4px;">
+                  <sc-for list="{{f.steps}}" as="st" hint-placeholder-count="6">
+                    <span style="display: flex; align-items: center; gap: 4px;">
+                      <span style="padding: 4px 9px; border-radius: 3px; border: 1px solid {{f.c}}55; background: {{f.c}}0f; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #F5F0FF; white-space: nowrap;">{{st.t}}</span>
+                      <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: {{f.c}};">{{st.arrow}}</span>
+                    </span>
+                  </sc-for>
+                </div>
+              </div>
+            </sc-for>
+            <span style="font-size: 13px; color: #9788B8;">Control: WebSocket <code style="font-family: 'JetBrains Mono', monospace; color: #00F0FF;">/control</code> enters the player bus; <code style="font-family: 'JetBrains Mono', monospace; color: #00F0FF;">/state</code> exposes snapshots.</span>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 10px;">
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.3em; color: #9788B8;">COMPONENTS</span>
+            <div style="border: 1px solid #2A1758; border-radius: 4px; overflow: hidden;">
+              <div style="display: grid; grid-template-columns: 180px minmax(0, 1fr) 200px; padding: 8px 14px; background: #FF2E9312; font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.2em; color: #FF6DB1;"><span>NAME</span><span>ROLE</span><span>PATH</span></div>
+              <sc-for list="{{components}}" as="c" hint-placeholder-count="4">
+                <div style="display: grid; grid-template-columns: 180px minmax(0, 1fr) 200px; gap: 12px; padding: 10px 14px; border-top: 1px solid #2A1758; font-size: 14px; line-height: 1.45;">
+                  <span style="font-weight: 600;">{{c.name}}</span>
+                  <span style="color: #CFC6E6;">{{c.role}}</span>
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #00F0FF;">{{c.path}}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #9788B8;">agent_mcp · 9/28/2026</span>
+        </section>
+
+        <!-- collapsed sections -->
+        <section style="display: flex; flex-direction: column; border-top: 1px solid #2A1758;">
+          <sc-for list="{{rest}}" as="r" hint-placeholder-count="6">
+            <button style="display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 4px; border: 0; border-bottom: 1px solid #2A1758; background: transparent; color: #F5F0FF; text-align: left; cursor: pointer;">
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: {{r.c}};">{{r.n}}</span>
+              <span style="font-size: 17px; font-weight: 600; width: 170px;">{{r.title}}</span>
+              <span style="flex-grow: 1; font-size: 13px; color: #9788B8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{r.desc}}</span>
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: {{r.sc}};">{{r.status}}</span>
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 14px; color: #9788B8;">▸</span>
+            </button>
+          </sc-for>
+        </section>
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":2300}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const ST = {
+      pinned: { glyph: '●', c: '#FF2E93', glow: '0 0 6px #FF2E93' },
+      hybrid: { glyph: '◐', c: '#00F0FF', glow: '0 0 6px #00F0FF' },
+      auto: { glyph: '○', c: '#9788B8', glow: 'none' }
+    };
+    const sections = [
+      ['01', 'Overview', 'pinned'], ['02', 'Architecture', 'pinned'], ['03', 'Preferences', 'auto'], ['04', 'Important files', 'auto'],
+      ['05', 'How it runs', 'auto'], ['06', 'Deployment', 'auto'], ['07', 'Dependencies', 'auto'], ['08', 'Activity', 'auto']
+    ];
+    const index = sections.map(([n, title, st], i) => ({
+      n, title, status: st, ...ST[st],
+      row: 'display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 3px; text-decoration: none; font-size: 14px; ' +
+        (i === 1 ? 'background: #FF2E9322; box-shadow: inset 2px 0 0 #FF2E93; color: #F5F0FF; font-weight: 600;' : 'color: #CFC6E6;')
+    }));
+    const flow = (label, c, s) => ({ label, c, steps: s.map((t, i) => ({ t, arrow: i < s.length - 1 ? '→' : '' })) });
+    const descs = {
+      Preferences: 'Auto-populated from Mem0 [preference] rules.',
+      'Important files': '3–8 files a fresh agent would open first.',
+      'How it runs': 'Requirements + local dev setup.',
+      Deployment: 'Environments, deploy steps, CI/CD notes.',
+      Dependencies: 'Runtime deps + external services, from manifests.',
+      Activity: 'Digest of recent work from git history.'
+    };
+    return {
+      index,
+      flows: [
+        flow('VIDEO PIPELINE', '#FF2E93', ['Tiled HLS/S3', 'tm::PrefetchCore (L/R)', 'SideWorker NVDEC caches', 'same-frame seam gate', 'CUDA stitch/dewarp', 'NVENC', 'zero-copy Outcome', 'output worker', 'GStreamer appsrc/mux', 'SRT/OME WebRTC · MP4']),
+        flow('SES TRACKING', '#00F0FF', ['SMT/NBA sources', 'ingester', 'Mongo/S3', 'ses-server gRPC', 'ses-client', 'lead tracking/director'])
+      ],
+      components: [
+        { name: 'Lead player', role: 'Player loop — playback, selection and control', path: 'lead/src/main.rs' },
+        { name: 'SideWorker ×2', role: 'Left/right TiledMedia cursors + NVDEC caches', path: '—' },
+        { name: 'Output worker', role: 'Zero-copy encoded outcomes → GStreamer', path: '—' },
+        { name: 'SES', role: 'Ingestion, Mongo storage, gRPC tracking service', path: '—' }
+      ],
+      rest: sections.slice(2).map(([n, title, st], i) => ({
+        n, title, desc: descs[title], status: st === 'auto' ? '○ auto' : st, sc: ST[st].c, c: ['#B026FF', '#00F0FF', '#FF2E93', '#B026FF', '#00F0FF', '#FF2E93'][i]
+      }))
+    };
+  }
+}
+</script>
+</body>
+</html>

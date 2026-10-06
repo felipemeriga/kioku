@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kioku folder integrations</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#08040F}
+a{color:#FF6DB1}a:hover{color:#F5F0FF}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background-color: #050208; color: #F5F0FF; font-family: Rubik, sans-serif;">
+  <div role="dialog" aria-label="Integrations for kioku" style="position: absolute; left: 50%; top: 150px; width: 620px; margin-left: -310px; display: flex; flex-direction: column; gap: 16px; padding: 26px 28px; border: 1px solid #FF2E93; border-radius: 4px; background-color: #0A0517; background-image: repeating-linear-gradient(0deg, rgba(255,255,255,0.016) 0px, rgba(255,255,255,0.016) 1px, transparent 1px, transparent 3px); box-shadow: 0 0 4px #FF2E9388, 0 0 24px #FF2E9333, 0 24px 64px rgba(0,0,0,0.7);">
+    <h1 style="margin: 0; font-size: 21px; font-weight: 600;">Integrations for <span style="color: #FF6DB1; text-shadow: 0 0 10px #FF2E9388;">kioku</span></h1>
+    <p style="margin: 0; font-size: 14px; line-height: 1.55; color: #9788B8;">Wire this folder to memory and note-sync. None are required — leave them off and they simply won’t appear in the folder orientation.</p>
+
+    <section style="position: relative; display: flex; flex-direction: column; gap: 8px; padding: 16px 18px; border: 1px solid #39FF1444; border-radius: 4px; background: #0F0820;">
+      <div style="position: absolute; left: -1px; top: -1px; width: 12px; height: 12px; border-left: 2px solid #39FF14; border-top: 2px solid #39FF14;"></div>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-family: 'JetBrains Mono', monospace; color: #E2B8FF;">◫</span>
+        <h2 style="margin: 0; font-size: 16px; font-weight: 600;">Mem0 memory</h2>
+        <div style="flex-grow: 1;"></div>
+        <span style="display: flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 3px; border: 1px solid #39FF14; background: #39FF1418; color: #39FF14; font-family: 'JetBrains Mono', monospace; font-size: 12px; box-shadow: 0 0 10px #39FF1444;"><span style="width: 7px; height: 7px; border-radius: 999px; background: #39FF14; box-shadow: 0 0 6px #39FF14;"></span>On</span>
+      </div>
+      <span style="font-size: 14px; color: #9788B8;">Episodic + eternal memory (agent-authored), scoped to this repo.</span>
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #9788B8;">On automatically · memory service healthy</span>
+    </section>
+
+    <section style="position: relative; display: flex; flex-direction: column; gap: 10px; padding: 16px 18px; border: 1px solid #2A1758; border-radius: 4px; background: #0F0820;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-family: Rubik, sans-serif; font-weight: 700; color: #F5F0FF;">N</span>
+        <h2 style="margin: 0; font-size: 16px; font-weight: 600;">Notion sync</h2>
+        <div style="flex-grow: 1;"></div>
+        <span style="padding: 3px 10px; border-radius: 3px; border: 1px solid #4B2688; color: #9788B8; font-family: 'JetBrains Mono', monospace; font-size: 12px;">⊘ Not connected</span>
+      </div>
+      <span style="font-size: 14px; color: #9788B8;">Ingest a Notion root page as documents. Fast poll + full reconciliation.</span>
+      <div style="height: 1px; background: #2A1758;"></div>
+      <div style="display: flex; justify-content: flex-end;">
+        <button style="height: 36px; padding: 0 16px; border: 0; border-radius: 4px; background-image: linear-gradient(90deg, #D31877 0%, #B026FF 100%); color: #ffffff; font-weight: 600; font-size: 13px; box-shadow: 0 4px 12px #FF2E9344;">Connect</button>
+      </div>
+    </section>
+
+    <div style="display: flex; align-items: center; justify-content: space-between;">
+      <a href="#" style="font-weight: 600; font-size: 14px; text-decoration: none;">↗ Open folder detail</a>
+      <button style="height: 34px; padding: 0 14px; border-radius: 4px; border: 1px solid #4B2688; background: transparent; color: #F5F0FF; font-weight: 600; font-size: 13px;">Close</button>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
