@@ -75,7 +75,18 @@ export default function MessageBubble({
           }}
         >
           {isUser ? (
-            <Typography sx={{ fontSize: "0.925rem" }}>{content}</Typography>
+            <Typography
+              sx={{
+                fontSize: "0.925rem",
+                // Preserve the user's own line breaks instead of collapsing
+                // them into one run, and break long unbreakable tokens (URLs,
+                // curl commands) so they wrap inside the bubble.
+                whiteSpace: "pre-wrap",
+                overflowWrap: "anywhere",
+              }}
+            >
+              {content}
+            </Typography>
           ) : (
             <Box
               sx={{
@@ -131,6 +142,10 @@ export default function MessageBubble({
                   color: alpha("#ffffff", 0.75),
                 },
                 fontSize: "0.925rem",
+                // Break long unbreakable tokens (bare URLs, inline code) so
+                // they wrap instead of overflowing the bubble. Code blocks
+                // keep their own horizontal scroll via the `& pre` rule above.
+                overflowWrap: "anywhere",
               }}
             >
               <ReactMarkdown
