@@ -41,6 +41,7 @@ import ViewListIcon from "@mui/icons-material/ViewList";
 import CreateNewFolderIcon from "@mui/icons-material/CreateNewFolder";
 import HomeIcon from "@mui/icons-material/Home";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+import InsightsIcon from "@mui/icons-material/Insights";
 import { useDocuments } from "../hooks/useDocuments";
 import { useIngestionStatus } from "../hooks/useIngestionStatus";
 import {
@@ -57,6 +58,7 @@ import MoveDialog from "../components/MoveDialog";
 import IngestionDrawer from "../components/IngestionDrawer";
 import BriefingPanel from "../components/BriefingPanel";
 import DocumentationPanel from "../components/DocumentationPanel";
+import StatusPanel from "../components/StatusPanel";
 import FolderIntegrationsDialog from "../components/FolderIntegrationsDialog";
 import { NotionSyncBanner } from "../components/NotionSyncBanner";
 import { useToast, messageFromError } from "../components/ToastProvider";
@@ -84,13 +86,17 @@ export default function DocumentsPage() {
   // Persisted so the choice survives navigation and reloads — without this
   // the toggle silently reset to grid on every visit.
   const [viewMode, setViewMode] = useState<"grid" | "list">(() =>
-    localStorage.getItem("kioku.documents.viewMode") === "list" ? "list" : "grid"
+    localStorage.getItem("kioku.documents.viewMode") === "list"
+      ? "list"
+      : "grid"
   );
   useEffect(() => {
     localStorage.setItem("kioku.documents.viewMode", viewMode);
   }, [viewMode]);
   const [breadcrumbs, setBreadcrumbs] = useState<Breadcrumb[]>([]);
-  const [folderTab, setFolderTab] = useState<"files" | "briefing">("files");
+  const [folderTab, setFolderTab] = useState<"files" | "briefing" | "status">(
+    "files"
+  );
   const [viewerFile, setViewerFile] = useState<string | null>(null);
 
   // Audio recording
@@ -829,6 +835,12 @@ export default function DocumentsPage() {
               icon={<AccountTreeIcon sx={{ fontSize: 18 }} />}
               iconPosition="start"
             />
+            <Tab
+              value="status"
+              label="Status"
+              icon={<InsightsIcon sx={{ fontSize: 18 }} />}
+              iconPosition="start"
+            />
           </Tabs>
         )}
 
@@ -1013,6 +1025,10 @@ export default function DocumentsPage() {
             <BriefingPanel folderId={currentFolderId} />
             <DocumentationPanel folderId={currentFolderId} />
           </>
+        )}
+
+        {currentFolderIsRepo && folderTab === "status" && currentFolderId && (
+          <StatusPanel folderId={currentFolderId} />
         )}
 
         {/* Documents grid */}

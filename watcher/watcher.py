@@ -32,8 +32,10 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from datetime import datetime, timedelta, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import requests
@@ -45,6 +47,9 @@ FERNET = Fernet(os.environ["SECRETS_ENCRYPTION_KEY"].encode())
 MCP_URL = os.environ["KIOKU_MCP_URL"]
 API_URL = os.environ.get("KIOKU_API_URL", "").rstrip("/")
 DATA = Path(os.environ.get("WATCHER_DATA", "/data"))
+TRIGGER_TOKEN = os.environ.get("WATCHER_TRIGGER_TOKEN", "")
+TRIGGER_PORT = int(os.environ.get("WATCHER_TRIGGER_PORT", "8787"))
+_pass_lock = threading.Lock()
 
 # Which files drive which concrete briefing section. refresh_sections folds a
 # section's changed files back into it (auto-maintained, like activity); the
@@ -355,10 +360,11 @@ HOLISTIC_REGROUND_DAYS = 14
 HOLISTIC_COMMITS_FLOOR = 3
 
 
-def maybe_reground_holistic(clone: Path, repo: dict, env: dict) -> None:
+def maybe_reground_holistic(clone: Path, repo: dict, env: dict, force: bool = False) -> None:
     """Re-ground architecture/overview from the current key files (~twice a
     month) via the backend (Sonnet) so these holistic sections stay fresh
-    without a full re-init. Gated on days-since-last-write + a commits floor."""
+    without a full re-init. Gated on days-since-last-write + a commits floor.
+    Pass force=True to bypass the gates (e.g. for manual on-demand triggers)."""
     if not API_URL or not repo.get("api_key_encrypted"):
         return
     rows = rest_get(
@@ -383,10 +389,10 @@ def maybe_reground_holistic(clone: Path, repo: dict, env: dict) -> None:
         last_dt = datetime.fromisoformat(str(last).replace("Z", "+00:00"))
     except ValueError:
         return
-    if (datetime.now(timezone.utc) - last_dt).days < HOLISTIC_REGROUND_DAYS:
+    if not force and (datetime.now(timezone.utc) - last_dt).days < HOLISTIC_REGROUND_DAYS:
         return  # not due yet
     code, n, _ = run_git(["rev-list", "--count", f"--since={last}", "HEAD"], env, cwd=str(clone))
-    if code != 0 or int(n or 0) < HOLISTIC_COMMITS_FLOOR:
+    if not force and (code != 0 or int(n or 0) < HOLISTIC_COMMITS_FLOOR):
         return  # not enough churn to bother
 
     # Key files: prefer the important_files the briefing already identified.
@@ -523,6 +529,158 @@ def process_repo(repo: dict, key_row: dict) -> None:
     compute_freshness(clone, repo, plain_env)
 
 
+def force_refresh(repo: dict, key_row: dict, target: str) -> None:
+    """On-demand refresh triggered from the web (via the backend). Syncs the
+    clone to HEAD regardless of last_sha, then runs the requested target.
+    Parallels process_repo's sync block on purpose so the scheduled path stays
+    untouched."""
+    rid = repo["id"]
+    name = f"{repo['remote_url']} ({repo['branch']})"
+    now = datetime.now(timezone.utc).isoformat()
+    tmpdir = "/dev/shm" if os.path.isdir("/dev/shm") else None
+    with tempfile.NamedTemporaryFile("w", dir=tmpdir, suffix=".key", delete=True) as kf:
+        kf.write(decrypt(key_row["private_key_encrypted"]))
+        kf.flush()
+        os.chmod(kf.name, stat.S_IRUSR | stat.S_IWUSR)
+        env = git_env(kf.name)
+        code, out, err = run_git(
+            ["ls-remote", repo["remote_url"], f"refs/heads/{repo['branch']}"], env
+        )
+        if code != 0 or not out:
+            log(f"ERROR force {target} {name}: ls-remote failed — {(err or '')[:200]}")
+            return
+        remote_sha = out.split()[0]
+        clone = DATA / repo["user_id"] / repo["folder_id"]
+        if not (clone / ".git").exists():
+            clone.parent.mkdir(parents=True, exist_ok=True)
+            code, _, err = run_git(
+                ["clone", "--branch", repo["branch"], repo["remote_url"], str(clone)], env
+            )
+        else:
+            code, _, err = run_git(["fetch", "origin", repo["branch"]], env, cwd=str(clone))
+            if code == 0:
+                code, _, err = run_git(
+                    ["reset", "--hard", f"origin/{repo['branch']}"], env, cwd=str(clone)
+                )
+        if code != 0:
+            log(f"ERROR force {target} {name}: sync failed — {(err or '')[:200]}")
+            return
+    if not repo.get("api_key_encrypted"):
+        log(f"ERROR force {target} {name}: no api key registered")
+        return
+    folder = rest_get("folders", {"id": f"eq.{repo['folder_id']}", "select": "name", "limit": "1"})
+    folder_name = folder[0]["name"] if folder else "repo"
+    seed_bindings(clone, repo["folder_id"], folder_name, decrypt(repo["api_key_encrypted"]))
+    plain_env = {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "HOME": os.environ.get("HOME", "/root"),
+    }
+    if target == "index":
+        ok, tail = kioku_index(clone)
+        if ok:
+            log(f"{name}: force index -> {remote_sha[:10]}")
+            rest_patch(
+                "watched_repos",
+                {"id": f"eq.{rid}"},
+                {"last_run_at": now, "last_sha": remote_sha, "last_error": None},
+            )
+            refresh_activity(clone, repo, repo.get("last_sha"), remote_sha, plain_env)
+        else:
+            log(f"ERROR force index {name}: {tail[-200:]}")
+    elif target == "sections":
+        log(f"{name}: force sections")
+        refresh_sections(clone, repo, plain_env)
+        maybe_reground_holistic(clone, repo, plain_env, force=True)
+    compute_freshness(clone, repo, plain_env)
+
+
+def find_repo(folder_id: str) -> tuple[dict, dict] | None:
+    repos = rest_get("watched_repos", {"folder_id": f"eq.{folder_id}", "select": "*", "limit": "1"})
+    if not repos:
+        return None
+    repo = repos[0]
+    keys = rest_get(
+        "user_git_keys",
+        {
+            "user_id": f"eq.{repo['user_id']}",
+            "select": "user_id,private_key_encrypted",
+            "limit": "1",
+        },
+    )
+    if not keys:
+        return None
+    return repo, keys[0]
+
+
+def handle_run(headers, raw_body: str) -> tuple[int, dict]:
+    if not TRIGGER_TOKEN or headers.get("X-Watcher-Token") != TRIGGER_TOKEN:
+        return 401, {"error": "unauthorized"}
+    try:
+        body = json.loads(raw_body or "{}")
+    except ValueError:
+        return 400, {"error": "bad json"}
+    folder_id = body.get("folder_id")
+    target = body.get("target")
+    if target not in ("index", "sections"):
+        return 422, {"error": "target must be 'index' or 'sections'"}
+    if not folder_id:
+        return 422, {"error": "missing folder_id"}
+    found = find_repo(folder_id)
+    if not found:
+        return 404, {"error": "unknown folder"}
+    repo, key_row = found
+    if not _pass_lock.acquire(blocking=False):
+        return 409, {"error": "already running"}
+
+    def job() -> None:
+        try:
+            force_refresh(repo, key_row, target)
+        except Exception as exc:  # noqa: BLE001 — a trigger must never crash the watcher
+            log(f"ERROR force {target} {repo.get('remote_url')}: {exc}")
+        finally:
+            _pass_lock.release()
+
+    threading.Thread(target=job, daemon=True).start()
+    return 202, {"started": True}
+
+
+class _Handler(BaseHTTPRequestHandler):
+    def _send(self, status: int, obj: dict) -> None:
+        data = json.dumps(obj).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def do_GET(self) -> None:  # noqa: N802 — BaseHTTPRequestHandler API
+        if self.path == "/health":
+            self._send(200, {"ok": True})
+        else:
+            self._send(404, {"error": "not found"})
+
+    def do_POST(self) -> None:  # noqa: N802
+        if self.path != "/run":
+            self._send(404, {"error": "not found"})
+            return
+        length = int(self.headers.get("Content-Length") or 0)
+        raw = self.rfile.read(length).decode() if length else ""
+        status, obj = handle_run(self.headers, raw)
+        self._send(status, obj)
+
+    def log_message(self, *args) -> None:  # silence default stderr access logs
+        return
+
+
+def start_trigger_server() -> None:
+    if not TRIGGER_TOKEN:
+        log("trigger server disabled (no WATCHER_TRIGGER_TOKEN)")
+        return
+    srv = ThreadingHTTPServer(("0.0.0.0", TRIGGER_PORT), _Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    log(f"trigger server on :{TRIGGER_PORT}")
+
+
 def main() -> int:
     repos = rest_get("watched_repos", {"select": "*", "order": "created_at"})
     if not repos:
@@ -559,7 +717,8 @@ def run_service(schedule_raw: str) -> None:
     log(f"service mode — schedule (UTC): {', '.join(f'{h:02d}:{m:02d}' for h, m in times)}")
     while True:
         try:
-            main()
+            with _pass_lock:
+                main()
         except Exception as exc:  # noqa: BLE001 — the loop must outlive any pass
             log(f"ERROR pass crashed: {exc}")
         now = datetime.now(timezone.utc)
@@ -576,6 +735,7 @@ def run_service(schedule_raw: str) -> None:
 if __name__ == "__main__":
     schedule = os.environ.get("WATCH_SCHEDULE", "").strip()
     if schedule:
+        start_trigger_server()
         run_service(schedule)
     else:
         sys.exit(main())

@@ -15,10 +15,13 @@ Section update semantics:
 
 from __future__ import annotations
 
+import os
 import re as _re
 from typing import Any
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from auth import get_current_user
@@ -155,18 +158,15 @@ async def read_briefing(folder_id: str, user_id: str = Depends(get_current_user)
         "sections": sections,
         "last_generated_at": (latest or {}).get("generated_at"),
         "freshness": fresh,
-        "index_status": _index_status(sb, folder_id, user_id, fresh),
+        "index_status": _index_status(sb, folder_id, user_id, fresh, latest),
     }
 
 
-def _index_status(sb, folder_id: str, user_id: str, fresh: dict | None) -> dict:
-    """When each subsystem was last refreshed by the watcher + the main HEAD.
-
-    - git_updates: the watcher's last check of the repo (repo_freshness.checked_at)
-    - graph: last code-graph index (repo_graph_meta.updated_at + its SHA/counts)
-    - semantic_code: last code chunk (re)indexed (max code_chunks.created_at)
-    - head_sha: latest commit on the tracked branch the watcher saw
-    """
+def _index_status(
+    sb, folder_id: str, user_id: str, fresh: dict | None, latest: dict | None
+) -> dict:
+    """When each subsystem was last refreshed + when the holistic sections and
+    detailed doc were last generated."""
     graph = (
         sb.table("repo_graph_meta")
         .select("last_indexed_sha,node_count,edge_count,updated_at")
@@ -185,7 +185,25 @@ def _index_status(sb, folder_id: str, user_id: str, fresh: dict | None) -> dict:
         .execute()
         .data
     ) or []
+    try:
+        doc = (
+            sb.table("repo_documentation")
+            .select("generated_at")
+            .eq("folder_id", folder_id)
+            .eq("user_id", user_id)
+            .order("generated_at", desc=True)
+            .limit(1)
+            .execute()
+            .data
+        ) or []
+    except Exception:  # noqa: BLE001 — table may not be migrated yet
+        doc = []
     g = graph[0] if graph else {}
+    content_sections = ((latest or {}).get("content") or {}).get("sections") or {}
+    top_sections = (latest or {}).get("sections") or {}
+    sections = {**content_sections, **top_sections}
+    arch = sections.get("architecture") or {}
+    over = sections.get("overview") or {}
     return {
         "git_updates_at": (fresh or {}).get("checked_at"),
         "head_sha": (fresh or {}).get("head_sha"),
@@ -194,7 +212,25 @@ def _index_status(sb, folder_id: str, user_id: str, fresh: dict | None) -> dict:
         "graph_nodes": g.get("node_count"),
         "graph_edges": g.get("edge_count"),
         "semantic_code_at": code[0]["created_at"] if code else None,
+        "architecture_at": arch.get("updated_at"),
+        "architecture_by": arch.get("updated_by"),
+        "overview_at": over.get("updated_at"),
+        "overview_by": over.get("updated_by"),
+        "detailed_doc_at": doc[0]["generated_at"] if doc else None,
     }
+
+
+@router.get("/{folder_id}/status")
+async def read_status(folder_id: str, user_id: str = Depends(get_current_user)):
+    """Freshness + last-generation timestamps for the Status tab (poll-friendly)."""
+    sb = get_supabase()
+    _folder_must_be_repo(sb, folder_id, user_id)
+    latest = get_latest_summary(sb, folder_id, user_id)
+    freshness = (
+        sb.table("repo_freshness").select("*").eq("folder_id", folder_id).limit(1).execute()
+    ).data or []
+    fresh = freshness[0] if freshness else None
+    return _index_status(sb, folder_id, user_id, fresh, latest)
 
 
 @router.get("/{folder_id}/documentation")
@@ -218,6 +254,41 @@ async def read_documentation(folder_id: str, user_id: str = Depends(get_current_
     except Exception:  # noqa: BLE001 — table may not be migrated yet
         rows = []
     return {"documentation": rows[0] if rows else None}
+
+
+class RefreshRequest(BaseModel):
+    target: str
+
+
+@router.post("/{folder_id}/refresh")
+async def trigger_refresh(
+    folder_id: str,
+    body: RefreshRequest,
+    user_id: str = Depends(get_current_user),
+):
+    """Ask the watcher to refresh this repo now. target: 'index' | 'sections'."""
+    if body.target not in ("index", "sections"):
+        raise HTTPException(status_code=422, detail="target must be 'index' or 'sections'")
+    sb = get_supabase()
+    _folder_must_be_repo(sb, folder_id, user_id)
+    token = os.environ.get("WATCHER_TRIGGER_TOKEN", "")
+    if not token:
+        raise HTTPException(status_code=503, detail="Refresh is not configured.")
+    url = os.environ.get("WATCHER_URL", "http://kioku-watcher:8787").rstrip("/") + "/run"
+    try:
+        resp = httpx.post(
+            url,
+            headers={"X-Watcher-Token": token, "Content-Type": "application/json"},
+            json={"folder_id": folder_id, "target": body.target},
+            timeout=10.0,
+        )
+    except httpx.HTTPError:
+        raise HTTPException(status_code=503, detail="Watcher is unavailable.")
+    if resp.status_code == 409:
+        raise HTTPException(status_code=409, detail="A refresh is already running.")
+    if resp.status_code != 202:
+        raise HTTPException(status_code=503, detail="Watcher could not start the refresh.")
+    return JSONResponse(status_code=202, content=resp.json())
 
 
 @router.delete("/{folder_id}/briefing")
