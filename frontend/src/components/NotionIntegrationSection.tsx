@@ -4,14 +4,11 @@ import {
   Autocomplete,
   Box,
   Button,
-  Card,
-  CardContent,
   Dialog,
   DialogActions,
   DialogContent,
   DialogContentText,
   DialogTitle,
-  Divider,
   FormControl,
   InputLabel,
   LinearProgress,
@@ -24,6 +21,8 @@ import {
 import RefreshIcon from "@mui/icons-material/Refresh";
 import DeleteIcon from "@mui/icons-material/Delete";
 import { messageFromError, useToast } from "./ToastProvider";
+import CornerCard from "./neo/CornerCard";
+import { brand, fonts } from "../theme";
 
 import {
   connectNotion,
@@ -205,188 +204,297 @@ export function NotionIntegrationSection() {
   };
 
   return (
-    <Card sx={{ mb: 3 }}>
-      <CardContent>
-        <Stack
-          direction="row"
-          alignItems="center"
-          justifyContent="space-between"
-          mb={2}
+    <CornerCard
+      color={brand.cyan}
+      sx={{
+        p: "22px 24px",
+        display: "flex",
+        flexDirection: "column",
+        gap: "14px",
+      }}
+    >
+      {/* Section heading row */}
+      <Box sx={{ display: "flex", alignItems: "center", gap: "10px" }}>
+        <Typography
+          sx={{ fontFamily: fonts.mono, fontSize: 12, color: brand.cyan }}
         >
-          <Typography variant="h6">Notion Integration</Typography>
-          <Button variant="contained" onClick={() => setDialogOpen(true)}>
-            Connect Notion
-          </Button>
-        </Stack>
+          02
+        </Typography>
+        <Typography sx={{ fontSize: 19, fontWeight: 600, m: 0 }}>
+          Notion Integration
+        </Typography>
+        <Box sx={{ flexGrow: 1 }} />
+        <Button
+          onClick={() => setDialogOpen(true)}
+          sx={{
+            height: 36,
+            px: "14px",
+            border: 0,
+            borderRadius: "4px",
+            backgroundImage: `linear-gradient(90deg, ${brand.magentaDeep} 0%, ${brand.purple} 100%)`,
+            color: "#ffffff",
+            fontWeight: 600,
+            fontSize: 13,
+            textTransform: "none",
+            "&:hover": {
+              backgroundImage: `linear-gradient(90deg, ${brand.magenta} 0%, ${brand.purple} 100%)`,
+            },
+          }}
+        >
+          Connect Notion
+        </Button>
+      </Box>
 
-        {error && (
-          <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>
-            {error}
-          </Alert>
-        )}
+      {error && (
+        <Alert severity="error" onClose={() => setError(null)}>
+          {error}
+        </Alert>
+      )}
 
-        {configs.length === 0 && (
-          <Typography color="text.secondary">
-            No Notion pages connected. Connect a Notion root page to sync its
-            content into a rag root folder.
-          </Typography>
-        )}
+      {configs.length === 0 && (
+        <Typography sx={{ fontSize: 14, color: brand.muted }}>
+          No Notion pages connected. Connect a Notion root page to sync its
+          content into a rag root folder.
+        </Typography>
+      )}
 
-        <Stack divider={<Divider flexItem />} spacing={2}>
-          {configs.map((cfg) => {
-            const activeJob = activeJobsByConfig[cfg.id];
-            const syncing = !!activeJob;
-            return (
-              <Box key={cfg.id}>
-                <Stack
-                  direction="row"
-                  justifyContent="space-between"
-                  alignItems="center"
-                  spacing={2}
-                >
-                  <Box sx={{ minWidth: 0, flex: 1 }}>
-                    <Typography fontWeight="bold">
-                      {cfg.notion_page_title ?? cfg.notion_page_id}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Root folder: {folderName(folders, cfg.root_folder_id)} ·
-                      Poll every {cfg.fast_poll_interval_min} min
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Last fast: {formatTs(cfg.last_fast_sync_at)} · Last full:{" "}
-                      {formatTs(cfg.last_full_sync_at)}
-                    </Typography>
-                    {cfg.last_error && (
-                      <Alert severity="warning" sx={{ mt: 1 }}>
-                        {cfg.last_error}
-                      </Alert>
-                    )}
+      {configs.map((cfg) => {
+        const activeJob = activeJobsByConfig[cfg.id];
+        const syncing = !!activeJob;
+        return (
+          <Box
+            key={cfg.id}
+            sx={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "10px",
+              p: "14px 16px",
+              borderRadius: "4px",
+              border: `1px solid ${brand.cyan}44`,
+              bgcolor: `${brand.cyan}08`,
+            }}
+          >
+            {/* Config title */}
+            <Typography sx={{ fontSize: 16, fontWeight: 600 }}>
+              {cfg.notion_page_title ?? cfg.notion_page_id}
+            </Typography>
+
+            {/* Sync detail grid */}
+            <Box
+              sx={{
+                display: "grid",
+                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                gap: "6px 16px",
+                fontFamily: fonts.mono,
+                fontSize: 12,
+                color: brand.text,
+              }}
+            >
+              <span>
+                <Box component="span" sx={{ color: brand.muted }}>
+                  ROOT FOLDER{" "}
+                </Box>
+                {folderName(folders, cfg.root_folder_id)}
+              </span>
+              <span>
+                <Box component="span" sx={{ color: brand.muted }}>
+                  POLL{" "}
+                </Box>
+                every {cfg.fast_poll_interval_min} min
+              </span>
+              <span>
+                <Box component="span" sx={{ color: brand.muted }}>
+                  LAST FAST{" "}
+                </Box>
+                {formatTs(cfg.last_fast_sync_at)}
+              </span>
+              <span>
+                <Box component="span" sx={{ color: brand.muted }}>
+                  LAST FULL{" "}
+                </Box>
+                {formatTs(cfg.last_full_sync_at)}
+              </span>
+            </Box>
+
+            {cfg.last_error && (
+              <Alert severity="warning" sx={{ mt: 0 }}>
+                {cfg.last_error}
+              </Alert>
+            )}
+
+            {/* Action buttons */}
+            <Box
+              sx={{
+                display: "flex",
+                gap: "8px",
+                flexWrap: "wrap",
+                alignItems: "center",
+              }}
+            >
+              <Button
+                onClick={() => handleCheckPending(cfg.id)}
+                disabled={pendingByConfig[cfg.id] === "loading"}
+                title="List pages in Notion that are missing from kioku or edited since their last ingest — exactly what Reconcile would sync"
+                sx={{
+                  height: 34,
+                  px: "12px",
+                  borderRadius: "4px",
+                  border: `1px solid ${brand.lineGlow}`,
+                  bgcolor: "transparent",
+                  color: brand.text,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  textTransform: "none",
+                  "&:hover": { bgcolor: `${brand.cyan}10` },
+                  "&.Mui-disabled": { opacity: 0.5 },
+                }}
+              >
+                {pendingByConfig[cfg.id] === "loading"
+                  ? "Checking…"
+                  : "Check pending"}
+              </Button>
+              <Button
+                startIcon={<RefreshIcon />}
+                onClick={() => handleSync(cfg.id)}
+                disabled={syncing}
+                sx={{
+                  height: 34,
+                  px: "12px",
+                  borderRadius: "4px",
+                  border: `1px solid ${brand.cyan}`,
+                  bgcolor: `${brand.cyan}10`,
+                  color: brand.cyan,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  textTransform: "none",
+                  "&:hover": { bgcolor: `${brand.cyan}20` },
+                  "&.Mui-disabled": { opacity: 0.5 },
+                }}
+              >
+                {syncing ? "Syncing…" : "Sync now"}
+              </Button>
+              <Button
+                onClick={() => handleReconcile(cfg.id)}
+                disabled={syncing}
+                title="Full walk: detects deletions and re-ingests any drift"
+                sx={{
+                  height: 34,
+                  px: "12px",
+                  borderRadius: "4px",
+                  border: `1px solid ${brand.lineGlow}`,
+                  bgcolor: "transparent",
+                  color: brand.text,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  textTransform: "none",
+                  "&:hover": { bgcolor: `${brand.cyan}10` },
+                  "&.Mui-disabled": { opacity: 0.5 },
+                }}
+              >
+                Reconcile
+              </Button>
+              <Box sx={{ flexGrow: 1 }} />
+              <Button
+                startIcon={<DeleteIcon />}
+                onClick={() =>
+                  requestDisconnect(
+                    cfg.id,
+                    cfg.notion_page_title ?? cfg.notion_page_id
+                  )
+                }
+                sx={{
+                  height: 34,
+                  px: "12px",
+                  borderRadius: "4px",
+                  border: `1px solid ${brand.red}66`,
+                  bgcolor: "transparent",
+                  color: brand.red,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  textTransform: "none",
+                  "&:hover": { bgcolor: `${brand.red}14` },
+                }}
+              >
+                Disconnect
+              </Button>
+            </Box>
+
+            {/* Progress bar for active job */}
+            {activeJob &&
+              (() => {
+                const { pct, label } = notionSyncProgress(activeJob);
+                return (
+                  <Box sx={{ mt: 0.5 }}>
+                    <Stack
+                      direction="row"
+                      justifyContent="space-between"
+                      alignItems="baseline"
+                      sx={{ mb: 0.5 }}
+                    >
+                      <Typography variant="caption" color="text.secondary">
+                        {label}
+                      </Typography>
+                      {pct !== null && (
+                        <Typography variant="caption" color="text.secondary">
+                          {pct}%
+                        </Typography>
+                      )}
+                    </Stack>
+                    <LinearProgress
+                      variant={pct === null ? "indeterminate" : "determinate"}
+                      value={pct ?? undefined}
+                      sx={{ height: 6, borderRadius: 3 }}
+                    />
                   </Box>
-                  <Stack
-                    direction="row"
-                    spacing={1}
-                    sx={{
-                      flexShrink: 0,
-                      "& .MuiButton-root": { whiteSpace: "nowrap" },
-                    }}
-                  >
-                    <Button
-                      onClick={() => handleCheckPending(cfg.id)}
-                      disabled={pendingByConfig[cfg.id] === "loading"}
-                      title="List pages in Notion that are missing from kioku or edited since their last ingest — exactly what Reconcile would sync"
-                    >
-                      {pendingByConfig[cfg.id] === "loading"
-                        ? "Checking…"
-                        : "Check pending"}
-                    </Button>
-                    <Button
-                      startIcon={<RefreshIcon />}
-                      onClick={() => handleSync(cfg.id)}
-                      disabled={syncing}
-                    >
-                      {syncing ? "Syncing…" : "Sync now"}
-                    </Button>
-                    <Button
-                      onClick={() => handleReconcile(cfg.id)}
-                      disabled={syncing}
-                      title="Full walk: detects deletions and re-ingests any drift"
-                    >
-                      Reconcile
-                    </Button>
-                    <Button
-                      color="error"
-                      startIcon={<DeleteIcon />}
-                      onClick={() =>
-                        requestDisconnect(
-                          cfg.id,
-                          cfg.notion_page_title ?? cfg.notion_page_id
-                        )
-                      }
-                    >
-                      Disconnect
-                    </Button>
-                  </Stack>
-                </Stack>
-                {activeJob &&
-                  (() => {
-                    const { pct, label } = notionSyncProgress(activeJob);
-                    return (
-                      <Box sx={{ mt: 1.5 }}>
-                        <Stack
-                          direction="row"
-                          justifyContent="space-between"
-                          alignItems="baseline"
-                          sx={{ mb: 0.5 }}
-                        >
-                          <Typography variant="caption" color="text.secondary">
-                            {label}
-                          </Typography>
-                          {pct !== null && (
+                );
+              })()}
+
+            {/* Pending list */}
+            {(() => {
+              const pending = pendingByConfig[cfg.id];
+              if (!pending || pending === "loading") return null;
+              return (
+                <Box sx={{ mt: 0.5 }}>
+                  {pending.pending.length === 0 ? (
+                    <Alert severity="success" sx={{ py: 0 }}>
+                      All {pending.total_in_notion} Notion pages are synced.
+                    </Alert>
+                  ) : (
+                    <Alert severity="info" sx={{ py: 0.5 }}>
+                      <Typography variant="body2" sx={{ mb: 0.5 }}>
+                        {pending.pending.length} of {pending.total_in_notion}{" "}
+                        pages left to sync — run Reconcile to ingest them:
+                      </Typography>
+                      <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
+                        {pending.pending.map((p) => (
+                          <Typography
+                            key={p.page_id}
+                            component="li"
+                            variant="body2"
+                          >
+                            {p.title || p.page_id}{" "}
                             <Typography
+                              component="span"
                               variant="caption"
                               color="text.secondary"
                             >
-                              {pct}%
+                              (
+                              {p.reason === "missing"
+                                ? "not in kioku"
+                                : "edited since last ingest"}
+                              )
                             </Typography>
-                          )}
-                        </Stack>
-                        <LinearProgress
-                          variant={
-                            pct === null ? "indeterminate" : "determinate"
-                          }
-                          value={pct ?? undefined}
-                          sx={{ height: 6, borderRadius: 3 }}
-                        />
-                      </Box>
-                    );
-                  })()}
-                {(() => {
-                  const pending = pendingByConfig[cfg.id];
-                  if (!pending || pending === "loading") return null;
-                  return (
-                    <Box sx={{ mt: 1.5 }}>
-                      {pending.pending.length === 0 ? (
-                        <Alert severity="success" sx={{ py: 0 }}>
-                          All {pending.total_in_notion} Notion pages are
-                          synced.
-                        </Alert>
-                      ) : (
-                        <Alert severity="info" sx={{ py: 0.5 }}>
-                          <Typography variant="body2" sx={{ mb: 0.5 }}>
-                            {pending.pending.length} of{" "}
-                            {pending.total_in_notion} pages left to sync — run
-                            Reconcile to ingest them:
                           </Typography>
-                          <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
-                            {pending.pending.map((p) => (
-                              <Typography
-                                key={p.page_id}
-                                component="li"
-                                variant="body2"
-                              >
-                                {p.title || p.page_id}{" "}
-                                <Typography
-                                  component="span"
-                                  variant="caption"
-                                  color="text.secondary"
-                                >
-                                  ({p.reason === "missing"
-                                    ? "not in kioku"
-                                    : "edited since last ingest"})
-                                </Typography>
-                              </Typography>
-                            ))}
-                          </Box>
-                        </Alert>
-                      )}
-                    </Box>
-                  );
-                })()}
-              </Box>
-            );
-          })}
-        </Stack>
-      </CardContent>
+                        ))}
+                      </Box>
+                    </Alert>
+                  )}
+                </Box>
+              );
+            })()}
+          </Box>
+        );
+      })}
 
       <NotionConnectDialog
         open={dialogOpen}
@@ -426,7 +534,7 @@ export function NotionIntegrationSection() {
           </Button>
         </DialogActions>
       </Dialog>
-    </Card>
+    </CornerCard>
   );
 }
 
