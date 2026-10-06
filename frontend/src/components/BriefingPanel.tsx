@@ -1,23 +1,18 @@
 /**
- * BriefingPanel — the strict 8-section briefing for repo folders.
+ * BriefingPanel — neo-tokyo clean briefing.
  *
- * Per-section cards with:
- *   - Read view (markdown-rendered JSON, or plain text for prose)
- *   - Status chip (auto | pinned | hybrid)
- *   - Provenance line: "Edited via UI · <you> · <time ago>"
- *   - Edit button → inline JSON/markdown editor
- *   - Reset → clears pinning + re-runs the section's populator now
+ * Layout: SectionRail (left 210px) + reading column (max 820px).
+ * Sections 01–02 (overview, architecture) are always expanded.
+ * Sections 03–08 collapse to a one-line row; click to expand.
  *
- * The panel is only rendered when the folder is a repo (kind='repo').
- * FolderDetailPage handles that gating.
+ * All edit / pin / reset / regenerate handlers are preserved.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Box,
   Button,
-  Chip,
   CircularProgress,
   Dialog,
   DialogActions,
@@ -34,19 +29,8 @@ import {
 } from "@mui/material";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteSweepOutlinedIcon from "@mui/icons-material/DeleteSweepOutlined";
-import LockIcon from "@mui/icons-material/Lock";
-import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import SaveIcon from "@mui/icons-material/Save";
 import CloseIcon from "@mui/icons-material/Close";
-import type { SvgIconComponent } from "@mui/icons-material";
-import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
-import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
-import TuneOutlinedIcon from "@mui/icons-material/TuneOutlined";
-import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
-import TerminalOutlinedIcon from "@mui/icons-material/TerminalOutlined";
-import RocketLaunchOutlinedIcon from "@mui/icons-material/RocketLaunchOutlined";
-import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined";
-import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
 import {
   BRIEFING_SECTIONS,
   clearBriefing,
@@ -58,6 +42,10 @@ import {
 } from "../lib/api";
 import { messageFromError, useToast } from "./ToastProvider";
 import { brand, fonts } from "../theme";
+import SectionRail, { type RailItem } from "./neo/SectionRail";
+import PillChain from "./neo/PillChain";
+import StatusGlyph, { type GlyphStatus } from "./neo/StatusGlyph";
+import { gradientRule, hudLabel } from "./neo/sx";
 
 interface Props {
   folderId: string;
@@ -87,25 +75,19 @@ const SECTION_DESCRIPTIONS: Record<BriefingSectionKey, string> = {
   activity: "Auto-pooled from GitHub sync + Mem0 findings/decisions/sessions.",
 };
 
-/** Per-section icon + accent colour — gives each card a distinct visual
- *  anchor so the briefing reads as a set of cards rather than a wall of text. */
-const SECTION_VISUALS: Record<
-  BriefingSectionKey,
-  { icon: SvgIconComponent; color: string }
-> = {
-  overview: { icon: InfoOutlinedIcon, color: brand.cyan },
-  architecture: { icon: AccountTreeOutlinedIcon, color: brand.magenta },
-  preferences: { icon: TuneOutlinedIcon, color: brand.violet2 },
-  important_files: { icon: DescriptionOutlinedIcon, color: brand.cyan },
-  how_it_runs: { icon: TerminalOutlinedIcon, color: brand.magenta },
-  deployment: { icon: RocketLaunchOutlinedIcon, color: brand.violet2 },
-  dependencies: { icon: Inventory2OutlinedIcon, color: brand.cyan },
-  activity: { icon: HistoryOutlinedIcon, color: brand.magenta },
+/** Colors cycling for sections 03–08 */
+const SECTION_COLORS: Record<BriefingSectionKey, string> = {
+  overview: brand.cyan,
+  architecture: brand.magenta,
+  preferences: brand.violet2,
+  important_files: brand.cyan,
+  how_it_runs: brand.magenta,
+  deployment: brand.violet2,
+  dependencies: brand.cyan,
+  activity: brand.magenta,
 };
 
-/** Sections that are safe/intended to be user-edited. Auto-only sections
- *  (activity, preferences, dependencies) still show but the Edit button is
- *  gated behind an "advanced" click since the auto populator overwrites. */
+/** Sections that are safe/intended to be user-edited. */
 const EDITABLE_SECTIONS: BriefingSectionKey[] = [
   "overview",
   "architecture",
@@ -113,6 +95,12 @@ const EDITABLE_SECTIONS: BriefingSectionKey[] = [
   "how_it_runs",
   "deployment",
 ];
+
+function mapStatus(s: BriefingSection["status"]): GlyphStatus {
+  if (s === "pinned") return "pinned";
+  if (s === "hybrid") return "hybrid";
+  return "auto";
+}
 
 export default function BriefingPanel({ folderId }: Props) {
   const toast = useToast();
@@ -123,6 +111,29 @@ export default function BriefingPanel({ folderId }: Props) {
     useState<BriefingSectionKey | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const [clearing, setClearing] = useState(false);
+  const [activeRailIndex, setActiveRailIndex] = useState(0);
+
+  // collapsed state for sections 03–08 (keys: preferences..activity)
+  const COLLAPSIBLE_KEYS: BriefingSectionKey[] = [
+    "preferences",
+    "important_files",
+    "how_it_runs",
+    "deployment",
+    "dependencies",
+    "activity",
+  ];
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(
+    () =>
+      Object.fromEntries(COLLAPSIBLE_KEYS.map((k) => [k, true])) as Record<
+        string,
+        boolean
+      >
+  );
+
+  // Refs for scrolling into view
+  const sectionRefs = useRef<Array<HTMLElement | null>>(
+    Array(BRIEFING_SECTIONS.length).fill(null)
+  );
 
   const handleClear = async () => {
     setClearing(true);
@@ -134,8 +145,6 @@ export default function BriefingPanel({ folderId }: Props) {
         "info"
       );
       await refresh();
-      // clearBriefing also deletes the detailed doc server-side; tell the
-      // DocumentationPanel to refetch so it drops the now-deleted doc.
       window.dispatchEvent(
         new CustomEvent("briefing-cleared", { detail: { folderId } })
       );
@@ -153,9 +162,6 @@ export default function BriefingPanel({ folderId }: Props) {
       setError(null);
     } catch (err) {
       const msg = messageFromError(err);
-      // A non-repo folder legitimately has no briefing (the endpoint 400s with
-      // "…only for repo folders"). That's not an error to surface — render
-      // nothing so this panel can be dropped on any folder view safely.
       if (/not a repo|only for repo/i.test(msg)) {
         setData(null);
         setError(null);
@@ -173,6 +179,14 @@ export default function BriefingPanel({ folderId }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [folderId]);
 
+  const scrollToSection = (i: number) => {
+    setActiveRailIndex(i);
+    sectionRefs.current[i]?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  };
+
   if (loading) {
     return (
       <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
@@ -187,88 +201,341 @@ export default function BriefingPanel({ folderId }: Props) {
 
   const hasBriefing = Boolean(data.last_generated_at);
 
-  return (
-    <Stack spacing={2}>
-      <Stack
-        direction="row"
-        alignItems="flex-start"
-        spacing={1.5}
-        sx={{ flexWrap: "wrap" }}
-      >
-        <Box sx={{ flex: 1, minWidth: 220 }}>
-          <Typography
-            sx={{
-              fontFamily: fonts.display,
-              fontSize: "1.4rem",
-              color: brand.text,
-            }}
-          >
-            Briefing · {data.folder.name}
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Session-start context for coding agents. Auto-populated where
-            possible; edit any section to pin it.
-          </Typography>
-        </Box>
-        {hasBriefing && (
-          <Tooltip title="Delete this briefing + detailed doc so they regenerate on the next `kioku init`">
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<DeleteSweepOutlinedIcon sx={{ fontSize: 16 }} />}
-              onClick={() => setConfirmClear(true)}
-              sx={{
-                textTransform: "none",
-                color: brand.muted,
-                borderColor: brand.line,
-                flexShrink: 0,
-                "&:hover": {
-                  borderColor: brand.magenta,
-                  color: brand.magenta,
-                  bgcolor: alpha(brand.magenta, 0.06),
-                },
-              }}
-            >
-              Clear &amp; regenerate
-            </Button>
-          </Tooltip>
-        )}
-      </Stack>
+  // Build rail items from available sections
+  const railItems: RailItem[] = BRIEFING_SECTIONS.filter(
+    (key) => data.sections[key]
+  ).map((key, i) => ({
+    n: String(i + 1).padStart(2, "0"),
+    title: SECTION_TITLES[key],
+    status: mapStatus(data.sections[key]?.status ?? "auto"),
+  }));
 
-      {hasBriefing ? (
-        // Only render sections that actually exist — a partial briefing (missing
-        // some keys) must not crash the page on an undefined section.
-        BRIEFING_SECTIONS.filter((key) => data.sections[key]).map((key) => (
-          <SectionCard
-            key={key}
-            sectionKey={key}
-            section={data.sections[key]}
-            editing={editingSection === key}
-            onStartEdit={() =>
-              EDITABLE_SECTIONS.includes(key)
-                ? setEditingSection(key)
-                : toast.show(
-                    `${SECTION_TITLES[key]} is auto-populated — use Suggest to refresh.`,
-                    "info"
-                  )
-            }
-            onCancelEdit={() => setEditingSection(null)}
-            onSave={async (content, status) => {
-              try {
-                await updateBriefingSection(folderId, key, content, status);
-                toast.showSuccess(`${SECTION_TITLES[key]} saved.`);
-                setEditingSection(null);
-                await refresh();
-              } catch (err) {
-                toast.showError(err, `Couldn't save ${SECTION_TITLES[key]}.`);
-              }
-            }}
-          />
-        ))
-      ) : (
-        <NotGenerated />
+  const presentKeys = BRIEFING_SECTIONS.filter((key) => data.sections[key]);
+
+  return (
+    <Box sx={{ display: "flex", gap: 5, pb: 6 }}>
+      {/* Left: section rail */}
+      {hasBriefing && (
+        <SectionRail
+          items={railItems}
+          activeIndex={activeRailIndex}
+          onSelect={scrollToSection}
+        />
       )}
 
+      {/* Right: reading column */}
+      <Box
+        sx={{
+          flex: 1,
+          minWidth: 0,
+          maxWidth: 820,
+          display: "flex",
+          flexDirection: "column",
+          gap: 5,
+        }}
+      >
+        {/* Header */}
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "flex-end",
+            gap: 2,
+            pb: 2.25,
+            borderBottom: `1px solid ${brand.line}`,
+          }}
+        >
+          <Box
+            sx={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              gap: 0.75,
+            }}
+          >
+            <Typography sx={{ ...hudLabel, color: brand.cyan }}>
+              BRIEFING
+            </Typography>
+            <Typography
+              component="h1"
+              sx={{
+                margin: 0,
+                fontSize: 34,
+                fontWeight: 700,
+                letterSpacing: "-0.4px",
+                lineHeight: 1.15,
+                fontFamily: fonts.display,
+                color: brand.text,
+                textShadow: `0 0 18px ${brand.magenta}44`,
+              }}
+            >
+              {data.folder.name}
+            </Typography>
+            <Typography sx={{ fontSize: 14, color: brand.muted }}>
+              Session-start context for coding agents. Edit any section to pin
+              it.
+            </Typography>
+          </Box>
+          {hasBriefing && (
+            <Tooltip title="Delete this briefing + detailed doc so they regenerate on the next `kioku init`">
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<DeleteSweepOutlinedIcon sx={{ fontSize: 14 }} />}
+                onClick={() => setConfirmClear(true)}
+                sx={{
+                  textTransform: "none",
+                  color: brand.muted,
+                  borderColor: brand.line,
+                  flexShrink: 0,
+                  height: 32,
+                  fontSize: 12,
+                  "&:hover": {
+                    borderColor: brand.magenta,
+                    color: brand.magenta,
+                    bgcolor: alpha(brand.magenta, 0.06),
+                  },
+                }}
+              >
+                Clear &amp; regenerate
+              </Button>
+            </Tooltip>
+          )}
+        </Box>
+
+        {hasBriefing ? (
+          <>
+            {/* Expanded sections: overview (01) and architecture (02) */}
+            {presentKeys.slice(0, 2).map((key, i) => (
+              <Box
+                key={key}
+                component="section"
+                ref={(el: HTMLElement | null) => {
+                  sectionRefs.current[i] = el;
+                }}
+                sx={{ display: "flex", flexDirection: "column", gap: 1.75 }}
+              >
+                <SectionHeading
+                  n={String(i + 1).padStart(2, "0")}
+                  title={SECTION_TITLES[key]}
+                  color={SECTION_COLORS[key]}
+                  status={mapStatus(data.sections[key]?.status ?? "auto")}
+                  onEdit={() =>
+                    EDITABLE_SECTIONS.includes(key)
+                      ? setEditingSection(key)
+                      : toast.show(
+                          `${SECTION_TITLES[key]} is auto-populated — use Suggest to refresh.`,
+                          "info"
+                        )
+                  }
+                />
+
+                {editingSection === key ? (
+                  <SectionEditor
+                    section={data.sections[key]!}
+                    onSave={async (content, status) => {
+                      try {
+                        await updateBriefingSection(
+                          folderId,
+                          key,
+                          content,
+                          status
+                        );
+                        toast.showSuccess(`${SECTION_TITLES[key]} saved.`);
+                        setEditingSection(null);
+                        await refresh();
+                      } catch (err) {
+                        toast.showError(
+                          err,
+                          `Couldn't save ${SECTION_TITLES[key]}.`
+                        );
+                      }
+                    }}
+                    onCancel={() => setEditingSection(null)}
+                  />
+                ) : key === "overview" ? (
+                  <OverviewContent section={data.sections[key]!} />
+                ) : key === "architecture" ? (
+                  <ArchitectureContent section={data.sections[key]!} />
+                ) : null}
+
+                <MetaLine section={data.sections[key]!} />
+              </Box>
+            ))}
+
+            {/* Collapsible sections 03–08 */}
+            {presentKeys.length > 2 && (
+              <Box
+                component="section"
+                sx={{
+                  display: "flex",
+                  flexDirection: "column",
+                  borderTop: `1px solid ${brand.line}`,
+                }}
+              >
+                {presentKeys.slice(2).map((key, idx) => {
+                  const globalIdx = idx + 2;
+                  const isCollapsed = collapsed[key] !== false;
+                  const n = String(globalIdx + 1).padStart(2, "0");
+                  const color = SECTION_COLORS[key];
+                  const section = data.sections[key]!;
+                  return (
+                    <Box
+                      key={key}
+                      ref={(el: HTMLElement | null) => {
+                        sectionRefs.current[globalIdx] = el;
+                      }}
+                    >
+                      {/* Row header — always visible */}
+                      <Box
+                        component="button"
+                        onClick={() => {
+                          setCollapsed((prev) => ({
+                            ...prev,
+                            [key]: !isCollapsed,
+                          }));
+                          setActiveRailIndex(globalIdx);
+                        }}
+                        aria-expanded={!isCollapsed}
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 1.5,
+                          height: 56,
+                          px: 0.5,
+                          width: "100%",
+                          border: 0,
+                          borderBottom: `1px solid ${brand.line}`,
+                          background: "transparent",
+                          color: brand.text,
+                          textAlign: "left",
+                          cursor: "pointer",
+                          "&:hover": {
+                            bgcolor: alpha(brand.magenta, 0.04),
+                          },
+                        }}
+                      >
+                        <Box
+                          component="span"
+                          sx={{
+                            fontFamily: fonts.mono,
+                            fontSize: 12,
+                            color,
+                            flexShrink: 0,
+                          }}
+                        >
+                          {n}
+                        </Box>
+                        <Box
+                          component="span"
+                          sx={{
+                            fontSize: 17,
+                            fontWeight: 600,
+                            width: 170,
+                            flexShrink: 0,
+                            fontFamily: fonts.display,
+                          }}
+                        >
+                          {SECTION_TITLES[key]}
+                        </Box>
+                        <Box
+                          component="span"
+                          sx={{
+                            flex: 1,
+                            fontSize: 13,
+                            color: brand.muted,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            fontFamily: fonts.body,
+                          }}
+                        >
+                          {SECTION_DESCRIPTIONS[key]}
+                        </Box>
+                        <StatusGlyph status={mapStatus(section.status)} />
+                        <Box
+                          component="span"
+                          sx={{
+                            fontFamily: fonts.mono,
+                            fontSize: 14,
+                            color: brand.muted,
+                            ml: 0.5,
+                            transition: "transform 0.2s",
+                            transform: isCollapsed
+                              ? "rotate(0deg)"
+                              : "rotate(90deg)",
+                          }}
+                        >
+                          ▸
+                        </Box>
+                      </Box>
+
+                      {/* Expanded content */}
+                      {!isCollapsed && (
+                        <Box
+                          sx={{
+                            py: 2.5,
+                            borderBottom: `1px solid ${brand.line}`,
+                          }}
+                        >
+                          <SectionHeading
+                            n={n}
+                            title={SECTION_TITLES[key]}
+                            color={color}
+                            status={mapStatus(section.status)}
+                            onEdit={() =>
+                              EDITABLE_SECTIONS.includes(key)
+                                ? setEditingSection(key)
+                                : toast.show(
+                                    `${SECTION_TITLES[key]} is auto-populated — use Suggest to refresh.`,
+                                    "info"
+                                  )
+                            }
+                          />
+                          <Box sx={{ mt: 1.75 }}>
+                            {editingSection === key ? (
+                              <SectionEditor
+                                section={section}
+                                onSave={async (content, status) => {
+                                  try {
+                                    await updateBriefingSection(
+                                      folderId,
+                                      key,
+                                      content,
+                                      status
+                                    );
+                                    toast.showSuccess(
+                                      `${SECTION_TITLES[key]} saved.`
+                                    );
+                                    setEditingSection(null);
+                                    await refresh();
+                                  } catch (err) {
+                                    toast.showError(
+                                      err,
+                                      `Couldn't save ${SECTION_TITLES[key]}.`
+                                    );
+                                  }
+                                }}
+                                onCancel={() => setEditingSection(null)}
+                              />
+                            ) : (
+                              <SectionReader content={section.content} />
+                            )}
+                          </Box>
+                          <MetaLine section={section} />
+                        </Box>
+                      )}
+                    </Box>
+                  );
+                })}
+              </Box>
+            )}
+          </>
+        ) : (
+          <NotGenerated />
+        )}
+      </Box>
+
+      {/* Clear & regenerate confirm dialog */}
       <Dialog
         open={confirmClear}
         onClose={() => !clearing && setConfirmClear(false)}
@@ -282,7 +549,7 @@ export default function BriefingPanel({ folderId }: Props) {
         <DialogContent>
           <DialogContentText sx={{ color: brand.muted }}>
             This deletes the entire briefing <b>and</b> the detailed
-            documentation for <b>{data.folder.name}</b>. To rebuild them, run{" "}
+            documentation for <b>{data?.folder.name}</b>. To rebuild them, run{" "}
             <Box
               component="code"
               sx={{
@@ -318,7 +585,341 @@ export default function BriefingPanel({ folderId }: Props) {
           </Button>
         </DialogActions>
       </Dialog>
-    </Stack>
+    </Box>
+  );
+}
+
+// ── Section heading row ─────────────────────────────────────────────────
+
+function SectionHeading({
+  n,
+  title,
+  color,
+  status,
+  onEdit,
+}: {
+  n: string;
+  title: string;
+  color: string;
+  status: GlyphStatus;
+  onEdit: () => void;
+}) {
+  return (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+      <Box
+        component="span"
+        sx={{ fontFamily: fonts.mono, fontSize: 12, color, flexShrink: 0 }}
+      >
+        {n}
+      </Box>
+      <Typography
+        component="h2"
+        sx={{
+          margin: 0,
+          fontSize: 20,
+          fontWeight: 600,
+          fontFamily: fonts.display,
+          color: brand.text,
+        }}
+      >
+        {title}
+      </Typography>
+      {/* gradient rule */}
+      <Box sx={gradientRule(color)} />
+      <StatusGlyph status={status} />
+      <Tooltip title="Edit section">
+        <IconButton size="small" onClick={onEdit}>
+          <EditIcon sx={{ fontSize: 15, color: brand.muted }} />
+        </IconButton>
+      </Tooltip>
+    </Box>
+  );
+}
+
+// ── Overview (01) ───────────────────────────────────────────────────────
+
+function OverviewContent({ section }: { section: BriefingSection }) {
+  const content = section.content;
+  if (!content) return <Empty />;
+
+  // If content is a plain string, treat the first sentence as the lead.
+  if (typeof content === "string") {
+    const trimmed = content.trim();
+    if (!trimmed) return <Empty />;
+    // Split on first sentence boundary for the lead.
+    const dotIdx = trimmed.indexOf(". ");
+    const lead =
+      dotIdx > 0 ? trimmed.slice(0, dotIdx + 1) : trimmed.slice(0, 200);
+    const rest = dotIdx > 0 ? trimmed.slice(dotIdx + 2) : "";
+    return (
+      <>
+        <Typography
+          sx={{
+            fontSize: 20,
+            fontWeight: 500,
+            lineHeight: 1.5,
+            color: brand.text,
+          }}
+        >
+          {lead}
+        </Typography>
+        {rest && (
+          <Typography
+            sx={{
+              fontSize: 15,
+              lineHeight: 1.7,
+              color: "#CFC6E6",
+            }}
+          >
+            {rest}
+          </Typography>
+        )}
+      </>
+    );
+  }
+
+  // Object with a 'summary' or 'description' field
+  if (
+    typeof content === "object" &&
+    content !== null &&
+    !Array.isArray(content)
+  ) {
+    const obj = content as Record<string, unknown>;
+    const lead =
+      typeof obj.summary === "string"
+        ? obj.summary
+        : typeof obj.description === "string"
+        ? obj.description
+        : null;
+    if (lead) {
+      return (
+        <Typography
+          sx={{
+            fontSize: 20,
+            fontWeight: 500,
+            lineHeight: 1.5,
+            color: brand.text,
+          }}
+        >
+          {lead}
+        </Typography>
+      );
+    }
+  }
+
+  // Fallback
+  return <SectionReader content={content} />;
+}
+
+// ── Architecture (02) ───────────────────────────────────────────────────
+
+function ArchitectureContent({ section }: { section: BriefingSection }) {
+  const content = section.content;
+  if (!content) return <Empty />;
+
+  // Extract typed fields if content is an object
+  let paragraph: string | null = null;
+  let dataFlows: Array<{ label: string; steps: string[] }> | null = null;
+  let components: Array<{ name: string; role: string; path?: string }> | null =
+    null;
+
+  if (
+    typeof content === "object" &&
+    !Array.isArray(content) &&
+    content !== null
+  ) {
+    const obj = content as Record<string, unknown>;
+
+    // Paragraph description
+    if (typeof obj.description === "string") paragraph = obj.description;
+    else if (typeof obj.summary === "string") paragraph = obj.summary;
+
+    // data_flow: array of {label, steps} OR a string with "->"
+    if (Array.isArray(obj.data_flow)) {
+      const raw = obj.data_flow as Array<unknown>;
+      // Each item may be {label, steps} or just a string
+      dataFlows = raw.flatMap((item) => {
+        if (
+          item &&
+          typeof item === "object" &&
+          "label" in (item as object) &&
+          "steps" in (item as object)
+        ) {
+          const it = item as { label: string; steps: unknown };
+          const steps = Array.isArray(it.steps)
+            ? it.steps.map(String)
+            : typeof it.steps === "string"
+            ? it.steps.split("->").map((s: string) => s.trim())
+            : [];
+          return [{ label: it.label, steps }];
+        }
+        if (typeof item === "string" && item.includes("->")) {
+          return [
+            {
+              label: "",
+              steps: item.split("->").map((s: string) => s.trim()),
+            },
+          ];
+        }
+        return [];
+      });
+    } else if (
+      typeof obj.data_flow === "string" &&
+      obj.data_flow.includes("->")
+    ) {
+      dataFlows = [
+        {
+          label: "",
+          steps: obj.data_flow.split("->").map((s: string) => s.trim()),
+        },
+      ];
+    }
+
+    // components: array of {name, role, path}
+    if (Array.isArray(obj.components)) {
+      components = (obj.components as Array<unknown>).filter(
+        (c): c is { name: string; role: string; path?: string } =>
+          !!c && typeof c === "object" && "name" in (c as object)
+      );
+    }
+  } else if (typeof content === "string") {
+    // Check for "->" in a plain string
+    if (content.includes("->")) {
+      dataFlows = [
+        {
+          label: "",
+          steps: content.split("->").map((s: string) => s.trim()),
+        },
+      ];
+    } else {
+      paragraph = content;
+    }
+  }
+
+  const hasStructured = dataFlows || components;
+
+  return (
+    <Box sx={{ display: "flex", flexDirection: "column", gap: 2.25 }}>
+      {/* Paragraph */}
+      {paragraph ? (
+        <Typography sx={{ fontSize: 15, lineHeight: 1.7, color: "#CFC6E6" }}>
+          {paragraph}
+        </Typography>
+      ) : !hasStructured ? (
+        <SectionReader content={content} />
+      ) : null}
+
+      {/* DATA FLOW pill chains */}
+      {dataFlows && dataFlows.length > 0 && (
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 1.25 }}>
+          <Typography sx={{ ...hudLabel }}>DATA FLOW</Typography>
+          {dataFlows.map((f, i) => (
+            <PillChain
+              key={i}
+              label={f.label}
+              color={i % 2 === 0 ? brand.magenta : brand.cyan}
+              steps={f.steps}
+            />
+          ))}
+        </Box>
+      )}
+
+      {/* COMPONENTS table */}
+      {components && components.length > 0 && (
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 1.25 }}>
+          <Typography sx={{ ...hudLabel }}>COMPONENTS</Typography>
+          <Box
+            sx={{
+              border: `1px solid ${brand.line}`,
+              borderRadius: 1,
+              overflow: "hidden",
+            }}
+          >
+            {/* Header row */}
+            <Box
+              sx={{
+                display: "grid",
+                gridTemplateColumns: "180px minmax(0,1fr) 200px",
+                p: "8px 14px",
+                background: `${brand.magenta}12`,
+                fontFamily: fonts.mono,
+                fontSize: 10,
+                letterSpacing: "0.2em",
+                color: brand.magentaGlow,
+              }}
+            >
+              <span>NAME</span>
+              <span>ROLE</span>
+              <span>PATH</span>
+            </Box>
+            {components.map((c, i) => (
+              <Box
+                key={i}
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: "180px minmax(0,1fr) 200px",
+                  gap: 1.5,
+                  p: "10px 14px",
+                  borderTop: `1px solid ${brand.line}`,
+                  fontSize: 14,
+                  lineHeight: 1.45,
+                }}
+              >
+                <Box
+                  component="span"
+                  sx={{ fontWeight: 600, color: brand.text }}
+                >
+                  {c.name}
+                </Box>
+                <Box component="span" sx={{ color: "#CFC6E6" }}>
+                  {c.role}
+                </Box>
+                <Box
+                  component="span"
+                  sx={{
+                    fontFamily: fonts.mono,
+                    fontSize: 12,
+                    color: brand.cyan,
+                  }}
+                >
+                  {c.path ?? "—"}
+                </Box>
+              </Box>
+            ))}
+          </Box>
+        </Box>
+      )}
+
+      {/* Fallback: if nothing else rendered */}
+      {!paragraph && !hasStructured && <SectionReader content={content} />}
+    </Box>
+  );
+}
+
+// ── Meta line (compact provenance) ─────────────────────────────────────
+
+function MetaLine({ section }: { section: BriefingSection }) {
+  const source =
+    section.provenance === "agent_mcp"
+      ? "agent_mcp"
+      : section.provenance === "user_ui"
+      ? "user_ui"
+      : "auto";
+  const when = section.updated_at
+    ? new Date(section.updated_at).toLocaleDateString()
+    : "";
+  return (
+    <Typography
+      sx={{
+        fontFamily: fonts.mono,
+        fontSize: 11,
+        color: brand.muted,
+        mt: 0.5,
+      }}
+    >
+      {source}
+      {when ? ` · ${when}` : ""}
+    </Typography>
   );
 }
 
@@ -335,7 +936,6 @@ function NotGenerated() {
         bgcolor: alpha("#0b0b0f", 0.3),
       }}
     >
-      <TerminalOutlinedIcon sx={{ fontSize: 34, color: brand.cyan, mb: 1 }} />
       <Typography
         sx={{
           fontFamily: fonts.display,
@@ -364,183 +964,6 @@ function NotGenerated() {
         session's first task.
       </Typography>
     </Box>
-  );
-}
-
-// ── Section card ────────────────────────────────────────────────────────
-
-function SectionCard({
-  sectionKey,
-  section,
-  editing,
-  onStartEdit,
-  onCancelEdit,
-  onSave,
-}: {
-  sectionKey: BriefingSectionKey;
-  section: BriefingSection | undefined;
-  editing: boolean;
-  onStartEdit: () => void;
-  onCancelEdit: () => void;
-  onSave: (content: unknown, status: "pinned" | "auto") => Promise<void>;
-}) {
-  // Defensive: a missing section must never crash the panel.
-  if (!section) return null;
-  const visual = SECTION_VISUALS[sectionKey];
-  const Icon = visual.icon;
-  return (
-    <Box
-      sx={{
-        border: `1px solid ${brand.line}`,
-        borderLeft: `3px solid ${alpha(visual.color, 0.6)}`,
-        borderRadius: 1.5,
-        p: 1.75,
-        bgcolor: alpha("#0b0b0f", 0.4),
-        transition: "border-color 0.15s, background-color 0.15s",
-        "&:hover": {
-          borderColor: alpha(visual.color, 0.4),
-          borderLeftColor: visual.color,
-          bgcolor: alpha("#0b0b0f", 0.55),
-        },
-      }}
-    >
-      <Stack direction="row" alignItems="center" spacing={1.25} sx={{ mb: 1 }}>
-        <Box
-          sx={{
-            width: 30,
-            height: 30,
-            borderRadius: 1,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            bgcolor: alpha(visual.color, 0.12),
-            border: `1px solid ${alpha(visual.color, 0.25)}`,
-            flexShrink: 0,
-          }}
-        >
-          <Icon sx={{ fontSize: 17, color: visual.color }} />
-        </Box>
-        <Typography
-          sx={{
-            fontFamily: fonts.display,
-            fontSize: "1.05rem",
-            color: brand.text,
-            flex: 1,
-          }}
-        >
-          {SECTION_TITLES[sectionKey]}
-        </Typography>
-        <StatusChip status={section.status} />
-        {!editing && (
-          <Tooltip title="Edit section">
-            <IconButton size="small" onClick={onStartEdit}>
-              <EditIcon sx={{ fontSize: 15, color: brand.muted }} />
-            </IconButton>
-          </Tooltip>
-        )}
-      </Stack>
-
-      <Typography
-        variant="caption"
-        sx={{ color: brand.muted, display: "block", mb: 1 }}
-      >
-        {SECTION_DESCRIPTIONS[sectionKey]}
-      </Typography>
-
-      {editing ? (
-        <SectionEditor
-          section={section}
-          onSave={onSave}
-          onCancel={onCancelEdit}
-        />
-      ) : (
-        <SectionReader content={section.content} />
-      )}
-
-      <ProvenanceRow section={section} />
-    </Box>
-  );
-}
-
-function StatusChip({ status }: { status: BriefingSection["status"] }) {
-  if (status === "pinned") {
-    return (
-      <Chip
-        size="small"
-        icon={<LockIcon sx={{ fontSize: 12 }} />}
-        label="PINNED"
-        sx={{
-          height: 20,
-          fontSize: "0.62rem",
-          fontFamily: fonts.mono,
-          letterSpacing: "0.14em",
-          bgcolor: alpha(brand.violet2, 0.15),
-          color: brand.violet2,
-          "& .MuiChip-icon": { color: brand.violet2 },
-        }}
-      />
-    );
-  }
-  if (status === "hybrid") {
-    return (
-      <Chip
-        size="small"
-        label="HYBRID"
-        sx={{
-          height: 20,
-          fontSize: "0.62rem",
-          fontFamily: fonts.mono,
-          letterSpacing: "0.14em",
-          bgcolor: alpha(brand.cyan, 0.15),
-          color: brand.cyan,
-        }}
-      />
-    );
-  }
-  return (
-    <Chip
-      size="small"
-      icon={<AutoAwesomeIcon sx={{ fontSize: 12 }} />}
-      label="AUTO"
-      sx={{
-        height: 20,
-        fontSize: "0.62rem",
-        fontFamily: fonts.mono,
-        letterSpacing: "0.14em",
-        bgcolor: alpha(brand.muted, 0.15),
-        color: brand.muted,
-        "& .MuiChip-icon": { color: brand.muted },
-      }}
-    />
-  );
-}
-
-function ProvenanceRow({ section }: { section: BriefingSection }) {
-  const when = section.updated_at
-    ? new Date(section.updated_at).toLocaleString()
-    : "";
-  const source =
-    section.provenance === "agent_mcp"
-      ? "coding agent (via MCP)"
-      : section.provenance === "user_ui"
-      ? "you (via UI)"
-      : "auto-populator";
-  const by = section.updated_by ? ` — ${section.updated_by}` : "";
-  return (
-    <Typography
-      variant="caption"
-      sx={{
-        fontFamily: fonts.mono,
-        fontSize: "0.68rem",
-        color: brand.muted,
-        display: "block",
-        mt: 1,
-        opacity: 0.7,
-      }}
-    >
-      Last edit: {source}
-      {by} · {when}
-    </Typography>
   );
 }
 
@@ -669,8 +1092,6 @@ function ObjectField({ label, value }: { label: string; value: unknown }) {
   if (typeof value === "object") {
     return <SectionReader content={value} />;
   }
-  // Prose-y fields (summary, description, data_flow, …) and any long string read
-  // better as a labelled paragraph than an inline "LABEL value" run.
   const str = String(value);
   const PROSE_KEYS = new Set([
     "summary",
@@ -743,7 +1164,7 @@ function Empty() {
   );
 }
 
-// ── Editor: raw JSON textarea for now. Phase 4.1 could grow per-shape editors ──
+// ── Editor ──────────────────────────────────────────────────────────────
 
 function SectionEditor({
   section,
@@ -764,7 +1185,6 @@ function SectionEditor({
 
   const save = async () => {
     setBusy(true);
-    // Try JSON parse; if it fails, save as string (prose section).
     let parsed: unknown = draft;
     try {
       parsed = JSON.parse(draft);

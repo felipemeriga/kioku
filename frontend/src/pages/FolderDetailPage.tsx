@@ -247,72 +247,119 @@ export default function FolderDetailPage() {
         overflow: "auto",
       }}
     >
-      {/* Header */}
+      {/* Folder toolbar: breadcrumb + actions */}
       <Box
         sx={{
-          px: 3,
-          py: 2,
-          borderBottom: `1px solid ${brand.line}`,
-          bgcolor: alpha(brand.surface2, 0.4),
           display: "flex",
-          alignItems: "center",
+          flexDirection: "column",
           gap: 1.5,
+          px: 4,
+          pt: 2,
+          pb: 0,
+          borderBottom: `1px solid ${brand.line}`,
         }}
       >
-        <IconButton
-          onClick={() => navigate("/documents?folder=" + folderId)}
-          size="small"
-          sx={{ color: brand.muted }}
+        {/* Breadcrumb + actions row */}
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            gap: 1.25,
+            fontSize: 14,
+          }}
         >
-          <ArrowBackIcon fontSize="small" />
-        </IconButton>
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography
-            sx={{
-              fontFamily: fonts.mono,
-              fontSize: "0.65rem",
-              letterSpacing: "0.24em",
-              color: brand.muted,
-              textTransform: "uppercase",
-            }}
+          {/* Back arrow */}
+          <IconButton
+            onClick={() => navigate("/documents?folder=" + folderId)}
+            size="small"
+            sx={{ color: brand.muted, mr: 0.25 }}
           >
-            Folder detail
-          </Typography>
-          <Typography
+            <ArrowBackIcon fontSize="small" />
+          </IconButton>
+
+          {/* Breadcrumb: ⌂ / … / name */}
+          <Box
+            component="span"
+            sx={{ color: brand.muted, fontFamily: fonts.body }}
+          >
+            ⌂
+          </Box>
+          <Box
+            component="span"
+            sx={{ color: brand.lineGlow, fontFamily: fonts.mono }}
+          >
+            /
+          </Box>
+          <Box
+            component="span"
             sx={{
-              fontFamily: fonts.display,
-              fontSize: "1.5rem",
               fontWeight: 700,
+              fontSize: 18,
               color: brand.text,
+              fontFamily: fonts.display,
             }}
-            noWrap
           >
             {folder?.name ?? "Loading…"}
-          </Typography>
+          </Box>
+
+          {/* Items count chip */}
+          <Chip
+            label={`${documents.length} items`}
+            size="small"
+            sx={{
+              fontFamily: fonts.mono,
+              fontSize: 11,
+              height: 22,
+              color: brand.cyan,
+              border: `1px solid ${brand.cyan}66`,
+              bgcolor: "transparent",
+            }}
+          />
+
+          <Box sx={{ flex: 1 }} />
+
+          {/* New folder */}
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={() => setIntegrationsOpen(true)}
+            sx={{
+              height: 34,
+              textTransform: "none",
+              borderColor: brand.lineGlow,
+              color: brand.text,
+              fontFamily: fonts.body,
+              fontSize: 13,
+              fontWeight: 600,
+              "&:hover": {
+                borderColor: brand.magenta,
+                bgcolor: alpha(brand.magenta, 0.06),
+              },
+            }}
+          >
+            New folder
+          </Button>
+
+          {/* Upload */}
+          <Button
+            size="small"
+            sx={{
+              height: 34,
+              textTransform: "none",
+              border: 0,
+              borderRadius: 1,
+              backgroundImage: `linear-gradient(90deg, ${brand.magentaDeep} 0%, ${brand.violet2} 100%)`,
+              color: "#fff",
+              fontFamily: fonts.body,
+              fontSize: 13,
+              fontWeight: 600,
+              px: 1.75,
+            }}
+            onClick={() => setIntegrationsOpen(true)}
+          >
+            Upload
+          </Button>
         </Box>
-        <Chip
-          label={`${documents.length} docs`}
-          size="small"
-          sx={{ fontFamily: fonts.mono, height: 22 }}
-        />
-        <Chip
-          label={
-            mem0Status?.available
-              ? `${memories.length} memories`
-              : "Memory: repo-only"
-          }
-          size="small"
-          color={mem0Status?.available ? "primary" : "default"}
-          sx={{ fontFamily: fonts.mono, height: 22 }}
-        />
-        <Button
-          size="small"
-          variant="outlined"
-          onClick={() => setIntegrationsOpen(true)}
-          sx={{ textTransform: "none", ml: 1, fontFamily: fonts.body }}
-        >
-          Integrations
-        </Button>
       </Box>
 
       {/* Notion sync status for this folder's root — live progress while a
@@ -324,7 +371,24 @@ export default function FolderDetailPage() {
       <Tabs
         value={tab}
         onChange={(_, v) => setTab(v)}
-        sx={{ borderBottom: `1px solid ${brand.line}`, px: 2 }}
+        sx={{
+          borderBottom: `1px solid ${brand.line}`,
+          px: 2,
+          "& .MuiTab-root": {
+            color: brand.muted,
+            fontWeight: 600,
+            fontSize: 14,
+            minHeight: 44,
+            textTransform: "none",
+            fontFamily: fonts.display,
+          },
+          "& .Mui-selected": {
+            color: `${brand.cyan} !important`,
+            background: `${brand.cyan}12`,
+            boxShadow: `inset 0 -2px 0 ${brand.cyan}`,
+          },
+          "& .MuiTabs-indicator": { display: "none" },
+        }}
       >
         {folder?.kind === "repo" && (
           <Tab

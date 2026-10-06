@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, fireEvent } from "@testing-library/react";
 import { renderWithProviders } from "../test/renderWithProviders";
 import BriefingPanel from "./BriefingPanel";
 import * as api from "../lib/api";
@@ -91,8 +91,9 @@ describe("BriefingPanel", () => {
   it("renders the briefing title", async () => {
     vi.spyOn(api, "fetchBriefing").mockResolvedValue(staleBriefingFixture);
     renderWithProviders(<BriefingPanel folderId="f1" />);
+    // New design: overline is "BRIEFING" (all-caps hudLabel)
     await waitFor(() =>
-      expect(screen.getByText(/Briefing/)).toBeInTheDocument()
+      expect(screen.getByText(/BRIEFING/i)).toBeInTheDocument()
     );
   });
 
@@ -101,7 +102,7 @@ describe("BriefingPanel", () => {
     renderWithProviders(<BriefingPanel folderId="f1" />);
     // Wait for load to complete
     await waitFor(() =>
-      expect(screen.getByText(/Briefing/)).toBeInTheDocument()
+      expect(screen.getByText(/BRIEFING/i)).toBeInTheDocument()
     );
     expect(screen.queryByText(/kioku init --force/)).not.toBeInTheDocument();
   });
@@ -110,8 +111,56 @@ describe("BriefingPanel", () => {
     vi.spyOn(api, "fetchBriefing").mockResolvedValue(staleBriefingFixture);
     renderWithProviders(<BriefingPanel folderId="f1" />);
     await waitFor(() =>
-      expect(screen.getByText(/Briefing/)).toBeInTheDocument()
+      expect(screen.getByText(/BRIEFING/i)).toBeInTheDocument()
     );
     expect(screen.queryByText("Git updates")).not.toBeInTheDocument();
+  });
+
+  it("collapses lower sections by default and expands on click", async () => {
+    const fixture: BriefingResponse = {
+      ...staleBriefingFixture,
+      sections: {
+        ...staleBriefingFixture.sections,
+        preferences: {
+          content: "Prefer uv over pip for Python packages.",
+          status: "auto",
+          provenance: "auto",
+          updated_at: "2026-01-01T00:00:00Z",
+          updated_by: null,
+        },
+      },
+    };
+    vi.spyOn(api, "fetchBriefing").mockResolvedValue(fixture);
+    renderWithProviders(<BriefingPanel folderId="f1" />);
+
+    // Wait for the panel to load
+    await waitFor(() =>
+      expect(screen.getByText(/BRIEFING/i)).toBeInTheDocument()
+    );
+
+    // The preferences content should NOT be visible initially (collapsed)
+    expect(
+      screen.queryByText("Prefer uv over pip for Python packages.")
+    ).not.toBeInTheDocument();
+
+    // The collapsed row button for "Preferences" should be visible
+    // (aria-expanded="false" distinguishes it from the SectionRail nav button)
+    const allPrefsButtons = screen.getAllByRole("button", {
+      name: /preferences/i,
+    });
+    const prefsRow = allPrefsButtons.find(
+      (btn) => btn.getAttribute("aria-expanded") === "false"
+    );
+    expect(prefsRow).toBeDefined();
+
+    // Click to expand
+    fireEvent.click(prefsRow!);
+
+    // Now the content should be visible
+    await waitFor(() =>
+      expect(
+        screen.getByText("Prefer uv over pip for Python packages.")
+      ).toBeInTheDocument()
+    );
   });
 });
