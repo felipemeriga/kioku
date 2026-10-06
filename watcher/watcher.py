@@ -355,10 +355,11 @@ HOLISTIC_REGROUND_DAYS = 14
 HOLISTIC_COMMITS_FLOOR = 3
 
 
-def maybe_reground_holistic(clone: Path, repo: dict, env: dict) -> None:
+def maybe_reground_holistic(clone: Path, repo: dict, env: dict, force: bool = False) -> None:
     """Re-ground architecture/overview from the current key files (~twice a
     month) via the backend (Sonnet) so these holistic sections stay fresh
-    without a full re-init. Gated on days-since-last-write + a commits floor."""
+    without a full re-init. Gated on days-since-last-write + a commits floor.
+    Pass force=True to bypass the gates (e.g. for manual on-demand triggers)."""
     if not API_URL or not repo.get("api_key_encrypted"):
         return
     rows = rest_get(
@@ -383,10 +384,10 @@ def maybe_reground_holistic(clone: Path, repo: dict, env: dict) -> None:
         last_dt = datetime.fromisoformat(str(last).replace("Z", "+00:00"))
     except ValueError:
         return
-    if (datetime.now(timezone.utc) - last_dt).days < HOLISTIC_REGROUND_DAYS:
+    if not force and (datetime.now(timezone.utc) - last_dt).days < HOLISTIC_REGROUND_DAYS:
         return  # not due yet
     code, n, _ = run_git(["rev-list", "--count", f"--since={last}", "HEAD"], env, cwd=str(clone))
-    if code != 0 or int(n or 0) < HOLISTIC_COMMITS_FLOOR:
+    if not force and (code != 0 or int(n or 0) < HOLISTIC_COMMITS_FLOOR):
         return  # not enough churn to bother
 
     # Key files: prefer the important_files the briefing already identified.

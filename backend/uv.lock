@@ -326,6 +326,7 @@ dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "reportlab" },
+    { name = "requests" },
     { name = "ruff" },
 ]
 
@@ -360,6 +361,7 @@ dev = [
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-asyncio", specifier = ">=1.4.0" },
     { name = "reportlab", specifier = ">=5.0.0" },
+    { name = "requests", specifier = ">=2.32.5" },
     { name = "ruff", specifier = ">=0.15.5" },
 ]
 
