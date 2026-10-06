@@ -717,7 +717,8 @@ def run_service(schedule_raw: str) -> None:
     log(f"service mode — schedule (UTC): {', '.join(f'{h:02d}:{m:02d}' for h, m in times)}")
     while True:
         try:
-            main()
+            with _pass_lock:
+                main()
         except Exception as exc:  # noqa: BLE001 — the loop must outlive any pass
             log(f"ERROR pass crashed: {exc}")
         now = datetime.now(timezone.utc)
