@@ -10,6 +10,7 @@ import PillChain from "./PillChain";
 import PipelineBar from "./PipelineBar";
 import RerankBar from "./RerankBar";
 import StageTabs from "./StageTabs";
+import RetroSun from "./RetroSun";
 
 const wrap = (ui: React.ReactElement) =>
   render(<ThemeProvider theme={theme}>{ui}</ThemeProvider>);
@@ -82,5 +83,10 @@ describe("neo primitives", () => {
   it("StageTabs highlights the active stage label", () => {
     wrap(<StageTabs active="analyzing" detail="8 docs" />);
     expect(screen.getByText("分析")).toBeInTheDocument();
+  });
+  it("RetroSun is aria-hidden and renders in the DOM", () => {
+    const { container } = wrap(<RetroSun />);
+    const el = container.querySelector('[aria-hidden="true"]');
+    expect(el).not.toBeNull();
   });
 });
