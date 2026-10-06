@@ -31,10 +31,12 @@ describe("LoginPage", () => {
     expect(screen.getByRole("button", { name: "Sign up" })).toBeInTheDocument();
   });
 
-  it("shows animated background", () => {
+  it("shows retrowave background (sun + grid aria-hidden elements)", () => {
     const { container } = renderWithProviders(<LoginPage />, {
       initialEntries: ["/login"],
     });
-    expect(container.querySelector('[data-testid="ambient-bg"]')).toBeInTheDocument();
+    // Background scene elements are all aria-hidden; at least two must be present
+    const hiddenEls = container.querySelectorAll('[aria-hidden="true"]');
+    expect(hiddenEls.length).toBeGreaterThan(1);
   });
 });

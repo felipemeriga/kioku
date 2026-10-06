@@ -18,6 +18,7 @@ import { brand, fonts, scanlines } from "../theme";
 import GridFloor from "../components/neo/GridFloor";
 import KatakanaAccent from "../components/neo/KatakanaAccent";
 import CornerCard from "../components/neo/CornerCard";
+import RetroSun from "../components/neo/RetroSun";
 
 export default function LoginPage() {
   const { session, loading: authLoading } = useAuth();
@@ -68,43 +69,34 @@ export default function LoginPage() {
         justifyContent: "center",
         position: "relative",
         overflow: "hidden",
-        background: `linear-gradient(180deg, #08040F 0%, #1A0630 50%, #08040F 100%)`,
+        // Hard horizon split at 62% — sky above, dark below
+        background: `linear-gradient(180deg, #08040F 0%, #1A0630 62%, #08040F 62.1%)`,
         px: 2,
       }}
     >
-      {/* Ambient radial blooms */}
-      <Box
-        data-testid="ambient-bg"
-        aria-hidden="true"
+      {/* Retrowave sun — centered above the horizon (38% from bottom = 62% from top) */}
+      <RetroSun
         sx={{
-          position: "absolute",
-          inset: 0,
-          pointerEvents: "none",
-          background: `
-            radial-gradient(ellipse 360px 260px at 50% 28%, ${alpha(
-              brand.magenta,
-              0.28
-            )} 0%, transparent 70%),
-            radial-gradient(ellipse 480px 200px at 20% 70%, ${alpha(
-              brand.purple,
-              0.15
-            )} 0%, transparent 70%),
-            radial-gradient(ellipse 320px 180px at 80% 20%, ${alpha(
-              brand.cyan,
-              0.1
-            )} 0%, transparent 70%)
-          `,
+          left: "50%",
+          transform: "translateX(-50%)",
+          // Position so the flat base aligns ~at the 62% horizon line.
+          // Sun is 260px tall; horizon at 62% means top of sun = 62vh - 260px.
+          bottom: "38%",
+          zIndex: 0,
         }}
       />
 
-      {/* Magenta horizon line */}
+      {/* Grid floor perspective — below horizon */}
+      <GridFloor animate sx={{ zIndex: 0 }} />
+
+      {/* Magenta horizon line — sits exactly at the 62% horizon */}
       <Box
         aria-hidden="true"
         sx={{
           position: "absolute",
           left: 0,
           right: 0,
-          bottom: "44%",
+          bottom: "38%",
           height: "3px",
           background: brand.magenta,
           boxShadow: `0 0 18px ${brand.magenta}`,
@@ -125,10 +117,7 @@ export default function LoginPage() {
         }}
       />
 
-      {/* Grid floor perspective */}
-      <GridFloor />
-
-      {/* Vertical kanji accent — left side */}
+      {/* Vertical kanji accent — left side, bright neon per mockup */}
       <KatakanaAccent
         text="記憶"
         sx={{
@@ -136,11 +125,9 @@ export default function LoginPage() {
           top: 120,
           fontSize: 96,
           writingMode: "vertical-rl",
-          color: `${brand.text}e6`,
+          color: "#FFE3F1",
           WebkitTextStroke: "unset",
-          textShadow: `0 0 2px ${brand.magenta}, 0 0 10px ${
-            brand.magenta
-          }, 0 0 28px ${brand.magenta}, 0 0 56px ${alpha(brand.magenta, 0.6)}`,
+          textShadow: `0 0 2px ${brand.magenta}, 0 0 10px ${brand.magenta}, 0 0 28px ${brand.magenta}, 0 0 56px ${brand.magenta}99`,
           opacity: 0.9,
           zIndex: 2,
         }}
