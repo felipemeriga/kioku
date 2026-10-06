@@ -164,7 +164,9 @@ def test_handle_run_started_and_overlap(monkeypatch):
     monkeypatch.setattr(watcher, "force_refresh", fake_force)
     # Run the job inline instead of in a thread so the assertion is deterministic.
     monkeypatch.setattr(
-        watcher.threading, "Thread", lambda target, daemon=False: type("T", (), {"start": target})()
+        watcher.threading,
+        "Thread",
+        lambda target, daemon=False: type("T", (), {"start": staticmethod(target)})(),
     )
     status, body = watcher.handle_run(
         {"X-Watcher-Token": "test-token"}, '{"folder_id":"f1","target":"index"}'
@@ -172,3 +174,16 @@ def test_handle_run_started_and_overlap(monkeypatch):
     assert status == 202 and body == {"started": True}
     assert started["n"] == 1
     assert watcher._pass_lock.locked() is False  # released in finally
+
+
+def test_health_endpoint_smoke(monkeypatch):
+    import http.client
+
+    monkeypatch.setattr(watcher, "TRIGGER_TOKEN", "test-token")
+    monkeypatch.setattr(watcher, "TRIGGER_PORT", 8799)
+    watcher.start_trigger_server()
+    conn = http.client.HTTPConnection("127.0.0.1", 8799, timeout=2)
+    conn.request("GET", "/health")
+    resp = conn.getresponse()
+    assert resp.status == 200
+    assert b'"ok"' in resp.read()

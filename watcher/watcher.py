@@ -35,6 +35,7 @@ import tempfile
 import threading
 import time
 from datetime import datetime, timedelta, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import requests
@@ -631,7 +632,7 @@ def handle_run(headers, raw_body: str) -> tuple[int, dict]:
     if not _pass_lock.acquire(blocking=False):
         return 409, {"error": "already running"}
 
-    def job(*_) -> None:
+    def job() -> None:
         try:
             force_refresh(repo, key_row, target)
         except Exception as exc:  # noqa: BLE001 — a trigger must never crash the watcher
@@ -641,6 +642,43 @@ def handle_run(headers, raw_body: str) -> tuple[int, dict]:
 
     threading.Thread(target=job, daemon=True).start()
     return 202, {"started": True}
+
+
+class _Handler(BaseHTTPRequestHandler):
+    def _send(self, status: int, obj: dict) -> None:
+        data = json.dumps(obj).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def do_GET(self) -> None:  # noqa: N802 — BaseHTTPRequestHandler API
+        if self.path == "/health":
+            self._send(200, {"ok": True})
+        else:
+            self._send(404, {"error": "not found"})
+
+    def do_POST(self) -> None:  # noqa: N802
+        if self.path != "/run":
+            self._send(404, {"error": "not found"})
+            return
+        length = int(self.headers.get("Content-Length") or 0)
+        raw = self.rfile.read(length).decode() if length else ""
+        status, obj = handle_run(self.headers, raw)
+        self._send(status, obj)
+
+    def log_message(self, *args) -> None:  # silence default stderr access logs
+        return
+
+
+def start_trigger_server() -> None:
+    if not TRIGGER_TOKEN:
+        log("trigger server disabled (no WATCHER_TRIGGER_TOKEN)")
+        return
+    srv = ThreadingHTTPServer(("0.0.0.0", TRIGGER_PORT), _Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    log(f"trigger server on :{TRIGGER_PORT}")
 
 
 def main() -> int:
@@ -696,6 +734,7 @@ def run_service(schedule_raw: str) -> None:
 if __name__ == "__main__":
     schedule = os.environ.get("WATCH_SCHEDULE", "").strip()
     if schedule:
+        start_trigger_server()
         run_service(schedule)
     else:
         sys.exit(main())
