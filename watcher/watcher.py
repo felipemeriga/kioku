@@ -524,6 +524,71 @@ def process_repo(repo: dict, key_row: dict) -> None:
     compute_freshness(clone, repo, plain_env)
 
 
+def force_refresh(repo: dict, key_row: dict, target: str) -> None:
+    """On-demand refresh triggered from the web (via the backend). Syncs the
+    clone to HEAD regardless of last_sha, then runs the requested target.
+    Parallels process_repo's sync block on purpose so the scheduled path stays
+    untouched."""
+    rid = repo["id"]
+    name = f"{repo['remote_url']} ({repo['branch']})"
+    now = datetime.now(timezone.utc).isoformat()
+    tmpdir = "/dev/shm" if os.path.isdir("/dev/shm") else None
+    with tempfile.NamedTemporaryFile("w", dir=tmpdir, suffix=".key", delete=True) as kf:
+        kf.write(decrypt(key_row["private_key_encrypted"]))
+        kf.flush()
+        os.chmod(kf.name, stat.S_IRUSR | stat.S_IWUSR)
+        env = git_env(kf.name)
+        code, out, err = run_git(
+            ["ls-remote", repo["remote_url"], f"refs/heads/{repo['branch']}"], env
+        )
+        if code != 0 or not out:
+            log(f"ERROR force {target} {name}: ls-remote failed — {(err or '')[:200]}")
+            return
+        remote_sha = out.split()[0]
+        clone = DATA / repo["user_id"] / repo["folder_id"]
+        if not (clone / ".git").exists():
+            clone.parent.mkdir(parents=True, exist_ok=True)
+            code, _, err = run_git(
+                ["clone", "--branch", repo["branch"], repo["remote_url"], str(clone)], env
+            )
+        else:
+            code, _, err = run_git(["fetch", "origin", repo["branch"]], env, cwd=str(clone))
+            if code == 0:
+                code, _, err = run_git(
+                    ["reset", "--hard", f"origin/{repo['branch']}"], env, cwd=str(clone)
+                )
+        if code != 0:
+            log(f"ERROR force {target} {name}: sync failed — {(err or '')[:200]}")
+            return
+    if not repo.get("api_key_encrypted"):
+        log(f"ERROR force {target} {name}: no api key registered")
+        return
+    folder = rest_get("folders", {"id": f"eq.{repo['folder_id']}", "select": "name", "limit": "1"})
+    folder_name = folder[0]["name"] if folder else "repo"
+    seed_bindings(clone, repo["folder_id"], folder_name, decrypt(repo["api_key_encrypted"]))
+    plain_env = {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "HOME": os.environ.get("HOME", "/root"),
+    }
+    if target == "index":
+        ok, tail = kioku_index(clone)
+        if ok:
+            log(f"{name}: force index -> {remote_sha[:10]}")
+            rest_patch(
+                "watched_repos",
+                {"id": f"eq.{rid}"},
+                {"last_run_at": now, "last_sha": remote_sha, "last_error": None},
+            )
+            refresh_activity(clone, repo, repo.get("last_sha"), remote_sha, plain_env)
+        else:
+            log(f"ERROR force index {name}: {tail[-200:]}")
+    elif target == "sections":
+        log(f"{name}: force sections")
+        refresh_sections(clone, repo, plain_env)
+        maybe_reground_holistic(clone, repo, plain_env, force=True)
+    compute_freshness(clone, repo, plain_env)
+
+
 def main() -> int:
     repos = rest_get("watched_repos", {"select": "*", "order": "created_at"})
     if not repos:

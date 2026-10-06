@@ -71,3 +71,62 @@ def test_reground_force_bypasses_gates(monkeypatch):
         force=True,
     )
     assert posted["n"] == 1  # force -> proceeds to POST /reground
+
+
+def test_force_refresh_sections_calls_reground_forced(monkeypatch, tmp_path):
+    seen = {}
+
+    class _CM:
+        def __enter__(self):
+            class F:
+                name = str(tmp_path / "k.key")
+
+                def write(self, *_): ...
+                def flush(self): ...
+
+            return F()
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(watcher.tempfile, "NamedTemporaryFile", lambda *a, **k: _CM())
+    monkeypatch.setattr(watcher.os, "chmod", lambda *a, **k: None)
+    monkeypatch.setattr(watcher, "decrypt", lambda s: "KEY")
+    monkeypatch.setattr(watcher, "git_env", lambda p: {})
+    # ls-remote returns a sha, fetch/reset succeed.
+    monkeypatch.setattr(watcher, "run_git", lambda *a, **k: (0, "deadbeef0000 ref", ""))
+    monkeypatch.setattr(watcher, "rest_patch", lambda *a, **k: None)
+    monkeypatch.setattr(
+        watcher, "rest_get", lambda path, params: [{"name": "repo"}] if path == "folders" else []
+    )
+    monkeypatch.setattr(watcher, "seed_bindings", lambda *a, **k: None)
+    monkeypatch.setattr(watcher, "kioku_index", lambda clone: (True, ""))
+    monkeypatch.setattr(  # noqa: E501
+        watcher, "refresh_sections", lambda *a, **k: seen.__setitem__("sections", True)
+    )
+    monkeypatch.setattr(watcher, "refresh_activity", lambda *a, **k: None)
+    monkeypatch.setattr(  # noqa: E501
+        watcher, "compute_freshness", lambda *a, **k: seen.__setitem__("fresh", True)
+    )
+
+    def fake_reground(clone, repo, env, force=False):
+        seen["reground_force"] = force
+
+    monkeypatch.setattr(watcher, "maybe_reground_holistic", fake_reground)
+    # Pretend the clone exists so the fetch/reset branch is taken.
+    monkeypatch.setattr(watcher.Path, "exists", lambda self: True)
+
+    repo = {
+        "id": "1",
+        "remote_url": "r",
+        "branch": "main",
+        "user_id": "u",
+        "folder_id": "f1",
+        "api_key_encrypted": "enc",
+        "last_sha": "deadbeef0000",
+    }
+    watcher.force_refresh(repo, {"private_key_encrypted": "enc"}, "sections")
+
+    assert seen.get("sections") is True
+    assert seen.get("reground_force") is True
+    assert seen.get("fresh") is True
