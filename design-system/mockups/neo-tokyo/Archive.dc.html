@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kioku documents</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;family=Noto+Sans+JP:wght@400;700;900&amp;family=DotGothic16&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#08040F}
+a{color:#00F0FF}a:hover{color:#F5F0FF}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; display: flex; background-color: #08040F; background-image: radial-gradient(circle at 8% -6%, #FF2E9322 0%, transparent 45%), radial-gradient(circle at 92% 108%, #00F0FF18 0%, transparent 45%), repeating-linear-gradient(0deg, rgba(255,255,255,0.018) 0px, rgba(255,255,255,0.018) 1px, transparent 1px, transparent 3px); color: #F5F0FF; font-family: Rubik, 'Noto Sans JP', sans-serif;">
+
+  <nav aria-label="Main" style="width: 200px; flex-shrink: 0; display: flex; flex-direction: column; border-right: 1px solid #2A1758; background: #0A0517;">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 16px; border-bottom: 1px solid #2A1758;">
+      <div style="width: 34px; height: 34px; border-radius: 6px; border: 1.5px solid #FF2E93; display: flex; align-items: center; justify-content: center; font-family: 'Noto Sans JP', sans-serif; font-weight: 900; font-size: 18px; color: #FF6DB1; box-shadow: 0 0 4px #FF2E9388, 0 0 16px #FF2E9344;">記</div>
+      <div style="display: flex; flex-direction: column; line-height: 1;"><span style="font-family: DotGothic16, monospace; font-size: 10px; letter-spacing: 0.3em; color: #00F0FF;">キオク</span><span style="font-weight: 700; font-size: 18px; letter-spacing: 0.06em; text-shadow: 0 0 10px #FF2E9366;">KIOKU</span></div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 4px; padding: 12px;">
+      <a href="#" style="display: flex; align-items: center; height: 42px; padding: 0 12px; border-radius: 3px; text-decoration: none; color: #9788B8; font-size: 14px;">Chat</a>
+      <a href="#" style="display: flex; align-items: center; height: 42px; padding: 0 12px; border-radius: 3px; text-decoration: none; background: #FF2E9322; box-shadow: inset 2px 0 0 #FF2E93, 0 0 12px #FF2E9322; color: #F5F0FF; font-weight: 600; font-size: 14px;">Documents</a>
+      <a href="#" style="display: flex; align-items: center; height: 42px; padding: 0 12px; border-radius: 3px; text-decoration: none; color: #9788B8; font-size: 14px;">Settings</a>
+    </div>
+  </nav>
+
+  <aside style="width: 220px; flex-shrink: 0; display: flex; flex-direction: column; gap: 2px; padding: 16px 8px; border-right: 1px solid #2A1758; background: #0A0517cc;">
+    <div style="display: flex; align-items: center; justify-content: space-between; padding: 0 6px 10px;">
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.22em; color: #9788B8;">FOLDERS</span>
+      <button aria-label="New folder" style="width: 28px; height: 28px; border-radius: 3px; border: 1px solid #FF2E9355; background: #FF2E9314; color: #FF2E93; font-size: 16px;">+</button>
+    </div>
+    <div style="display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 3px; background: #FF2E9322; box-shadow: inset 2px 0 0 #FF2E93; font-size: 14px; font-weight: 600;">▤ All Documents</div>
+    <span style="padding: 12px 10px 6px; font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.22em; color: #9788B8;">FOLDERS</span>
+    <sc-for list="{{tree}}" as="f" hint-placeholder-count="4">
+      <div style="display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 3px; font-size: 14px;">
+        <span style="font-size: 10px; color: #9788B8;">▸</span>
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 13px; color: {{f.c}}; text-shadow: 0 0 6px {{f.c}};">{{f.icon}}</span>
+        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{f.name}}</span>
+      </div>
+    </sc-for>
+  </aside>
+
+  <main style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column;">
+    <div style="display: flex; flex-direction: column; gap: 12px; padding: 18px 28px; border-bottom: 1px solid #2A1758;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="color: #B026FF;">⌂</span>
+        <h1 style="margin: 0; font-size: 20px; font-weight: 600;">All Documents</h1>
+        <span style="padding: 2px 8px; border-radius: 3px; border: 1px solid #00F0FF66; color: #00F0FF; font-family: 'JetBrains Mono', monospace; font-size: 11px;">13 items</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <div style="width: 340px; height: 38px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-radius: 4px; border: 1px solid #4B2688; background: #0A0517;">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #FF2E93;">⌕</span>
+          <label for="q" style="position: absolute; left: -9999px;">Search in this folder</label>
+          <input id="q" placeholder="Search in this folder..." style="flex-grow: 1; background: transparent; border: 0; outline: none; color: #F5F0FF; font-size: 14px;">
+        </div>
+        <div style="display: flex; border: 1px solid #4B2688; border-radius: 3px; overflow: hidden;">
+          <button aria-label="Grid view" style="width: 36px; height: 36px; border: 0; background: #FF2E9322; color: #FF2E93;">▦</button>
+          <button aria-label="List view" style="width: 36px; height: 36px; border: 0; background: transparent; color: #9788B8;">☰</button>
+        </div>
+        <div style="flex-grow: 1;"></div>
+        <button style="height: 38px; padding: 0 14px; border-radius: 4px; border: 1px solid #4B2688; background: transparent; color: #F5F0FF; font-weight: 600; font-size: 13px;">New folder</button>
+        <button style="height: 38px; padding: 0 16px; border: 0; border-radius: 4px; background-image: linear-gradient(90deg, #D31877 0%, #B026FF 100%); color: #ffffff; font-weight: 600; font-size: 13px; box-shadow: 0 4px 12px #FF2E9344;">Upload</button>
+      </div>
+    </div>
+
+    <div style="flex-grow: 1; min-height: 0; display: flex; flex-direction: column; gap: 16px; padding: 20px 28px; overflow: hidden;">
+      <div style="display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px dashed #00F0FF55; border-radius: 4px; background: #00F0FF08;">
+        <button aria-label="Record audio" style="width: 32px; height: 32px; border-radius: 3px; border: 1px solid #B026FF66; background: #B026FF22; color: #E2B8FF;">●</button>
+        <span style="font-size: 13px; color: #9788B8;">Record audio · or drop files anywhere on this page</span>
+      </div>
+
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.3em; color: #9788B8;">FOLDERS · 4</span>
+      <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px;">
+        <sc-for list="{{tree}}" as="f" hint-placeholder-count="4">
+          <div style="position: relative; height: 80px; display: flex; align-items: center; gap: 12px; padding: 0 16px; border: 1px solid #2A1758; border-radius: 4px; background: #0F0820;">
+            <div style="position: absolute; left: -1px; top: -1px; width: 10px; height: 10px; border-left: 2px solid {{f.c}}; border-top: 2px solid {{f.c}};"></div>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 22px; color: {{f.c}}; text-shadow: 0 0 10px {{f.c}};">{{f.icon}}</span>
+            <div style="display: flex; flex-direction: column; gap: 2px;"><span style="font-size: 14px; font-weight: 500;">{{f.name}}</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.16em; color: #9788B8;">{{f.kind}}</span></div>
+          </div>
+        </sc-for>
+      </div>
+
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.3em; color: #9788B8;">FILES · 9</span>
+      <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px;">
+        <sc-for list="{{docs}}" as="d" hint-placeholder-count="8">
+          <div style="display: flex; border-radius: 4px; border: 1px solid {{d.border}}; background: #0F0820; overflow: hidden; height: 112px;">
+            <div style="width: 30px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: {{d.c}};">
+              <span style="writing-mode: vertical-rl; transform: rotate(180deg); font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: 10px; letter-spacing: 0.2em; color: #08040F;">{{d.ext}}</span>
+            </div>
+            <div style="flex-grow: 1; min-width: 0; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px;">
+              <span style="font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{d.name}}</span>
+              <span style="align-self: flex-start; padding: 2px 8px; border-radius: 3px; border: 1px solid {{d.sc}}; color: {{d.sc}}; font-family: 'JetBrains Mono', monospace; font-size: 11px;">● {{d.status}}</span>
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #9788B8;">{{d.meta}}</span>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const ST = { completed: '#39FF14', processing: '#FF6DB1', failed: '#FF3E5F' };
+    const D = (ext, c, name, status, meta) => ({ ext, c, name, status, sc: ST[status], meta, border: status === 'processing' ? '#FF2E93' : status === 'failed' ? '#FF3E5F66' : '#2A1758' });
+    return {
+      tree: [
+        { icon: '⌥', c: '#00F0FF', name: 'kioku', kind: 'REPO' },
+        { icon: '⌥', c: '#00F0FF', name: 'obol-ledger', kind: 'REPO' },
+        { icon: '▰', c: '#FF2E93', name: 'Research notes', kind: 'FOLDER' },
+        { icon: '▰', c: '#B026FF', name: 'Eng wiki (Notion)', kind: 'FOLDER' }
+      ],
+      docs: [
+        D('MD', '#10b981', 'hybrid_search_rrf.md', 'completed', '18 chunks · 42m ago'),
+        D('PDF', '#ef4444', 'hnsw_vs_ivfflat.pdf', 'completed', '64 chunks · 5h ago'),
+        D('MD', '#10b981', 'chunking_strategies.md', 'completed', '23 chunks · 1d ago'),
+        D('DOCX', '#3b82f6', 'voyage_embeddings.docx', 'processing', '31 chunks · 3m ago'),
+        D('TXT', '#9788B8', 'system_design_principles.txt', 'completed', '12 chunks · 3d ago'),
+        D('HTML', '#f59e0b', 'ragas_eval_report.html', 'failed', '9 chunks · 4d ago'),
+        D('MD', '#10b981', 'architecture.md', 'completed', '14 chunks · 2h ago'),
+        D('PY', '#9788B8', 'ingest_worker.py', 'completed', '7 chunks · 3h ago')
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

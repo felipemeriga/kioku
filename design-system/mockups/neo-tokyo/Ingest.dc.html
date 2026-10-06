@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kioku ingestion drawer</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#08040F}
+a{color:#00F0FF}a:hover{color:#F5F0FF}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background-color: #08040F; color: #F5F0FF; font-family: Rubik, sans-serif;">
+  <div aria-hidden="true" style="position: absolute; inset: 0; display: flex; opacity: 0.3;">
+    <div style="width: 200px; background: #0A0517; border-right: 1px solid #2A1758;"></div>
+    <div style="width: 220px; background: #0A0517; border-right: 1px solid #2A1758;"></div>
+    <div style="flex-grow: 1;"></div>
+  </div>
+  <div aria-hidden="true" style="position: absolute; inset: 0; background: #05020888;"></div>
+
+  <aside role="dialog" aria-label="Processing" style="position: absolute; right: 0; top: 0; bottom: 0; width: 440px; display: flex; flex-direction: column; border-left: 1px solid #FF2E93; background-color: #0A0517; background-image: repeating-linear-gradient(0deg, rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 1px, transparent 1px, transparent 3px); box-shadow: -8px 0 32px rgba(0,0,0,0.6), 0 0 24px #FF2E9333;">
+    <header style="display: flex; align-items: center; gap: 10px; padding: 18px 20px; border-bottom: 1px solid #2A1758;">
+      <span style="color: #FF2E93; text-shadow: 0 0 8px #FF2E93;">▲</span>
+      <h1 style="margin: 0; font-size: 17px; font-weight: 600;">Processing</h1>
+      <span style="padding: 2px 8px; border-radius: 3px; background: #FF2E93; color: #08040F; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600;">1 active</span>
+      <div style="flex-grow: 1;"></div>
+      <button aria-label="Close" style="width: 32px; height: 32px; border-radius: 3px; border: 1px solid #2A1758; background: transparent; color: #9788B8;">✕</button>
+    </header>
+    <div style="display: flex; flex-direction: column;">
+      <sc-for list="{{tasks}}" as="t" hint-placeholder-count="4">
+        <div style="display: flex; flex-direction: column; gap: 10px; padding: 16px 20px; border-bottom: 1px solid #2A1758; background: {{t.bg}};">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 14px;">{{t.name}}</span>
+            <div style="flex-grow: 1;"></div>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: {{t.c}}; text-shadow: 0 0 6px {{t.c}};">{{t.label}}</span>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px;">
+            <sc-for list="{{t.steps}}" as="s" hint-placeholder-count="6">
+              <div style="display: flex; flex-direction: column; gap: 4px;">
+                <div style="height: 6px; background: {{s.bg}}; box-shadow: {{s.glow}};"></div>
+                <span style="font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.08em; color: #9788B8;">{{s.n}}</span>
+              </div>
+            </sc-for>
+          </div>
+          <sc-if value="{{t.err}}" hint-placeholder-val="{{false}}">
+            <span style="font-size: 13px; color: #FF3E5F;">{{t.err}}</span>
+          </sc-if>
+        </div>
+      </sc-for>
+    </div>
+  </aside>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const names = ['UPLOAD', 'PARSE', 'CHUNK', 'META', 'EMBED', 'STORE'];
+    const steps = (n, col) => names.map((nm, i) => ({ n: nm, bg: i < n ? col : '#2A1758', glow: i === n - 1 ? '0 0 8px ' + col : 'none' }));
+    return {
+      tasks: [
+        { name: 'voyage_embeddings.docx', label: '◌ Embedding 19/31', c: '#FF6DB1', steps: steps(5, '#FF2E93'), bg: '#FF2E930d', err: '' },
+        { name: 'hnsw_vs_ivfflat.pdf', label: '✓ Done', c: '#39FF14', steps: steps(6, '#39FF14'), bg: 'transparent', err: '' },
+        { name: 'ragas_eval_report.html', label: '✕ Error', c: '#FF3E5F', steps: steps(6, '#FF3E5F'), bg: 'transparent', err: 'Parser returned no text (scanned page?)' },
+        { name: 'chunking_strategies.md', label: '⧉ Duplicate', c: '#FFB700', steps: steps(6, '#FFB700'), bg: 'transparent', err: '' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>
