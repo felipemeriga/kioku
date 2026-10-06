@@ -7,24 +7,10 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import {
-  Alert,
-  Box,
-  Button,
-  Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Divider,
-  Stack,
-  Typography,
-} from "@mui/material";
+import { Alert, Box, Button, Divider, Stack, Typography } from "@mui/material";
 import { Mem0BrandIcon, NotionBrandIcon } from "./BrandIcons";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import DeleteIcon from "@mui/icons-material/Delete";
-import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import LinkOffIcon from "@mui/icons-material/LinkOff";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import { useNavigate } from "react-router-dom";
 import {
@@ -37,6 +23,8 @@ import {
 } from "../lib/api";
 import { useToast } from "./ToastProvider";
 import { NotionConnectDialog } from "./NotionIntegrationSection";
+import CornerCard from "./neo/CornerCard";
+import { brand, fonts } from "../theme";
 
 interface Props {
   open: boolean;
@@ -102,73 +90,142 @@ export default function FolderIntegrationsDialog({
 
   const memAvailable = !!mem0Status?.available;
 
+  if (!open || !folder) return null;
+
   return (
     <>
-      <Dialog open={open && !!folder} onClose={onClose} fullWidth maxWidth="sm">
-        <DialogTitle>
+      {/* Backdrop */}
+      <Box
+        onClick={onClose}
+        sx={{
+          position: "fixed",
+          inset: 0,
+          zIndex: 1200,
+          background: "rgba(5,2,8,0.72)",
+        }}
+      />
+
+      {/* Modal */}
+      <Box
+        role="dialog"
+        aria-label={`Integrations for ${folder.name}`}
+        sx={{
+          position: "fixed",
+          left: "50%",
+          top: "50%",
+          transform: "translate(-50%, -50%)",
+          zIndex: 1201,
+          width: 620,
+          maxWidth: "calc(100vw - 32px)",
+          display: "flex",
+          flexDirection: "column",
+          gap: 2,
+          p: "26px 28px",
+          border: `1px solid ${brand.magenta}`,
+          borderRadius: "4px",
+          background: brand.surface2,
+          backgroundImage:
+            "repeating-linear-gradient(0deg, rgba(255,255,255,0.016) 0px, rgba(255,255,255,0.016) 1px, transparent 1px, transparent 3px)",
+          boxShadow: `0 0 4px ${brand.magenta}88, 0 0 24px ${brand.magenta}33, 0 24px 64px rgba(0,0,0,0.7)`,
+          "&::before": {
+            content: '""',
+            position: "absolute",
+            left: -1,
+            top: -1,
+            width: 12,
+            height: 12,
+            borderLeft: `2px solid ${brand.magenta}`,
+            borderTop: `2px solid ${brand.magenta}`,
+            pointerEvents: "none",
+          },
+        }}
+      >
+        {/* Title */}
+        <Typography
+          component="h1"
+          sx={{ m: 0, fontSize: 21, fontWeight: 600, lineHeight: 1.3 }}
+        >
           Integrations for{" "}
-          <Box component="span" sx={{ color: "primary.main", fontWeight: 600 }}>
-            {folder?.name ?? ""}
+          <Box
+            component="span"
+            sx={{
+              color: brand.magentaGlow,
+              textShadow: `0 0 10px ${brand.magenta}88`,
+            }}
+          >
+            {folder.name}
           </Box>
-        </DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Wire this folder to memory and note-sync. None are required — leave
-            them off and they simply won't appear in the folder orientation.
-          </Typography>
+        </Typography>
 
-          <Stack spacing={2}>
-            {/* Mem0 is self-hosted and auto-on for repo folders — no connect. */}
-            <IntegrationCard
-              icon={<Mem0BrandIcon fontSize="small" />}
-              title="Mem0 memory"
-              description="Episodic + eternal memory (agent-authored), scoped to this repo."
-              connected={memAvailable}
-              connectedLabel="On"
-              disconnectedLabel="Repo-only"
-              statusDetail={
-                memAvailable
-                  ? mem0Status?.healthy
-                    ? "On automatically · memory service healthy"
-                    : "On · memory service unreachable"
-                  : null
-              }
-              errorDetail={
-                memAvailable && mem0Status?.healthy === false
-                  ? mem0Status?.error ?? "Memory service is unreachable."
-                  : null
-              }
-              disconnectedHint={
-                !memAvailable
-                  ? "Auto-on for repo folders — run `kioku init` here to make this a repo and enable memory."
-                  : undefined
-              }
-              loading={loading}
-            />
+        <Typography
+          variant="body2"
+          sx={{ m: 0, color: brand.muted, lineHeight: 1.55 }}
+        >
+          Wire this folder to memory and note-sync. None are required — leave
+          them off and they simply won't appear in the folder orientation.
+        </Typography>
 
-            <IntegrationCard
-              icon={<NotionBrandIcon fontSize="small" />}
-              title="Notion sync"
-              description="Ingest a Notion root page as documents. Fast poll + full reconciliation."
-              connected={!!notion}
-              statusDetail={
-                notion?.last_fast_sync_at
-                  ? `Last fast sync ${new Date(
-                      notion.last_fast_sync_at
-                    ).toLocaleString()}`
-                  : notion
-                  ? "Never synced"
-                  : null
-              }
-              errorDetail={notion?.last_error ?? null}
-              onConnect={() => setNotionConnectOpen(true)}
-              onSync={notion ? handleSyncNotion : undefined}
-              onDisconnect={notion ? handleDisconnectNotion : undefined}
-              loading={loading}
-            />
-          </Stack>
-        </DialogContent>
-        <DialogActions sx={{ justifyContent: "space-between", px: 3, pb: 2 }}>
+        <Stack spacing={2}>
+          {/* Mem0 section */}
+          <IntegrationCard
+            icon={<Mem0BrandIcon fontSize="small" />}
+            title="Mem0 memory"
+            description="Episodic + eternal memory (agent-authored), scoped to this repo."
+            connected={memAvailable}
+            connectedLabel="On"
+            disconnectedLabel="Repo-only"
+            cardColor={brand.green}
+            statusDetail={
+              memAvailable
+                ? mem0Status?.healthy
+                  ? "On automatically · memory service healthy"
+                  : "On · memory service unreachable"
+                : null
+            }
+            errorDetail={
+              memAvailable && mem0Status?.healthy === false
+                ? mem0Status?.error ?? "Memory service is unreachable."
+                : null
+            }
+            disconnectedHint={
+              !memAvailable
+                ? "Auto-on for repo folders — run `kioku init` here to make this a repo and enable memory."
+                : undefined
+            }
+            loading={loading}
+          />
+
+          {/* Notion section */}
+          <IntegrationCard
+            icon={<NotionBrandIcon fontSize="small" />}
+            title="Notion sync"
+            description="Ingest a Notion root page as documents. Fast poll + full reconciliation."
+            connected={!!notion}
+            statusDetail={
+              notion?.last_fast_sync_at
+                ? `Last fast sync ${new Date(
+                    notion.last_fast_sync_at
+                  ).toLocaleString()}`
+                : notion
+                ? "Never synced"
+                : null
+            }
+            errorDetail={notion?.last_error ?? null}
+            onConnect={() => setNotionConnectOpen(true)}
+            onSync={notion ? handleSyncNotion : undefined}
+            onDisconnect={notion ? handleDisconnectNotion : undefined}
+            loading={loading}
+          />
+        </Stack>
+
+        {/* Footer */}
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
           <Button
             onClick={() => {
               if (folder) {
@@ -177,13 +234,41 @@ export default function FolderIntegrationsDialog({
               }
             }}
             startIcon={<OpenInNewIcon fontSize="small" />}
-            sx={{ textTransform: "none" }}
+            sx={{
+              textTransform: "none",
+              fontWeight: 600,
+              fontSize: 14,
+              color: brand.magentaGlow,
+              p: 0,
+              minWidth: 0,
+              "&:hover": { color: brand.text, background: "transparent" },
+            }}
+            disableRipple
           >
             Open folder detail
           </Button>
-          <Button onClick={onClose}>Close</Button>
-        </DialogActions>
-      </Dialog>
+          <Button
+            onClick={onClose}
+            sx={{
+              height: 34,
+              px: "14px",
+              borderRadius: "4px",
+              border: `1px solid ${brand.lineGlow}`,
+              background: "transparent",
+              color: brand.text,
+              fontWeight: 600,
+              fontSize: 13,
+              textTransform: "none",
+              "&:hover": {
+                borderColor: brand.magenta,
+                background: "transparent",
+              },
+            }}
+          >
+            Close
+          </Button>
+        </Box>
+      </Box>
 
       {folder && (
         <NotionConnectDialog
@@ -209,6 +294,7 @@ function IntegrationCard({
   connected,
   connectedLabel = "Connected",
   disconnectedLabel = "Not connected",
+  cardColor,
   statusDetail,
   errorDetail,
   disconnectedHint,
@@ -223,6 +309,7 @@ function IntegrationCard({
   connected: boolean;
   connectedLabel?: string;
   disconnectedLabel?: string;
+  cardColor?: string;
   statusDetail: string | null;
   errorDetail: string | null;
   disconnectedHint?: string;
@@ -233,76 +320,171 @@ function IntegrationCard({
 }) {
   const showActions =
     (!connected && !!onConnect) || (connected && (!!onSync || !!onDisconnect));
+  const color = cardColor ?? brand.line;
+
   return (
-    <Box
+    <CornerCard
+      color={color}
       sx={{
-        border: 1,
-        borderColor: "divider",
-        borderRadius: 1.5,
-        p: 2,
+        display: "flex",
+        flexDirection: "column",
+        gap: 1,
+        p: "16px 18px",
         opacity: loading ? 0.6 : 1,
       }}
     >
-      <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 1 }}>
-        {icon}
-        <Typography variant="subtitle1" sx={{ fontWeight: 600, flex: 1 }}>
+      {/* Header row */}
+      <Stack direction="row" alignItems="center" spacing={1.25}>
+        <Box sx={{ color: brand.muted, display: "flex", alignItems: "center" }}>
+          {icon}
+        </Box>
+        <Typography
+          component="h2"
+          sx={{ m: 0, fontSize: 16, fontWeight: 600, flex: 1 }}
+        >
           {title}
         </Typography>
-        <Chip
-          size="small"
-          icon={connected ? <CheckCircleIcon /> : <LinkOffIcon />}
-          label={connected ? connectedLabel : disconnectedLabel}
-          color={connected ? "success" : "default"}
-          variant={connected ? "filled" : "outlined"}
-          sx={{ fontSize: "0.7rem", height: 22 }}
-        />
+
+        {connected ? (
+          /* "On" badge with green glow */
+          <Box
+            component="span"
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              px: "10px",
+              py: "3px",
+              borderRadius: "3px",
+              border: `1px solid ${brand.green}`,
+              background: `${brand.green}18`,
+              color: brand.green,
+              fontFamily: fonts.mono,
+              fontSize: 12,
+              boxShadow: `0 0 10px ${brand.green}44`,
+            }}
+          >
+            <Box
+              component="span"
+              sx={{
+                width: 7,
+                height: 7,
+                borderRadius: "999px",
+                background: brand.green,
+                boxShadow: `0 0 6px ${brand.green}`,
+                display: "inline-block",
+              }}
+            />
+            {connectedLabel}
+          </Box>
+        ) : (
+          /* "Not connected" badge */
+          <Box
+            component="span"
+            sx={{
+              px: "10px",
+              py: "3px",
+              borderRadius: "3px",
+              border: `1px solid ${brand.lineGlow}`,
+              color: brand.muted,
+              fontFamily: fonts.mono,
+              fontSize: 12,
+            }}
+          >
+            ⊘ {disconnectedLabel}
+          </Box>
+        )}
       </Stack>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+
+      {/* Description */}
+      <Typography variant="body2" sx={{ color: brand.muted }}>
         {description}
       </Typography>
 
+      {/* Status detail */}
       {statusDetail && (
         <Typography
           variant="caption"
-          color="text.secondary"
-          sx={{ display: "block", mb: 1 }}
+          sx={{
+            display: "block",
+            color: brand.muted,
+            fontFamily: fonts.mono,
+            fontSize: 12,
+          }}
         >
           {statusDetail}
         </Typography>
       )}
 
+      {/* Error */}
       {errorDetail && (
-        <Alert severity="warning" sx={{ mb: 1 }}>
+        <Alert severity="warning" sx={{ mt: 0.5 }}>
           {errorDetail}
         </Alert>
       )}
 
+      {/* Disconnected hint */}
       {!connected && disconnectedHint && (
-        <Typography variant="caption" color="text.secondary">
+        <Typography variant="caption" sx={{ color: brand.muted }}>
           {disconnectedHint}
         </Typography>
       )}
 
+      {/* Actions */}
       {showActions && (
         <>
-          <Divider sx={{ my: 1.5 }} />
+          <Divider sx={{ borderColor: brand.line, my: 0.5 }} />
           <Stack direction="row" spacing={1} justifyContent="flex-end">
             {!connected && onConnect && (
-              <Button size="small" variant="contained" onClick={onConnect}>
+              <Button
+                size="small"
+                onClick={onConnect}
+                sx={{
+                  height: 36,
+                  px: "16px",
+                  border: 0,
+                  borderRadius: "4px",
+                  backgroundImage: `linear-gradient(90deg, ${brand.magentaDeep} 0%, ${brand.purple} 100%)`,
+                  color: "#fff",
+                  fontWeight: 600,
+                  fontSize: 13,
+                  textTransform: "none",
+                  boxShadow: `0 4px 12px ${brand.magenta}44`,
+                  "&:hover": {
+                    backgroundImage: `linear-gradient(90deg, ${brand.magenta} 0%, ${brand.purple} 100%)`,
+                    boxShadow: `0 4px 16px ${brand.magenta}66`,
+                  },
+                }}
+              >
                 Connect
               </Button>
             )}
             {connected && onSync && (
-              <Button size="small" startIcon={<RefreshIcon />} onClick={onSync}>
+              <Button
+                size="small"
+                startIcon={<RefreshIcon />}
+                onClick={onSync}
+                sx={{
+                  textTransform: "none",
+                  color: brand.muted,
+                  fontSize: 13,
+                  "&:hover": { color: brand.text },
+                }}
+              >
                 Sync now
               </Button>
             )}
             {connected && onDisconnect && (
               <Button
                 size="small"
-                color="error"
                 startIcon={<DeleteIcon />}
                 onClick={onDisconnect}
+                sx={{
+                  textTransform: "none",
+                  color: brand.muted,
+                  fontSize: 13,
+                  "&:hover": { color: brand.red },
+                }}
               >
                 Disconnect
               </Button>
@@ -310,6 +492,6 @@ function IntegrationCard({
           </Stack>
         </>
       )}
-    </Box>
+    </CornerCard>
   );
 }
