@@ -7,7 +7,18 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { Alert, Box, Button, Divider, Stack, Typography } from "@mui/material";
+import {
+  Alert,
+  Box,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Divider,
+  Stack,
+  Typography,
+} from "@mui/material";
 import { Mem0BrandIcon, NotionBrandIcon } from "./BrandIcons";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -24,7 +35,7 @@ import {
 import { useToast } from "./ToastProvider";
 import { NotionConnectDialog } from "./NotionIntegrationSection";
 import CornerCard from "./neo/CornerCard";
-import { brand, fonts } from "../theme";
+import { brand, fonts, scanlines } from "../theme";
 
 interface Props {
   open: boolean;
@@ -90,61 +101,51 @@ export default function FolderIntegrationsDialog({
 
   const memAvailable = !!mem0Status?.available;
 
-  if (!open || !folder) return null;
-
   return (
     <>
-      {/* Backdrop */}
-      <Box
-        onClick={onClose}
-        sx={{
-          position: "fixed",
-          inset: 0,
-          zIndex: 1200,
-          background: "rgba(5,2,8,0.72)",
-        }}
-      />
-
-      {/* Modal */}
-      <Box
-        role="dialog"
-        aria-label={`Integrations for ${folder.name}`}
-        sx={{
-          position: "fixed",
-          left: "50%",
-          top: "50%",
-          transform: "translate(-50%, -50%)",
-          zIndex: 1201,
-          width: 620,
-          maxWidth: "calc(100vw - 32px)",
-          display: "flex",
-          flexDirection: "column",
-          gap: 2,
-          p: "26px 28px",
-          border: `1px solid ${brand.magenta}`,
-          borderRadius: "4px",
-          background: brand.surface2,
-          backgroundImage:
-            "repeating-linear-gradient(0deg, rgba(255,255,255,0.016) 0px, rgba(255,255,255,0.016) 1px, transparent 1px, transparent 3px)",
-          boxShadow: `0 0 4px ${brand.magenta}88, 0 0 24px ${brand.magenta}33, 0 24px 64px rgba(0,0,0,0.7)`,
-          "&::before": {
-            content: '""',
-            position: "absolute",
-            left: -1,
-            top: -1,
-            width: 12,
-            height: 12,
-            borderLeft: `2px solid ${brand.magenta}`,
-            borderTop: `2px solid ${brand.magenta}`,
-            pointerEvents: "none",
+      <Dialog
+        open={open && !!folder}
+        onClose={onClose}
+        fullWidth
+        maxWidth="sm"
+        aria-label={folder ? `Integrations for ${folder.name}` : "Integrations"}
+        slotProps={{
+          paper: {
+            sx: {
+              position: "relative",
+              overflow: "visible",
+              border: `1px solid ${brand.magenta}`,
+              borderRadius: 1,
+              backgroundColor: brand.surface2,
+              backgroundImage: scanlines,
+              boxShadow: `0 0 4px ${brand.magenta}88, 0 0 24px ${brand.magenta}33, 0 24px 64px rgba(0,0,0,0.7)`,
+              "&::before": {
+                content: '""',
+                position: "absolute",
+                left: -1,
+                top: -1,
+                width: 12,
+                height: 12,
+                borderLeft: `2px solid ${brand.magenta}`,
+                borderTop: `2px solid ${brand.magenta}`,
+                pointerEvents: "none",
+              },
+              "&::after": {
+                content: '""',
+                position: "absolute",
+                right: -1,
+                bottom: -1,
+                width: 12,
+                height: 12,
+                borderRight: `2px solid ${brand.magenta}`,
+                borderBottom: `2px solid ${brand.magenta}`,
+                pointerEvents: "none",
+              },
+            },
           },
         }}
       >
-        {/* Title */}
-        <Typography
-          component="h1"
-          sx={{ m: 0, fontSize: 21, fontWeight: 600, lineHeight: 1.3 }}
-        >
+        <DialogTitle sx={{ fontSize: 21, fontWeight: 600, pb: 1 }}>
           Integrations for{" "}
           <Box
             component="span"
@@ -153,79 +154,72 @@ export default function FolderIntegrationsDialog({
               textShadow: `0 0 10px ${brand.magenta}88`,
             }}
           >
-            {folder.name}
+            {folder?.name ?? ""}
           </Box>
-        </Typography>
+        </DialogTitle>
+        <DialogContent>
+          <Typography
+            variant="body2"
+            sx={{ color: brand.muted, lineHeight: 1.55, mb: 2 }}
+          >
+            Wire this folder to memory and note-sync. None are required — leave
+            them off and they simply won't appear in the folder orientation.
+          </Typography>
 
-        <Typography
-          variant="body2"
-          sx={{ m: 0, color: brand.muted, lineHeight: 1.55 }}
-        >
-          Wire this folder to memory and note-sync. None are required — leave
-          them off and they simply won't appear in the folder orientation.
-        </Typography>
+          <Stack spacing={2}>
+            {/* Mem0 section */}
+            <IntegrationCard
+              icon={<Mem0BrandIcon fontSize="small" />}
+              title="Mem0 memory"
+              description="Episodic + eternal memory (agent-authored), scoped to this repo."
+              connected={memAvailable}
+              connectedLabel="On"
+              disconnectedLabel="Repo-only"
+              cardColor={brand.green}
+              statusDetail={
+                memAvailable
+                  ? mem0Status?.healthy
+                    ? "On automatically · memory service healthy"
+                    : "On · memory service unreachable"
+                  : null
+              }
+              errorDetail={
+                memAvailable && mem0Status?.healthy === false
+                  ? mem0Status?.error ?? "Memory service is unreachable."
+                  : null
+              }
+              disconnectedHint={
+                !memAvailable
+                  ? "Auto-on for repo folders — run `kioku init` here to make this a repo and enable memory."
+                  : undefined
+              }
+              loading={loading}
+            />
 
-        <Stack spacing={2}>
-          {/* Mem0 section */}
-          <IntegrationCard
-            icon={<Mem0BrandIcon fontSize="small" />}
-            title="Mem0 memory"
-            description="Episodic + eternal memory (agent-authored), scoped to this repo."
-            connected={memAvailable}
-            connectedLabel="On"
-            disconnectedLabel="Repo-only"
-            cardColor={brand.green}
-            statusDetail={
-              memAvailable
-                ? mem0Status?.healthy
-                  ? "On automatically · memory service healthy"
-                  : "On · memory service unreachable"
-                : null
-            }
-            errorDetail={
-              memAvailable && mem0Status?.healthy === false
-                ? mem0Status?.error ?? "Memory service is unreachable."
-                : null
-            }
-            disconnectedHint={
-              !memAvailable
-                ? "Auto-on for repo folders — run `kioku init` here to make this a repo and enable memory."
-                : undefined
-            }
-            loading={loading}
-          />
-
-          {/* Notion section */}
-          <IntegrationCard
-            icon={<NotionBrandIcon fontSize="small" />}
-            title="Notion sync"
-            description="Ingest a Notion root page as documents. Fast poll + full reconciliation."
-            connected={!!notion}
-            statusDetail={
-              notion?.last_fast_sync_at
-                ? `Last fast sync ${new Date(
-                    notion.last_fast_sync_at
-                  ).toLocaleString()}`
-                : notion
-                ? "Never synced"
-                : null
-            }
-            errorDetail={notion?.last_error ?? null}
-            onConnect={() => setNotionConnectOpen(true)}
-            onSync={notion ? handleSyncNotion : undefined}
-            onDisconnect={notion ? handleDisconnectNotion : undefined}
-            loading={loading}
-          />
-        </Stack>
-
-        {/* Footer */}
-        <Box
-          sx={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-          }}
-        >
+            {/* Notion section */}
+            <IntegrationCard
+              icon={<NotionBrandIcon fontSize="small" />}
+              title="Notion sync"
+              description="Ingest a Notion root page as documents. Fast poll + full reconciliation."
+              connected={!!notion}
+              statusDetail={
+                notion?.last_fast_sync_at
+                  ? `Last fast sync ${new Date(
+                      notion.last_fast_sync_at
+                    ).toLocaleString()}`
+                  : notion
+                  ? "Never synced"
+                  : null
+              }
+              errorDetail={notion?.last_error ?? null}
+              onConnect={() => setNotionConnectOpen(true)}
+              onSync={notion ? handleSyncNotion : undefined}
+              onDisconnect={notion ? handleDisconnectNotion : undefined}
+              loading={loading}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ justifyContent: "space-between", px: 3, pb: 2 }}>
           <Button
             onClick={() => {
               if (folder) {
@@ -239,8 +233,6 @@ export default function FolderIntegrationsDialog({
               fontWeight: 600,
               fontSize: 14,
               color: brand.magentaGlow,
-              p: 0,
-              minWidth: 0,
               "&:hover": { color: brand.text, background: "transparent" },
             }}
             disableRipple
@@ -267,8 +259,8 @@ export default function FolderIntegrationsDialog({
           >
             Close
           </Button>
-        </Box>
-      </Box>
+        </DialogActions>
+      </Dialog>
 
       {folder && (
         <NotionConnectDialog
