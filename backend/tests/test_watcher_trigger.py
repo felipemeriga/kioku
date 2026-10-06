@@ -130,3 +130,45 @@ def test_force_refresh_sections_calls_reground_forced(monkeypatch, tmp_path):
     assert seen.get("sections") is True
     assert seen.get("reground_force") is True
     assert seen.get("fresh") is True
+
+
+def test_handle_run_rejects_bad_token():
+    status, body = watcher.handle_run(
+        {"X-Watcher-Token": "wrong"}, '{"folder_id":"f1","target":"index"}'
+    )
+    assert status == 401
+
+
+def test_handle_run_bad_target():
+    status, body = watcher.handle_run(
+        {"X-Watcher-Token": "test-token"}, '{"folder_id":"f1","target":"bogus"}'
+    )
+    assert status == 422
+
+
+def test_handle_run_unknown_folder(monkeypatch):
+    monkeypatch.setattr(watcher, "find_repo", lambda fid: None)
+    status, body = watcher.handle_run(
+        {"X-Watcher-Token": "test-token"}, '{"folder_id":"nope","target":"index"}'
+    )
+    assert status == 404
+
+
+def test_handle_run_started_and_overlap(monkeypatch):
+    monkeypatch.setattr(watcher, "find_repo", lambda fid: ({"remote_url": "r"}, {"k": 1}))
+    started = {"n": 0}
+
+    def fake_force(repo, key_row, target):
+        started["n"] += 1
+
+    monkeypatch.setattr(watcher, "force_refresh", fake_force)
+    # Run the job inline instead of in a thread so the assertion is deterministic.
+    monkeypatch.setattr(
+        watcher.threading, "Thread", lambda target, daemon=False: type("T", (), {"start": target})()
+    )
+    status, body = watcher.handle_run(
+        {"X-Watcher-Token": "test-token"}, '{"folder_id":"f1","target":"index"}'
+    )
+    assert status == 202 and body == {"started": True}
+    assert started["n"] == 1
+    assert watcher._pass_lock.locked() is False  # released in finally

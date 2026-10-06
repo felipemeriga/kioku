@@ -32,6 +32,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -45,6 +46,9 @@ FERNET = Fernet(os.environ["SECRETS_ENCRYPTION_KEY"].encode())
 MCP_URL = os.environ["KIOKU_MCP_URL"]
 API_URL = os.environ.get("KIOKU_API_URL", "").rstrip("/")
 DATA = Path(os.environ.get("WATCHER_DATA", "/data"))
+TRIGGER_TOKEN = os.environ.get("WATCHER_TRIGGER_TOKEN", "")
+TRIGGER_PORT = int(os.environ.get("WATCHER_TRIGGER_PORT", "8787"))
+_pass_lock = threading.Lock()
 
 # Which files drive which concrete briefing section. refresh_sections folds a
 # section's changed files back into it (auto-maintained, like activity); the
@@ -587,6 +591,56 @@ def force_refresh(repo: dict, key_row: dict, target: str) -> None:
         refresh_sections(clone, repo, plain_env)
         maybe_reground_holistic(clone, repo, plain_env, force=True)
     compute_freshness(clone, repo, plain_env)
+
+
+def find_repo(folder_id: str) -> tuple[dict, dict] | None:
+    repos = rest_get("watched_repos", {"folder_id": f"eq.{folder_id}", "select": "*", "limit": "1"})
+    if not repos:
+        return None
+    repo = repos[0]
+    keys = rest_get(
+        "user_git_keys",
+        {
+            "user_id": f"eq.{repo['user_id']}",
+            "select": "user_id,private_key_encrypted",
+            "limit": "1",
+        },
+    )
+    if not keys:
+        return None
+    return repo, keys[0]
+
+
+def handle_run(headers, raw_body: str) -> tuple[int, dict]:
+    if not TRIGGER_TOKEN or headers.get("X-Watcher-Token") != TRIGGER_TOKEN:
+        return 401, {"error": "unauthorized"}
+    try:
+        body = json.loads(raw_body or "{}")
+    except ValueError:
+        return 400, {"error": "bad json"}
+    folder_id = body.get("folder_id")
+    target = body.get("target")
+    if target not in ("index", "sections"):
+        return 422, {"error": "target must be 'index' or 'sections'"}
+    if not folder_id:
+        return 422, {"error": "missing folder_id"}
+    found = find_repo(folder_id)
+    if not found:
+        return 404, {"error": "unknown folder"}
+    repo, key_row = found
+    if not _pass_lock.acquire(blocking=False):
+        return 409, {"error": "already running"}
+
+    def job(*_) -> None:
+        try:
+            force_refresh(repo, key_row, target)
+        except Exception as exc:  # noqa: BLE001 — a trigger must never crash the watcher
+            log(f"ERROR force {target} {repo.get('remote_url')}: {exc}")
+        finally:
+            _pass_lock.release()
+
+    threading.Thread(target=job, daemon=True).start()
+    return 202, {"started": True}
 
 
 def main() -> int:
