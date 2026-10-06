@@ -72,6 +72,9 @@ export default function InspectDialog({
           border: `1px solid ${brand.cyan}`,
           borderRadius: 1,
           boxShadow: `0 0 4px ${brand.cyan}88, 0 0 24px ${brand.cyan}33, 0 24px 64px rgba(0,0,0,0.7)`,
+          // Bound the modal so the header + tabs stay fixed and only the body
+          // scrolls (long tool-call results pushed the tabs off-screen before).
+          maxHeight: "85vh",
         },
       }}
     >
@@ -153,7 +156,15 @@ export default function InspectDialog({
         <Tab label={`Chunks (${chunks.length})`} />
       </Tabs>
 
-      <DialogContent sx={{ minHeight: 380, px: "22px", py: "20px" }}>
+      <DialogContent
+        sx={{
+          flex: 1,
+          minHeight: 0,
+          overflowY: "auto",
+          px: "22px",
+          py: "20px",
+        }}
+      >
         {tab === 0 && (
           <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
             {reasoning.length === 0 && (
