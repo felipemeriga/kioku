@@ -20,7 +20,6 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  Divider,
   FormControl,
   IconButton,
   InputLabel,
@@ -34,6 +33,7 @@ import {
   Typography,
   alpha,
 } from "@mui/material";
+import CornerCard from "../components/neo/CornerCard";
 import DeleteIcon from "@mui/icons-material/Delete";
 import DescriptionIcon from "@mui/icons-material/Description";
 import { Mem0BrandIcon } from "../components/BrandIcons";
@@ -625,28 +625,57 @@ function MemoryTab({
   }
 
   return (
-    <Stack spacing={3}>
+    <Stack spacing={2}>
+      {/* + Add memory — purple outlined, board spec */}
       <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
         <Button
           startIcon={<AddIcon />}
           variant="outlined"
           size="small"
           onClick={onAdd}
-          sx={{ fontFamily: fonts.body, textTransform: "none" }}
+          sx={{
+            height: 36,
+            textTransform: "none",
+            borderColor: brand.purple,
+            bgcolor: `${brand.purple}1a`,
+            color: "#E2B8FF",
+            fontFamily: fonts.body,
+            fontWeight: 600,
+            fontSize: 13,
+            boxShadow: `0 0 12px ${brand.purple}33`,
+            "&:hover": {
+              borderColor: brand.purple,
+              bgcolor: `${brand.purple}2a`,
+            },
+          }}
         >
           Add memory
         </Button>
       </Box>
+
+      {/* Rules group */}
       <MemoryGroup
         title="Rules"
         subtitle="Eternal preferences — always inlined at session start"
+        variant="rules"
         items={eternal}
         onDelete={onDelete}
       />
-      <Divider sx={{ borderColor: brand.line }} />
+
+      {/* Gradient divider */}
+      <Box
+        sx={{
+          height: 1,
+          backgroundImage: `linear-gradient(90deg, transparent, ${brand.purple}, transparent)`,
+          my: 0.75,
+        }}
+      />
+
+      {/* Episodic group */}
       <MemoryGroup
         title="Episodic"
         subtitle="Historical memories, surfaced by semantic search"
+        variant="episodic"
         items={episodic}
         onDelete={onDelete}
       />
@@ -657,48 +686,69 @@ function MemoryTab({
 function MemoryGroup({
   title,
   subtitle,
+  variant,
   items,
   onDelete,
 }: {
   title: string;
   subtitle: string;
+  variant: "rules" | "episodic";
   items: MemoryRecord[];
   onDelete: (m: MemoryRecord) => void;
 }) {
+  const isRules = variant === "rules";
+  const badgeBorder = isRules ? `${brand.amber}66` : `${brand.purple}66`;
+  const badgeColor = isRules ? brand.amber : "#E2B8FF";
+
   return (
-    <Box>
+    <Box
+      sx={
+        isRules
+          ? {
+              border: `1px solid ${brand.amber}55`,
+              bgcolor: `${brand.amber}08`,
+              borderRadius: 1,
+              p: 2,
+            }
+          : { p: 0 }
+      }
+    >
+      {/* Section header: title + count badge + italic description */}
       <Stack
         direction="row"
         alignItems="baseline"
-        spacing={1.5}
-        sx={{ mb: 1.25 }}
+        spacing={1.25}
+        sx={{ mb: 1.5 }}
       >
         <Typography
           sx={{
             fontFamily: fonts.display,
             fontWeight: 600,
-            fontSize: "1.05rem",
+            fontSize: 18,
             color: brand.text,
           }}
         >
           {title}
         </Typography>
-        <Chip
-          label={items.length}
-          size="small"
+        <Box
+          component="span"
           sx={{
+            px: "7px",
+            py: "1px",
+            border: `1px solid ${badgeBorder}`,
+            borderRadius: "3px",
+            color: badgeColor,
             fontFamily: fonts.mono,
-            height: 18,
-            fontSize: "0.68rem",
-            color: brand.muted,
-            bgcolor: alpha(brand.muted, 0.1),
-            border: `1px solid ${brand.line}`,
+            fontSize: 11,
+            lineHeight: 1.6,
           }}
-        />
+        >
+          {items.length}
+        </Box>
         <Typography
           sx={{
             fontFamily: fonts.body,
-            fontSize: "0.82rem",
+            fontSize: 13,
             color: brand.muted,
             fontStyle: "italic",
           }}
@@ -706,6 +756,7 @@ function MemoryGroup({
           {subtitle}
         </Typography>
       </Stack>
+
       {items.length === 0 && (
         <Typography
           sx={{
@@ -719,7 +770,7 @@ function MemoryGroup({
       )}
       <Stack spacing={1}>
         {items.map((m) => (
-          <MemoryCard key={m.id} m={m} onDelete={onDelete} />
+          <MemoryCard key={m.id} m={m} variant={variant} onDelete={onDelete} />
         ))}
       </Stack>
     </Box>
@@ -728,83 +779,105 @@ function MemoryGroup({
 
 function MemoryCard({
   m,
+  variant,
   onDelete,
 }: {
   m: MemoryRecord;
+  variant: "rules" | "episodic";
   onDelete: (m: MemoryRecord) => void;
 }) {
   const color = CATEGORY_COLORS[m.category ?? "note"] ?? brand.muted;
+  const isRules = variant === "rules";
+
   return (
-    <Box
+    <CornerCard
+      color={isRules ? brand.amber : brand.line}
+      corners={isRules ? 4 : 2}
       sx={{
-        p: 1.5,
-        border: `1px solid ${brand.line}`,
-        borderLeft: `3px solid ${color}`,
-        borderRadius: 1.5,
-        bgcolor: alpha(brand.surface, 0.5),
+        p: "14px 16px",
+        bgcolor: isRules ? "transparent" : brand.surface,
+        border: isRules
+          ? `1px solid ${brand.amber}55`
+          : `1px solid ${brand.line}`,
+        boxShadow: `inset 2px 0 0 ${color}`,
         display: "flex",
-        gap: 2,
+        gap: 1.5,
         alignItems: "flex-start",
         transition: "all 0.15s ease",
         "&:hover": {
-          borderColor: alpha(color, 0.55),
-          bgcolor: alpha(color, 0.05),
+          borderColor: isRules ? `${brand.amber}88` : alpha(color, 0.45),
+          bgcolor: isRules ? `${brand.amber}10` : alpha(color, 0.04),
           "& .mem-delete": { opacity: 1 },
         },
         "& .mem-delete": { opacity: 0.35, transition: "opacity 0.15s" },
       }}
     >
-      <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Stack
-          direction="row"
-          spacing={0.75}
-          sx={{ mb: 0.5, flexWrap: "wrap" }}
-        >
-          <Chip
-            label={m.category ?? "?"}
-            size="small"
+      <Box
+        sx={{
+          flex: 1,
+          minWidth: 0,
+          display: "flex",
+          flexDirection: "column",
+          gap: "6px",
+        }}
+      >
+        {/* Category badge + tag chips */}
+        <Stack direction="row" spacing={0.75} sx={{ flexWrap: "wrap" }}>
+          <Box
+            component="span"
             sx={{
-              fontFamily: fonts.mono,
-              fontSize: "0.65rem",
-              height: 20,
-              bgcolor: alpha(color, 0.15),
+              px: "8px",
+              py: "2px",
+              borderRadius: "3px",
+              bgcolor: `${color}22`,
+              border: `1px solid ${color}88`,
               color,
-              border: `1px solid ${alpha(color, 0.4)}`,
+              fontFamily: fonts.mono,
+              fontSize: 11,
+              lineHeight: 1.6,
             }}
-          />
+          >
+            {m.category ?? "?"}
+          </Box>
           {m.tags.map((t) => (
-            <Chip
+            <Box
               key={t}
-              label={t}
-              size="small"
+              component="span"
               sx={{
-                fontFamily: fonts.mono,
-                fontSize: "0.62rem",
-                height: 20,
+                px: "8px",
+                py: "2px",
+                borderRadius: "3px",
+                border: `1px solid ${brand.lineGlow}`,
                 color: brand.muted,
-                border: `1px solid ${brand.line}`,
-                bgcolor: "transparent",
+                fontFamily: fonts.mono,
+                fontSize: 11,
+                lineHeight: 1.6,
               }}
-            />
+            >
+              {t}
+            </Box>
           ))}
         </Stack>
+
+        {/* Memory text */}
         <Typography
           sx={{
             fontFamily: fonts.body,
-            fontSize: "0.9rem",
+            fontSize: 15,
             color: brand.text,
             lineHeight: 1.5,
           }}
         >
           {m.content}
         </Typography>
+
+        {/* Timestamp · author */}
         {m.created_at && (
           <Typography
             sx={{
               fontFamily: fonts.mono,
-              fontSize: "0.65rem",
+              fontSize: 11,
               color: brand.muted,
-              mt: 0.5,
             }}
           >
             {new Date(m.created_at).toLocaleString()}
@@ -812,17 +885,26 @@ function MemoryCard({
           </Typography>
         )}
       </Box>
+
+      {/* Delete button */}
       <Tooltip title="Delete memory">
         <IconButton
           size="small"
           onClick={() => onDelete(m)}
           className="mem-delete"
-          sx={{ color: brand.muted, "&:hover": { color: "#ef4444" } }}
+          sx={{
+            width: 30,
+            height: 30,
+            border: 0,
+            borderRadius: "3px",
+            color: brand.muted,
+            "&:hover": { color: brand.red, bgcolor: `${brand.red}12` },
+          }}
         >
-          <DeleteIcon fontSize="small" />
+          <DeleteIcon sx={{ fontSize: 16 }} />
         </IconButton>
       </Tooltip>
-    </Box>
+    </CornerCard>
   );
 }
 
