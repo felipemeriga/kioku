@@ -1,3 +1,4 @@
+import httpx
 from fastapi.testclient import TestClient
 
 from auth import get_current_user
@@ -94,5 +95,67 @@ def test_status_route_returns_payload(monkeypatch):
         assert r.status_code == 200
         assert "architecture_at" in r.json()
         assert "graph_at" in r.json()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def _refresh_setup(monkeypatch):
+    sb = _SB({})
+    monkeypatch.setattr(briefing, "get_supabase", lambda: sb)
+    monkeypatch.setattr(
+        briefing, "_folder_must_be_repo", lambda s, f, u: {"id": f, "kind": "repo", "name": "r"}
+    )
+    app.dependency_overrides[get_current_user] = lambda: "u1"
+
+
+def test_refresh_bad_target(monkeypatch):
+    _refresh_setup(monkeypatch)
+    try:
+        r = TestClient(app).post("/api/folders/f1/refresh", json={"target": "nope"})
+        assert r.status_code == 422
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_refresh_proxies_202(monkeypatch):
+    _refresh_setup(monkeypatch)
+    monkeypatch.setenv("WATCHER_TRIGGER_TOKEN", "secret")
+
+    class _R:
+        status_code = 202
+
+        def json(self):
+            return {"started": True}
+
+    monkeypatch.setattr(briefing.httpx, "post", lambda *a, **k: _R())
+    try:
+        r = TestClient(app).post("/api/folders/f1/refresh", json={"target": "index"})
+        assert r.status_code == 202
+        assert r.json()["started"] is True
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_refresh_watcher_unreachable_503(monkeypatch):
+    _refresh_setup(monkeypatch)
+    monkeypatch.setenv("WATCHER_TRIGGER_TOKEN", "secret")
+
+    def _boom(*a, **k):
+        raise httpx.ConnectError("no route")
+
+    monkeypatch.setattr(briefing.httpx, "post", _boom)
+    try:
+        r = TestClient(app).post("/api/folders/f1/refresh", json={"target": "index"})
+        assert r.status_code == 503
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_refresh_no_token_503(monkeypatch):
+    _refresh_setup(monkeypatch)
+    monkeypatch.delenv("WATCHER_TRIGGER_TOKEN", raising=False)
+    try:
+        r = TestClient(app).post("/api/folders/f1/refresh", json={"target": "index"})
+        assert r.status_code == 503
     finally:
         app.dependency_overrides.clear()

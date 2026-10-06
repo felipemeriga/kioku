@@ -15,10 +15,13 @@ Section update semantics:
 
 from __future__ import annotations
 
+import os
 import re as _re
 from typing import Any
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from auth import get_current_user
@@ -249,6 +252,41 @@ async def read_documentation(folder_id: str, user_id: str = Depends(get_current_
     except Exception:  # noqa: BLE001 — table may not be migrated yet
         rows = []
     return {"documentation": rows[0] if rows else None}
+
+
+class RefreshRequest(BaseModel):
+    target: str
+
+
+@router.post("/{folder_id}/refresh")
+async def trigger_refresh(
+    folder_id: str,
+    body: RefreshRequest,
+    user_id: str = Depends(get_current_user),
+):
+    """Ask the watcher to refresh this repo now. target: 'index' | 'sections'."""
+    if body.target not in ("index", "sections"):
+        raise HTTPException(status_code=422, detail="target must be 'index' or 'sections'")
+    sb = get_supabase()
+    _folder_must_be_repo(sb, folder_id, user_id)
+    token = os.environ.get("WATCHER_TRIGGER_TOKEN", "")
+    if not token:
+        raise HTTPException(status_code=503, detail="Refresh is not configured.")
+    url = os.environ.get("WATCHER_URL", "http://kioku-watcher:8787").rstrip("/") + "/run"
+    try:
+        resp = httpx.post(
+            url,
+            headers={"X-Watcher-Token": token, "Content-Type": "application/json"},
+            json={"folder_id": folder_id, "target": body.target},
+            timeout=10.0,
+        )
+    except httpx.HTTPError:
+        raise HTTPException(status_code=503, detail="Watcher is unavailable.")
+    if resp.status_code == 409:
+        raise HTTPException(status_code=409, detail="A refresh is already running.")
+    if resp.status_code != 202:
+        raise HTTPException(status_code=503, detail="Watcher could not start the refresh.")
+    return JSONResponse(status_code=202, content=resp.json())
 
 
 @router.delete("/{folder_id}/briefing")
