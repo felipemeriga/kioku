@@ -391,7 +391,9 @@ function IntegrationCard({
               fontSize: 12,
             }}
           >
-            ⊘ {disconnectedLabel}
+            {disconnectedLabel === "Repo-only"
+              ? disconnectedLabel
+              : `⊘ ${disconnectedLabel}`}
           </Box>
         )}
       </Stack>
