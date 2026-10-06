@@ -20,6 +20,8 @@ import {
 } from "@mui/material";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import DeleteIcon from "@mui/icons-material/Delete";
+import FolderIcon from "@mui/icons-material/Folder";
+import AddIcon from "@mui/icons-material/Add";
 import { messageFromError, useToast } from "./ToastProvider";
 import CornerCard from "./neo/CornerCard";
 import { brand, fonts } from "../theme";
@@ -215,16 +217,12 @@ export function NotionIntegrationSection() {
     >
       {/* Section heading row */}
       <Box sx={{ display: "flex", alignItems: "center", gap: "10px" }}>
-        <Typography
-          sx={{ fontFamily: fonts.mono, fontSize: 12, color: brand.cyan }}
-        >
-          02
-        </Typography>
         <Typography sx={{ fontSize: 19, fontWeight: 600, m: 0 }}>
-          Notion Integration
+          Notion syncs
         </Typography>
         <Box sx={{ flexGrow: 1 }} />
         <Button
+          startIcon={<AddIcon />}
           onClick={() => setDialogOpen(true)}
           sx={{
             height: 36,
@@ -241,7 +239,7 @@ export function NotionIntegrationSection() {
             },
           }}
         >
-          Connect Notion
+          Connect a folder to Notion
         </Button>
       </Box>
 
@@ -251,11 +249,44 @@ export function NotionIntegrationSection() {
         </Alert>
       )}
 
+      {/* Empty state */}
       {configs.length === 0 && (
-        <Typography sx={{ fontSize: 14, color: brand.muted }}>
-          No Notion pages connected. Connect a Notion root page to sync its
-          content into a rag root folder.
-        </Typography>
+        <Box
+          sx={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: "12px",
+            py: "28px",
+            borderRadius: "4px",
+            border: `1px dashed ${brand.cyan}44`,
+            bgcolor: `${brand.cyan}06`,
+          }}
+        >
+          <Typography
+            sx={{ fontSize: 14, color: brand.muted, textAlign: "center" }}
+          >
+            No folders synced with Notion yet — connect one.
+          </Typography>
+          <Button
+            startIcon={<AddIcon />}
+            onClick={() => setDialogOpen(true)}
+            sx={{
+              height: 34,
+              px: "14px",
+              borderRadius: "4px",
+              border: `1px solid ${brand.cyan}`,
+              bgcolor: `${brand.cyan}10`,
+              color: brand.cyan,
+              fontSize: 13,
+              fontWeight: 600,
+              textTransform: "none",
+              "&:hover": { bgcolor: `${brand.cyan}20` },
+            }}
+          >
+            Connect a folder to Notion
+          </Button>
+        </Box>
       )}
 
       {configs.map((cfg) => {
@@ -274,8 +305,25 @@ export function NotionIntegrationSection() {
               bgcolor: `${brand.cyan}08`,
             }}
           >
-            {/* Config title */}
-            <Typography sx={{ fontSize: 16, fontWeight: 600 }}>
+            {/* Folder name — prominent lead */}
+            <Box sx={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <FolderIcon sx={{ fontSize: 18, color: brand.cyan }} />
+              <Typography
+                sx={{ fontSize: 17, fontWeight: 700, color: brand.text }}
+              >
+                {folderName(folders, cfg.root_folder_id)}
+              </Typography>
+            </Box>
+
+            {/* Notion page title */}
+            <Typography
+              sx={{
+                fontSize: 13,
+                color: brand.muted,
+                fontFamily: fonts.mono,
+                pl: "26px",
+              }}
+            >
               {cfg.notion_page_title ?? cfg.notion_page_id}
             </Typography>
 
@@ -288,14 +336,9 @@ export function NotionIntegrationSection() {
                 fontFamily: fonts.mono,
                 fontSize: 12,
                 color: brand.text,
+                pl: "26px",
               }}
             >
-              <span>
-                <Box component="span" sx={{ color: brand.muted }}>
-                  ROOT FOLDER{" "}
-                </Box>
-                {folderName(folders, cfg.root_folder_id)}
-              </span>
               <span>
                 <Box component="span" sx={{ color: brand.muted }}>
                   POLL{" "}
