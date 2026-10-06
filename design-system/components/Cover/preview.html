@@ -1,0 +1,34 @@
+<!-- @dsCard height=288 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Kioku — cover</title>
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;700&family=Noto+Sans+JP:wght@900&display=swap" rel="stylesheet">
+<style>
+  html,body{margin:0;height:288px;background:var(--ink);overflow:hidden}
+  .stage{position:relative;width:960px;height:288px;background:var(--ink)}
+  svg{position:absolute;left:0;top:0}
+  .magenta{fill:var(--magenta)} .cyan{fill:var(--cyan)} .purple{fill:var(--purple)}
+  .grid{fill:var(--line-glow)} .amber{fill:var(--amber)} .dot{fill:var(--cyan)}
+  .tile{rx:var(--radius-sm);ry:var(--radius-sm)} .tiny{rx:var(--radius-xs);ry:var(--radius-xs)}
+  .text{position:absolute;left:40px;bottom:32px;max-width:440px}
+  .name{font-family:var(--font-display);font-weight:700;font-size:120px;line-height:.95;letter-spacing:-1px;color:var(--text);margin:0}
+  .tag{font-family:var(--font-body);font-size:14px;color:var(--muted);margin:8px 0 0}
+</style></head>
+<body><div class="stage">
+<svg width="960" height="288" viewBox="0 0 960 288" aria-hidden="true">
+<!--
+  blocks: magenta slab 128×288 (space-4 ×4 wide, bleeds top+bottom) · cyan 96×96 · purple 200×56 · line-glow 184×96 grid panel (bleeds right) · amber 32×32 status chip
+  arrangement: one tall slab with satellites, flush right of x=480, gaps of space-2 (16px)
+  pattern: cyan dot grid at space-3 (24px) pitch on the line-glow panel — the HUD/scan readout the README describes (mono, CRT, "precise, technical")
+  steps & radii: space-2 gaps, space-3 pitch, radius-sm (4px) blocks, radius-xs (3px) chip — tight "hardware" corners
+-->
+<rect class="magenta tile" x="520" y="-8" width="128" height="304"/>
+<rect class="cyan tile" x="664" y="40" width="96" height="96"/>
+<rect class="grid tile" x="776" y="40" width="200" height="96"/>
+<circle class="dot" cx="788" cy="52" r="2"/><circle class="dot" cx="788" cy="76" r="2"/><circle class="dot" cx="788" cy="100" r="2"/><circle class="dot" cx="788" cy="124" r="2"/><circle class="dot" cx="812" cy="52" r="2"/><circle class="dot" cx="812" cy="76" r="2"/><circle class="dot" cx="812" cy="100" r="2"/><circle class="dot" cx="812" cy="124" r="2"/><circle class="dot" cx="836" cy="52" r="2"/><circle class="dot" cx="836" cy="76" r="2"/><circle class="dot" cx="836" cy="100" r="2"/><circle class="dot" cx="836" cy="124" r="2"/><circle class="dot" cx="860" cy="52" r="2"/><circle class="dot" cx="860" cy="76" r="2"/><circle class="dot" cx="860" cy="100" r="2"/><circle class="dot" cx="860" cy="124" r="2"/><circle class="dot" cx="884" cy="52" r="2"/><circle class="dot" cx="884" cy="76" r="2"/><circle class="dot" cx="884" cy="100" r="2"/><circle class="dot" cx="884" cy="124" r="2"/><circle class="dot" cx="908" cy="52" r="2"/><circle class="dot" cx="908" cy="76" r="2"/><circle class="dot" cx="908" cy="100" r="2"/><circle class="dot" cx="908" cy="124" r="2"/><circle class="dot" cx="932" cy="52" r="2"/><circle class="dot" cx="932" cy="76" r="2"/><circle class="dot" cx="932" cy="100" r="2"/><circle class="dot" cx="932" cy="124" r="2"/>
+<rect class="purple tile" x="664" y="152" width="200" height="56"/>
+<rect class="amber tiny" x="880" y="152" width="32" height="32"/>
+</svg>
+<div class="text"><p class="name">Kioku</p><p class="tag">Ask your second brain.</p></div>
+</div></body>
+</html>
