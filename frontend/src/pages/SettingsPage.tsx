@@ -211,15 +211,6 @@ export default function SettingsPage() {
           >
             {/* Section heading */}
             <Box sx={{ display: "flex", alignItems: "baseline", gap: "10px" }}>
-              <Typography
-                sx={{
-                  fontFamily: fonts.mono,
-                  fontSize: 12,
-                  color: brand.magenta,
-                }}
-              >
-                01
-              </Typography>
               <Typography sx={{ fontSize: 19, fontWeight: 600, m: 0 }}>
                 MCP API Keys
               </Typography>
@@ -468,15 +459,6 @@ export default function SettingsPage() {
             }}
           >
             <Box sx={{ display: "flex", alignItems: "center", gap: "10px" }}>
-              <Typography
-                sx={{
-                  fontFamily: fonts.mono,
-                  fontSize: 12,
-                  color: brand.green,
-                }}
-              >
-                03
-              </Typography>
               <Typography sx={{ fontSize: 19, fontWeight: 600, m: 0 }}>
                 Connect MCP Client
               </Typography>
