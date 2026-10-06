@@ -128,6 +128,7 @@ export default function IconRail({
           <Typography
             component="span"
             sx={{
+              fontFamily: fonts.display,
               fontWeight: 700,
               fontSize: "18px",
               letterSpacing: "0.06em",

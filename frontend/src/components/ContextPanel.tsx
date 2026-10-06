@@ -358,7 +358,7 @@ function ConversationRow({
               sx: {
                 fontWeight: isSelected ? 500 : 400,
                 fontSize: "13px",
-                color: brand.text,
+                color: isSelected ? brand.text : brand.muted,
               },
             }}
           />
