@@ -199,7 +199,9 @@ def _index_status(
     except Exception:  # noqa: BLE001 — table may not be migrated yet
         doc = []
     g = graph[0] if graph else {}
-    sections = (latest or {}).get("sections") or {}
+    content_sections = ((latest or {}).get("content") or {}).get("sections") or {}
+    top_sections = (latest or {}).get("sections") or {}
+    sections = {**content_sections, **top_sections}
     arch = sections.get("architecture") or {}
     over = sections.get("overview") or {}
     return {

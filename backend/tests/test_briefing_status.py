@@ -67,6 +67,64 @@ def test_index_status_includes_generation_timestamps():
     assert out["detailed_doc_at"] == "2026-10-05T00:00:00+00:00"
 
 
+def test_index_status_reads_architecture_from_content_sections_only():
+    """architecture lives ONLY in content.sections — top-level sections lacks it."""
+    sb = _SB(
+        {
+            "repo_graph_meta": [],
+            "code_chunks": [],
+            "repo_documentation": [],
+        }
+    )
+    latest = {
+        # top-level sections only has activity — no architecture key
+        "sections": {
+            "activity": {"updated_at": "2026-10-06T00:00:00+00:00", "updated_by": "watcher"},
+        },
+        "content": {
+            "sections": {
+                "architecture": {
+                    "updated_at": "2026-10-05T12:00:00+00:00",
+                    "updated_by": "agent_mcp",
+                },
+            }
+        },
+    }
+    out = briefing._index_status(sb, "f1", "u1", None, latest)
+    assert out["architecture_at"] == "2026-10-05T12:00:00+00:00"
+    assert out["architecture_by"] == "agent_mcp"
+
+
+def test_index_status_top_level_overrides_content_sections():
+    """When both stores have architecture, top-level takes precedence."""
+    sb = _SB(
+        {
+            "repo_graph_meta": [],
+            "code_chunks": [],
+            "repo_documentation": [],
+        }
+    )
+    latest = {
+        "sections": {
+            "architecture": {
+                "updated_at": "2026-10-06T10:00:00+00:00",
+                "updated_by": "user_ui",
+            },
+        },
+        "content": {
+            "sections": {
+                "architecture": {
+                    "updated_at": "2026-10-05T12:00:00+00:00",
+                    "updated_by": "agent_mcp",
+                },
+            }
+        },
+    }
+    out = briefing._index_status(sb, "f1", "u1", None, latest)
+    assert out["architecture_at"] == "2026-10-06T10:00:00+00:00"
+    assert out["architecture_by"] == "user_ui"
+
+
 def test_index_status_handles_missing(monkeypatch):
     sb = _SB({"repo_graph_meta": [], "code_chunks": [], "repo_documentation": []})
     out = briefing._index_status(sb, "f1", "u1", None, None)
