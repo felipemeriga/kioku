@@ -90,7 +90,7 @@ export default function IconRail({
   return (
     <Box
       sx={{
-        width: collapsed ? 64 : 200,
+        width: collapsed ? 72 : 200,
         height: "100vh",
         display: "flex",
         flexDirection: "column",
@@ -106,9 +106,9 @@ export default function IconRail({
           display: "flex",
           flexDirection: collapsed ? "column" : "row",
           alignItems: "center",
-          gap: collapsed ? "8px" : "10px",
+          gap: collapsed ? "12px" : "10px",
           px: collapsed ? 0 : 2,
-          py: 2,
+          py: collapsed ? 2.5 : 2,
           borderBottom: `1px solid ${brand.line}`,
           justifyContent: collapsed ? "center" : "flex-start",
         }}
@@ -184,7 +184,6 @@ export default function IconRail({
               size="small"
               onClick={toggleCollapsed}
               sx={{
-                mt: "2px",
                 width: 22,
                 height: 22,
                 bgcolor: brand.surface2,
@@ -202,11 +201,11 @@ export default function IconRail({
       {/* Nav */}
       <List
         sx={{
-          px: "12px",
-          py: "12px",
+          px: collapsed ? "10px" : "12px",
+          py: collapsed ? "16px" : "12px",
           display: "flex",
           flexDirection: "column",
-          gap: "4px",
+          gap: collapsed ? "8px" : "4px",
         }}
       >
         {NAV_ITEMS.map(({ page, icon, label, testId }) => {
