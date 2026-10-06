@@ -25,12 +25,101 @@ import {
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
-import DescriptionIcon from "@mui/icons-material/Description";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 
 import { fetchDocumentContent, type DocumentContent } from "../lib/api";
 import { brand, fonts } from "../theme";
 import { useToast } from "./ToastProvider";
+
+/** Map of viewable_as / extension → badge label + colours (bg + border + text). */
+const TYPE_BADGE: Record<
+  string,
+  { label: string; bg: string; border: string; color: string }
+> = {
+  markdown: {
+    label: "MD",
+    bg: "#10b98122",
+    border: "#10b98188",
+    color: "#10b981",
+  },
+  code: {
+    label: "CODE",
+    bg: `${brand.cyan}22`,
+    border: `${brand.cyan}88`,
+    color: brand.cyan,
+  },
+  pdf: {
+    label: "PDF",
+    bg: `${brand.amber}22`,
+    border: `${brand.amber}88`,
+    color: brand.amber,
+  },
+  image: {
+    label: "IMG",
+    bg: `${brand.purple}22`,
+    border: `${brand.purple}88`,
+    color: brand.purple,
+  },
+  audio: {
+    label: "AUD",
+    bg: `${brand.green}22`,
+    border: `${brand.green}88`,
+    color: brand.green,
+  },
+  video: {
+    label: "VID",
+    bg: `${brand.magenta}22`,
+    border: `${brand.magenta}88`,
+    color: brand.magenta,
+  },
+  text: {
+    label: "TXT",
+    bg: `${brand.muted}22`,
+    border: `${brand.muted}66`,
+    color: brand.muted,
+  },
+};
+const DEFAULT_BADGE = {
+  label: "DOC",
+  bg: `${brand.line}`,
+  border: `${brand.lineGlow}`,
+  color: brand.muted,
+};
+
+function TypeBadge({
+  filename,
+  viewableAs,
+}: {
+  filename: string;
+  viewableAs: string | null;
+}) {
+  const key = viewableAs?.toLowerCase() ?? "";
+  const badge = TYPE_BADGE[key] ?? DEFAULT_BADGE;
+  return (
+    <Box
+      component="span"
+      sx={{
+        width: 34,
+        height: 34,
+        borderRadius: "3px",
+        bgcolor: badge.bg,
+        border: `1px solid ${badge.border}`,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontFamily: fonts.mono,
+        fontSize: "0.625rem",
+        fontWeight: 600,
+        color: badge.color,
+        flexShrink: 0,
+        userSelect: "none",
+      }}
+      aria-label={filename}
+    >
+      {badge.label}
+    </Box>
+  );
+}
 
 export default function DocumentViewerDrawer({
   filename,
@@ -104,13 +193,20 @@ export default function DocumentViewerDrawer({
       onClose={onClose}
       PaperProps={{
         sx: {
-          width: { xs: "100%", sm: 640 },
-          bgcolor: brand.ink,
-          borderLeft: `1px solid ${brand.line}`,
+          width: { xs: "100%", sm: 680 },
+          bgcolor: brand.surface2,
+          backgroundImage: `repeating-linear-gradient(0deg, rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 1px, transparent 1px, transparent 3px)`,
+          borderLeft: `1px solid ${brand.magenta}`,
+          boxShadow: `-8px 0 32px rgba(0,0,0,0.6), 0 0 24px ${brand.magenta}33`,
         },
       }}
     >
-      <DrawerBody doc={doc} loading={loading} onClose={onClose} onCopy={handleCopy} />
+      <DrawerBody
+        doc={doc}
+        loading={loading}
+        onClose={onClose}
+        onCopy={handleCopy}
+      />
     </Drawer>
   );
 }
@@ -141,21 +237,26 @@ function DrawerBody({
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <Box
+        component="header"
         sx={{
-          px: 2,
-          py: 1.5,
+          px: 2.5,
+          py: 2,
           borderBottom: `1px solid ${brand.line}`,
           display: "flex",
           alignItems: "center",
-          gap: 1,
+          gap: 1.5,
         }}
       >
-        <DescriptionIcon fontSize="small" sx={{ color: brand.cyan }} />
+        {/* Type badge — colour keyed by extension */}
+        <TypeBadge
+          filename={doc.source_filename}
+          viewableAs={doc.viewable_as}
+        />
         <Typography
           sx={{
             flex: 1,
             fontFamily: fonts.mono,
-            fontSize: "0.85rem",
+            fontSize: "0.94rem",
             color: brand.text,
           }}
           noWrap
@@ -168,7 +269,14 @@ function DrawerBody({
               size="small"
               onClick={() => onCopy(doc.content)}
               disabled={loading || !doc.content}
-              sx={{ color: brand.muted, "&:hover": { color: brand.text } }}
+              sx={{
+                width: 34,
+                height: 34,
+                borderRadius: "3px",
+                border: `1px solid ${brand.line}`,
+                color: brand.muted,
+                "&:hover": { color: brand.text, borderColor: brand.lineGlow },
+              }}
             >
               <ContentCopyIcon fontSize="small" />
             </IconButton>
@@ -182,7 +290,14 @@ function DrawerBody({
               href={notionUrl}
               target="_blank"
               rel="noopener"
-              sx={{ color: brand.muted, "&:hover": { color: brand.cyan } }}
+              sx={{
+                width: 34,
+                height: 34,
+                borderRadius: "3px",
+                border: `1px solid ${brand.line}`,
+                color: brand.muted,
+                "&:hover": { color: brand.cyan, borderColor: brand.lineGlow },
+              }}
             >
               <OpenInNewIcon fontSize="small" />
             </IconButton>
@@ -196,7 +311,14 @@ function DrawerBody({
               href={githubUrl}
               target="_blank"
               rel="noopener"
-              sx={{ color: brand.muted, "&:hover": { color: brand.cyan } }}
+              sx={{
+                width: 34,
+                height: 34,
+                borderRadius: "3px",
+                border: `1px solid ${brand.line}`,
+                color: brand.muted,
+                "&:hover": { color: brand.cyan, borderColor: brand.lineGlow },
+              }}
             >
               <OpenInNewIcon fontSize="small" />
             </IconButton>
@@ -210,28 +332,109 @@ function DrawerBody({
               href={doc.file_url}
               target="_blank"
               rel="noopener"
-              sx={{ color: brand.muted, "&:hover": { color: brand.cyan } }}
+              sx={{
+                width: 34,
+                height: 34,
+                borderRadius: "3px",
+                border: `1px solid ${brand.line}`,
+                color: brand.muted,
+                "&:hover": { color: brand.cyan, borderColor: brand.lineGlow },
+              }}
             >
               <OpenInNewIcon fontSize="small" />
             </IconButton>
           </Tooltip>
         )}
-        <IconButton size="small" onClick={onClose} sx={{ color: brand.muted }}>
+        <IconButton
+          size="small"
+          onClick={onClose}
+          aria-label="Close"
+          sx={{
+            width: 34,
+            height: 34,
+            borderRadius: "3px",
+            border: `1px solid ${brand.line}`,
+            color: brand.muted,
+            "&:hover": { color: brand.text, borderColor: brand.lineGlow },
+          }}
+        >
           <CloseIcon fontSize="small" />
         </IconButton>
       </Box>
-      <Box sx={{ px: 2, py: 1, borderBottom: `1px solid ${brand.line}` }}>
-        <Typography
-          sx={{
-            fontFamily: fonts.mono,
-            fontSize: "0.7rem",
-            color: brand.muted,
-          }}
-        >
-          {doc.viewable_as} · {doc.source_type} · {doc.chunk_count} chunks
-          {doc.status ? ` · ${doc.status}` : ""}
-          {doc.created_at ? ` · ${new Date(doc.created_at).toLocaleString()}` : ""}
-        </Typography>
+      <Box
+        sx={{
+          px: 2.5,
+          py: 1.25,
+          borderBottom: `1px solid ${brand.line}`,
+          display: "flex",
+          gap: 1,
+          alignItems: "center",
+          flexWrap: "wrap",
+          fontFamily: fonts.mono,
+          fontSize: "0.69rem",
+        }}
+      >
+        {doc.viewable_as && (
+          <Box
+            component="span"
+            sx={{
+              px: 1,
+              py: 0.25,
+              borderRadius: "3px",
+              border: `1px solid ${brand.lineGlow}`,
+              color: brand.text,
+            }}
+          >
+            {doc.viewable_as}
+          </Box>
+        )}
+        {doc.source_type && doc.source_type !== doc.viewable_as && (
+          <Box
+            component="span"
+            sx={{
+              px: 1,
+              py: 0.25,
+              borderRadius: "3px",
+              border: `1px solid ${brand.lineGlow}`,
+              color: brand.text,
+            }}
+          >
+            {doc.source_type}
+          </Box>
+        )}
+        {doc.chunk_count > 0 && (
+          <Box
+            component="span"
+            sx={{
+              px: 1,
+              py: 0.25,
+              borderRadius: "3px",
+              border: `1px solid ${brand.lineGlow}`,
+              color: brand.text,
+            }}
+          >
+            {doc.chunk_count} chunks
+          </Box>
+        )}
+        {doc.status && (
+          <Box
+            component="span"
+            sx={{
+              px: 1,
+              py: 0.25,
+              borderRadius: "3px",
+              border: `1px solid ${brand.green}66`,
+              color: brand.green,
+            }}
+          >
+            ● {doc.status}
+          </Box>
+        )}
+        {doc.created_at && (
+          <Box component="span" sx={{ color: brand.muted }}>
+            {new Date(doc.created_at).toLocaleString()}
+          </Box>
+        )}
       </Box>
       <Box sx={{ flex: 1, overflow: "auto", position: "relative" }}>
         {loading ? (
@@ -361,7 +564,7 @@ function DocumentRenderer({
         <Box
           sx={{
             borderTop: `1px solid ${brand.line}`,
-            bgcolor: alpha(brand.surface, 0.7),
+            bgcolor: brand.inkDeep,
           }}
         >
           <Button
@@ -369,12 +572,16 @@ function DocumentRenderer({
             onClick={onToggleExtracted}
             sx={{
               fontFamily: fonts.mono,
-              fontSize: "0.7rem",
+              fontSize: "0.69rem",
               letterSpacing: "0.14em",
               color: brand.muted,
               textTransform: "uppercase",
               borderRadius: 0,
               py: 0.75,
+              "&:hover": {
+                bgcolor: `${brand.magenta}10`,
+                color: brand.text,
+              },
             }}
           >
             {showExtracted ? "Hide" : "Show"} extracted text (searched by RAG)
@@ -387,6 +594,7 @@ function DocumentRenderer({
                 overflow: "auto",
                 px: 2,
                 py: 1.5,
+                bgcolor: brand.inkDeep,
               }}
             >
               <TextRender content={content} />
@@ -573,11 +781,22 @@ function CodeRender({
   if (tooBigToHighlight) {
     return (
       <Box
-        sx={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}
+        sx={{
+          display: "flex",
+          flexDirection: "column",
+          height: "100%",
+          minHeight: 0,
+        }}
       >
         <Typography
           variant="caption"
-          sx={{ display: "block", px: 2, py: 1, color: brand.muted, flexShrink: 0 }}
+          sx={{
+            display: "block",
+            px: 2,
+            py: 1,
+            color: brand.muted,
+            flexShrink: 0,
+          }}
         >
           Large file — rendering only the visible lines (highlighting off).
         </Typography>
@@ -707,23 +926,39 @@ function MarkdownRender({
   return (
     <Box
       sx={{
-        px: 3,
-        py: 2,
+        px: 3.5,
+        py: 3,
         color: brand.text,
         fontFamily: fonts.body,
-        fontSize: "0.92rem",
-        lineHeight: 1.6,
+        fontSize: "0.94rem",
+        lineHeight: 1.7,
         "& h1": {
           fontFamily: fonts.display,
-          fontSize: "1.35rem",
+          fontSize: "1.625rem",
+          fontWeight: 700,
           mb: 1,
           mt: 2,
+          textShadow: `0 0 14px ${brand.magenta}44`,
         },
         "& h2": {
           fontFamily: fonts.display,
-          fontSize: "1.15rem",
+          fontSize: "1.1875rem",
+          fontWeight: 600,
           mb: 0.75,
           mt: 2,
+          display: "flex",
+          alignItems: "center",
+          gap: 1.25,
+          "&::before": {
+            content: '""',
+            display: "inline-block",
+            width: "3px",
+            height: "18px",
+            background: brand.magenta,
+            boxShadow: `0 0 8px ${brand.magenta}`,
+            borderRadius: 0,
+            flexShrink: 0,
+          },
         },
         "& h3": {
           fontFamily: fonts.display,
@@ -737,17 +972,21 @@ function MarkdownRender({
         "& code": {
           fontFamily: fonts.mono,
           fontSize: "0.82rem",
-          bgcolor: alpha("#000", 0.25),
+          bgcolor: `${brand.cyan}14`,
+          color: brand.cyan,
           px: 0.75,
           py: 0.25,
-          borderRadius: 0.75,
+          borderRadius: "3px",
         },
         "& pre": {
-          bgcolor: alpha("#000", 0.25),
-          p: 1.5,
-          borderRadius: 1,
+          bgcolor: brand.inkDeep,
+          border: `1px solid ${brand.line}`,
+          p: 2,
+          borderRadius: "4px",
           overflow: "auto",
-          "& code": { bgcolor: "transparent", p: 0 },
+          fontSize: "0.8125rem",
+          lineHeight: 1.6,
+          "& code": { bgcolor: "transparent", p: 0, color: "inherit" },
         },
         "& a": {
           color: brand.cyan,
@@ -755,10 +994,13 @@ function MarkdownRender({
           "&:hover": { textDecoration: "underline" },
         },
         "& blockquote": {
-          borderLeft: `3px solid ${brand.violet2}`,
+          borderLeft: `2px solid ${brand.purple}`,
           pl: 2,
+          bgcolor: `${brand.purple}0d`,
           color: brand.muted,
           my: 1,
+          py: 1.25,
+          borderRadius: "0 3px 3px 0",
         },
         "& hr": { borderColor: brand.line },
         "& table": { borderCollapse: "collapse", my: 1 },
