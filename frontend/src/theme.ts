@@ -295,6 +295,17 @@ export const fonts = {
   body: FONT_BODY,
   mono: FONT_MONO,
   jp: FONT_JP,
+  dot: "'DotGothic16', 'JetBrains Mono', monospace",
+};
+
+/** Briefing section provenance → glyph + color. One source for StatusGlyph/SectionRail. */
+export const STATUS_GLYPH: Record<
+  "pinned" | "hybrid" | "auto",
+  { glyph: string; color: string; glow: string }
+> = {
+  pinned: { glyph: "●", color: brand.magenta, glow: `0 0 6px ${brand.magenta}` },
+  hybrid: { glyph: "◐", color: brand.cyan, glow: `0 0 6px ${brand.cyan}` },
+  auto: { glyph: "○", color: brand.muted, glow: "none" },
 };
 
 export default theme;

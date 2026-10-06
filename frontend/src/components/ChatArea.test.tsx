@@ -37,9 +37,9 @@ describe("ChatArea", () => {
         currentStage={{ stage: "searching" }}
       />
     );
-    expect(
-      screen.getByText("Searching documents & code...")
-    ).toBeInTheDocument();
+    // ThinkingBar renders the StageTabs pipeline; 探索 = Searching.
+    expect(screen.getByText("探索")).toBeInTheDocument();
+    expect(screen.getByText(/Searching/)).toBeInTheDocument();
   });
 
   it("renders messages when provided", () => {

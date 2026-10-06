@@ -6,7 +6,6 @@ import {
   Box,
   Button,
   CircularProgress,
-  Divider,
   Link as MuiLink,
   Stack,
   TextField,
@@ -15,7 +14,10 @@ import {
 } from "@mui/material";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
-import { brand, fonts } from "../theme";
+import { brand, fonts, scanlines } from "../theme";
+import GridFloor from "../components/neo/GridFloor";
+import KatakanaAccent from "../components/neo/KatakanaAccent";
+import CornerCard from "../components/neo/CornerCard";
 
 export default function LoginPage() {
   const { session, loading: authLoading } = useAuth();
@@ -49,7 +51,7 @@ export default function LoginPage() {
       setError(
         err instanceof Error && err.message
           ? `${err.message} — check your internet connection.`
-          : "Couldn't reach the sign-in service. Check your internet connection.",
+          : "Couldn't reach the sign-in service. Check your internet connection."
       );
     } finally {
       setLoading(false);
@@ -61,92 +63,168 @@ export default function LoginPage() {
       sx={{
         minHeight: "100vh",
         display: "flex",
+        flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
         position: "relative",
         overflow: "hidden",
-        bgcolor: brand.ink,
+        background: `linear-gradient(180deg, #08040F 0%, #1A0630 50%, #08040F 100%)`,
         px: 2,
       }}
     >
+      {/* Ambient radial blooms */}
       <Box
         data-testid="ambient-bg"
+        aria-hidden="true"
         sx={{
           position: "absolute",
           inset: 0,
+          pointerEvents: "none",
           background: `
-            radial-gradient(ellipse 600px 600px at 20% 30%, ${alpha(brand.violet, 0.18)} 0%, transparent 70%),
-            radial-gradient(ellipse 500px 500px at 80% 70%, ${alpha(brand.cyan, 0.12)} 0%, transparent 70%),
-            radial-gradient(ellipse 400px 400px at 50% 50%, ${alpha(brand.violetDeep, 0.1)} 0%, transparent 70%)
+            radial-gradient(ellipse 360px 260px at 50% 28%, ${alpha(
+              brand.magenta,
+              0.28
+            )} 0%, transparent 70%),
+            radial-gradient(ellipse 480px 200px at 20% 70%, ${alpha(
+              brand.purple,
+              0.15
+            )} 0%, transparent 70%),
+            radial-gradient(ellipse 320px 180px at 80% 20%, ${alpha(
+              brand.cyan,
+              0.1
+            )} 0%, transparent 70%)
           `,
-          animation: "meshDrift 24s ease-in-out infinite",
-          "@keyframes meshDrift": {
-            "0%": { backgroundPosition: "0% 0%, 100% 100%, 50% 50%" },
-            "33%": { backgroundPosition: "30% 20%, 70% 80%, 40% 60%" },
-            "66%": { backgroundPosition: "10% 40%, 90% 60%, 60% 30%" },
-            "100%": { backgroundPosition: "0% 0%, 100% 100%, 50% 50%" },
-          },
-          backgroundSize: "200% 200%",
         }}
       />
 
-      <Stack spacing={2.75} alignItems="center" sx={{ position: "relative", width: "100%", maxWidth: 400 }}>
-        {/* Brand chip */}
+      {/* Magenta horizon line */}
+      <Box
+        aria-hidden="true"
+        sx={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          bottom: "44%",
+          height: "3px",
+          background: brand.magenta,
+          boxShadow: `0 0 18px ${brand.magenta}`,
+          pointerEvents: "none",
+          zIndex: 1,
+        }}
+      />
+
+      {/* CRT scanlines overlay */}
+      <Box
+        aria-hidden="true"
+        sx={{
+          position: "absolute",
+          inset: 0,
+          backgroundImage: scanlines,
+          pointerEvents: "none",
+          zIndex: 1,
+        }}
+      />
+
+      {/* Grid floor perspective */}
+      <GridFloor />
+
+      {/* Vertical kanji accent — left side */}
+      <KatakanaAccent
+        text="記憶"
+        sx={{
+          left: 80,
+          top: 120,
+          fontSize: 96,
+          writingMode: "vertical-rl",
+          color: `${brand.text}e6`,
+          WebkitTextStroke: "unset",
+          textShadow: `0 0 2px ${brand.magenta}, 0 0 10px ${
+            brand.magenta
+          }, 0 0 28px ${brand.magenta}, 0 0 56px ${alpha(brand.magenta, 0.6)}`,
+          opacity: 0.9,
+          zIndex: 2,
+        }}
+      />
+
+      {/* Main content column */}
+      <Stack
+        spacing={2.25}
+        alignItems="center"
+        sx={{ position: "relative", width: "100%", maxWidth: 420, zIndex: 2 }}
+      >
+        {/* AI pill */}
         <Box
           sx={{
-            px: 1.5,
-            py: 0.6,
+            px: 1.75,
+            py: 0.75,
             border: `1px solid ${alpha(brand.cyan, 0.4)}`,
             borderRadius: 999,
             bgcolor: alpha(brand.cyan, 0.06),
+            boxShadow: `0 0 12px ${alpha(brand.cyan, 0.2)}`,
+            display: "flex",
+            alignItems: "center",
+            gap: 1,
           }}
         >
+          <Box
+            component="span"
+            sx={{
+              width: 6,
+              height: 6,
+              borderRadius: "50%",
+              bgcolor: brand.cyan,
+              boxShadow: `0 0 6px ${brand.cyan}`,
+              flexShrink: 0,
+            }}
+          />
           <Typography
             sx={{
               fontFamily: fonts.mono,
-              fontSize: "0.66rem",
-              letterSpacing: "0.28em",
+              fontSize: "0.68rem",
+              letterSpacing: "0.3em",
               color: brand.cyan,
-              display: "flex",
-              alignItems: "center",
-              gap: 0.85,
+              lineHeight: 1,
             }}
           >
-            <Box component="span" sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: brand.cyan, boxShadow: `0 0 8px ${brand.cyan}` }} />
             AI · PERSONAL KNOWLEDGE AGENT
           </Typography>
         </Box>
 
-        {/* Kanji hanko + wordmark */}
-        <Stack direction="row" alignItems="center" spacing={1.75}>
+        {/* Logo row: kanji box + wordmark */}
+        <Stack direction="row" alignItems="center" spacing={1.5}>
           <Box
             sx={{
-              width: 44,
-              height: 44,
+              width: 48,
+              height: 48,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              border: `1px solid ${brand.magenta}`,
+              border: `1.5px solid ${brand.magenta}`,
               borderRadius: 1,
-              background: `linear-gradient(135deg, ${brand.magenta}22 0%, ${brand.cyan}11 100%)`,
-              boxShadow: `0 0 18px ${alpha(brand.magenta, 0.6)}, inset 0 0 10px ${alpha(brand.magenta, 0.25)}`,
+              bgcolor: brand.ink,
+              boxShadow: `0 0 4px ${alpha(
+                brand.magenta,
+                0.53
+              )}, 0 0 16px ${alpha(brand.magenta, 0.27)}`,
               fontFamily: fonts.jp,
               fontWeight: 900,
-              fontSize: "1.6rem",
+              fontSize: "1.65rem",
               color: brand.magentaGlow,
-              textShadow: `0 0 8px ${brand.magenta}, 0 0 16px ${brand.magenta}aa`,
+              textShadow: `0 0 8px ${brand.magenta}, 0 0 16px ${alpha(
+                brand.magenta,
+                0.67
+              )}`,
             }}
           >
             記
           </Box>
-          <Stack spacing={0.25}>
+          <Stack spacing={0.2} sx={{ lineHeight: 1 }}>
             <Typography
               sx={{
-                fontFamily: fonts.jp,
+                fontFamily: fonts.dot,
                 fontSize: "0.72rem",
-                letterSpacing: "0.35em",
+                letterSpacing: "0.4em",
                 color: brand.cyan,
-                textShadow: `0 0 6px ${brand.cyan}66`,
                 lineHeight: 1,
               }}
             >
@@ -155,10 +233,10 @@ export default function LoginPage() {
             <Typography
               sx={{
                 fontFamily: fonts.display,
-                fontSize: "1.75rem",
+                fontSize: "1.875rem",
                 fontWeight: 700,
-                letterSpacing: "-0.02em",
                 lineHeight: 1.1,
+                textShadow: `0 0 14px ${alpha(brand.magenta, 0.4)}`,
               }}
             >
               Kioku
@@ -166,121 +244,194 @@ export default function LoginPage() {
           </Stack>
         </Stack>
 
-        {/* Card */}
-        <Box
+        {/* Auth card */}
+        <CornerCard
           component="form"
           onSubmit={handleSubmit}
+          corners={4}
+          color={brand.cyan}
           sx={{
             width: "100%",
             p: 3.5,
-            borderRadius: 3,
-            bgcolor: alpha(brand.surface, 0.72),
-            backdropFilter: "blur(20px)",
-            WebkitBackdropFilter: "blur(20px)",
-            border: `1px solid ${brand.line}`,
-            boxShadow: "0 20px 50px rgba(0,0,0,0.5)",
+            bgcolor: `${brand.surface}f2`,
+            boxShadow: "0 12px 32px rgba(0,0,0,0.55)",
+            display: "flex",
+            flexDirection: "column",
+            gap: 1.75,
           }}
         >
-          <Typography
+          {/* Heading */}
+          <Box>
+            <Typography
+              sx={{
+                fontFamily: fonts.display,
+                fontWeight: 700,
+                fontSize: "1.375rem",
+                color: brand.text,
+                mb: 0.5,
+              }}
+            >
+              {isSignUp ? "Create your account" : "Welcome back"}
+            </Typography>
+            <Typography
+              sx={{
+                fontFamily: fonts.body,
+                fontSize: "0.875rem",
+                color: brand.muted,
+              }}
+            >
+              {isSignUp
+                ? "Sign up to start building your second brain."
+                : "Sign in to your second brain."}
+            </Typography>
+          </Box>
+
+          {/* Email field */}
+          <TextField
+            label="Email"
+            type="email"
+            fullWidth
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            InputLabelProps={{
+              required: false,
+              sx: {
+                fontFamily: fonts.mono,
+                fontSize: "0.68rem",
+                letterSpacing: "0.22em",
+                textTransform: "uppercase",
+                color: brand.muted,
+              },
+            }}
+            autoComplete="email"
+          />
+
+          {/* Password field */}
+          <TextField
+            label="Password"
+            type="password"
+            fullWidth
+            required
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            InputLabelProps={{
+              required: false,
+              sx: {
+                fontFamily: fonts.mono,
+                fontSize: "0.68rem",
+                letterSpacing: "0.22em",
+                textTransform: "uppercase",
+                color: brand.muted,
+              },
+            }}
+            autoComplete={isSignUp ? "new-password" : "current-password"}
+          />
+
+          {error && <Alert severity="error">{error}</Alert>}
+
+          {/* Sign in / Sign up button */}
+          <Button
+            type="submit"
+            variant="contained"
+            fullWidth
+            disabled={loading}
             sx={{
-              fontFamily: fonts.display,
-              fontWeight: 700,
-              fontSize: "1.3rem",
-              color: brand.text,
-              mb: 0.5,
+              py: 1.375,
+              mt: 0.5,
+              backgroundImage: `linear-gradient(90deg, ${brand.magentaDeep} 0%, ${brand.purple} 100%)`,
+              boxShadow: `0 4px 12px ${alpha(brand.magenta, 0.27)}`,
+              "&:hover": {
+                backgroundImage: `linear-gradient(90deg, ${brand.magenta} 0%, ${brand.purple} 100%)`,
+                boxShadow: `0 6px 20px ${alpha(brand.magenta, 0.4)}`,
+              },
             }}
           >
-            {isSignUp ? "Create your account" : "Welcome back"}
-          </Typography>
-          <Typography sx={{ fontFamily: fonts.body, fontSize: "0.85rem", color: brand.muted, mb: 2.5 }}>
-            {isSignUp
-              ? "Sign up to start building your second brain."
-              : "Sign in to your second brain."}
-          </Typography>
+            {loading ? (
+              <CircularProgress size={22} color="inherit" />
+            ) : isSignUp ? (
+              "Sign up"
+            ) : (
+              "Sign in"
+            )}
+          </Button>
 
-          <Stack spacing={1.75}>
-            <TextField
-              label="Email"
-              type="email"
-              fullWidth
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              InputLabelProps={{ required: false }}
-              autoComplete="email"
-            />
-            <TextField
-              label="Password"
-              type="password"
-              fullWidth
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              InputLabelProps={{ required: false }}
-              autoComplete={isSignUp ? "new-password" : "current-password"}
-            />
-
-            {error && <Alert severity="error">{error}</Alert>}
-
-            <Button type="submit" variant="contained" fullWidth disabled={loading} sx={{ py: 1.25, mt: 0.5 }}>
-              {loading ? <CircularProgress size={22} color="inherit" /> : isSignUp ? "Sign up" : "Sign in"}
-            </Button>
-
-            <Divider sx={{ my: 0.5, "&::before, &::after": { borderColor: brand.line } }}>
-              <Typography
-                sx={{
-                  fontFamily: fonts.mono,
-                  fontSize: "0.68rem",
-                  letterSpacing: "0.24em",
-                  color: brand.muted,
-                }}
-              >
-                OR
-              </Typography>
-            </Divider>
-
-            <Typography sx={{ fontFamily: fonts.body, fontSize: "0.85rem", color: brand.muted, textAlign: "center" }}>
-              {isSignUp ? "Already have an account? " : "Need an account? "}
-              <MuiLink
-                component="button"
-                type="button"
-                onClick={() => {
-                  setIsSignUp(!isSignUp);
-                  setError("");
-                }}
-                sx={{
-                  color: brand.violet2,
-                  fontFamily: fonts.display,
-                  fontWeight: 600,
-                  textDecoration: "none",
-                  "&:hover": { textDecoration: "underline" },
-                }}
-              >
-                {isSignUp ? "Sign in" : "Sign up"}
-              </MuiLink>
+          {/* OR divider */}
+          <Stack direction="row" alignItems="center" spacing={1.25}>
+            <Box sx={{ flex: 1, height: 1, bgcolor: brand.line }} />
+            <Typography
+              sx={{
+                fontFamily: fonts.mono,
+                fontSize: "0.68rem",
+                letterSpacing: "0.3em",
+                color: brand.muted,
+              }}
+            >
+              OR
             </Typography>
+            <Box sx={{ flex: 1, height: 1, bgcolor: brand.line }} />
           </Stack>
-        </Box>
+
+          {/* Sign up / Sign in toggle */}
+          <Typography
+            sx={{
+              fontFamily: fonts.body,
+              fontSize: "0.875rem",
+              color: brand.muted,
+              textAlign: "center",
+            }}
+          >
+            {isSignUp ? "Already have an account? " : "Need an account? "}
+            <MuiLink
+              component="button"
+              type="button"
+              onClick={() => {
+                setIsSignUp(!isSignUp);
+                setError("");
+              }}
+              sx={{
+                color: brand.violet2,
+                fontFamily: fonts.display,
+                fontWeight: 600,
+                textDecoration: "none",
+                "&:hover": { textDecoration: "underline" },
+              }}
+            >
+              {isSignUp ? "Sign in" : "Sign up"}
+            </MuiLink>
+          </Typography>
+        </CornerCard>
 
         {/* Footer tagline */}
         <Typography
           sx={{
             fontFamily: fonts.mono,
             fontSize: "0.65rem",
-            letterSpacing: "0.32em",
+            letterSpacing: "0.3em",
             color: brand.muted,
-            mt: 1,
+            mt: 0.5,
           }}
         >
           FEED IT{" "}
-          <Box component="span" sx={{ color: brand.amber }}>
+          <Box
+            component="span"
+            sx={{
+              color: brand.amber,
+              textShadow: `0 0 8px ${alpha(brand.amber, 0.53)}`,
+            }}
+          >
             EVERYTHING
           </Box>
-          . ASK{" "}
-          <Box component="span" sx={{ color: brand.cyan }}>
+          {" · ASK "}
+          <Box
+            component="span"
+            sx={{
+              color: brand.cyan,
+              textShadow: `0 0 8px ${alpha(brand.cyan, 0.53)}`,
+            }}
+          >
             ANYTHING
           </Box>
-          .
         </Typography>
       </Stack>
     </Box>

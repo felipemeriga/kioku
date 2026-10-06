@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kioku chat</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;family=Noto+Sans+JP:wght@400;700;900&amp;family=DotGothic16&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#08040F}
+a{color:#00F0FF}a:hover{color:#F5F0FF}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; display: flex; background-color: #08040F; background-image: {{bg}}; color: #F5F0FF; font-family: Rubik, 'Noto Sans JP', sans-serif;">
+
+  <nav aria-label="Main" style="width: 200px; flex-shrink: 0; display: flex; flex-direction: column; border-right: 1px solid #2A1758; background: #0A0517;">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 16px; border-bottom: 1px solid #2A1758;">
+      <div style="width: 34px; height: 34px; border-radius: 6px; border: 1.5px solid #FF2E93; display: flex; align-items: center; justify-content: center; font-family: 'Noto Sans JP', sans-serif; font-weight: 900; font-size: 18px; color: #FF6DB1; box-shadow: 0 0 4px #FF2E9388, 0 0 16px #FF2E9344;">記</div>
+      <div style="display: flex; flex-direction: column; line-height: 1;"><span style="font-family: DotGothic16, monospace; font-size: 10px; letter-spacing: 0.3em; color: #00F0FF;">キオク</span><span style="font-weight: 700; font-size: 18px; letter-spacing: 0.06em; text-shadow: 0 0 10px #FF2E9366;">KIOKU</span></div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 4px; padding: 12px;">
+      <a href="#" style="display: flex; align-items: center; gap: 12px; height: 42px; padding: 0 12px; border-radius: 3px; text-decoration: none; background: #FF2E9322; box-shadow: inset 2px 0 0 #FF2E93, 0 0 12px #FF2E9322; color: #F5F0FF; font-weight: 600; font-size: 14px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FF2E93" stroke-width="1.8"><path d="M4 5h16v11H9l-5 4z"/></svg>Chat</a>
+      <a href="#" style="display: flex; align-items: center; gap: 12px; height: 42px; padding: 0 12px; border-radius: 3px; text-decoration: none; color: #9788B8; font-size: 14px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h7l2 2h9v11H3z"/></svg>Documents</a>
+      <a href="#" style="display: flex; align-items: center; gap: 12px; height: 42px; padding: 0 12px; border-radius: 3px; text-decoration: none; color: #9788B8; font-size: 14px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/></svg>Settings</a>
+    </div>
+    <div style="flex-grow: 1;"></div>
+    <div style="display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-top: 1px solid #2A1758;">
+      <div style="width: 30px; height: 30px; border-radius: 999px; background-image: linear-gradient(135deg, #FF2E93, #B026FF); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px;">F</div>
+      <div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column;"><span style="font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">felipe@kioku.dev</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.2em; color: #39FF14;">● SIGNED IN</span></div>
+      <button aria-label="Sign out" style="width: 30px; height: 30px; border: 0; border-radius: 3px; background: transparent; color: #9788B8;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 4h5v16h-5M10 8l-4 4 4 4M6 12h10"/></svg></button>
+    </div>
+  </nav>
+
+  <aside style="width: 220px; flex-shrink: 0; display: flex; flex-direction: column; border-right: 1px solid #2A1758; background: #0A0517cc;">
+    <div style="display: flex; align-items: center; justify-content: space-between; padding: 16px 14px 10px;">
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.22em; color: #9788B8;">CONVERSATIONS</span>
+      <button aria-label="New conversation" style="width: 28px; height: 28px; border-radius: 3px; border: 1px solid #FF2E9355; background: #FF2E9314; color: #FF2E93; font-size: 16px;">+</button>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 2px; padding: 0 8px;">
+      <div style="padding: 10px 12px; border-radius: 3px; background: #FF2E9322; box-shadow: inset 2px 0 0 #FF2E93; font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">How does reranking change recall@10?</div>
+      <div style="padding: 10px 12px; border-radius: 3px; font-size: 13px; color: #F5F0FF; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Explain the ingestion pipeline stages</div>
+      <div style="padding: 10px 12px; border-radius: 3px; font-size: 13px; color: #F5F0FF; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">obol-ledger: refund posting flow</div>
+      <div style="padding: 10px 12px; border-radius: 3px; font-size: 13px; color: #F5F0FF; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">pgvector index tuning</div>
+    </div>
+  </aside>
+
+  <main style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column;">
+    <div style="flex-grow: 1; min-height: 0; display: flex; flex-direction: column; gap: 20px; padding: 28px 48px; overflow: hidden;">
+      <div style="align-self: flex-end; max-width: 520px; padding: 12px 16px; border-radius: 12px 12px 2px 12px; background: #FF2E9326; border: 1px solid #FF2E9366; font-size: 15px; line-height: 1.55;">How much does the reranker improve recall@10 on our golden set?</div>
+
+      <div style="display: flex; gap: 12px; align-items: flex-start;">
+        <div style="width: 30px; height: 30px; flex-shrink: 0; border-radius: 4px; border: 1px solid #00F0FF66; background: #00F0FF14; display: flex; align-items: center; justify-content: center; color: #00F0FF; font-size: 14px;">✦</div>
+        <div style="display: flex; flex-direction: column; gap: 8px; max-width: 700px;">
+          <div style="position: relative; padding: 16px 18px; background: #0F0820; border: 1px solid #2A1758; border-radius: 4px;">
+            <div style="position: absolute; left: -1px; top: -1px; width: 14px; height: 14px; border-left: 2px solid #00F0FF; border-top: 2px solid #00F0FF;"></div>
+            <div style="position: absolute; right: -1px; top: -1px; width: 14px; height: 14px; border-right: 2px solid #00F0FF; border-top: 2px solid #00F0FF;"></div>
+            <div style="position: absolute; left: -1px; bottom: -1px; width: 14px; height: 14px; border-left: 2px solid #00F0FF; border-bottom: 2px solid #00F0FF;"></div>
+            <div style="position: absolute; right: -1px; bottom: -1px; width: 14px; height: 14px; border-right: 2px solid #00F0FF; border-bottom: 2px solid #00F0FF;"></div>
+            <p style="margin: 0 0 12px; font-size: 15px; line-height: 1.6;">On the golden set, adding the cross-encoder reranker lifts <strong style="color: #FF6DB1;">recall@10 from 0.71 to 0.84</strong> (+13 pts).</p>
+            <div style="border: 1px solid #2A1758; border-radius: 4px; overflow: hidden; margin-bottom: 12px; font-size: 14px;">
+              <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); background: #FF2E9318; font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.14em; color: #FF6DB1;"><span style="padding: 8px 12px;">PIPELINE</span><span style="padding: 8px 12px;">RECALL@10</span><span style="padding: 8px 12px;">MRR</span></div>
+              <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid #2A1758;"><span style="padding: 8px 12px;">BM25 + vector (RRF)</span><span style="padding: 8px 12px; font-family: 'JetBrains Mono', monospace;">0.71</span><span style="padding: 8px 12px; font-family: 'JetBrains Mono', monospace;">0.58</span></div>
+              <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid #2A1758;"><span style="padding: 8px 12px;">+ reranker</span><span style="padding: 8px 12px; font-family: 'JetBrains Mono', monospace; color: #FF6DB1; text-shadow: 0 0 8px #FF2E9388;">0.84</span><span style="padding: 8px 12px; font-family: 'JetBrains Mono', monospace; color: #FF6DB1;">0.69</span></div>
+            </div>
+            <p style="margin: 0 0 8px; font-size: 15px;">The fusion step is unchanged:</p>
+            <pre style="margin: 0 0 12px; padding: 12px 14px; border-radius: 4px; background: #050208; border: 1px solid #2A1758; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.6;"><span style="color: #FF6DB1;">def</span> <span style="color: #00F0FF;">rrf</span>(ranks, k=<span style="color: #FFB700;">60</span>):
+    <span style="color: #FF6DB1;">return</span> sum(<span style="color: #FFB700;">1</span> / (k + r) <span style="color: #FF6DB1;">for</span> r <span style="color: #FF6DB1;">in</span> ranks)</pre>
+            <p style="margin: 0; font-size: 14px; color: #9788B8;">Sources: <code style="font-family: 'JetBrains Mono', monospace; color: #00F0FF;">ragas_eval_report.html</code>, <code style="font-family: 'JetBrains Mono', monospace; color: #00F0FF;">hybrid_search_rrf.md</code>.</p>
+          </div>
+          <button style="align-self: flex-start; height: 28px; padding: 0 10px; border-radius: 3px; border: 1px solid #00F0FF66; background: #00F0FF10; color: #00F0FF; font-family: 'JetBrains Mono', monospace; font-size: 12px;">⌕ Inspect</button>
+        </div>
+      </div>
+
+      <div style="align-self: flex-end; max-width: 520px; padding: 12px 16px; border-radius: 12px 12px 2px 12px; background: #FF2E9326; border: 1px solid #FF2E9366; font-size: 15px;">And latency?</div>
+
+      <div style="display: flex; align-items: stretch; max-width: 742px; border: 1px solid #2A1758; border-radius: 4px; overflow: hidden; background: #0A0517;">
+        <sc-for list="{{stages}}" as="s" hint-placeholder-count="4">
+          <div style="{{s.box}}">
+            <span style="font-family: 'Noto Sans JP', sans-serif; font-weight: 700; font-size: 16px; color: {{s.c}}; text-shadow: {{s.glow}};">{{s.jp}}</span>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: {{s.c2}};">{{s.en}}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="padding: 0 48px 20px; display: flex; flex-direction: column; gap: 8px;">
+      <span style="align-self: flex-start; display: flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: 3px; border: 1px solid #FF2E9366; background: #FF2E9314; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #FF6DB1;">◎ Folder: kioku <span aria-label="Clear scope" style="color: #9788B8;">✕</span></span>
+      <div style="display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 4px; border: 1px solid #FF2E93; background: #0A0517; box-shadow: 0 0 12px #FF2E9344;">
+        <button aria-label="Attach file" style="width: 34px; height: 34px; border: 0; border-radius: 3px; background: transparent; color: #9788B8; font-size: 16px;">⌀</button>
+        <button aria-label="Scope" style="width: 34px; height: 34px; border: 0; border-radius: 3px; background: #FF2E9322; color: #FF2E93; font-size: 16px;">◎</button>
+        <button aria-label="Filters" style="width: 34px; height: 34px; border: 0; border-radius: 3px; background: transparent; color: #9788B8; font-size: 16px;">≡</button>
+        <span style="padding: 4px 8px; border-radius: 3px; border: 1px solid #B026FF66; background: #B026FF22; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #E2B8FF;">Deep</span>
+        <span style="padding: 4px 8px; border-radius: 3px; border: 1px solid #4B2688; font-family: 'JetBrains Mono', monospace; font-size: 12px;">Sonnet</span>
+        <button aria-label="Debug" style="width: 34px; height: 34px; border: 1px solid #00F0FF55; border-radius: 3px; background: #00F0FF14; color: #00F0FF; font-family: 'JetBrains Mono', monospace; font-size: 11px;">DBG</button>
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 14px; color: #FF2E93; margin-left: 6px;">&gt;</span>
+        <label for="ask" style="position: absolute; left: -9999px;">Ask a question</label>
+        <input id="ask" placeholder="Ask a question about your documents..." style="flex-grow: 1; height: 34px; background: transparent; border: 0; outline: none; color: #F5F0FF; font-family: Rubik, sans-serif; font-size: 14px;">
+        <button aria-label="Send" style="width: 40px; height: 34px; border: 0; border-radius: 4px; background-image: linear-gradient(90deg, #D31877 0%, #B026FF 100%); color: #ffffff; font-size: 15px;">➤</button>
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"scanlines":{"editor":"boolean","default":true},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const scan = this.props.scanlines ?? true;
+    const blooms = 'radial-gradient(circle at 8% -6%, #FF2E9322 0%, transparent 45%), radial-gradient(circle at 92% 108%, #00F0FF18 0%, transparent 45%)';
+    const lines = 'repeating-linear-gradient(0deg, rgba(255,255,255,0.018) 0px, rgba(255,255,255,0.018) 1px, transparent 1px, transparent 3px)';
+    const S = (jp, en, st) => {
+      const done = st === 'done', live = st === 'live';
+      return {
+        jp, en,
+        c: done ? '#39FF14' : live ? '#FF6DB1' : '#9788B8',
+        c2: live ? '#FF6DB1' : '#9788B8',
+        glow: live ? '0 0 10px #FF2E93' : 'none',
+        box: 'flex: 1; display: flex; flex-direction: column; gap: 2px; padding: 8px 14px; border-right: 1px solid #2A1758; ' +
+          (done ? 'background: #39FF1410;' : live ? 'background: #FF2E9322; box-shadow: inset 0 -2px 0 #FF2E93;' : '')
+      };
+    };
+    return {
+      bg: scan ? blooms + ', ' + lines : blooms,
+      stages: [S('思考', 'Thinking', 'done'), S('探索', 'Searching · 8 docs', 'done'), S('分析', 'Analyzing...', 'live'), S('生成', 'Generating', 'idle')]
+    };
+  }
+}
+</script>
+</body>
+</html>

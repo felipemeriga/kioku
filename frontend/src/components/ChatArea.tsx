@@ -1,6 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Box, Chip, Stack, Typography, alpha } from "@mui/material";
-import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import { Box, Chip, Stack, Typography } from "@mui/material";
 import MessageBubble from "./MessageBubble";
 import ChatInput from "./ChatInput";
 import ThinkingBar from "./ThinkingBar";
@@ -71,21 +70,24 @@ export default function ChatArea({
               spacing={2.5}
               sx={{ height: "70vh", justifyContent: "center", px: 3 }}
             >
+              {/* Brand glyph */}
               <Box
                 sx={{
-                  width: 84,
-                  height: 84,
-                  borderRadius: "50%",
-                  display: "grid",
-                  placeItems: "center",
-                  background: `radial-gradient(circle at 30% 30%, ${brand.violet2} 0%, ${brand.violet} 45%, ${brand.violetDeep} 100%)`,
-                  boxShadow: `0 10px 40px ${alpha(
-                    brand.violet,
-                    0.5
-                  )}, inset 0 0 30px ${alpha("#000", 0.3)}`,
+                  width: 54,
+                  height: 54,
+                  borderRadius: "6px",
+                  border: `1.5px solid ${brand.magenta}`,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontFamily: fonts.jp,
+                  fontWeight: 900,
+                  fontSize: "1.8rem",
+                  color: brand.magentaGlow,
+                  boxShadow: `0 0 4px ${brand.magenta}88, 0 0 16px ${brand.magenta}44`,
                 }}
               >
-                <AutoAwesomeIcon sx={{ fontSize: 40, color: "#fff" }} />
+                記
               </Box>
 
               <Stack spacing={0.5} alignItems="center">
@@ -127,12 +129,13 @@ export default function ChatArea({
                 </Typography>
               </Stack>
 
+              {/* Suggestion neon cards */}
               <Stack
                 direction="row"
                 spacing={1}
                 flexWrap="wrap"
                 justifyContent="center"
-                sx={{ mt: 1, maxWidth: 560 }}
+                sx={{ mt: 1, maxWidth: 600 }}
               >
                 {SUGGESTIONS.map((text) => (
                   <Chip
@@ -142,13 +145,17 @@ export default function ChatArea({
                     onClick={() => onSend(text)}
                     sx={{
                       m: 0.5,
-                      borderColor: brand.line,
+                      fontFamily: fonts.mono,
+                      fontSize: "0.75rem",
+                      borderRadius: "3px",
+                      borderColor: `${brand.magenta}55`,
                       color: brand.muted,
-                      fontFamily: fonts.body,
+                      bgcolor: `${brand.magenta}08`,
                       "&:hover": {
-                        bgcolor: alpha(brand.violet, 0.1),
-                        borderColor: brand.violet2,
+                        bgcolor: `${brand.magenta}18`,
+                        borderColor: brand.magenta,
                         color: brand.text,
+                        boxShadow: `0 0 10px ${brand.magenta}33`,
                       },
                     }}
                   />

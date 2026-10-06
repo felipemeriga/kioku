@@ -63,6 +63,7 @@ import FolderIntegrationsDialog from "../components/FolderIntegrationsDialog";
 import { NotionSyncBanner } from "../components/NotionSyncBanner";
 import { useToast, messageFromError } from "../components/ToastProvider";
 import { brand, fonts } from "../theme";
+import CornerCard from "../components/neo/CornerCard";
 
 const ACCEPTED_TYPES =
   ".txt,.text,.md,.markdown,.pdf,.docx,.html,.htm,.json,.yaml,.yml,.png,.jpg,.jpeg,.mp3,.webm,.m4a";
@@ -509,17 +510,17 @@ export default function DocumentsPage() {
       {/* Toolbar */}
       <Box
         sx={{
-          px: 3,
-          pt: 2,
-          pb: 1.5,
+          px: "28px",
+          pt: "18px",
+          pb: "14px",
           display: "flex",
           flexDirection: "column",
-          gap: 1.25,
+          gap: "12px",
           borderBottom: `1px solid ${brand.line}`,
           bgcolor: alpha(brand.surface2, 0.4),
         }}
       >
-        {/* Breadcrumb row */}
+        {/* Breadcrumb / title row */}
         <Stack
           direction="row"
           alignItems="center"
@@ -531,10 +532,10 @@ export default function DocumentsPage() {
             onClick={() => setCurrentFolderId(null)}
             sx={{
               p: 0.5,
-              color: currentFolderId ? brand.muted : brand.violet2,
+              color: currentFolderId ? brand.muted : brand.purple,
               "&:hover": {
-                color: brand.violet2,
-                bgcolor: alpha(brand.violet, 0.1),
+                color: brand.purple,
+                bgcolor: alpha(brand.purple, 0.1),
               },
             }}
             aria-label="Root"
@@ -555,8 +556,8 @@ export default function DocumentsPage() {
                   <Typography
                     sx={{
                       fontFamily: fonts.display,
-                      fontWeight: 700,
-                      fontSize: "1rem",
+                      fontWeight: 600,
+                      fontSize: "1.25rem",
                       color: brand.text,
                       letterSpacing: "-0.01em",
                     }}
@@ -588,11 +589,10 @@ export default function DocumentsPage() {
             <Typography
               sx={{
                 fontFamily: fonts.display,
-                fontWeight: 700,
-                fontSize: "1rem",
+                fontWeight: 600,
+                fontSize: "1.25rem",
                 color: brand.text,
-                ml: 0.5,
-                letterSpacing: "-0.01em",
+                ml: 0.25,
               }}
             >
               All Documents
@@ -606,11 +606,12 @@ export default function DocumentsPage() {
                 ml: 1.25,
                 height: 22,
                 fontFamily: fonts.mono,
-                fontSize: "0.65rem",
+                fontSize: "0.68rem",
                 letterSpacing: "0.08em",
-                bgcolor: alpha(brand.cyan, 0.08),
+                bgcolor: "transparent",
                 color: brand.cyan,
-                border: `1px solid ${alpha(brand.cyan, 0.3)}`,
+                border: `1px solid ${alpha(brand.cyan, 0.4)}`,
+                borderRadius: "3px",
               }}
             />
           )}
@@ -653,14 +654,18 @@ export default function DocumentsPage() {
             size="small"
             onChange={(_, v) => v && setViewMode(v)}
             sx={{
+              border: `1px solid ${brand.lineGlow}`,
+              borderRadius: "3px",
+              overflow: "hidden",
               "& .MuiToggleButton-root": {
-                border: `1px solid ${brand.line}`,
+                border: 0,
+                borderRadius: 0,
                 color: brand.muted,
-                px: 1,
-                py: 0.5,
+                px: "10px",
+                py: "6px",
                 "&.Mui-selected": {
-                  color: brand.violet2,
-                  bgcolor: alpha(brand.violet, 0.15),
+                  color: brand.magenta,
+                  bgcolor: alpha(brand.magenta, 0.14),
                 },
               },
             }}
@@ -742,30 +747,40 @@ export default function DocumentsPage() {
           direction="row"
           spacing={1}
           alignItems="center"
-          sx={{ mb: 2.5, color: brand.muted }}
+          sx={{
+            mb: 2.5,
+            px: "14px",
+            py: "10px",
+            border: `1px dashed ${alpha(brand.cyan, 0.33)}`,
+            borderRadius: "4px",
+            bgcolor: alpha(brand.cyan, 0.03),
+          }}
         >
           <IconButton
             onClick={handleMicClick}
             size="small"
             sx={{
+              width: 32,
+              height: 32,
+              borderRadius: "3px",
               bgcolor: isRecording
-                ? alpha("#ef4444", 0.2)
-                : alpha(brand.violet, 0.1),
+                ? alpha(brand.red, 0.2)
+                : alpha(brand.purple, 0.14),
               border: `1px solid ${
-                isRecording ? alpha("#ef4444", 0.5) : brand.line
+                isRecording ? alpha(brand.red, 0.5) : alpha(brand.purple, 0.4)
               }`,
-              color: isRecording ? "#ef4444" : brand.violet2,
+              color: isRecording ? brand.red : alpha(brand.purple, 1),
               "&:hover": {
                 bgcolor: isRecording
-                  ? alpha("#ef4444", 0.3)
-                  : alpha(brand.violet, 0.2),
+                  ? alpha(brand.red, 0.3)
+                  : alpha(brand.purple, 0.22),
               },
             }}
           >
             {isRecording ? (
-              <StopIcon fontSize="small" />
+              <StopIcon sx={{ fontSize: 16 }} />
             ) : (
-              <MicIcon fontSize="small" />
+              <MicIcon sx={{ fontSize: 16 }} />
             )}
           </IconButton>
           {isRecording ? (
@@ -775,22 +790,28 @@ export default function DocumentsPage() {
                   width: 8,
                   height: 8,
                   borderRadius: "50%",
-                  bgcolor: "#ef4444",
+                  bgcolor: brand.red,
                   animation: `${pulse} 1.2s ease-in-out infinite`,
                 }}
               />
               <Typography
                 sx={{
-                  color: "#ef4444",
+                  color: brand.red,
                   fontFamily: fonts.mono,
-                  fontSize: "0.85rem",
+                  fontSize: "0.82rem",
                 }}
               >
                 {formatTime(recordingTime)}
               </Typography>
             </Stack>
           ) : (
-            <Typography sx={{ fontFamily: fonts.body, fontSize: "0.8rem" }}>
+            <Typography
+              sx={{
+                fontFamily: fonts.body,
+                fontSize: "0.8rem",
+                color: brand.muted,
+              }}
+            >
               Record audio · or drop files anywhere on this page
             </Typography>
           )}
@@ -871,148 +892,171 @@ export default function DocumentsPage() {
                   gap: viewMode === "grid" ? 1.5 : 0.5,
                 }}
               >
-                {filteredFolders.map((folder) => (
-                  <Paper
-                    key={folder.id}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      setIntegrationsTarget({
-                        id: folder.id,
-                        name: folder.name,
-                        kind: folder.kind,
-                      });
-                    }}
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setDragOverFolderId(folder.id);
-                    }}
-                    onDragLeave={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setDragOverFolderId((prev) =>
-                        prev === folder.id ? null : prev
-                      );
-                    }}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setDragOverFolderId(null);
-                      setDragOver(false);
-                      const docFilename = e.dataTransfer.getData(
-                        "application/x-document-filename"
-                      );
-                      if (docFilename) {
-                        move(docFilename, folder.id);
-                        return;
-                      }
-                      const droppedFiles = Array.from(e.dataTransfer.files);
-                      for (const f of droppedFiles) {
-                        upload(f, folder.id);
-                      }
-                    }}
-                    sx={{
-                      p: viewMode === "grid" ? 1.5 : 1,
-                      px: viewMode === "grid" ? 1.5 : 1.75,
-                      position: "relative",
-                      cursor: "pointer",
-                      display: "flex",
-                      flexDirection: viewMode === "grid" ? "column" : "row",
-                      alignItems: "center",
-                      gap: viewMode === "grid" ? 0.5 : 1.25,
-                      borderRadius: 2.5,
-                      overflow: "hidden",
-                      bgcolor:
+                {filteredFolders.map((folder) => {
+                  const folderColor =
+                    folder.kind === "repo" ? brand.cyan : brand.magenta;
+                  return (
+                    <CornerCard
+                      key={folder.id}
+                      color={
                         dragOverFolderId === folder.id
-                          ? alpha("#FF2E93", 0.12)
-                          : alpha("#1e1e2e", 0.4),
-                      border: `1px solid ${
-                        dragOverFolderId === folder.id
-                          ? alpha("#FF2E93", 0.5)
-                          : alpha("#ffffff", 0.04)
-                      }`,
-                      transition: "all 0.15s ease",
-                      "&:hover": {
-                        transform: "translateY(-1px)",
-                        borderColor: alpha("#FF2E93", 0.25),
-                        boxShadow: `0 4px 16px ${alpha("#FF2E93", 0.1)}`,
-                        "& .folder-card-delete": { opacity: 1 },
-                      },
-                    }}
-                    onClick={() => setCurrentFolderId(folder.id)}
-                  >
-                    <IconButton
-                      className="folder-card-delete"
-                      size="small"
-                      title="Chat with this folder"
-                      sx={{
-                        position: "absolute",
-                        top: 6,
-                        right: 28,
-                        opacity: 0,
-                        transition: "opacity 0.15s",
-                        p: 0.25,
-                        bgcolor: alpha("#000000", 0.3),
-                        "&:hover": { bgcolor: alpha("#FF2E93", 0.3) },
+                          ? brand.magenta
+                          : folderColor
+                      }
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setIntegrationsTarget({
+                          id: folder.id,
+                          name: folder.name,
+                          kind: folder.kind,
+                        });
                       }}
-                      onClick={(e) => {
+                      onDragOver={(e) => {
+                        e.preventDefault();
                         e.stopPropagation();
-                        navigate(
-                          `/?scope_folder=${folder.id}` +
-                            `&scope_name=${encodeURIComponent(folder.name)}`
+                        setDragOverFolderId(folder.id);
+                      }}
+                      onDragLeave={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setDragOverFolderId((prev) =>
+                          prev === folder.id ? null : prev
                         );
                       }}
-                    >
-                      <ChatBubbleOutlineIcon sx={{ fontSize: 14 }} />
-                    </IconButton>
-                    <IconButton
-                      className="folder-card-delete"
-                      size="small"
-                      sx={{
-                        position: "absolute",
-                        top: 6,
-                        right: 6,
-                        opacity: 0,
-                        transition: "opacity 0.15s",
-                        p: 0.25,
-                        bgcolor: alpha("#000000", 0.3),
-                        "&:hover": { bgcolor: alpha("#ef4444", 0.3) },
-                      }}
-                      onClick={(e) => {
+                      onDrop={(e: React.DragEvent) => {
+                        e.preventDefault();
                         e.stopPropagation();
-                        handleRequestDeleteFolder(folder.id, folder.name);
+                        setDragOverFolderId(null);
+                        setDragOver(false);
+                        const docFilename = e.dataTransfer.getData(
+                          "application/x-document-filename"
+                        );
+                        if (docFilename) {
+                          move(docFilename, folder.id);
+                          return;
+                        }
+                        const droppedFiles = Array.from(e.dataTransfer.files);
+                        for (const f of droppedFiles) {
+                          upload(f, folder.id);
+                        }
                       }}
-                    >
-                      <DeleteIcon sx={{ fontSize: 14 }} />
-                    </IconButton>
-                    {folder.kind === "repo" ? (
-                      <AccountTreeIcon
-                        sx={{
-                          fontSize: viewMode === "grid" ? 36 : 22,
-                          color: "#06b6d4",
-                        }}
-                      />
-                    ) : (
-                      <FolderIcon
-                        sx={{
-                          fontSize: viewMode === "grid" ? 36 : 22,
-                          color: "#FF2E93",
-                        }}
-                      />
-                    )}
-                    <Typography
-                      variant="caption"
-                      noWrap
                       sx={{
-                        maxWidth: "100%",
-                        fontWeight: 500,
-                        textAlign: viewMode === "grid" ? "center" : "left",
+                        height: 80,
+                        px: viewMode === "grid" ? "16px" : "14px",
+                        position: "relative",
+                        cursor: "pointer",
+                        display: "flex",
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: "12px",
+                        bgcolor:
+                          dragOverFolderId === folder.id
+                            ? alpha(brand.magenta, 0.1)
+                            : brand.surface,
+                        transition: "all 0.15s ease",
+                        "&:hover": {
+                          bgcolor: alpha(folderColor, 0.06),
+                          "& .folder-card-delete": { opacity: 1 },
+                        },
                       }}
+                      onClick={() => setCurrentFolderId(folder.id)}
                     >
-                      {folder.name}
-                    </Typography>
-                  </Paper>
-                ))}
+                      <IconButton
+                        className="folder-card-delete"
+                        size="small"
+                        title="Chat with this folder"
+                        sx={{
+                          position: "absolute",
+                          top: 6,
+                          right: 28,
+                          opacity: 0,
+                          transition: "opacity 0.15s",
+                          p: 0.25,
+                          bgcolor: alpha("#000000", 0.3),
+                          "&:hover": { bgcolor: alpha(brand.magenta, 0.3) },
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(
+                            `/?scope_folder=${folder.id}` +
+                              `&scope_name=${encodeURIComponent(folder.name)}`
+                          );
+                        }}
+                      >
+                        <ChatBubbleOutlineIcon sx={{ fontSize: 14 }} />
+                      </IconButton>
+                      <IconButton
+                        className="folder-card-delete"
+                        size="small"
+                        sx={{
+                          position: "absolute",
+                          top: 6,
+                          right: 6,
+                          opacity: 0,
+                          transition: "opacity 0.15s",
+                          p: 0.25,
+                          bgcolor: alpha("#000000", 0.3),
+                          "&:hover": { bgcolor: alpha(brand.red, 0.3) },
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRequestDeleteFolder(folder.id, folder.name);
+                        }}
+                      >
+                        <DeleteIcon sx={{ fontSize: 14 }} />
+                      </IconButton>
+                      {folder.kind === "repo" ? (
+                        <AccountTreeIcon
+                          sx={{
+                            fontSize: 22,
+                            color: folderColor,
+                            filter: `drop-shadow(0 0 6px ${folderColor})`,
+                            flexShrink: 0,
+                          }}
+                        />
+                      ) : (
+                        <FolderIcon
+                          sx={{
+                            fontSize: 22,
+                            color: folderColor,
+                            filter: `drop-shadow(0 0 6px ${folderColor})`,
+                            flexShrink: 0,
+                          }}
+                        />
+                      )}
+                      <Box
+                        sx={{
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: "2px",
+                          minWidth: 0,
+                        }}
+                      >
+                        <Typography
+                          noWrap
+                          sx={{
+                            fontWeight: 500,
+                            fontSize: "0.875rem",
+                            color: brand.text,
+                          }}
+                        >
+                          {folder.name}
+                        </Typography>
+                        <Typography
+                          sx={{
+                            fontFamily: fonts.mono,
+                            fontSize: "0.62rem",
+                            letterSpacing: "0.16em",
+                            color: brand.muted,
+                            textTransform: "uppercase",
+                          }}
+                        >
+                          {folder.kind === "repo" ? "REPO" : "FOLDER"}
+                        </Typography>
+                      </Box>
+                    </CornerCard>
+                  );
+                })}
               </Box>
             </Box>
           )}

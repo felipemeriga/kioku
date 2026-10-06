@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { Box, Paper, Typography, Chip, alpha } from "@mui/material";
-import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
-import TravelExploreIcon from "@mui/icons-material/TravelExplore";
+import { Box, Typography, Chip, alpha } from "@mui/material";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { DebugTrace } from "../lib/api";
 import InspectDialog from "./InspectDialog";
+import CornerCard from "./neo/CornerCard";
+import { brand, fonts } from "../theme";
 
 interface MessageBubbleProps {
   role: "user" | "assistant";
@@ -35,46 +35,43 @@ export default function MessageBubble({
         <Box
           data-testid="assistant-avatar"
           sx={{
-            width: 28,
-            height: 28,
-            borderRadius: 1.5,
-            bgcolor: alpha("#FF2E93", 0.15),
+            width: 30,
+            height: 30,
+            flexShrink: 0,
+            borderRadius: 1,
+            border: `1px solid ${brand.cyan}66`,
+            background: `${brand.cyan}14`,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            flexShrink: 0,
+            color: brand.cyan,
+            fontSize: 14,
             mt: 0.5,
           }}
         >
-          <AutoAwesomeIcon sx={{ fontSize: 14, color: "#a78bfa" }} />
+          ✦
         </Box>
       )}
       <Box
         sx={{
           display: "flex",
           flexDirection: "column",
-          alignItems: "flex-start",
+          alignItems: isUser ? "flex-end" : "flex-start",
           maxWidth: "70%",
           minWidth: 0,
         }}
       >
-        <Paper
-          elevation={0}
-          sx={{
-            px: 2,
-            py: 1.5,
-            width: "100%",
-            bgcolor: isUser ? alpha("#FF2E93", 0.15) : alpha("#1e1e2e", 0.6),
-            border: 1,
-            borderColor: isUser
-              ? alpha("#FF2E93", 0.25)
-              : alpha("#ffffff", 0.06),
-            backdropFilter: "blur(10px)",
-            WebkitBackdropFilter: "blur(10px)",
-            borderRadius: 3,
-          }}
-        >
-          {isUser ? (
+        {isUser ? (
+          /* ── User bubble ── right-aligned, magenta tint */
+          <Box
+            sx={{
+              px: 2,
+              py: 1.5,
+              background: `${brand.magenta}15`,
+              border: `1px solid ${brand.magenta}25`,
+              borderRadius: "12px 12px 3px 12px",
+            }}
+          >
             <Typography
               sx={{
                 fontSize: "0.925rem",
@@ -87,7 +84,14 @@ export default function MessageBubble({
             >
               {content}
             </Typography>
-          ) : (
+          </Box>
+        ) : (
+          /* ── Assistant bubble ── CornerCard with cyan corners */
+          <CornerCard
+            color={brand.cyan}
+            corners={2}
+            sx={{ px: 2.25, py: 2, width: "100%" }}
+          >
             <Box
               sx={{
                 "& p": { m: 0, mb: 1, "&:last-child": { mb: 0 } },
@@ -102,10 +106,10 @@ export default function MessageBubble({
                 },
                 "& code": {
                   fontSize: "0.85rem",
-                  fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+                  fontFamily: fonts.mono,
                 },
                 "& a": {
-                  color: "#93c5fd",
+                  color: brand.cyan,
                   textDecoration: "none",
                   "&:hover": { textDecoration: "underline" },
                 },
@@ -123,7 +127,7 @@ export default function MessageBubble({
                   fontSize: "0.85rem",
                 },
                 "& thead": {
-                  bgcolor: alpha("#FF2E93", 0.12),
+                  bgcolor: alpha(brand.magenta, 0.12),
                 },
                 "& th, & td": {
                   px: 1.25,
@@ -138,7 +142,7 @@ export default function MessageBubble({
                   m: 0,
                   my: 1,
                   pl: 1.5,
-                  borderLeft: `3px solid ${alpha("#FF2E93", 0.5)}`,
+                  borderLeft: `3px solid ${alpha(brand.magenta, 0.5)}`,
                   color: alpha("#ffffff", 0.75),
                 },
                 fontSize: "0.925rem",
@@ -163,22 +167,25 @@ export default function MessageBubble({
                 {content}
               </ReactMarkdown>
             </Box>
-          )}
-        </Paper>
+          </CornerCard>
+        )}
         {!isUser && debug && (
           <Chip
-            icon={<TravelExploreIcon sx={{ fontSize: 15 }} />}
-            label="Inspect"
+            label="⌕ Inspect"
             size="small"
             onClick={() => setInspectOpen(true)}
             sx={{
               mt: 0.75,
               cursor: "pointer",
-              bgcolor: alpha("#22d3ee", 0.1),
-              color: "#22d3ee",
-              border: `1px solid ${alpha("#22d3ee", 0.3)}`,
-              "& .MuiChip-icon": { color: "#22d3ee" },
-              "&:hover": { bgcolor: alpha("#22d3ee", 0.2) },
+              height: 28,
+              fontFamily: fonts.mono,
+              fontSize: "0.75rem",
+              bgcolor: `${brand.cyan}10`,
+              color: brand.cyan,
+              border: `1px solid ${brand.cyan}66`,
+              borderRadius: "3px",
+              "& .MuiChip-label": { px: 1.25 },
+              "&:hover": { bgcolor: `${brand.cyan}20` },
             }}
           />
         )}

@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kioku settings</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;family=Noto+Sans+JP:wght@400;700;900&amp;family=DotGothic16&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#08040F}
+a{color:#00F0FF}a:hover{color:#F5F0FF}
+</style>
+</helmet>
+<div style="width: 1440px; height: 1400px; position: relative; overflow: hidden; display: flex; background-color: #08040F; background-image: radial-gradient(circle at 92% 100%, #00F0FF18 0%, transparent 40%), repeating-linear-gradient(0deg, rgba(255,255,255,0.018) 0px, rgba(255,255,255,0.018) 1px, transparent 1px, transparent 3px); color: #F5F0FF; font-family: Rubik, 'Noto Sans JP', sans-serif;">
+
+  <nav aria-label="Main" style="width: 200px; flex-shrink: 0; display: flex; flex-direction: column; border-right: 1px solid #2A1758; background: #0A0517;">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 16px; border-bottom: 1px solid #2A1758;">
+      <div style="width: 34px; height: 34px; border-radius: 6px; border: 1.5px solid #FF2E93; display: flex; align-items: center; justify-content: center; font-family: 'Noto Sans JP', sans-serif; font-weight: 900; font-size: 18px; color: #FF6DB1; box-shadow: 0 0 4px #FF2E9388, 0 0 16px #FF2E9344;">記</div>
+      <div style="display: flex; flex-direction: column; line-height: 1;"><span style="font-family: DotGothic16, monospace; font-size: 10px; letter-spacing: 0.3em; color: #00F0FF;">キオク</span><span style="font-weight: 700; font-size: 18px; letter-spacing: 0.06em; text-shadow: 0 0 10px #FF2E9366;">KIOKU</span></div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 4px; padding: 12px;">
+      <a href="#" style="display: flex; align-items: center; height: 42px; padding: 0 12px; border-radius: 3px; text-decoration: none; color: #9788B8; font-size: 14px;">Chat</a>
+      <a href="#" style="display: flex; align-items: center; height: 42px; padding: 0 12px; border-radius: 3px; text-decoration: none; color: #9788B8; font-size: 14px;">Documents</a>
+      <a href="#" style="display: flex; align-items: center; height: 42px; padding: 0 12px; border-radius: 3px; text-decoration: none; background: #FF2E9322; box-shadow: inset 2px 0 0 #FF2E93, 0 0 12px #FF2E9322; color: #F5F0FF; font-weight: 600; font-size: 14px;">Settings</a>
+    </div>
+  </nav>
+
+  <main style="flex-grow: 1; min-width: 0; display: flex; justify-content: center; padding: 32px 40px;">
+    <div style="width: 720px; display: flex; flex-direction: column; gap: 22px;">
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.3em; color: #9788B8;">WORKSPACE</span>
+        <h1 style="margin: 0; font-size: 34px; font-weight: 700; text-shadow: 0 0 18px #FF2E9355;">Settings</h1>
+        <span style="font-size: 14px; color: #9788B8;">Manage MCP keys, Notion sync, and workspace connections.</span>
+      </div>
+
+      <section style="position: relative; display: flex; flex-direction: column; gap: 14px; padding: 22px 24px; border: 1px solid #2A1758; border-radius: 4px; background: #0F0820;">
+        <div style="position: absolute; left: -1px; top: -1px; width: 14px; height: 14px; border-left: 2px solid #FF2E93; border-top: 2px solid #FF2E93;"></div>
+        <div style="display: flex; align-items: baseline; gap: 10px;"><span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #FF2E93;">01</span><h2 style="margin: 0; font-size: 19px; font-weight: 600;">MCP API Keys</h2></div>
+        <p style="margin: 0; font-size: 14px; line-height: 1.5; color: #9788B8;">Generate API keys scoped to root folders. Each scope (e.g., Work, Personal) gets its own key for isolated MCP access.</p>
+        <sc-for list="{{keys}}" as="k" hint-placeholder-count="2">
+          <div style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 4px; border: 1px solid #4B2688; background: #0A0517;">
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 14px; color: #FF2E93; text-shadow: 0 0 6px #FF2E93;">⚿</span>
+            <span style="font-size: 14px; font-weight: 500;">{{k.name}}</span>
+            <span style="padding: 2px 8px; border-radius: 3px; background: #FF2E93; color: #08040F; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600;">{{k.scope}}</span>
+            <div style="flex-grow: 1;"></div>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #9788B8;">{{k.date}}</span>
+            <button aria-label="Revoke key" style="width: 30px; height: 30px; border: 0; border-radius: 3px; background: transparent; color: #9788B8;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg></button>
+          </div>
+        </sc-for>
+        <div style="display: flex; gap: 10px; align-items: flex-end;">
+          <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 6px;">
+            <label for="kn" style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.2em; color: #9788B8;">KEY NAME</label>
+            <input id="kn" value="Default" style="height: 40px; padding: 0 12px; border-radius: 4px; border: 1px solid #2A1758; background: #0A0517; color: #F5F0FF; font-size: 14px;">
+          </div>
+          <div style="width: 150px; display: flex; flex-direction: column; gap: 6px;">
+            <label for="sc" style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.2em; color: #9788B8;">SCOPE</label>
+            <select id="sc" style="height: 40px; padding: 0 10px; border-radius: 4px; border: 1px solid #2A1758; background: #0A0517; color: #9788B8; font-size: 14px;"><option>Scope</option></select>
+          </div>
+          <button style="height: 40px; padding: 0 16px; border: 0; border-radius: 4px; background-image: linear-gradient(90deg, #D31877 0%, #B026FF 100%); color: #ffffff; font-weight: 600; font-size: 14px; box-shadow: 0 4px 12px #FF2E9344;">Generate</button>
+        </div>
+      </section>
+
+      <section style="position: relative; display: flex; flex-direction: column; gap: 14px; padding: 22px 24px; border: 1px solid #2A1758; border-radius: 4px; background: #0F0820;">
+        <div style="position: absolute; left: -1px; top: -1px; width: 14px; height: 14px; border-left: 2px solid #00F0FF; border-top: 2px solid #00F0FF;"></div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #00F0FF;">02</span><h2 style="margin: 0; font-size: 19px; font-weight: 600;">Notion Integration</h2>
+          <div style="flex-grow: 1;"></div>
+          <button style="height: 36px; padding: 0 14px; border: 0; border-radius: 4px; background-image: linear-gradient(90deg, #D31877 0%, #B026FF 100%); color: #ffffff; font-weight: 600; font-size: 13px;">Connect Notion</button>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border-radius: 4px; border: 1px solid #00F0FF44; background: #00F0FF08;">
+          <span style="font-size: 16px; font-weight: 600;">Engineering Wiki</span>
+          <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 16px; font-family: 'JetBrains Mono', monospace; font-size: 12px;">
+            <span><span style="color: #9788B8;">ROOT FOLDER </span>Eng wiki (Notion)</span>
+            <span><span style="color: #9788B8;">POLL </span>every 15 min</span>
+            <span><span style="color: #9788B8;">LAST FAST </span>10/6/2026, 12:29 AM</span>
+            <span><span style="color: #9788B8;">LAST FULL </span>10/5/2026, 4:43 AM</span>
+          </div>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button style="height: 34px; padding: 0 12px; border-radius: 4px; border: 1px solid #4B2688; background: transparent; color: #F5F0FF; font-size: 13px; font-weight: 600;">Check pending</button>
+            <button style="height: 34px; padding: 0 12px; border-radius: 4px; border: 1px solid #00F0FF; background: #00F0FF10; color: #00F0FF; font-size: 13px; font-weight: 600;">⟳ Sync now</button>
+            <button style="height: 34px; padding: 0 12px; border-radius: 4px; border: 1px solid #4B2688; background: transparent; color: #F5F0FF; font-size: 13px; font-weight: 600;">Reconcile</button>
+            <div style="flex-grow: 1;"></div>
+            <button style="height: 34px; padding: 0 12px; border-radius: 4px; border: 1px solid #FF3E5F66; background: transparent; color: #FF3E5F; font-size: 13px; font-weight: 600;">Disconnect</button>
+          </div>
+        </div>
+      </section>
+
+      <section style="position: relative; display: flex; flex-direction: column; gap: 10px; padding: 22px 24px; border: 1px solid #2A1758; border-radius: 4px; background: #0F0820;">
+        <div style="position: absolute; left: -1px; top: -1px; width: 14px; height: 14px; border-left: 2px solid #B026FF; border-top: 2px solid #B026FF;"></div>
+        <div style="display: flex; align-items: center; gap: 10px;"><span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #E2B8FF;">03</span><h2 style="margin: 0; font-size: 19px; font-weight: 600;">Mem0 memory</h2></div>
+        <p style="margin: 0; font-size: 14px; line-height: 1.6; color: #9788B8;">Memory is self-hosted and <strong style="color: #F5F0FF;">auto-on for repo folders</strong> — no API key, no connection step. Any folder wired as a repo (via <code style="font-family: 'JetBrains Mono', monospace; color: #00F0FF;">kioku init</code>) gets episodic + eternal memory automatically, scoped to that repo.</p>
+        <p style="margin: 0; font-size: 14px; line-height: 1.6; color: #9788B8;">Agents write memories with the <code style="font-family: 'JetBrains Mono', monospace; color: #00F0FF;">save_memory</code> tool and read them with <code style="font-family: 'JetBrains Mono', monospace; color: #00F0FF;">search_memory</code>. Browse or edit a repo’s memories from its folder’s <strong style="color: #F5F0FF;">Memory</strong> tab.</p>
+      </section>
+
+      <section style="position: relative; display: flex; flex-direction: column; gap: 12px; padding: 22px 24px; border: 1px solid #2A1758; border-radius: 4px; background: #0F0820;">
+        <div style="position: absolute; left: -1px; top: -1px; width: 14px; height: 14px; border-left: 2px solid #39FF14; border-top: 2px solid #39FF14;"></div>
+        <div style="display: flex; align-items: center; gap: 10px;"><span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #39FF14;">04</span><h2 style="margin: 0; font-size: 19px; font-weight: 600;">Connect MCP Client</h2></div>
+        <p style="margin: 0; font-size: 14px; color: #9788B8;">Add this to your MCP client configuration (e.g., <code style="font-family: 'JetBrains Mono', monospace; color: #00F0FF;">.mcp.json</code> for Claude Code):</p>
+        <pre style="margin: 0; padding: 16px 18px; border-radius: 4px; background: #050208; border: 1px solid #2A1758; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.6; color: #F5F0FF;">{
+  <span style="color: #FF6DB1;">"mcpServers"</span>: {
+    <span style="color: #FF6DB1;">"kioku"</span>: {
+      <span style="color: #00F0FF;">"type"</span>: <span style="color: #FFB700;">"sse"</span>,
+      <span style="color: #00F0FF;">"url"</span>: <span style="color: #FFB700;">"http://localhost:8001/sse"</span>,
+      <span style="color: #00F0FF;">"headers"</span>: { <span style="color: #00F0FF;">"Authorization"</span>: <span style="color: #FFB700;">"Bearer &lt;your-api-key&gt;"</span> }
+    }
+  }
+}</pre>
+      </section>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1400}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      keys: [
+        { name: 'Claude Code — laptop', scope: 'kioku', date: '9/22/2026' },
+        { name: 'CI agent', scope: 'obol-ledger', date: '10/3/2026' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

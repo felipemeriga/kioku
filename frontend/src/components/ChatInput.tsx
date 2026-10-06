@@ -9,12 +9,10 @@ import {
   MenuItem,
   ListSubheader,
   Tooltip,
-  alpha,
+  Typography,
 } from "@mui/material";
-import SendIcon from "@mui/icons-material/Send";
 import AttachFileIcon from "@mui/icons-material/AttachFile";
 import FilterListIcon from "@mui/icons-material/FilterList";
-import BugReportIcon from "@mui/icons-material/BugReport";
 import CenterFocusStrongIcon from "@mui/icons-material/CenterFocusStrong";
 import { uploadDocument, fetchDocumentFilters } from "../lib/api";
 import type {
@@ -24,13 +22,14 @@ import type {
   ChatScope,
   DocumentFilters,
 } from "../lib/api";
+import { useToast } from "./ToastProvider";
+import { brand, fonts } from "../theme";
 
 const MODE_LABEL: Record<ChatMode, string> = {
   plain: "Plain",
   agentic: "Agentic",
   deep: "Deep",
 };
-import { useToast } from "./ToastProvider";
 
 interface ChatInputProps {
   onSend: (
@@ -133,280 +132,418 @@ export default function ChatInput({
   return (
     <Box
       sx={{
-        borderTop: 1,
-        borderColor: "divider",
-        bgcolor: alpha("#121219", 0.5),
-        backdropFilter: "blur(10px)",
-        WebkitBackdropFilter: "blur(10px)",
+        px: "48px",
+        pb: "20px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 1,
       }}
     >
-      <Box sx={{ px: 2, py: 2 }}>
-        <Box
-          sx={{
-            display: "flex",
-            gap: 0.5,
-            flexWrap: "wrap",
-            mb: uploadedFile || hasFilters || scopeLabel ? 1 : 0,
-          }}
-        >
-          {scopeLabel && (
-            <Chip
-              icon={<CenterFocusStrongIcon sx={{ fontSize: 15 }} />}
-              label={scopeLabel}
-              size="small"
-              sx={{
-                bgcolor: alpha("#FF2E93", 0.12),
-                color: "#FF2E93",
-                "& .MuiChip-icon": { color: "#FF2E93" },
-              }}
-              onDelete={onClearScope}
-            />
-          )}
-          {uploadedFile && (
-            <Chip
-              label={`Uploaded: ${uploadedFile}`}
-              size="small"
-              onDelete={() => setUploadedFile(null)}
-            />
-          )}
-          {activeFilters.topic && (
-            <Chip
-              label={`Topic: ${activeFilters.topic}`}
-              size="small"
-              color="primary"
-              onDelete={() =>
-                setActiveFilters((f) => ({ ...f, topic: undefined }))
-              }
-            />
-          )}
-          {activeFilters.keyword && (
-            <Chip
-              label={`Keyword: ${activeFilters.keyword}`}
-              size="small"
-              color="secondary"
-              onDelete={() =>
-                setActiveFilters((f) => ({ ...f, keyword: undefined }))
-              }
-            />
-          )}
-        </Box>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-          <input
-            type="file"
-            ref={fileInputRef}
-            hidden
-            accept=".txt,.text,.md,.markdown,.pdf,.docx,.html,.htm,.json,.yaml,.yml"
-            onChange={handleFileSelect}
+      {/* ── Scope / filter chips row ── */}
+      <Box
+        sx={{
+          display: "flex",
+          gap: 0.75,
+          flexWrap: "wrap",
+        }}
+      >
+        {scopeLabel && (
+          <Chip
+            label={`◎ ${scopeLabel}`}
+            size="small"
+            sx={{
+              fontFamily: fonts.mono,
+              fontSize: "0.75rem",
+              borderRadius: "3px",
+              border: `1px solid ${brand.magenta}66`,
+              bgcolor: `${brand.magenta}14`,
+              color: brand.magentaGlow,
+              "& .MuiChip-label": { px: 1 },
+            }}
+            onDelete={onClearScope}
           />
-          <IconButton
-            onClick={() => fileInputRef.current?.click()}
-            disabled={disabled || uploading}
-          >
-            {uploading ? <CircularProgress size={20} /> : <AttachFileIcon />}
-          </IconButton>
-          {onPickScope && (
-            <Tooltip
-              title={
-                scope
-                  ? "Change the folder/file this chat searches"
-                  : "Limit this chat to one folder or file"
-              }
-            >
-              <IconButton
-                onClick={onPickScope}
-                disabled={disabled}
-                sx={{
-                  color: scope ? "#FF2E93" : undefined,
-                  bgcolor: scope ? alpha("#FF2E93", 0.1) : undefined,
-                  "&:hover": {
-                    bgcolor: scope ? alpha("#FF2E93", 0.2) : undefined,
-                  },
-                }}
-              >
-                <CenterFocusStrongIcon />
-              </IconButton>
-            </Tooltip>
-          )}
-          <Tooltip
-            title={
-              hasAvailableFilters ? "Filter search" : "No filters available yet"
+        )}
+        {uploadedFile && (
+          <Chip
+            label={`Uploaded: ${uploadedFile}`}
+            size="small"
+            onDelete={() => setUploadedFile(null)}
+            sx={{
+              fontFamily: fonts.mono,
+              fontSize: "0.75rem",
+              borderRadius: "3px",
+            }}
+          />
+        )}
+        {activeFilters.topic && (
+          <Chip
+            label={`Topic: ${activeFilters.topic}`}
+            size="small"
+            color="primary"
+            sx={{
+              fontFamily: fonts.mono,
+              fontSize: "0.75rem",
+              borderRadius: "3px",
+            }}
+            onDelete={() =>
+              setActiveFilters((f) => ({ ...f, topic: undefined }))
             }
-          >
-            <span>
-              <IconButton
-                onClick={(e) => setFilterAnchor(e.currentTarget)}
-                disabled={disabled || !hasAvailableFilters}
-                color={hasFilters ? "primary" : "default"}
-              >
-                <FilterListIcon />
-              </IconButton>
-            </span>
-          </Tooltip>
-          <Tooltip title="Mode — Plain (one-shot RAG) · Agentic (tools + loop) · Deep (+ reasoning)">
-            <Chip
-              label={MODE_LABEL[mode]}
-              size="small"
-              variant="outlined"
-              disabled={disabled}
-              onClick={(e) => setModeAnchor(e.currentTarget)}
-              sx={{
-                fontWeight: 600,
-                cursor: "pointer",
-                color: "#a78bfa",
-                borderColor: alpha("#a78bfa", 0.4),
-              }}
-            />
-          </Tooltip>
-          <Menu
-            anchorEl={modeAnchor}
-            open={Boolean(modeAnchor)}
-            onClose={() => setModeAnchor(null)}
-          >
-            <MenuItem
-              selected={mode === "plain"}
-              onClick={() => {
-                setMode("plain");
-                setModeAnchor(null);
-              }}
-            >
-              Plain — classic one-shot RAG
-            </MenuItem>
-            <MenuItem
-              selected={mode === "agentic"}
-              onClick={() => {
-                setMode("agentic");
-                setModeAnchor(null);
-              }}
-            >
-              Agentic — tools + iteration
-            </MenuItem>
-            <MenuItem
-              selected={mode === "deep"}
-              onClick={() => {
-                setMode("deep");
-                setModeAnchor(null);
-              }}
-            >
-              Deep — agentic + reasoning
-            </MenuItem>
-          </Menu>
-          <Tooltip title="Model — pick Sonnet (stronger) or Haiku (faster/cheaper)">
-            <Chip
-              label={model === "sonnet" ? "Sonnet" : "Haiku"}
-              size="small"
-              variant="outlined"
-              disabled={disabled}
-              onClick={(e) => setModelAnchor(e.currentTarget)}
-              sx={{ fontWeight: 600, cursor: "pointer" }}
-            />
-          </Tooltip>
-          <Menu
-            anchorEl={modelAnchor}
-            open={Boolean(modelAnchor)}
-            onClose={() => setModelAnchor(null)}
-          >
-            <MenuItem
-              selected={model === "sonnet"}
-              onClick={() => {
-                setModel("sonnet");
-                setModelAnchor(null);
-              }}
-            >
-              Sonnet — stronger reasoning
-            </MenuItem>
-            <MenuItem
-              selected={model === "haiku"}
-              onClick={() => {
-                setModel("haiku");
-                setModelAnchor(null);
-              }}
-            >
-              Haiku — faster & cheaper
-            </MenuItem>
-          </Menu>
+          />
+        )}
+        {activeFilters.keyword && (
+          <Chip
+            label={`Keyword: ${activeFilters.keyword}`}
+            size="small"
+            color="secondary"
+            sx={{
+              fontFamily: fonts.mono,
+              fontSize: "0.75rem",
+              borderRadius: "3px",
+            }}
+            onDelete={() =>
+              setActiveFilters((f) => ({ ...f, keyword: undefined }))
+            }
+          />
+        )}
+      </Box>
+
+      {/* ── Main input row ── */}
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          gap: 1,
+          px: 1,
+          py: 1,
+          border: `1px solid ${brand.magenta}`,
+          borderRadius: "4px",
+          bgcolor: brand.surface2,
+          boxShadow: `0 0 12px ${brand.magenta}44`,
+        }}
+      >
+        <input
+          type="file"
+          ref={fileInputRef}
+          hidden
+          accept=".txt,.text,.md,.markdown,.pdf,.docx,.html,.htm,.json,.yaml,.yml"
+          onChange={handleFileSelect}
+        />
+
+        {/* Attach */}
+        <IconButton
+          aria-label="Attach file"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={disabled || uploading}
+          sx={{ width: 34, height: 34, color: brand.muted, flexShrink: 0 }}
+        >
+          {uploading ? (
+            <CircularProgress size={18} />
+          ) : (
+            <AttachFileIcon sx={{ fontSize: 18 }} />
+          )}
+        </IconButton>
+
+        {/* Scope picker */}
+        {onPickScope && (
           <Tooltip
             title={
-              debug
-                ? "Debug ON — each answer gets an Inspect card (chunks, rerank, reasoning, tool calls)"
-                : "Debug OFF — turn on to inspect how each answer was produced"
+              scope
+                ? "Change the folder/file this chat searches"
+                : "Limit this chat to one folder or file"
             }
           >
             <IconButton
-              onClick={() => setDebug((prev) => !prev)}
+              aria-label="Scope"
+              onClick={onPickScope}
               disabled={disabled}
               sx={{
-                color: debug ? "#22d3ee" : undefined,
-                bgcolor: debug ? alpha("#22d3ee", 0.1) : undefined,
-                "&:hover": {
-                  bgcolor: debug ? alpha("#22d3ee", 0.2) : undefined,
-                },
+                width: 34,
+                height: 34,
+                flexShrink: 0,
+                color: scope ? brand.magenta : brand.muted,
+                bgcolor: scope ? `${brand.magenta}22` : "transparent",
+                "&:hover": { bgcolor: `${brand.magenta}22` },
               }}
             >
-              <BugReportIcon />
+              <CenterFocusStrongIcon sx={{ fontSize: 18 }} />
             </IconButton>
           </Tooltip>
-          <Menu
-            anchorEl={filterAnchor}
-            open={Boolean(filterAnchor)}
-            onClose={() => setFilterAnchor(null)}
-          >
-            {availableFilters.topics.length > 0 && (
-              <ListSubheader>Topics</ListSubheader>
-            )}
-            {availableFilters.topics.map((t) => (
-              <MenuItem
-                key={`topic-${t}`}
-                selected={activeFilters.topic === t}
-                onClick={() => {
-                  setActiveFilters((f) => ({
-                    ...f,
-                    topic: f.topic === t ? undefined : t,
-                  }));
-                  setFilterAnchor(null);
-                }}
-              >
-                {t}
-              </MenuItem>
-            ))}
-            {availableFilters.keywords.length > 0 && (
-              <ListSubheader>Keywords</ListSubheader>
-            )}
-            {availableFilters.keywords.map((k) => (
-              <MenuItem
-                key={`kw-${k}`}
-                selected={activeFilters.keyword === k}
-                onClick={() => {
-                  setActiveFilters((f) => ({
-                    ...f,
-                    keyword: f.keyword === k ? undefined : k,
-                  }));
-                  setFilterAnchor(null);
-                }}
-              >
-                {k}
-              </MenuItem>
-            ))}
-          </Menu>
-          <TextField
-            fullWidth
-            multiline
-            maxRows={4}
-            placeholder="Ask a question about your documents..."
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            disabled={disabled}
+        )}
+
+        {/* Filter */}
+        <Tooltip
+          title={
+            hasAvailableFilters ? "Filter search" : "No filters available yet"
+          }
+        >
+          <span>
+            <IconButton
+              aria-label="Filters"
+              onClick={(e) => setFilterAnchor(e.currentTarget)}
+              disabled={disabled || !hasAvailableFilters}
+              sx={{
+                width: 34,
+                height: 34,
+                flexShrink: 0,
+                color: hasFilters ? brand.magenta : brand.muted,
+              }}
+            >
+              <FilterListIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+          </span>
+        </Tooltip>
+
+        {/* Mode chip */}
+        <Tooltip title="Mode — Plain (one-shot RAG) · Agentic (tools + loop) · Deep (+ reasoning)">
+          <Chip
+            label={MODE_LABEL[mode]}
             size="small"
+            variant="outlined"
+            disabled={disabled}
+            onClick={(e) => setModeAnchor(e.currentTarget)}
+            sx={{
+              fontFamily: fonts.mono,
+              fontSize: "0.75rem",
+              borderRadius: "3px",
+              cursor: "pointer",
+              flexShrink: 0,
+              color: brand.purple,
+              borderColor: `${brand.purple}66`,
+              bgcolor: `${brand.purple}22`,
+              "& .MuiChip-label": { px: 1 },
+            }}
           />
-          <IconButton
-            color="primary"
-            onClick={handleSend}
-            disabled={disabled || !input.trim()}
+        </Tooltip>
+        <Menu
+          anchorEl={modeAnchor}
+          open={Boolean(modeAnchor)}
+          onClose={() => setModeAnchor(null)}
+        >
+          <MenuItem
+            selected={mode === "plain"}
+            onClick={() => {
+              setMode("plain");
+              setModeAnchor(null);
+            }}
           >
-            <SendIcon />
-          </IconButton>
-        </Box>
+            Plain — classic one-shot RAG
+          </MenuItem>
+          <MenuItem
+            selected={mode === "agentic"}
+            onClick={() => {
+              setMode("agentic");
+              setModeAnchor(null);
+            }}
+          >
+            Agentic — tools + iteration
+          </MenuItem>
+          <MenuItem
+            selected={mode === "deep"}
+            onClick={() => {
+              setMode("deep");
+              setModeAnchor(null);
+            }}
+          >
+            Deep — agentic + reasoning
+          </MenuItem>
+        </Menu>
+
+        {/* Model chip */}
+        <Tooltip title="Model — pick Sonnet (stronger) or Haiku (faster/cheaper)">
+          <Chip
+            label={model === "sonnet" ? "Sonnet" : "Haiku"}
+            size="small"
+            variant="outlined"
+            disabled={disabled}
+            onClick={(e) => setModelAnchor(e.currentTarget)}
+            sx={{
+              fontFamily: fonts.mono,
+              fontSize: "0.75rem",
+              borderRadius: "3px",
+              cursor: "pointer",
+              flexShrink: 0,
+              borderColor: brand.lineGlow,
+              "& .MuiChip-label": { px: 1 },
+            }}
+          />
+        </Tooltip>
+        <Menu
+          anchorEl={modelAnchor}
+          open={Boolean(modelAnchor)}
+          onClose={() => setModelAnchor(null)}
+        >
+          <MenuItem
+            selected={model === "sonnet"}
+            onClick={() => {
+              setModel("sonnet");
+              setModelAnchor(null);
+            }}
+          >
+            Sonnet — stronger reasoning
+          </MenuItem>
+          <MenuItem
+            selected={model === "haiku"}
+            onClick={() => {
+              setModel("haiku");
+              setModelAnchor(null);
+            }}
+          >
+            Haiku — faster & cheaper
+          </MenuItem>
+        </Menu>
+
+        {/* DBG toggle */}
+        <Tooltip
+          title={
+            debug
+              ? "Debug ON — each answer gets an Inspect card (chunks, rerank, reasoning, tool calls)"
+              : "Debug OFF — turn on to inspect how each answer was produced"
+          }
+        >
+          <Box
+            component="button"
+            aria-label="Debug"
+            onClick={() => setDebug((prev) => !prev)}
+            disabled={disabled}
+            sx={{
+              width: 34,
+              height: 34,
+              flexShrink: 0,
+              border: debug
+                ? `1px solid ${brand.cyan}55`
+                : `1px solid ${brand.line}`,
+              borderRadius: "3px",
+              background: debug ? `${brand.cyan}14` : "transparent",
+              color: debug ? brand.cyan : brand.muted,
+              fontFamily: fonts.mono,
+              fontSize: "0.6875rem",
+              cursor: disabled ? "default" : "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              transition: "background 0.15s, border-color 0.15s",
+              "&:hover:not(:disabled)": { bgcolor: `${brand.cyan}20` },
+            }}
+          >
+            DBG
+          </Box>
+        </Tooltip>
+
+        {/* Prompt prefix glyph */}
+        <Typography
+          sx={{
+            fontFamily: fonts.mono,
+            fontSize: "0.875rem",
+            color: brand.magenta,
+            ml: 0.75,
+            flexShrink: 0,
+            userSelect: "none",
+          }}
+        >
+          &gt;
+        </Typography>
+
+        {/* Text field */}
+        <TextField
+          fullWidth
+          multiline
+          maxRows={4}
+          placeholder="Ask a question about your documents..."
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          disabled={disabled}
+          size="small"
+          variant="standard"
+          InputProps={{ disableUnderline: true }}
+          sx={{
+            "& .MuiInputBase-root": {
+              bgcolor: "transparent",
+              borderRadius: 0,
+              px: 0,
+            },
+            "& .MuiInputBase-input": {
+              color: brand.text,
+              fontFamily: fonts.body,
+              fontSize: "0.875rem",
+            },
+            "& .MuiInputBase-input::placeholder": {
+              color: brand.dim,
+              opacity: 1,
+            },
+          }}
+        />
+
+        {/* Neon send button */}
+        <IconButton
+          aria-label="Send"
+          onClick={handleSend}
+          disabled={disabled || !input.trim()}
+          sx={{
+            width: 40,
+            height: 34,
+            flexShrink: 0,
+            borderRadius: "4px",
+            background:
+              disabled || !input.trim()
+                ? `${brand.magenta}44`
+                : `linear-gradient(90deg, ${brand.magentaDeep} 0%, ${brand.purple} 100%)`,
+            color: "#fff",
+            fontSize: "0.9375rem",
+            border: 0,
+            "&:hover:not(:disabled)": {
+              background: `linear-gradient(90deg, ${brand.magenta} 0%, ${brand.purple} 100%)`,
+              boxShadow: `0 0 16px ${brand.magenta}55`,
+            },
+          }}
+        >
+          ➤
+        </IconButton>
       </Box>
+
+      {/* Filter menus (kept out of toolbar to preserve DOM structure) */}
+      <Menu
+        anchorEl={filterAnchor}
+        open={Boolean(filterAnchor)}
+        onClose={() => setFilterAnchor(null)}
+      >
+        {availableFilters.topics.length > 0 && (
+          <ListSubheader>Topics</ListSubheader>
+        )}
+        {availableFilters.topics.map((t) => (
+          <MenuItem
+            key={`topic-${t}`}
+            selected={activeFilters.topic === t}
+            onClick={() => {
+              setActiveFilters((f) => ({
+                ...f,
+                topic: f.topic === t ? undefined : t,
+              }));
+              setFilterAnchor(null);
+            }}
+          >
+            {t}
+          </MenuItem>
+        ))}
+        {availableFilters.keywords.length > 0 && (
+          <ListSubheader>Keywords</ListSubheader>
+        )}
+        {availableFilters.keywords.map((k) => (
+          <MenuItem
+            key={`kw-${k}`}
+            selected={activeFilters.keyword === k}
+            onClick={() => {
+              setActiveFilters((f) => ({
+                ...f,
+                keyword: f.keyword === k ? undefined : k,
+              }));
+              setFilterAnchor(null);
+            }}
+          >
+            {k}
+          </MenuItem>
+        ))}
+      </Menu>
     </Box>
   );
 }

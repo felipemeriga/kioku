@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kioku CLI sign-in</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;family=Noto+Sans+JP:wght@900&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#08040F}
+a{color:#00F0FF}a:hover{color:#F5F0FF}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; background-color: #08040F; background-image: radial-gradient(circle at 20% 0%, #FF2E9326 0%, transparent 45%), radial-gradient(circle at 90% 100%, #00F0FF18 0%, transparent 45%), repeating-linear-gradient(0deg, rgba(255,255,255,0.018) 0px, rgba(255,255,255,0.018) 1px, transparent 1px, transparent 3px); color: #F5F0FF; font-family: Rubik, sans-serif;">
+
+  <div style="position: relative; width: 480px; display: flex; flex-direction: column; gap: 18px; padding: 32px; border: 1px solid #4B2688; border-radius: 4px; background: #0F0820; box-shadow: 0 12px 32px rgba(0,0,0,0.55);">
+    <div style="position: absolute; left: -1px; top: -1px; width: 18px; height: 18px; border-left: 2px solid #FF2E93; border-top: 2px solid #FF2E93;"></div>
+    <div style="position: absolute; right: -1px; top: -1px; width: 18px; height: 18px; border-right: 2px solid #FF2E93; border-top: 2px solid #FF2E93;"></div>
+    <div style="position: absolute; left: -1px; bottom: -1px; width: 18px; height: 18px; border-left: 2px solid #FF2E93; border-bottom: 2px solid #FF2E93;"></div>
+    <div style="position: absolute; right: -1px; bottom: -1px; width: 18px; height: 18px; border-right: 2px solid #FF2E93; border-bottom: 2px solid #FF2E93;"></div>
+    <h1 style="margin: 0; font-size: 24px; font-weight: 700;">Sign in to the Kioku CLI?</h1>
+    <p style="margin: 0; font-size: 16px; line-height: 1.6; color: #9788B8;">A CLI on <span style="padding: 1px 6px; border-radius: 3px; background: #00F0FF14; border: 1px solid #00F0FF55; font-family: 'JetBrains Mono', monospace; font-size: 14px; color: #00F0FF;">felipes-macbook-air</span> <span style="font-family: 'JetBrains Mono', monospace; font-size: 14px;">(darwin)</span> is requesting access to your account.</p>
+    <div style="display: flex; gap: 10px;">
+      <button style="height: 44px; padding: 0 22px; border: 0; border-radius: 4px; background-image: linear-gradient(90deg, #D31877 0%, #B026FF 100%); color: #ffffff; font-weight: 700; font-size: 15px; box-shadow: 0 4px 12px #FF2E9344;">Authorize</button>
+      <button style="height: 44px; padding: 0 18px; border-radius: 4px; border: 1px solid #4B2688; background: transparent; color: #F5F0FF; font-weight: 600; font-size: 15px;">Deny</button>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
