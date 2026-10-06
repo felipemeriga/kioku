@@ -22,14 +22,14 @@ import type {
   ChatScope,
   DocumentFilters,
 } from "../lib/api";
+import { useToast } from "./ToastProvider";
+import { brand, fonts } from "../theme";
 
 const MODE_LABEL: Record<ChatMode, string> = {
   plain: "Plain",
   agentic: "Agentic",
   deep: "Deep",
 };
-import { useToast } from "./ToastProvider";
-import { brand, fonts } from "../theme";
 
 interface ChatInputProps {
   onSend: (
@@ -149,35 +149,7 @@ export default function ChatInput({
       >
         {scopeLabel && (
           <Chip
-            label={
-              <Box
-                component="span"
-                sx={{ display: "flex", alignItems: "center", gap: 0.5 }}
-              >
-                <Typography
-                  component="span"
-                  sx={{ fontSize: "inherit", lineHeight: 1 }}
-                >
-                  ◎
-                </Typography>
-                {scopeLabel}
-                <Typography
-                  component="span"
-                  sx={{
-                    fontSize: "inherit",
-                    lineHeight: 1,
-                    color: brand.muted,
-                    cursor: "pointer",
-                  }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onClearScope?.();
-                  }}
-                >
-                  ✕
-                </Typography>
-              </Box>
-            }
+            label={`◎ ${scopeLabel}`}
             size="small"
             sx={{
               fontFamily: fonts.mono,

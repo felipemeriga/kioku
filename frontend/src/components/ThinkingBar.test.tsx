@@ -10,44 +10,42 @@ describe("ThinkingBar", () => {
     expect(container.querySelector('[data-testid="thinking-bar"]')).toBeNull();
   });
 
-  it('renders "Reasoning..." for thinking stage', () => {
+  it("renders the StageTabs pipeline with all stage labels", () => {
     renderWithProviders(<ThinkingBar stage={{ stage: "thinking" }} />);
-    expect(screen.getByText("Reasoning...")).toBeInTheDocument();
+    // StageTabs always renders every stage label (JP glyph).
+    expect(screen.getByText("思考")).toBeInTheDocument();
+    expect(screen.getByText("探索")).toBeInTheDocument();
+    expect(screen.getByText("分析")).toBeInTheDocument();
+    expect(screen.getByText("生成")).toBeInTheDocument();
   });
 
   it("renders the searching stage", () => {
     renderWithProviders(<ThinkingBar stage={{ stage: "searching" }} />);
-    expect(
-      screen.getByText("Searching documents & code...")
-    ).toBeInTheDocument();
+    // 探索 = Searching
+    expect(screen.getByText("探索")).toBeInTheDocument();
+    expect(screen.getByText(/Searching/)).toBeInTheDocument();
   });
 
-  it("renders analyzing stage with doc count", () => {
+  it("renders the analyzing stage with its doc-count detail", () => {
     renderWithProviders(
       <ThinkingBar stage={{ stage: "analyzing", docs: 4 }} />
     );
-    expect(screen.getByText("Analyzing 4 results...")).toBeInTheDocument();
-    expect(screen.getByText("4 documents found")).toBeInTheDocument();
+    // 分析 = Analyzing; the active tab appends the doc count as detail.
+    expect(screen.getByText("分析")).toBeInTheDocument();
+    expect(screen.getByText(/Analyzing · 4 docs/)).toBeInTheDocument();
   });
 
-  it('renders "Generating response..." for generating stage', () => {
+  it("renders the generating stage", () => {
     renderWithProviders(<ThinkingBar stage={{ stage: "generating" }} />);
-    expect(screen.getByText("Generating response...")).toBeInTheDocument();
+    // 生成 = Generating
+    expect(screen.getByText("生成")).toBeInTheDocument();
+    expect(screen.getByText(/Generating/)).toBeInTheDocument();
   });
 
-  it("shows correct number of completed segments", () => {
-    const { container } = renderWithProviders(
-      <ThinkingBar stage={{ stage: "generating" }} />
-    );
-    const completedSegments = container.querySelectorAll(
-      '[data-segment-status="completed"]'
-    );
-    const activeSegments = container.querySelectorAll(
-      '[data-segment-status="active"]'
-    );
-    // STAGES = [thinking, searching, analyzing, generating] → generating is
-    // last, so the three prior segments are completed.
-    expect(completedSegments).toHaveLength(3);
-    expect(activeSegments).toHaveLength(1);
+  it("does not render a doc-count detail when there are no docs", () => {
+    renderWithProviders(<ThinkingBar stage={{ stage: "searching" }} />);
+    // Active tab (探索) shows just its English label, no " · N docs".
+    expect(screen.getByText(/Searching/)).toBeInTheDocument();
+    expect(screen.queryByText(/docs/)).toBeNull();
   });
 });
