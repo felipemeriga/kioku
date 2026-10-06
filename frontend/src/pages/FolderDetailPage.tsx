@@ -316,9 +316,29 @@ export default function FolderDetailPage() {
             }}
           />
 
+          {/* Memories count chip — display-only status, gated on availability */}
+          <Chip
+            label={
+              mem0Status?.available
+                ? `${memories.length} memories`
+                : "Memory: repo-only"
+            }
+            size="small"
+            sx={{
+              fontFamily: fonts.mono,
+              fontSize: 11,
+              height: 22,
+              color: mem0Status?.available ? brand.magentaGlow : brand.muted,
+              border: `1px solid ${
+                mem0Status?.available ? `${brand.magenta}66` : brand.line
+              }`,
+              bgcolor: "transparent",
+            }}
+          />
+
           <Box sx={{ flex: 1 }} />
 
-          {/* New folder */}
+          {/* Integrations — restored original action, cyan-outlined board look */}
           <Button
             size="small"
             variant="outlined"
@@ -326,38 +346,18 @@ export default function FolderDetailPage() {
             sx={{
               height: 34,
               textTransform: "none",
-              borderColor: brand.lineGlow,
-              color: brand.text,
+              borderColor: `${brand.cyan}66`,
+              color: brand.cyan,
               fontFamily: fonts.body,
               fontSize: 13,
               fontWeight: 600,
               "&:hover": {
-                borderColor: brand.magenta,
-                bgcolor: alpha(brand.magenta, 0.06),
+                borderColor: brand.cyan,
+                bgcolor: `${brand.cyan}12`,
               },
             }}
           >
-            New folder
-          </Button>
-
-          {/* Upload */}
-          <Button
-            size="small"
-            sx={{
-              height: 34,
-              textTransform: "none",
-              border: 0,
-              borderRadius: 1,
-              backgroundImage: `linear-gradient(90deg, ${brand.magentaDeep} 0%, ${brand.violet2} 100%)`,
-              color: "#fff",
-              fontFamily: fonts.body,
-              fontSize: 13,
-              fontWeight: 600,
-              px: 1.75,
-            }}
-            onClick={() => setIntegrationsOpen(true)}
-          >
-            Upload
+            Integrations
           </Button>
         </Box>
       </Box>

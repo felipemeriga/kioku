@@ -374,7 +374,7 @@ export default function BriefingPanel({ folderId }: Props) {
               >
                 {presentKeys.slice(2).map((key, idx) => {
                   const globalIdx = idx + 2;
-                  const isCollapsed = collapsed[key] !== false;
+                  const isCollapsed = collapsed[key] === true;
                   const n = String(globalIdx + 1).padStart(2, "0");
                   const color = SECTION_COLORS[key];
                   const section = data.sections[key]!;
