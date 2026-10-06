@@ -155,18 +155,15 @@ async def read_briefing(folder_id: str, user_id: str = Depends(get_current_user)
         "sections": sections,
         "last_generated_at": (latest or {}).get("generated_at"),
         "freshness": fresh,
-        "index_status": _index_status(sb, folder_id, user_id, fresh),
+        "index_status": _index_status(sb, folder_id, user_id, fresh, latest),
     }
 
 
-def _index_status(sb, folder_id: str, user_id: str, fresh: dict | None) -> dict:
-    """When each subsystem was last refreshed by the watcher + the main HEAD.
-
-    - git_updates: the watcher's last check of the repo (repo_freshness.checked_at)
-    - graph: last code-graph index (repo_graph_meta.updated_at + its SHA/counts)
-    - semantic_code: last code chunk (re)indexed (max code_chunks.created_at)
-    - head_sha: latest commit on the tracked branch the watcher saw
-    """
+def _index_status(
+    sb, folder_id: str, user_id: str, fresh: dict | None, latest: dict | None
+) -> dict:
+    """When each subsystem was last refreshed + when the holistic sections and
+    detailed doc were last generated."""
     graph = (
         sb.table("repo_graph_meta")
         .select("last_indexed_sha,node_count,edge_count,updated_at")
@@ -185,7 +182,23 @@ def _index_status(sb, folder_id: str, user_id: str, fresh: dict | None) -> dict:
         .execute()
         .data
     ) or []
+    try:
+        doc = (
+            sb.table("repo_documentation")
+            .select("generated_at")
+            .eq("folder_id", folder_id)
+            .eq("user_id", user_id)
+            .order("generated_at", desc=True)
+            .limit(1)
+            .execute()
+            .data
+        ) or []
+    except Exception:  # noqa: BLE001 — table may not be migrated yet
+        doc = []
     g = graph[0] if graph else {}
+    sections = (latest or {}).get("sections") or {}
+    arch = sections.get("architecture") or {}
+    over = sections.get("overview") or {}
     return {
         "git_updates_at": (fresh or {}).get("checked_at"),
         "head_sha": (fresh or {}).get("head_sha"),
@@ -194,6 +207,11 @@ def _index_status(sb, folder_id: str, user_id: str, fresh: dict | None) -> dict:
         "graph_nodes": g.get("node_count"),
         "graph_edges": g.get("edge_count"),
         "semantic_code_at": code[0]["created_at"] if code else None,
+        "architecture_at": arch.get("updated_at"),
+        "architecture_by": arch.get("updated_by"),
+        "overview_at": over.get("updated_at"),
+        "overview_by": over.get("updated_by"),
+        "detailed_doc_at": doc[0]["generated_at"] if doc else None,
     }
 
 
