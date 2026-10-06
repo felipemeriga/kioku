@@ -1,0 +1,14 @@
+{
+  "name": "kioku-design-system-tooling",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "previews": "python3 gen_previews.py"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.12",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  }
+}

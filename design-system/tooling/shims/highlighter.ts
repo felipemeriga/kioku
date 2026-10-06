@@ -1,0 +1,21 @@
+// Light Prism build for the design-system bundle (the app lazy-loads the full one).
+import PrismLight from "react-syntax-highlighter/dist/esm/prism-light";
+import python from "react-syntax-highlighter/dist/esm/languages/prism/python";
+import typescript from "react-syntax-highlighter/dist/esm/languages/prism/typescript";
+import tsx from "react-syntax-highlighter/dist/esm/languages/prism/tsx";
+import json from "react-syntax-highlighter/dist/esm/languages/prism/json";
+import bash from "react-syntax-highlighter/dist/esm/languages/prism/bash";
+import markdown from "react-syntax-highlighter/dist/esm/languages/prism/markdown";
+import sql from "react-syntax-highlighter/dist/esm/languages/prism/sql";
+import yaml from "react-syntax-highlighter/dist/esm/languages/prism/yaml";
+PrismLight.registerLanguage("python", python);
+PrismLight.registerLanguage("typescript", typescript);
+PrismLight.registerLanguage("tsx", tsx);
+PrismLight.registerLanguage("json", json);
+PrismLight.registerLanguage("bash", bash);
+PrismLight.registerLanguage("markdown", markdown);
+PrismLight.registerLanguage("sql", sql);
+PrismLight.registerLanguage("yaml", yaml);
+export const PrismAsync = PrismLight;
+export const Prism = PrismLight;
+export default PrismLight;

@@ -1,0 +1,20 @@
+<!-- @dsCard group="Documents" height=260 width=900 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>DocumentCard — preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+JP:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+<style>html,body{margin:0;min-height:100%;}</style></head>
+<body>
+<div id="root"></div>
+<script>
+  var K = window.Kioku, M = K.mui, I = K.icons, F = K.fixtures, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(h(M.Box, {sx:{p:2}},
+  h(M.Box, {sx:{display:'grid', gridTemplateColumns:'repeat(3, 220px)', gap:2}},
+    h(K.DocumentCard, {doc:F.documents[0], onDelete:function(){console.log('[kioku-ds] action', [].slice.call(arguments))}, onDownload:function(){console.log('[kioku-ds] action', [].slice.call(arguments))}, onOpen:function(){console.log('[kioku-ds] action', [].slice.call(arguments))}, onChat:function(){console.log('[kioku-ds] action', [].slice.call(arguments))}, onSelect:function(){console.log('[kioku-ds] action', [].slice.call(arguments))}}),
+    h(K.DocumentCard, {doc:F.documents[3], selected:true, onDelete:function(){console.log('[kioku-ds] action', [].slice.call(arguments))}, onDownload:function(){console.log('[kioku-ds] action', [].slice.call(arguments))}, onSelect:function(){console.log('[kioku-ds] action', [].slice.call(arguments))}}),
+    h(K.DocumentCard, {doc:F.documents[5], onDelete:function(){console.log('[kioku-ds] action', [].slice.call(arguments))}, onDownload:function(){console.log('[kioku-ds] action', [].slice.call(arguments))}})),
+  h(M.Box, {sx:{mt:2, maxWidth:720}}, h(K.DocumentCard, {variant:'list', doc:F.documents[1], onDelete:function(){console.log('[kioku-ds] action', [].slice.call(arguments))}, onDownload:function(){console.log('[kioku-ds] action', [].slice.call(arguments))}, onOpen:function(){console.log('[kioku-ds] action', [].slice.call(arguments))}}))));
+</script>
+</body>
+</html>

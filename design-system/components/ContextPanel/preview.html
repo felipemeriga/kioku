@@ -1,0 +1,15 @@
+<!-- @dsCard group="Navigation" height=520 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>ContextPanel — preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+JP:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+<style>html,body{margin:0;min-height:100%;}</style></head>
+<body>
+<div id="root"></div>
+<script>
+  var K = window.Kioku, M = K.mui, I = K.icons, F = K.fixtures, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(h(M.Box, {sx:{height:500, display:'flex'}}, h(K.ContextPanel, {activePage:'/', open:true, conversations:F.conversations, selectedConversationId:'c-1', onSelectConversation:function(){console.log('[kioku-ds] action', [].slice.call(arguments))}, onNewConversation:function(){console.log('[kioku-ds] action', [].slice.call(arguments))}, onDeleteConversation:function(){console.log('[kioku-ds] action', [].slice.call(arguments))}})));
+</script>
+</body>
+</html>

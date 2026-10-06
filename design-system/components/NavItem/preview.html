@@ -1,0 +1,18 @@
+<!-- @dsCard group="Primitives" height=170 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>NavItem — preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+JP:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+<style>html,body{margin:0;min-height:100%;}</style></head>
+<body>
+<div id="root"></div>
+<script>
+  var K = window.Kioku, M = K.mui, I = K.icons, F = K.fixtures, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(h(K.Provider, null, h(M.Box, {sx:{width:260, py:1}}, h(M.List, {dense:true},
+  h(M.ListItemButton, {selected:true}, h(M.ListItemIcon, {sx:{minWidth:36}}, h(I.ChatBubbleOutline, {fontSize:'small'})), h(M.ListItemText, {primary:'How does reranking change recall@10?'})),
+  h(M.ListItemButton, null, h(M.ListItemIcon, {sx:{minWidth:36}}, h(I.ChatBubbleOutline, {fontSize:'small'})), h(M.ListItemText, {primary:'Explain the ingestion pipeline'})),
+  h(M.ListItemButton, null, h(M.ListItemIcon, {sx:{minWidth:36}}, h(I.AccountTree, {fontSize:'small'})), h(M.ListItemText, {primary:'obol-ledger'}))))));
+</script>
+</body>
+</html>
