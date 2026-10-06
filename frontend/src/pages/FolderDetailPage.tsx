@@ -40,9 +40,11 @@ import { Mem0BrandIcon } from "../components/BrandIcons";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import AddIcon from "@mui/icons-material/Add";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
+import InsightsIcon from "@mui/icons-material/Insights";
 import { useNavigate, useParams } from "react-router-dom";
 
 import BriefingPanel from "../components/BriefingPanel";
+import StatusPanel from "../components/StatusPanel";
 import DocumentViewerDrawer from "../components/DocumentViewerDrawer";
 import { NotionSyncBanner } from "../components/NotionSyncBanner";
 import DocumentationPanel from "../components/DocumentationPanel";
@@ -85,9 +87,9 @@ export default function FolderDetailPage() {
   const [loadingMemories, setLoadingMemories] = useState(false);
   const [loadingDocs, setLoadingDocs] = useState(false);
   const [viewerFile, setViewerFile] = useState<string | null>(null);
-  const [tab, setTab] = useState<"briefing" | "documents" | "memory">(
-    "documents"
-  );
+  const [tab, setTab] = useState<
+    "briefing" | "documents" | "memory" | "status"
+  >("documents");
 
   // Load folder metadata
   useEffect(() => {
@@ -332,6 +334,14 @@ export default function FolderDetailPage() {
             iconPosition="start"
           />
         )}
+        {folder?.kind === "repo" && (
+          <Tab
+            value="status"
+            label="Status"
+            icon={<InsightsIcon fontSize="small" />}
+            iconPosition="start"
+          />
+        )}
         <Tab
           value="documents"
           label={`Documents (${documents.length})`}
@@ -352,6 +362,10 @@ export default function FolderDetailPage() {
             <BriefingPanel folderId={folderId} />
             <DocumentationPanel folderId={folderId} />
           </>
+        )}
+
+        {tab === "status" && folder?.kind === "repo" && (
+          <StatusPanel folderId={folderId} />
         )}
 
         {tab === "documents" && (
