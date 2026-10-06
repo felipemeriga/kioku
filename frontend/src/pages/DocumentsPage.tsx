@@ -42,6 +42,7 @@ import CreateNewFolderIcon from "@mui/icons-material/CreateNewFolder";
 import HomeIcon from "@mui/icons-material/Home";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import InsightsIcon from "@mui/icons-material/Insights";
+import { Mem0BrandIcon } from "../components/BrandIcons";
 import { useDocuments } from "../hooks/useDocuments";
 import { useIngestionStatus } from "../hooks/useIngestionStatus";
 import {
@@ -59,6 +60,7 @@ import IngestionDrawer from "../components/IngestionDrawer";
 import BriefingPanel from "../components/BriefingPanel";
 import DocumentationPanel from "../components/DocumentationPanel";
 import StatusPanel from "../components/StatusPanel";
+import MemoryPanel from "../components/MemoryPanel";
 import FolderIntegrationsDialog from "../components/FolderIntegrationsDialog";
 import { NotionSyncBanner } from "../components/NotionSyncBanner";
 import { useToast, messageFromError } from "../components/ToastProvider";
@@ -95,9 +97,9 @@ export default function DocumentsPage() {
     localStorage.setItem("kioku.documents.viewMode", viewMode);
   }, [viewMode]);
   const [breadcrumbs, setBreadcrumbs] = useState<Breadcrumb[]>([]);
-  const [folderTab, setFolderTab] = useState<"files" | "briefing" | "status">(
-    "files"
-  );
+  const [folderTab, setFolderTab] = useState<
+    "files" | "briefing" | "status" | "memory"
+  >("files");
   const [viewerFile, setViewerFile] = useState<string | null>(null);
 
   // Audio recording
@@ -862,6 +864,12 @@ export default function DocumentsPage() {
               icon={<InsightsIcon sx={{ fontSize: 18 }} />}
               iconPosition="start"
             />
+            <Tab
+              value="memory"
+              label="Mem0"
+              icon={<Mem0BrandIcon sx={{ fontSize: 18 }} />}
+              iconPosition="start"
+            />
           </Tabs>
         )}
 
@@ -1073,6 +1081,10 @@ export default function DocumentsPage() {
 
         {currentFolderIsRepo && folderTab === "status" && currentFolderId && (
           <StatusPanel folderId={currentFolderId} />
+        )}
+
+        {currentFolderIsRepo && folderTab === "memory" && currentFolderId && (
+          <MemoryPanel folderId={currentFolderId} />
         )}
 
         {/* Documents grid */}

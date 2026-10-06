@@ -1,9 +1,10 @@
 /**
- * FolderIntegrationsDialog — manage a folder's integrations (Mem0, Notion),
+ * FolderIntegrationsDialog — manage a folder's integrations (Notion),
  * opened from the folder context menu.
  *
- * Mem0 memory is auto-on for repo folders (self-hosted, no connect step), so
- * its card is status-only. Notion still has a connect/sync/disconnect flow.
+ * Mem0 memory is auto-on for repo folders and is now browsable via the
+ * dedicated Mem0 tab on the repo page. Only Notion has a connect/sync/disconnect
+ * flow here.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -19,17 +20,15 @@ import {
   Stack,
   Typography,
 } from "@mui/material";
-import { Mem0BrandIcon, NotionBrandIcon } from "./BrandIcons";
+import { NotionBrandIcon } from "./BrandIcons";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import DeleteIcon from "@mui/icons-material/Delete";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import { useNavigate } from "react-router-dom";
 import {
   disconnectNotion,
-  fetchMem0Status,
   fetchNotionConfigs,
   syncNotionNow,
-  type Mem0Status,
   type NotionConfig,
 } from "../lib/api";
 import { useToast } from "./ToastProvider";
@@ -50,7 +49,6 @@ export default function FolderIntegrationsDialog({
 }: Props) {
   const toast = useToast();
   const navigate = useNavigate();
-  const [mem0Status, setMem0Status] = useState<Mem0Status | null>(null);
   const [notion, setNotion] = useState<NotionConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [notionConnectOpen, setNotionConnectOpen] = useState(false);
@@ -61,11 +59,7 @@ export default function FolderIntegrationsDialog({
     if (!folderId) return;
     setLoading(true);
     try {
-      const [ms, n] = await Promise.all([
-        fetchMem0Status(folderId).catch(() => null),
-        fetchNotionConfigs().catch(() => [] as NotionConfig[]),
-      ]);
-      setMem0Status(ms);
+      const n = await fetchNotionConfigs().catch(() => [] as NotionConfig[]);
       setNotion(n.find((c) => c.root_folder_id === folderId) ?? null);
     } catch (err) {
       toast.showError(err, "Couldn't load integrations.");
@@ -98,8 +92,6 @@ export default function FolderIntegrationsDialog({
       toast.showError(err, "Couldn't sync Notion.");
     }
   };
-
-  const memAvailable = !!mem0Status?.available;
 
   return (
     <>
@@ -162,40 +154,11 @@ export default function FolderIntegrationsDialog({
             variant="body2"
             sx={{ color: brand.muted, lineHeight: 1.55, mb: 2 }}
           >
-            Wire this folder to memory and note-sync. None are required — leave
-            them off and they simply won't appear in the folder orientation.
+            Wire this folder to Notion for note-sync. Mem0 memory is auto-on for
+            repo folders and is browsable via the Mem0 tab on the repo page.
           </Typography>
 
           <Stack spacing={2}>
-            {/* Mem0 section */}
-            <IntegrationCard
-              icon={<Mem0BrandIcon fontSize="small" />}
-              title="Mem0 memory"
-              description="Episodic + eternal memory (agent-authored), scoped to this repo."
-              connected={memAvailable}
-              connectedLabel="On"
-              disconnectedLabel="Repo-only"
-              cardColor={brand.green}
-              statusDetail={
-                memAvailable
-                  ? mem0Status?.healthy
-                    ? "On automatically · memory service healthy"
-                    : "On · memory service unreachable"
-                  : null
-              }
-              errorDetail={
-                memAvailable && mem0Status?.healthy === false
-                  ? mem0Status?.error ?? "Memory service is unreachable."
-                  : null
-              }
-              disconnectedHint={
-                !memAvailable
-                  ? "Auto-on for repo folders — run `kioku init` here to make this a repo and enable memory."
-                  : undefined
-              }
-              loading={loading}
-            />
-
             {/* Notion section */}
             <IntegrationCard
               icon={<NotionBrandIcon fontSize="small" />}
