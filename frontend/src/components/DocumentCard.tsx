@@ -2,7 +2,6 @@ import { useState, useCallback } from "react";
 import {
   Box,
   Typography,
-  Chip,
   IconButton,
   Menu,
   MenuItem,
@@ -25,6 +24,7 @@ import VisibilityIcon from "@mui/icons-material/Visibility";
 import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
 import type { DocumentInfo } from "../lib/api";
 import MoveDialog from "./MoveDialog";
+import { brand, fonts } from "../theme";
 
 interface DocumentCardProps {
   doc: DocumentInfo;
@@ -50,16 +50,29 @@ const FILE_ICONS: Record<string, { icon: React.ReactNode; color: string }> = {
   txt: { icon: <TextSnippetIcon />, color: alpha("#ffffff", 0.5) },
 };
 
+// Spine color by extension — matches mockup
+const SPINE_COLORS: Record<string, string> = {
+  md: "#10b981",
+  pdf: "#ef4444",
+  docx: "#3b82f6",
+  txt: brand.muted,
+  html: brand.amber,
+  py: brand.purple,
+};
+
+function getSpineColor(ext: string): string {
+  return SPINE_COLORS[ext] ?? brand.muted;
+}
+
+// Status chip colors — border + text from mockup
 const STATUS_COLORS: Record<string, string> = {
-  completed: "#10b981",
-  processing: "#FF2E93",
-  failed: "#ef4444",
+  completed: brand.green,
+  processing: brand.magenta,
+  failed: brand.red,
 };
 
 function timeAgo(dateStr: string): string {
-  const seconds = Math.floor(
-    (Date.now() - new Date(dateStr).getTime()) / 1000
-  );
+  const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
   if (seconds < 60) return "just now";
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m ago`;
@@ -82,8 +95,13 @@ export default function DocumentCard({
 }: DocumentCardProps) {
   const ext = doc.source_filename.split(".").pop()?.toLowerCase() || "txt";
   const fileStyle = FILE_ICONS[ext] || FILE_ICONS.txt;
+  const spineColor = getSpineColor(ext);
+  const statusColor = STATUS_COLORS[doc.status] ?? brand.muted;
 
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
   const [moveOpen, setMoveOpen] = useState(false);
   const [snackOpen, setSnackOpen] = useState(false);
 
@@ -155,23 +173,36 @@ export default function DocumentCard({
         onContextMenu={handleContextMenu}
         onClick={handleClick}
         sx={{
-          p: variant === "list" ? 0 : 2,
-          borderRadius: variant === "list" ? 2 : 3,
-          bgcolor: alpha("#1e1e2e", 0.6),
-          border: 1,
-          borderColor: selected ? alpha("#FF2E93", 0.5) : alpha("#ffffff", 0.06),
-          backdropFilter: "blur(10px)",
-          WebkitBackdropFilter: "blur(10px)",
+          borderRadius: "4px",
+          border: `1px solid ${
+            doc.status === "processing"
+              ? alpha(brand.magenta, 0.5)
+              : doc.status === "failed"
+              ? alpha(brand.red, 0.4)
+              : selected
+              ? alpha(brand.magenta, 0.5)
+              : brand.line
+          }`,
+          bgcolor: brand.surface,
+          overflow: "hidden",
           transition: "all 0.2s ease",
           position: "relative",
           cursor: onOpen ? "pointer" : "context-menu",
+          ...(variant === "grid"
+            ? {
+                display: "flex",
+                height: 112,
+              }
+            : {
+                display: "flex",
+                alignItems: "center",
+              }),
           ...(selected && {
-            bgcolor: alpha("#FF2E93", 0.08),
-            boxShadow: `0 0 0 1px ${alpha("#FF2E93", 0.3)}`,
+            bgcolor: alpha(brand.magenta, 0.06),
+            boxShadow: `0 0 0 1px ${alpha(brand.magenta, 0.3)}`,
           }),
           "&:hover": {
-            bgcolor: selected ? alpha("#FF2E93", 0.12) : alpha("#1e1e2e", 0.8),
-            borderColor: selected ? alpha("#FF2E93", 0.5) : alpha("#ffffff", 0.1),
+            borderColor: selected ? alpha(brand.magenta, 0.5) : brand.lineGlow,
             "& .doc-actions": { opacity: 1 },
             "& .doc-checkbox": { opacity: 1 },
           },
@@ -179,7 +210,14 @@ export default function DocumentCard({
       >
         {variant === "list" ? (
           <Box
-            sx={{ display: "flex", alignItems: "center", gap: 1.25, px: 1.5, py: 0.75 }}
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 1.25,
+              px: 1.5,
+              py: 0.75,
+              width: "100%",
+            }}
           >
             {onSelect && (
               <Checkbox
@@ -192,11 +230,21 @@ export default function DocumentCard({
                   opacity: selected ? 1 : 0,
                   transition: "opacity 0.15s",
                   p: 0,
-                  color: alpha("#FF2E93", 0.5),
-                  "&.Mui-checked": { color: "#FF2E93" },
+                  color: alpha(brand.magenta, 0.5),
+                  "&.Mui-checked": { color: brand.magenta },
                 }}
               />
             )}
+            {/* Colored type indicator for list mode */}
+            <Box
+              sx={{
+                width: 4,
+                alignSelf: "stretch",
+                borderRadius: "2px",
+                bgcolor: spineColor,
+                flexShrink: 0,
+              }}
+            />
             <Box
               sx={{
                 width: 26,
@@ -223,20 +271,29 @@ export default function DocumentCard({
             <Typography
               variant="caption"
               noWrap
-              sx={{ color: alpha("#ffffff", 0.4), flexShrink: 0 }}
+              sx={{
+                color: brand.muted,
+                flexShrink: 0,
+                fontFamily: fonts.mono,
+                fontSize: "0.68rem",
+              }}
             >
               {doc.chunks} chunks · {timeAgo(doc.created_at)}
             </Typography>
-            <Chip
-              label={doc.status}
-              size="small"
+            <Box
               sx={{
-                height: 18,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "4px",
+                px: "7px",
+                py: "1px",
+                border: `1px solid ${statusColor}`,
+                borderRadius: "3px",
+                color: statusColor,
+                fontFamily: fonts.mono,
                 fontSize: "0.65rem",
                 fontWeight: 500,
                 flexShrink: 0,
-                bgcolor: alpha(STATUS_COLORS[doc.status] || "#ffffff", 0.12),
-                color: STATUS_COLORS[doc.status] || alpha("#ffffff", 0.5),
                 ...(doc.status === "processing" && {
                   animation: "pulse 1.5s infinite",
                   "@keyframes pulse": {
@@ -245,7 +302,10 @@ export default function DocumentCard({
                   },
                 }),
               }}
-            />
+            >
+              <span aria-hidden>●</span>
+              <span>{doc.status}</span>
+            </Box>
             <Box
               className="doc-actions"
               sx={{
@@ -259,7 +319,10 @@ export default function DocumentCard({
               {doc.has_file && (
                 <IconButton
                   size="small"
-                  onClick={(e) => { e.stopPropagation(); onDownload(doc.source_filename); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDownload(doc.source_filename);
+                  }}
                   sx={{ p: 0.5 }}
                 >
                   <DownloadIcon sx={{ fontSize: 15 }} />
@@ -267,7 +330,10 @@ export default function DocumentCard({
               )}
               <IconButton
                 size="small"
-                onClick={(e) => { e.stopPropagation(); onDelete(doc.source_filename); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(doc.source_filename);
+                }}
                 sx={{ p: 0.5 }}
               >
                 <DeleteIcon sx={{ fontSize: 15 }} />
@@ -276,12 +342,117 @@ export default function DocumentCard({
           </Box>
         ) : (
           <>
+            {/* Colored left spine with vertical ext text */}
+            <Box
+              sx={{
+                width: 30,
+                flexShrink: 0,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                bgcolor: spineColor,
+                alignSelf: "stretch",
+              }}
+            >
+              <Typography
+                sx={{
+                  writingMode: "vertical-rl",
+                  transform: "rotate(180deg)",
+                  fontFamily: fonts.mono,
+                  fontWeight: 600,
+                  fontSize: "0.62rem",
+                  letterSpacing: "0.2em",
+                  color: brand.ink,
+                  textTransform: "uppercase",
+                  userSelect: "none",
+                }}
+              >
+                {ext.toUpperCase()}
+              </Typography>
+            </Box>
+
+            {/* Card body */}
+            <Box
+              sx={{
+                flex: 1,
+                minWidth: 0,
+                px: "14px",
+                py: "12px",
+                display: "flex",
+                flexDirection: "column",
+                gap: "8px",
+              }}
+            >
+              {onSelect && (
+                <Checkbox
+                  className="doc-checkbox"
+                  checked={selected}
+                  size="small"
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={() => onSelect(doc.source_filename)}
+                  sx={{
+                    position: "absolute",
+                    top: 6,
+                    left: 38,
+                    opacity: selected ? 1 : 0,
+                    transition: "opacity 0.15s",
+                    p: 0,
+                    color: alpha(brand.magenta, 0.5),
+                    "&.Mui-checked": { color: brand.magenta },
+                  }}
+                />
+              )}
+              <Typography
+                variant="body2"
+                noWrap
+                sx={{ fontWeight: 500, fontSize: "0.875rem" }}
+              >
+                {doc.source_filename}
+              </Typography>
+              <Box
+                sx={{
+                  alignSelf: "flex-start",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  px: "7px",
+                  py: "2px",
+                  border: `1px solid ${statusColor}`,
+                  borderRadius: "3px",
+                  color: statusColor,
+                  fontFamily: fonts.mono,
+                  fontSize: "0.68rem",
+                  fontWeight: 500,
+                  ...(doc.status === "processing" && {
+                    animation: "pulse 1.5s infinite",
+                    "@keyframes pulse": {
+                      "0%, 100%": { opacity: 1 },
+                      "50%": { opacity: 0.5 },
+                    },
+                  }),
+                }}
+              >
+                <span aria-hidden>●</span>
+                <span>{doc.status}</span>
+              </Box>
+              <Typography
+                sx={{
+                  fontFamily: fonts.mono,
+                  fontSize: "0.68rem",
+                  color: brand.muted,
+                }}
+              >
+                {doc.chunks} chunks · {timeAgo(doc.created_at)}
+              </Typography>
+            </Box>
+
+            {/* Hover action buttons */}
             <Box
               className="doc-actions"
               sx={{
                 position: "absolute",
-                top: 8,
-                right: 8,
+                top: 6,
+                right: 6,
                 display: "flex",
                 gap: 0.25,
                 opacity: 0,
@@ -291,7 +462,10 @@ export default function DocumentCard({
               {doc.has_file && (
                 <IconButton
                   size="small"
-                  onClick={(e) => { e.stopPropagation(); onDownload(doc.source_filename); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDownload(doc.source_filename);
+                  }}
                   sx={{ p: 0.5 }}
                 >
                   <DownloadIcon sx={{ fontSize: 16 }} />
@@ -299,75 +473,15 @@ export default function DocumentCard({
               )}
               <IconButton
                 size="small"
-                onClick={(e) => { e.stopPropagation(); onDelete(doc.source_filename); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(doc.source_filename);
+                }}
                 sx={{ p: 0.5 }}
               >
                 <DeleteIcon sx={{ fontSize: 16 }} />
               </IconButton>
             </Box>
-
-            {/* File icon row with optional checkbox */}
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
-              {onSelect && (
-                <Checkbox
-                  className="doc-checkbox"
-                  checked={selected}
-                  size="small"
-                  onClick={(e) => e.stopPropagation()}
-                  onChange={() => onSelect(doc.source_filename)}
-                  sx={{
-                    opacity: selected ? 1 : 0,
-                    transition: "opacity 0.15s",
-                    p: 0,
-                    color: alpha("#FF2E93", 0.5),
-                    "&.Mui-checked": { color: "#FF2E93" },
-                  }}
-                />
-              )}
-              <Box
-                sx={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 2,
-                  bgcolor: alpha(fileStyle.color, 0.1),
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: fileStyle.color,
-                  "& .MuiSvgIcon-root": { fontSize: 20 },
-                }}
-              >
-                {fileStyle.icon}
-              </Box>
-            </Box>
-            <Typography variant="body2" noWrap sx={{ fontWeight: 500, mb: 0.75 }}>
-              {doc.source_filename}
-            </Typography>
-            <Chip
-              label={doc.status}
-              size="small"
-              sx={{
-                height: 20,
-                fontSize: "0.7rem",
-                fontWeight: 500,
-                bgcolor: alpha(STATUS_COLORS[doc.status] || "#ffffff", 0.12),
-                color: STATUS_COLORS[doc.status] || alpha("#ffffff", 0.5),
-                mb: 1,
-                ...(doc.status === "processing" && {
-                  animation: "pulse 1.5s infinite",
-                  "@keyframes pulse": {
-                    "0%, 100%": { opacity: 1 },
-                    "50%": { opacity: 0.5 },
-                  },
-                }),
-              }}
-            />
-            <Typography
-              variant="caption"
-              sx={{ color: alpha("#ffffff", 0.4), display: "block" }}
-            >
-              {doc.chunks} chunks · {timeAgo(doc.created_at)}
-            </Typography>
           </>
         )}
       </Box>
