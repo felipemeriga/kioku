@@ -5,7 +5,6 @@ import {
   Typography,
   Button,
   CircularProgress,
-  alpha,
 } from "@mui/material";
 import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
 import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
@@ -15,6 +14,7 @@ import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import { brand, fonts } from "../theme";
 import { getFolderStatus, refreshFolder, type FolderStatus } from "../lib/api";
+import CornerCard from "./neo/CornerCard";
 
 function timeAgo(iso: string | null): string {
   if (!iso) return "never";
@@ -32,6 +32,16 @@ type Pending = {
   field: keyof FolderStatus;
   since: string | null;
 } | null;
+
+/** Maps a timeAgo string to a simple status glyph + color for the index-status cards. */
+function indexGlyph(at: string | null): { glyph: string; color: string } {
+  if (!at) return { glyph: "○", color: brand.muted };
+  const diff = Date.now() - new Date(at).getTime();
+  const h = diff / 3600000;
+  if (h < 1) return { glyph: "●", color: brand.green };
+  if (h < 24) return { glyph: "◐", color: brand.cyan };
+  return { glyph: "○", color: brand.muted };
+}
 
 export default function StatusPanel({ folderId }: { folderId: string }) {
   const [status, setStatus] = useState<FolderStatus | null>(null);
@@ -155,49 +165,83 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
       <Stack direction="row" spacing={1.5} sx={{ flexWrap: "wrap", mb: 2 }}>
         {cards.map((c) => {
           const Icon = c.icon;
+          const glyph = indexGlyph(c.at);
           return (
-            <Box
+            <CornerCard
               key={c.label}
+              color={c.color}
               sx={{
                 flex: "1 1 180px",
                 minWidth: 160,
                 p: 1.5,
-                borderRadius: 2,
-                border: `1px solid ${alpha(c.color, 0.25)}`,
-                bgcolor: alpha(c.color, 0.06),
               }}
             >
+              {/* Label row */}
               <Stack
                 direction="row"
-                spacing={1}
+                spacing={0.75}
                 alignItems="center"
                 sx={{ mb: 0.5 }}
               >
-                <Icon sx={{ fontSize: 16, color: c.color }} />
+                <Icon sx={{ fontSize: 14, color: c.color }} />
                 <Typography
-                  sx={{ fontSize: 11, fontWeight: 600, color: brand.muted }}
+                  sx={{
+                    fontFamily: fonts.mono,
+                    fontSize: 10,
+                    fontWeight: 600,
+                    letterSpacing: "0.1em",
+                    textTransform: "uppercase",
+                    color: brand.muted,
+                  }}
                 >
                   {c.label}
                 </Typography>
+                <Box sx={{ flexGrow: 1 }} />
+                {/* Status glyph — derived from freshness */}
+                <Box
+                  component="span"
+                  sx={{
+                    fontFamily: fonts.mono,
+                    fontSize: 11,
+                    color: glyph.color,
+                    textShadow:
+                      glyph.color !== brand.muted
+                        ? `0 0 6px ${glyph.color}`
+                        : "none",
+                  }}
+                >
+                  {glyph.glyph}
+                </Box>
               </Stack>
-              <Typography sx={{ fontSize: 14, color: brand.text }}>
+              {/* Time ago */}
+              <Typography
+                sx={{
+                  fontFamily: fonts.mono,
+                  fontSize: 14,
+                  color: brand.text,
+                  fontWeight: 500,
+                }}
+              >
                 {timeAgo(c.at)}
               </Typography>
+              {/* Sub-label */}
               {c.sub && (
                 <Typography
                   sx={{
                     fontFamily: fonts.mono,
-                    fontSize: 11,
-                    color: brand.muted,
+                    fontSize: 10,
+                    color: brand.dim,
+                    mt: 0.25,
                   }}
                 >
                   {c.sub}
                 </Typography>
               )}
-            </Box>
+            </CornerCard>
           );
         })}
       </Stack>
+
       <Stack
         direction="row"
         spacing={1.5}
@@ -216,6 +260,22 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
           }
           disabled={!!pending}
           onClick={() => start("index", "graph_at")}
+          sx={{
+            fontFamily: fonts.mono,
+            fontSize: 11,
+            letterSpacing: "0.08em",
+            borderColor: brand.cyan,
+            color: brand.cyan,
+            "&:hover": {
+              borderColor: brand.cyan,
+              backgroundColor: `${brand.cyan}12`,
+              boxShadow: `0 0 12px ${brand.cyan}44`,
+            },
+            "&.Mui-disabled": {
+              borderColor: brand.line,
+              color: brand.muted,
+            },
+          }}
         >
           {pending?.target === "index" ? "Refreshing…" : "Refresh code index"}
         </Button>
@@ -231,13 +291,31 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
           }
           disabled={!!pending}
           onClick={() => start("sections", "architecture_at")}
+          sx={{
+            fontFamily: fonts.mono,
+            fontSize: 11,
+            letterSpacing: "0.08em",
+            borderColor: brand.magenta,
+            color: brand.magenta,
+            "&:hover": {
+              borderColor: brand.magenta,
+              backgroundColor: `${brand.magenta}12`,
+              boxShadow: `0 0 12px ${brand.magenta}44`,
+            },
+            "&.Mui-disabled": {
+              borderColor: brand.line,
+              color: brand.muted,
+            },
+          }}
         >
           {pending?.target === "sections"
             ? "Refreshing…"
             : "Refresh detail sections"}
         </Button>
         {note && (
-          <Typography sx={{ fontSize: 12, color: brand.muted }}>
+          <Typography
+            sx={{ fontFamily: fonts.mono, fontSize: 11, color: brand.muted }}
+          >
             {note}
           </Typography>
         )}
