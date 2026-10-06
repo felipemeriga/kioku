@@ -104,13 +104,13 @@ export default function IconRail({
       <Box
         sx={{
           display: "flex",
+          flexDirection: collapsed ? "column" : "row",
           alignItems: "center",
-          gap: collapsed ? 0 : "10px",
+          gap: collapsed ? "8px" : "10px",
           px: collapsed ? 0 : 2,
           py: 2,
           borderBottom: `1px solid ${brand.line}`,
           justifyContent: collapsed ? "center" : "flex-start",
-          position: "relative",
         }}
       >
         {/* 34px hanko box — magenta border + dual-layer glow, 記 kanji inside */}
@@ -184,20 +184,16 @@ export default function IconRail({
               size="small"
               onClick={toggleCollapsed}
               sx={{
-                position: "absolute",
-                bottom: -16,
-                left: "50%",
-                transform: "translateX(-50%)",
-                zIndex: 1,
-                width: 20,
-                height: 20,
+                mt: "2px",
+                width: 22,
+                height: 22,
                 bgcolor: brand.surface2,
                 border: `1px solid ${brand.line}`,
                 color: brand.muted,
                 "&:hover": { color: brand.text, bgcolor: `${brand.magenta}14` },
               }}
             >
-              <ChevronRightIcon sx={{ fontSize: 12 }} />
+              <ChevronRightIcon sx={{ fontSize: 14 }} />
             </IconButton>
           </Tooltip>
         )}
