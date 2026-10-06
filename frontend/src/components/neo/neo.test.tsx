@@ -7,6 +7,9 @@ import KatakanaAccent from "./KatakanaAccent";
 import CornerCard from "./CornerCard";
 import SectionRail from "./SectionRail";
 import PillChain from "./PillChain";
+import PipelineBar from "./PipelineBar";
+import RerankBar from "./RerankBar";
+import StageTabs from "./StageTabs";
 
 const wrap = (ui: React.ReactElement) =>
   render(<ThemeProvider theme={theme}>{ui}</ThemeProvider>);
@@ -57,5 +60,27 @@ describe("neo primitives", () => {
     );
     expect(screen.getByText("A")).toBeInTheDocument();
     expect(screen.getByText("C")).toBeInTheDocument();
+  });
+  it("PipelineBar renders the file name and stage labels", () => {
+    wrap(
+      <PipelineBar
+        name="a.pdf"
+        status={{ label: "Done", color: "#39FF14" }}
+        stages={[
+          { label: "UPLOAD", pct: 100, color: "#39FF14" },
+          { label: "STORE", pct: 0, color: "#2A1758" },
+        ]}
+      />
+    );
+    expect(screen.getByText("a.pdf")).toBeInTheDocument();
+    expect(screen.getByText("UPLOAD")).toBeInTheDocument();
+  });
+  it("RerankBar shows the rounded score", () => {
+    wrap(<RerankBar file="doc.md" score={0.9101} />);
+    expect(screen.getByText(/0\.910/)).toBeInTheDocument();
+  });
+  it("StageTabs highlights the active stage label", () => {
+    wrap(<StageTabs active="analyzing" detail="8 docs" />);
+    expect(screen.getByText("分析")).toBeInTheDocument();
   });
 });
