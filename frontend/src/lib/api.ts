@@ -905,6 +905,39 @@ export async function listNotionPages(
   return res.json();
 }
 
+// ── Watcher status + refresh ─────────────────────────────────────────────────
+
+export interface FolderStatus {
+  git_updates_at: string | null;
+  head_sha: string | null;
+  graph_at: string | null;
+  graph_sha: string | null;
+  graph_nodes: number | null;
+  graph_edges: number | null;
+  semantic_code_at: string | null;
+  architecture_at: string | null;
+  architecture_by: string | null;
+  overview_at: string | null;
+  overview_by: string | null;
+  detailed_doc_at: string | null;
+}
+
+export async function getFolderStatus(folderId: string): Promise<FolderStatus> {
+  const res = await apiFetch(`/api/folders/${folderId}/status`);
+  return res.json();
+}
+
+export async function refreshFolder(
+  folderId: string,
+  target: "index" | "sections"
+): Promise<{ started: boolean }> {
+  const res = await apiFetch(`/api/folders/${folderId}/refresh`, {
+    method: "POST",
+    body: JSON.stringify({ target }),
+  });
+  return res.json();
+}
+
 // --- Mem0 memory (self-hosted, auto-on for repo folders — no connect step) ---
 
 /** Memory availability for a folder. Repo folders get memory automatically;
