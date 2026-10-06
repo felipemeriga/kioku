@@ -4,9 +4,11 @@ import { brand, fonts } from "../../theme";
 export default function RerankBar({
   file,
   score,
+  kind = "doc",
 }: {
   file: string;
   score: number;
+  kind?: string;
 }) {
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
@@ -20,10 +22,10 @@ export default function RerankBar({
             border: `1px solid ${brand.line}`,
             fontFamily: fonts.mono,
             fontSize: 10,
-            color: "#93c5fd",
+            color: kind === "code" ? brand.green : "#93c5fd",
           }}
         >
-          doc
+          {kind}
         </Box>
         <Typography
           sx={{

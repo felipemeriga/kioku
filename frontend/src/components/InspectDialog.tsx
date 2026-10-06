@@ -262,7 +262,11 @@ export default function InspectDialog({
                     p: "14px 16px",
                   }}
                 >
-                  <RerankBar file={filename} score={score} />
+                  <RerankBar
+                    file={filename}
+                    score={score}
+                    kind={c.source_type}
+                  />
                   {c.date && (
                     <Typography sx={{ color: brand.muted, fontSize: 11 }}>
                       {c.date}
