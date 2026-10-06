@@ -9,7 +9,6 @@ import {
   Stack,
   Tooltip,
   Typography,
-  alpha,
 } from "@mui/material";
 import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
 import FolderOpenIcon from "@mui/icons-material/FolderOpen";
@@ -86,67 +85,73 @@ export default function IconRail({
         sx={{
           display: "flex",
           alignItems: "center",
-          gap: 1.25,
+          gap: "10px",
           px: 2,
           py: 2,
           borderBottom: `1px solid ${brand.line}`,
         }}
       >
-        {/* Kanji brand mark — 記 in a magenta-glowing chrome frame.
-            Reads as a stamped hanko / neon signage in cyberpunk Tokyo. */}
+        {/* 34px hanko box — magenta border + dual-layer glow, 記 kanji inside */}
         <Box
           sx={{
             width: 34,
             height: 34,
+            flexShrink: 0,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            border: `1px solid ${brand.magenta}`,
-            borderRadius: 1,
-            background: `linear-gradient(135deg, ${brand.magenta}22 0%, ${brand.cyan}11 100%)`,
-            boxShadow: `0 0 12px ${alpha(brand.magenta, 0.6)}, inset 0 0 8px ${alpha(brand.magenta, 0.25)}`,
+            border: `1.5px solid ${brand.magenta}`,
+            borderRadius: "6px",
+            boxShadow: `0 0 4px ${brand.magenta}88, 0 0 16px ${brand.magenta}44`,
             fontFamily: fonts.jp,
             fontWeight: 900,
-            fontSize: "1.2rem",
+            fontSize: "18px",
             color: brand.magentaGlow,
-            textShadow: `0 0 6px ${brand.magenta}, 0 0 12px ${brand.magenta}88`,
-            flexShrink: 0,
           }}
         >
           記
         </Box>
-        <Stack spacing={0}>
+        <Stack spacing={0} sx={{ lineHeight: 1 }}>
           <Typography
-            variant="overline"
+            component="span"
             sx={{
-              fontFamily: fonts.jp,
-              fontSize: "0.58rem",
-              letterSpacing: "0.35em",
+              fontFamily: fonts.dot,
+              fontSize: "10px",
+              letterSpacing: "0.3em",
               color: brand.cyan,
               lineHeight: 1,
-              textShadow: `0 0 6px ${brand.cyan}66`,
+              display: "block",
             }}
           >
             キオク
           </Typography>
           <Typography
+            component="span"
             sx={{
-              fontFamily: fonts.display,
               fontWeight: 700,
-              fontSize: "1.05rem",
-              letterSpacing: "0.08em",
+              fontSize: "18px",
+              letterSpacing: "0.06em",
               color: brand.text,
-              lineHeight: 1.1,
-              textTransform: "uppercase",
+              lineHeight: 1.15,
+              textShadow: `0 0 10px ${brand.magenta}66`,
             }}
           >
-            Kioku
+            KIOKU
           </Typography>
         </Stack>
       </Box>
 
       {/* Nav */}
-      <List sx={{ px: 1, py: 1.25, flex: 1 }}>
+      <List
+        sx={{
+          px: "12px",
+          py: "12px",
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          gap: "4px",
+        }}
+      >
         {NAV_ITEMS.map(({ page, icon, label, testId }) => {
           const isActive = page === activePage;
           return (
@@ -157,14 +162,29 @@ export default function IconRail({
               selected={isActive}
               onClick={() => handleClick(page)}
               sx={{
-                py: 0.85,
-                minHeight: 40,
+                height: 42,
+                minHeight: 42,
+                px: "12px",
+                py: 0,
+                borderRadius: "3px",
+                mb: 0,
+                ...(isActive
+                  ? {
+                      background: `${brand.magenta}22`,
+                      boxShadow: `inset 2px 0 0 ${brand.magenta}`,
+                      color: brand.text,
+                      "&:hover": { background: `${brand.magenta}33` },
+                    }
+                  : {
+                      color: brand.muted,
+                      "&:hover": { background: `${brand.magenta}10` },
+                    }),
               }}
             >
               <ListItemIcon
                 sx={{
                   minWidth: 32,
-                  color: isActive ? brand.violet2 : brand.muted,
+                  color: isActive ? brand.magenta : brand.muted,
                 }}
               >
                 {icon}
@@ -173,7 +193,7 @@ export default function IconRail({
                 primary={label}
                 primaryTypographyProps={{
                   fontFamily: fonts.display,
-                  fontWeight: 600,
+                  fontWeight: isActive ? 600 : 400,
                   fontSize: "0.88rem",
                   color: isActive ? brand.text : brand.muted,
                 }}
@@ -186,19 +206,24 @@ export default function IconRail({
       <Divider sx={{ borderColor: brand.line }} />
 
       {/* User block */}
-      <Stack direction="row" spacing={1.25} alignItems="center" sx={{ px: 2, py: 1.5 }}>
+      <Stack
+        direction="row"
+        spacing={1.25}
+        alignItems="center"
+        sx={{ px: 2, py: 1.5 }}
+      >
         <Box
           sx={{
-            width: 32,
-            height: 32,
+            width: 30,
+            height: 30,
             borderRadius: "50%",
             display: "grid",
             placeItems: "center",
-            background: `linear-gradient(135deg, ${brand.violet} 0%, ${brand.violet2} 100%)`,
+            background: `linear-gradient(135deg, ${brand.magenta}, ${brand.purple})`,
             color: "#fff",
             fontFamily: fonts.display,
             fontWeight: 700,
-            fontSize: "0.85rem",
+            fontSize: "13px",
             flexShrink: 0,
           }}
         >
@@ -210,24 +235,27 @@ export default function IconRail({
             title={userEmail ?? ""}
             sx={{
               fontFamily: fonts.body,
-              fontSize: "0.78rem",
+              fontSize: "12px",
               color: brand.text,
               lineHeight: 1.25,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
             }}
           >
             {userEmail ?? "—"}
           </Typography>
           <Typography
-            variant="overline"
+            component="span"
             sx={{
               fontFamily: fonts.mono,
-              fontSize: "0.55rem",
-              letterSpacing: "0.16em",
+              fontSize: "9px",
+              letterSpacing: "0.2em",
               color: brand.green,
               lineHeight: 1,
             }}
           >
-            SIGNED IN
+            ● SIGNED IN
           </Typography>
         </Stack>
         <Tooltip title="Sign out">
@@ -239,7 +267,7 @@ export default function IconRail({
               width: 30,
               height: 30,
               color: brand.muted,
-              "&:hover": { color: brand.violet2, bgcolor: alpha(brand.violet, 0.1) },
+              "&:hover": { color: brand.text, bgcolor: `${brand.magenta}14` },
             }}
           >
             <LogoutIcon fontSize="small" />

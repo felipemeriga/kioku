@@ -22,6 +22,8 @@ import { renameConversation } from "../lib/api";
 import { messageFromError, useToast } from "./ToastProvider";
 import type { AppPage } from "./IconRail";
 import type { Conversation } from "../lib/api";
+import { brand } from "../theme";
+import { hudLabel } from "./neo/sx";
 
 interface ContextPanelProps {
   activePage: AppPage;
@@ -64,9 +66,10 @@ export default function ContextPanel({
     [onRequestDeleteFolder]
   );
 
-  const [integrationsTarget, setIntegrationsTarget] = useState<
-    { id: string; name: string } | null
-  >(null);
+  const [integrationsTarget, setIntegrationsTarget] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
   const handleRequestIntegrations = useCallback(
     (folderId: string, folderName: string) => {
       setIntegrationsTarget({ id: folderId, name: folderName });
@@ -84,11 +87,10 @@ export default function ContextPanel({
         height: "100vh",
         display: "flex",
         flexDirection: "column",
-        bgcolor: alpha("#121219", 0.8),
+        bgcolor: alpha(brand.surface2, 0.8),
         backdropFilter: "blur(12px)",
         WebkitBackdropFilter: "blur(12px)",
-        borderRight: 1,
-        borderColor: "divider",
+        borderRight: `1px solid ${brand.line}`,
         flexShrink: 0,
       }}
     >
@@ -106,40 +108,30 @@ export default function ContextPanel({
         <>
           <Box
             sx={{
-              px: 1.5,
-              pt: 1.5,
-              pb: 1,
+              px: "14px",
+              pt: 2,
+              pb: 1.25,
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
             }}
           >
-            <Typography
-              variant="caption"
-              sx={{
-                color: alpha("#ffffff", 0.3),
-                letterSpacing: 1,
-                textTransform: "uppercase",
-                fontSize: "0.65rem",
-                pl: 0.5,
-              }}
-            >
-              Folders
-            </Typography>
+            <Typography sx={hudLabel}>Folders</Typography>
             {onNewFolder && (
               <IconButton
                 size="small"
                 onClick={onNewFolder}
                 sx={{
-                  width: 24,
-                  height: 24,
-                  borderRadius: 1,
-                  bgcolor: alpha("#FF2E93", 0.15),
-                  color: "#a78bfa",
-                  "&:hover": { bgcolor: alpha("#FF2E93", 0.25) },
+                  width: 28,
+                  height: 28,
+                  borderRadius: "3px",
+                  border: `1px solid ${brand.magenta}55`,
+                  bgcolor: `${brand.magenta}14`,
+                  color: brand.magenta,
+                  "&:hover": { bgcolor: `${brand.magenta}25` },
                 }}
               >
-                <AddIcon sx={{ fontSize: 14 }} />
+                <AddIcon sx={{ fontSize: 16 }} />
               </IconButton>
             )}
           </Box>
@@ -179,44 +171,34 @@ function ChatPanel({
     <>
       <Box
         sx={{
-          px: 1.5,
-          pt: 1.5,
-          pb: 1,
+          px: "14px",
+          pt: 2,
+          pb: 1.25,
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
         }}
       >
-        <Typography
-          variant="caption"
-          sx={{
-            color: alpha("#ffffff", 0.3),
-            letterSpacing: 1,
-            textTransform: "uppercase",
-            fontSize: "0.65rem",
-            pl: 0.5,
-          }}
-        >
-          Conversations
-        </Typography>
+        <Typography sx={hudLabel}>Conversations</Typography>
         <IconButton
           data-testid="new-chat-button"
           size="small"
           onClick={onNew}
           sx={{
-            width: 24,
-            height: 24,
-            borderRadius: 1,
-            bgcolor: alpha("#FF2E93", 0.15),
-            color: "#a78bfa",
-            "&:hover": { bgcolor: alpha("#FF2E93", 0.25) },
+            width: 28,
+            height: 28,
+            borderRadius: "3px",
+            border: `1px solid ${brand.magenta}55`,
+            bgcolor: `${brand.magenta}14`,
+            color: brand.magenta,
+            "&:hover": { bgcolor: `${brand.magenta}25` },
           }}
         >
-          <AddIcon sx={{ fontSize: 14 }} />
+          <AddIcon sx={{ fontSize: 16 }} />
         </IconButton>
       </Box>
 
-      <List sx={{ flex: 1, overflow: "auto", px: 0.5 }}>
+      <List sx={{ flex: 1, overflow: "auto", px: "8px" }}>
         {conversations.map((conv) => (
           <ConversationRow
             key={conv.id}
@@ -307,18 +289,27 @@ function ConversationRow({
       onClick={editing ? undefined : onSelect}
       onDoubleClick={(e) => startEdit(e)}
       sx={{
-        borderRadius: 1.5,
-        mx: 0.5,
-        py: 0.6,
-        mb: 0.25,
-        "&.Mui-selected": {
-          bgcolor: alpha("#FF2E93", 0.12),
-          "&:hover": { bgcolor: alpha("#FF2E93", 0.18) },
-        },
-        "&:hover": {
-          bgcolor: alpha("#ffffff", 0.04),
-          "& .conv-actions": { opacity: 1 },
-        },
+        borderRadius: "3px",
+        px: "12px",
+        py: "10px",
+        mb: "2px",
+        height: "auto",
+        ...(isSelected
+          ? {
+              background: `${brand.magenta}22`,
+              boxShadow: `inset 2px 0 0 ${brand.magenta}`,
+              color: brand.text,
+              fontWeight: 500,
+              "&:hover": { background: `${brand.magenta}33` },
+              "& .conv-actions": { opacity: 1 },
+            }
+          : {
+              color: brand.text,
+              "&:hover": {
+                background: alpha("#ffffff", 0.04),
+                "& .conv-actions": { opacity: 1 },
+              },
+            }),
       }}
     >
       <ListItemIcon sx={{ minWidth: 28 }}>
@@ -349,11 +340,11 @@ function ConversationRow({
             color: "#fff",
             "& input": {
               padding: 0,
-              border: `1px solid ${alpha("#FF2E93", 0.4)}`,
-              borderRadius: 0.75,
+              border: `1px solid ${alpha(brand.magenta, 0.4)}`,
+              borderRadius: "3px",
               px: 1,
               py: 0.4,
-              bgcolor: alpha("#FF2E93", 0.08),
+              bgcolor: alpha(brand.magenta, 0.08),
             },
           }}
         />
@@ -364,7 +355,11 @@ function ConversationRow({
             primaryTypographyProps={{
               noWrap: true,
               variant: "body2",
-              sx: { fontWeight: isSelected ? 500 : 400 },
+              sx: {
+                fontWeight: isSelected ? 500 : 400,
+                fontSize: "13px",
+                color: brand.text,
+              },
             }}
           />
           <Box
@@ -385,7 +380,7 @@ function ConversationRow({
                 sx={{
                   p: 0.25,
                   color: alpha("#ffffff", 0.6),
-                  "&:hover": { color: "#a78bfa" },
+                  "&:hover": { color: brand.purple },
                 }}
               >
                 <EditIcon sx={{ fontSize: 14 }} />
@@ -402,7 +397,7 @@ function ConversationRow({
                 sx={{
                   p: 0.25,
                   color: alpha("#ffffff", 0.6),
-                  "&:hover": { color: "#ef4444" },
+                  "&:hover": { color: brand.red },
                 }}
               >
                 <DeleteIcon sx={{ fontSize: 14 }} />

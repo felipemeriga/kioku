@@ -28,9 +28,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     createConversation,
     removeConversation,
   } = useConversationsContext();
-  const [deleteTarget, setDeleteTarget] = useState<
-    { id: string; name: string } | null
-  >(null);
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
   const [busy, setBusy] = useState(false);
 
   const activePage = (location.pathname as AppPage) || "/";
@@ -103,7 +104,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         onNewFolder={handleNewFolder}
         onRequestDeleteFolder={handleRequestDeleteFolder}
       />
-      <Box sx={{ flex: 1, minWidth: 0, overflowY: "auto", overflowX: "hidden" }}>
+      <Box
+        sx={{ flex: 1, minWidth: 0, overflowY: "auto", overflowX: "hidden" }}
+      >
         {children}
       </Box>
 
@@ -127,10 +130,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </DialogContentText>
         </DialogContent>
         <DialogActions sx={{ pb: 2, pr: 3 }}>
-          <Button
-            onClick={() => setDeleteTarget(null)}
-            disabled={busy}
-          >
+          <Button onClick={() => setDeleteTarget(null)} disabled={busy}>
             Cancel
           </Button>
           <Button onClick={() => void doDelete(false)} disabled={busy}>
