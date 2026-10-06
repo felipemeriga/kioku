@@ -510,7 +510,7 @@ export default function SettingsPage() {
             </Box>
             {": "}
             <Box component="span" sx={{ color: brand.amber }}>
-              "Bearer &lt;your-api-key&gt;"
+              {"Bearer <your-api-key>"}
             </Box>
             {" }\n    }\n  }\n}"}
           </Box>
