@@ -5,6 +5,8 @@ import theme from "../../theme";
 import StatusGlyph from "./StatusGlyph";
 import KatakanaAccent from "./KatakanaAccent";
 import CornerCard from "./CornerCard";
+import SectionRail from "./SectionRail";
+import PillChain from "./PillChain";
 
 const wrap = (ui: React.ReactElement) =>
   render(<ThemeProvider theme={theme}>{ui}</ThemeProvider>);
@@ -27,5 +29,33 @@ describe("neo primitives", () => {
   it("CornerCard renders children", () => {
     wrap(<CornerCard>hello</CornerCard>);
     expect(screen.getByText("hello")).toBeInTheDocument();
+  });
+  it("SectionRail lists section titles and calls onSelect", () => {
+    const items = [
+      { n: "01", title: "Overview", status: "pinned" as const },
+      { n: "02", title: "Architecture", status: "auto" as const },
+    ];
+    let picked = -1;
+    wrap(
+      <SectionRail
+        items={items}
+        activeIndex={0}
+        onSelect={(i) => (picked = i)}
+      />
+    );
+    expect(screen.getByText("Overview")).toBeInTheDocument();
+    screen.getByText("Architecture").click();
+    expect(picked).toBe(1);
+  });
+  it("PillChain renders its steps", () => {
+    wrap(
+      <PillChain
+        label="VIDEO PIPELINE"
+        color="#FF2E93"
+        steps={["A", "B", "C"]}
+      />
+    );
+    expect(screen.getByText("A")).toBeInTheDocument();
+    expect(screen.getByText("C")).toBeInTheDocument();
   });
 });
