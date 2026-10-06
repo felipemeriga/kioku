@@ -452,6 +452,27 @@ export default function BriefingPanel({ folderId }: Props) {
                           {SECTION_DESCRIPTIONS[key]}
                         </Box>
                         <StatusGlyph status={mapStatus(section.status)} />
+                        <Tooltip title="Edit section">
+                          <IconButton
+                            size="small"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (EDITABLE_SECTIONS.includes(key)) {
+                                setEditingSection(key);
+                              } else {
+                                toast.show(
+                                  `${SECTION_TITLES[key]} is auto-populated — use Suggest to refresh.`,
+                                  "info"
+                                );
+                              }
+                            }}
+                            sx={{ flexShrink: 0 }}
+                          >
+                            <EditIcon
+                              sx={{ fontSize: 14, color: brand.muted }}
+                            />
+                          </IconButton>
+                        </Tooltip>
                         <Box
                           component="span"
                           sx={{
@@ -477,20 +498,6 @@ export default function BriefingPanel({ folderId }: Props) {
                             borderBottom: `1px solid ${brand.line}`,
                           }}
                         >
-                          <SectionHeading
-                            n={n}
-                            title={SECTION_TITLES[key]}
-                            color={color}
-                            status={mapStatus(section.status)}
-                            onEdit={() =>
-                              EDITABLE_SECTIONS.includes(key)
-                                ? setEditingSection(key)
-                                : toast.show(
-                                    `${SECTION_TITLES[key]} is auto-populated — use Suggest to refresh.`,
-                                    "info"
-                                  )
-                            }
-                          />
                           <Box sx={{ mt: 1.75 }}>
                             {editingSection === key ? (
                               <SectionEditor
