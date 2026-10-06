@@ -48,7 +48,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // used optional chaining and swallowed the call. Now: open a confirmation
   // dialog with the same delete_docs choice as the Documents-page delete
   // flow, then navigate away if the user is currently viewing the folder
-  // we just deleted (either /documents?folder=… or /folder/…).
+  // we just deleted (/documents?folder=…).
   const handleRequestDeleteFolder = useCallback(
     (folderId: string, folderName: string) => {
       setDeleteTarget({ id: folderId, name: folderName });
@@ -68,9 +68,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       const viewingInDocuments =
         location.pathname === "/documents" &&
         search.get("folder") === deleteTarget.id;
-      const viewingDetail = location.pathname === `/folder/${deleteTarget.id}`;
       if (viewingInDocuments) navigate("/documents");
-      else if (viewingDetail) navigate("/documents");
       toast.showSuccess(
         deleteDocs
           ? `Deleted “${deleteTarget.name}” and its documents.`

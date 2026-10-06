@@ -2,7 +2,7 @@
  * MemoryPanel — self-contained Mem0 memory browser for a folder.
  *
  * Owns all memory state: loading, add, delete, Rules/Episodic grouping.
- * Drop it anywhere a folderId is available (FolderDetailPage, DocumentsPage).
+ * Drop it anywhere a folderId is available — currently used by DocumentsPage.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
