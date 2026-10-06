@@ -7,7 +7,7 @@
  * video, markdown, code, or plain text — with a toggle to inspect the
  * extracted text the RAG search actually sees.
  *
- * Extracted from FolderDetailPage so the Documents page can open docs too.
+ * Used by the Documents page repo view; the Documents page handles doc opening.
  */
 import { useEffect, useMemo, useState } from "react";
 import { List, type RowComponentProps } from "react-window";

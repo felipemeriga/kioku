@@ -9,7 +9,6 @@ import LoginPage from "./pages/LoginPage";
 import CliAuthPage from "./pages/CliAuthPage";
 import ChatPage from "./pages/ChatPage";
 import DocumentsPage from "./pages/DocumentsPage";
-import FolderDetailPage from "./pages/FolderDetailPage";
 import SettingsPage from "./pages/SettingsPage";
 
 function App() {
@@ -20,44 +19,34 @@ function App() {
           <ToastProvider>
             <ConversationsProvider>
               <Routes>
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/cli-auth" element={<CliAuthPage />} />
-            <Route
-              path="/"
-              element={
-                <ProtectedRoute>
-                  <AppLayout>
-                    <ChatPage />
-                  </AppLayout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/documents"
-              element={
-                <ProtectedRoute>
-                  <AppLayout>
-                    <DocumentsPage />
-                  </AppLayout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/settings"
-              element={
-                <ProtectedRoute>
-                  <AppLayout>
-                    <SettingsPage />
-                  </AppLayout>
-                </ProtectedRoute>
-              }
-            />
+                <Route path="/login" element={<LoginPage />} />
+                <Route path="/cli-auth" element={<CliAuthPage />} />
                 <Route
-                  path="/folder/:folderId"
+                  path="/"
                   element={
                     <ProtectedRoute>
                       <AppLayout>
-                        <FolderDetailPage />
+                        <ChatPage />
+                      </AppLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/documents"
+                  element={
+                    <ProtectedRoute>
+                      <AppLayout>
+                        <DocumentsPage />
+                      </AppLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/settings"
+                  element={
+                    <ProtectedRoute>
+                      <AppLayout>
+                        <SettingsPage />
                       </AppLayout>
                     </ProtectedRoute>
                   }

@@ -23,8 +23,6 @@ import {
 import { NotionBrandIcon } from "./BrandIcons";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import DeleteIcon from "@mui/icons-material/Delete";
-import OpenInNewIcon from "@mui/icons-material/OpenInNew";
-import { useNavigate } from "react-router-dom";
 import {
   disconnectNotion,
   fetchNotionConfigs,
@@ -48,7 +46,6 @@ export default function FolderIntegrationsDialog({
   onClose,
 }: Props) {
   const toast = useToast();
-  const navigate = useNavigate();
   const [notion, setNotion] = useState<NotionConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [notionConnectOpen, setNotionConnectOpen] = useState(false);
@@ -182,26 +179,7 @@ export default function FolderIntegrationsDialog({
             />
           </Stack>
         </DialogContent>
-        <DialogActions sx={{ justifyContent: "space-between", px: 3, pb: 2 }}>
-          <Button
-            onClick={() => {
-              if (folder) {
-                onClose();
-                navigate(`/folder/${folder.id}`);
-              }
-            }}
-            startIcon={<OpenInNewIcon fontSize="small" />}
-            sx={{
-              textTransform: "none",
-              fontWeight: 600,
-              fontSize: 14,
-              color: brand.magentaGlow,
-              "&:hover": { color: brand.text, background: "transparent" },
-            }}
-            disableRipple
-          >
-            Open folder detail
-          </Button>
+        <DialogActions sx={{ justifyContent: "flex-end", px: 3, pb: 2 }}>
           <Button
             onClick={onClose}
             sx={{
