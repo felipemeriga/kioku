@@ -6,7 +6,8 @@
  * Tabs:
  *   - Briefing (repo folders only) + the detailed architecture doc.
  *   - Documents in this folder subtree — click a card, view content in a drawer.
- *   - Mem0 memories for this folder, grouped by scope (rules / episodic).
+ *   - Mem0 memories for this folder — rendered by <MemoryPanel/>, which owns
+ *     the full memory browser (load, add, delete, rules/episodic grouping).
  */
 
 import { useCallback, useEffect, useState } from "react";

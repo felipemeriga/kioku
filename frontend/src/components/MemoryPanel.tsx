@@ -84,7 +84,7 @@ export default function MemoryPanel({ folderId }: { folderId: string }) {
 
   const [available, setAvailable] = useState(false);
   const [memories, setMemories] = useState<MemoryRecord[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [addMemoryOpen, setAddMemoryOpen] = useState(false);
 
   const loadMem0 = useCallback(async () => {
@@ -157,18 +157,9 @@ export default function MemoryPanel({ folderId }: { folderId: string }) {
     }
   };
 
-  if (!available) {
-    return (
-      <Box>
-        <Alert severity="info" sx={{ mb: 2 }}>
-          Memory is available on repo folders. Run <code>kioku init</code> in
-          this folder to make it a repo — then episodic + eternal memory is on
-          automatically, no connection needed.
-        </Alert>
-      </Box>
-    );
-  }
-
+  // Show the spinner first while status resolves, so the "not available"
+  // alert never flashes before loadMem0() has actually confirmed the folder
+  // isn't a repo.
   if (loading && eternal.length === 0 && episodic.length === 0) {
     return (
       <Box
@@ -183,6 +174,18 @@ export default function MemoryPanel({ folderId }: { folderId: string }) {
         <Typography sx={{ fontFamily: fonts.body, fontSize: "0.9rem" }}>
           Loading memories…
         </Typography>
+      </Box>
+    );
+  }
+
+  if (!loading && !available) {
+    return (
+      <Box>
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Memory is available on repo folders. Run <code>kioku init</code> in
+          this folder to make it a repo — then episodic + eternal memory is on
+          automatically, no connection needed.
+        </Alert>
       </Box>
     );
   }
