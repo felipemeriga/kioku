@@ -4,6 +4,7 @@ import { ThemeProvider } from "@mui/material/styles";
 import theme from "../../theme";
 import StatusGlyph from "./StatusGlyph";
 import KatakanaAccent from "./KatakanaAccent";
+import CornerCard from "./CornerCard";
 
 const wrap = (ui: React.ReactElement) =>
   render(<ThemeProvider theme={theme}>{ui}</ThemeProvider>);
@@ -22,5 +23,9 @@ describe("neo primitives", () => {
     expect(container.querySelector('[aria-hidden="true"]')?.textContent).toBe(
       "記憶"
     );
+  });
+  it("CornerCard renders children", () => {
+    wrap(<CornerCard>hello</CornerCard>);
+    expect(screen.getByText("hello")).toBeInTheDocument();
   });
 });
