@@ -1,3 +1,7 @@
+from fastapi.testclient import TestClient
+
+from auth import get_current_user
+from main import app
 from routes import briefing
 
 
@@ -68,3 +72,27 @@ def test_index_status_handles_missing(monkeypatch):
     assert out["architecture_at"] is None
     assert out["detailed_doc_at"] is None
     assert out["graph_at"] is None
+
+
+def test_status_route_returns_payload(monkeypatch):
+    sb = _SB(
+        {
+            "repo_graph_meta": [],
+            "code_chunks": [],
+            "repo_documentation": [],
+        }
+    )
+    monkeypatch.setattr(briefing, "get_supabase", lambda: sb)
+    monkeypatch.setattr(
+        briefing, "_folder_must_be_repo", lambda s, f, u: {"id": f, "kind": "repo", "name": "r"}
+    )
+    monkeypatch.setattr(briefing, "get_latest_summary", lambda s, f, u: None)
+    app.dependency_overrides[get_current_user] = lambda: "u1"
+    try:
+        client = TestClient(app)
+        r = client.get("/api/folders/f1/status")
+        assert r.status_code == 200
+        assert "architecture_at" in r.json()
+        assert "graph_at" in r.json()
+    finally:
+        app.dependency_overrides.clear()

@@ -215,6 +215,19 @@ def _index_status(
     }
 
 
+@router.get("/{folder_id}/status")
+async def read_status(folder_id: str, user_id: str = Depends(get_current_user)):
+    """Freshness + last-generation timestamps for the Status tab (poll-friendly)."""
+    sb = get_supabase()
+    _folder_must_be_repo(sb, folder_id, user_id)
+    latest = get_latest_summary(sb, folder_id, user_id)
+    freshness = (
+        sb.table("repo_freshness").select("*").eq("folder_id", folder_id).limit(1).execute()
+    ).data or []
+    fresh = freshness[0] if freshness else None
+    return _index_status(sb, folder_id, user_id, fresh, latest)
+
+
 @router.get("/{folder_id}/documentation")
 async def read_documentation(folder_id: str, user_id: str = Depends(get_current_user)):
     """The latest detailed architecture doc (the 'complete overview' deep-doc)
