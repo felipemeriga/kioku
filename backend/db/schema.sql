@@ -154,6 +154,35 @@ CREATE OR REPLACE FUNCTION "public"."list_documents_grouped"(
 ALTER FUNCTION "public"."list_documents_grouped"("p_user_id" "uuid", "p_folder_id" "uuid") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."folder_breadcrumbs"(
+    "p_folder_id" "uuid",
+    "p_user_id" "uuid"
+) RETURNS TABLE(
+    "id" "uuid",
+    "name" "text",
+    "kind" "text"
+)
+    LANGUAGE "sql" STABLE
+    AS $$
+  WITH RECURSIVE "chain" AS (
+    SELECT f.id, f.name, f.parent_id, COALESCE(f.kind, 'folder') AS kind, 0 AS depth
+    FROM "public"."folders" f
+    WHERE f.id = p_folder_id AND f.user_id = p_user_id
+    UNION ALL
+    SELECT f.id, f.name, f.parent_id, COALESCE(f.kind, 'folder') AS kind, c.depth + 1
+    FROM "public"."folders" f
+    JOIN "chain" c ON f.id = c.parent_id
+    WHERE f.user_id = p_user_id
+  )
+  SELECT id, name, kind
+  FROM "chain"
+  ORDER BY depth DESC;
+  $$;
+
+
+ALTER FUNCTION "public"."folder_breadcrumbs"("p_folder_id" "uuid", "p_user_id" "uuid") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."set_briefing_section"(
     "p_folder_id" "uuid",
     "p_user_id" "uuid",
@@ -354,7 +383,9 @@ CREATE TABLE IF NOT EXISTS "public"."folders" (
     "name" "text" NOT NULL,
     "parent_id" "uuid",
     "user_id" "uuid" NOT NULL,
-    "created_at" timestamp with time zone DEFAULT "now"()
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    "kind" "text" DEFAULT 'folder'::"text" NOT NULL,
+    CONSTRAINT "folders_kind_check" CHECK (("kind" = ANY (ARRAY['folder'::"text", 'repo'::"text"])))
 );
 
 
