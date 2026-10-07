@@ -106,8 +106,14 @@ async def embed_and_store_batch_task(ctx: dict, payload: dict) -> None:
                 )
             )
 
-        if rows:
-            await asyncio.to_thread(lambda: supabase.table("documents").insert(rows).execute())
+        # Sub-batch the inserts: up to 128 rows of 1024-dim vectors is a multi-MB
+        # JSON payload that, under concurrent ingestion (many of these batch tasks
+        # running at once on the worker pool), can overrun the PostgREST client
+        # read timeout. Same guard as embed_code_chunks_task.
+        insert_size = 25
+        for i in range(0, len(rows), insert_size):
+            batch = rows[i : i + insert_size]
+            await asyncio.to_thread(lambda b=batch: supabase.table("documents").insert(b).execute())
 
         increment_processed_batches(supabase, job_id=job_id)
     except Exception as exc:

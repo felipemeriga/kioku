@@ -68,6 +68,62 @@ class TestEmbedAndStoreBatchTask(unittest.TestCase):
         self.assertEqual(insert_call[0]["source_type"], "notion")
         self.assertEqual(insert_call[0]["embedding"], [0.1] * 1024)
 
+    def test_large_batch_insert_is_sub_batched(self):
+        # A full 128-chunk batch is a multi-MB payload; it must be inserted in
+        # sub-batches of <=25 rows so a single request never overruns the
+        # PostgREST read timeout under concurrent ingestion.
+        from services.queue.tasks import embed_and_store_batch_task
+
+        n = 128
+        supabase = MagicMock()
+        supabase.table.return_value.insert.return_value.execute.return_value.data = []
+
+        payload = {
+            "job_id": "job-1",
+            "row_template": {
+                "user_id": "u1",
+                "root_folder_id": "root",
+                "source_filename": "big.pdf",
+                "source_type": "pdf",
+                "status": "completed",
+            },
+            "chunks": [f"chunk {i}" for i in range(n)],
+            "chunk_index_offset": 0,
+        }
+
+        with (
+            patch(
+                "services.queue.tasks.get_supabase_thread_safe",
+                return_value=supabase,
+                create=True,
+            ),
+            patch(
+                "services.queue.tasks.get_supabase",
+                return_value=supabase,
+                create=True,
+            ),
+            patch(
+                "services.queue.tasks.embed_batch",
+                return_value=[[0.0] * 1024] * n,
+            ),
+            patch("services.queue.tasks.extract_metadata", return_value={}),
+            patch(
+                "services.queue.tasks.increment_processed_batches",
+                return_value={"completed": True},
+            ),
+        ):
+            self._run(embed_and_store_batch_task({"redis": None}, payload))
+
+        insert_calls = supabase.table.return_value.insert.call_args_list
+        # ceil(128 / 25) == 6 inserts
+        self.assertEqual(len(insert_calls), 6)
+        inserted_rows = [call.args[0] for call in insert_calls]
+        self.assertTrue(all(len(rows) <= 25 for rows in inserted_rows))
+        self.assertEqual(sum(len(rows) for rows in inserted_rows), n)
+        # chunk_index must stay contiguous across sub-batches.
+        flat = [row for rows in inserted_rows for row in rows]
+        self.assertEqual([r["chunk_index"] for r in flat], list(range(n)))
+
     def test_metadata_extraction_parallel_across_chunks(self):
         from services.queue.tasks import embed_and_store_batch_task
 
