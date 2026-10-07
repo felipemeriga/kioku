@@ -132,10 +132,10 @@ export default function ChatArea({
               {/* Suggestion neon cards */}
               <Stack
                 direction="row"
-                spacing={1}
                 flexWrap="wrap"
+                useFlexGap
                 justifyContent="center"
-                sx={{ mt: 1, maxWidth: 600 }}
+                sx={{ mt: 1, maxWidth: 600, columnGap: 1, rowGap: 1.25 }}
               >
                 {SUGGESTIONS.map((text) => (
                   <Chip
@@ -144,7 +144,6 @@ export default function ChatArea({
                     variant="outlined"
                     onClick={() => onSend(text)}
                     sx={{
-                      m: 0.5,
                       fontFamily: fonts.mono,
                       fontSize: "0.75rem",
                       borderRadius: "3px",
