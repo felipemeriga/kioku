@@ -327,28 +327,12 @@ async def get_breadcrumbs(
     if not _UUID_RE.match(folder_id):
         return []
     sb = get_supabase()
-    breadcrumbs = []
-    current_id: str | None = folder_id
-
-    while current_id:
-        result = (
-            sb.table("folders")
-            .select("id, name, parent_id, kind")
-            .eq("id", current_id)
-            .eq("user_id", user_id)
-            .execute()
-        )
-        if not result.data:
-            break
-        folder = result.data[0]
-        breadcrumbs.append(
-            {
-                "id": folder["id"],
-                "name": folder["name"],
-                "kind": folder.get("kind") or "folder",
-            }
-        )
-        current_id = folder.get("parent_id")
-
-    breadcrumbs.reverse()
-    return breadcrumbs
+    # One recursive-CTE round-trip, root-first, instead of one Supabase call
+    # per ancestor level (the old loop was O(depth) sequential round-trips).
+    rows = (
+        sb.rpc(
+            "folder_breadcrumbs",
+            {"p_folder_id": folder_id, "p_user_id": user_id},
+        ).execute()
+    ).data or []
+    return [{"id": r["id"], "name": r["name"], "kind": r.get("kind") or "folder"} for r in rows]
