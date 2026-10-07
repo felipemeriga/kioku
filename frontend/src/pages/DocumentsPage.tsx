@@ -22,6 +22,7 @@ import {
   ToggleButtonGroup,
   Tabs,
   Tab,
+  Skeleton,
 } from "@mui/material";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { keyframes } from "@mui/system";
@@ -53,6 +54,7 @@ import {
   downloadDocument,
 } from "../lib/api";
 import type { Breadcrumb } from "../lib/api";
+import { getCached, setCached } from "../lib/folderCache";
 import DocumentCard from "../components/DocumentCard";
 import DocumentViewerDrawer from "../components/DocumentViewerDrawer";
 import MoveDialog from "../components/MoveDialog";
@@ -75,6 +77,11 @@ const pulse = keyframes`
   50% { opacity: 0.5; transform: scale(1.15); }
   100% { opacity: 1; transform: scale(1); }
 `;
+
+// folderCache keys for the two folder-scoped lists this page owns.
+const subfKey = (id?: string | null) => `subf:${id ?? "root"}`;
+const bcKey = (id: string) => `bc:${id}`;
+
 export default function DocumentsPage() {
   const toast = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -164,8 +171,14 @@ export default function DocumentsPage() {
     name: string;
   } | null>(null);
 
-  const { documents, error, loadDocuments, move, remove } =
-    useDocuments(currentFolderId);
+  const {
+    documents,
+    loading: docsLoading,
+    error,
+    loadDocuments,
+    move,
+    remove,
+  } = useDocuments(currentFolderId);
 
   const {
     tasks: ingestionTasks,
@@ -317,25 +330,51 @@ export default function DocumentsPage() {
 
   const [subFolders, setSubFolders] = useState<
     { id: string; name: string; kind?: "folder" | "repo" }[]
-  >([]);
+  >(() => getCached(subfKey(currentFolderId)) ?? []);
 
   // Load subfolders of current directory for the grid view.
   // Non-critical: page still renders. Logged so devs see repeated failures.
   const loadSubFolders = useCallback(() => {
     fetchFolders(currentFolderId)
-      .then((data) =>
-        setSubFolders(
-          data.map((f) => ({ id: f.id, name: f.name, kind: f.kind }))
-        )
-      )
+      .then((data) => {
+        const mapped = data.map((f) => ({
+          id: f.id,
+          name: f.name,
+          kind: f.kind,
+        }));
+        setCached(subfKey(currentFolderId), mapped);
+        setSubFolders(mapped);
+      })
       .catch((err) => {
         console.warn("[DocumentsPage] failed to load subfolders:", err);
       });
   }, [currentFolderId]);
 
+  // On folder change: seed from cache so the grid renders instantly, then
+  // revalidate. `active` drops a stale response if the user switches again
+  // mid-flight, so an earlier folder's result can't overwrite the current one.
   useEffect(() => {
-    loadSubFolders();
-  }, [loadSubFolders]);
+    let active = true;
+    setSubFolders(getCached(subfKey(currentFolderId)) ?? []);
+    fetchFolders(currentFolderId)
+      .then((data) => {
+        if (!active) return;
+        const mapped = data.map((f) => ({
+          id: f.id,
+          name: f.name,
+          kind: f.kind,
+        }));
+        setCached(subfKey(currentFolderId), mapped);
+        setSubFolders(mapped);
+      })
+      .catch((err) => {
+        if (active)
+          console.warn("[DocumentsPage] failed to load subfolders:", err);
+      });
+    return () => {
+      active = false;
+    };
+  }, [currentFolderId]);
 
   // Refresh the file grid + subfolders as a Notion sync ingests new pages,
   // so documents appear live without a manual reload.
@@ -363,13 +402,23 @@ export default function DocumentsPage() {
       setBreadcrumbs([]);
       return;
     }
+    let active = true;
+    // Seed from cache so the strip doesn't blank to "Home" on every switch.
+    setBreadcrumbs(getCached(bcKey(currentFolderId)) ?? []);
     fetchBreadcrumbs(currentFolderId)
-      .then(setBreadcrumbs)
+      .then((bc) => {
+        if (!active) return;
+        setCached(bcKey(currentFolderId), bc);
+        setBreadcrumbs(bc);
+      })
       .catch((err) => {
-        setBreadcrumbs([]);
-
+        if (!active) return;
+        setBreadcrumbs(getCached(bcKey(currentFolderId)) ?? []);
         console.warn("[DocumentsPage] failed to load breadcrumbs:", err);
       });
+    return () => {
+      active = false;
+    };
   }, [currentFolderId]);
 
   // Global drag-and-drop from OS: dim entire content area whenever the user
@@ -1148,75 +1197,106 @@ export default function DocumentsPage() {
           )}
 
         {/* Empty / no-results state */}
-        {(!currentFolderIsRepo || folderTab === "files") && isEmpty && (
-          <Stack
-            alignItems="center"
-            spacing={2}
-            sx={{ mt: 10, textAlign: "center" }}
-          >
+        {/* Cold load: show skeletons instead of flashing the empty state while
+            this folder's data is fetched for the first time (a revisit hits the
+            cache and skips this entirely). */}
+        {(!currentFolderIsRepo || folderTab === "files") &&
+          docsLoading &&
+          documents.length === 0 &&
+          subFolders.length === 0 && (
             <Box
               sx={{
-                width: 72,
-                height: 72,
-                borderRadius: "50%",
                 display: "grid",
-                placeItems: "center",
-                bgcolor: alpha(brand.violet, 0.1),
-                border: `1px solid ${alpha(brand.violet, 0.25)}`,
+                gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+                gap: "14px",
+                mt: 1,
               }}
             >
-              <CloudUploadIcon sx={{ fontSize: 32, color: brand.violet2 }} />
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton
+                  key={i}
+                  variant="rounded"
+                  height={92}
+                  sx={{
+                    bgcolor: alpha(brand.violet, 0.08),
+                    borderRadius: "10px",
+                  }}
+                />
+              ))}
             </Box>
-            <Stack alignItems="center" spacing={0.5}>
-              <Typography
+          )}
+
+        {(!currentFolderIsRepo || folderTab === "files") &&
+          isEmpty &&
+          !docsLoading && (
+            <Stack
+              alignItems="center"
+              spacing={2}
+              sx={{ mt: 10, textAlign: "center" }}
+            >
+              <Box
                 sx={{
-                  fontFamily: fonts.display,
-                  fontWeight: 700,
-                  fontSize: "1.15rem",
-                  color: brand.text,
+                  width: 72,
+                  height: 72,
+                  borderRadius: "50%",
+                  display: "grid",
+                  placeItems: "center",
+                  bgcolor: alpha(brand.violet, 0.1),
+                  border: `1px solid ${alpha(brand.violet, 0.25)}`,
                 }}
               >
-                {currentFolderId
-                  ? "This folder is empty"
-                  : "Your corpus is empty"}
-              </Typography>
-              <Typography
-                sx={{
-                  fontFamily: fonts.body,
-                  fontSize: "0.88rem",
-                  color: brand.muted,
-                  maxWidth: 380,
-                }}
-              >
-                Drop files anywhere on this page, click Upload above, or record
-                audio directly.
-              </Typography>
-              {currentFolderId && (
+                <CloudUploadIcon sx={{ fontSize: 32, color: brand.violet2 }} />
+              </Box>
+              <Stack alignItems="center" spacing={0.5}>
+                <Typography
+                  sx={{
+                    fontFamily: fonts.display,
+                    fontWeight: 700,
+                    fontSize: "1.15rem",
+                    color: brand.text,
+                  }}
+                >
+                  {currentFolderId
+                    ? "This folder is empty"
+                    : "Your corpus is empty"}
+                </Typography>
                 <Typography
                   sx={{
                     fontFamily: fonts.body,
-                    fontSize: "0.8rem",
-                    color: brand.violet2,
-                    maxWidth: 420,
-                    mt: 1,
+                    fontSize: "0.88rem",
+                    color: brand.muted,
+                    maxWidth: 380,
                   }}
                 >
-                  Tip: docs you add here (or a Notion sync) enrich this repo's
-                  briefing — <code>kioku init</code> folds them in, so it
-                  understands your whole ecosystem, not just the code.
+                  Drop files anywhere on this page, click Upload above, or
+                  record audio directly.
                 </Typography>
-              )}
+                {currentFolderId && (
+                  <Typography
+                    sx={{
+                      fontFamily: fonts.body,
+                      fontSize: "0.8rem",
+                      color: brand.violet2,
+                      maxWidth: 420,
+                      mt: 1,
+                    }}
+                  >
+                    Tip: docs you add here (or a Notion sync) enrich this repo's
+                    briefing — <code>kioku init</code> folds them in, so it
+                    understands your whole ecosystem, not just the code.
+                  </Typography>
+                )}
+              </Stack>
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={<UploadFileIcon />}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                Upload your first file
+              </Button>
             </Stack>
-            <Button
-              variant="contained"
-              size="small"
-              startIcon={<UploadFileIcon />}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              Upload your first file
-            </Button>
-          </Stack>
-        )}
+          )}
 
         {/* Search returned nothing */}
         {(!currentFolderIsRepo || folderTab === "files") &&
