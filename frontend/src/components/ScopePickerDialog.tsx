@@ -24,8 +24,10 @@ import FolderIcon from "@mui/icons-material/Folder";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import CenterFocusStrongIcon from "@mui/icons-material/CenterFocusStrong";
 import DescriptionIcon from "@mui/icons-material/Description";
+import { useQuery } from "@tanstack/react-query";
 import { fetchDocuments, fetchFolders } from "../lib/api";
-import type { ChatScope, DocumentInfo, Folder } from "../lib/api";
+import { qk } from "../lib/queryKeys";
+import type { ChatScope, Folder } from "../lib/api";
 import { messageFromError } from "./ToastProvider";
 
 export default function ScopePickerDialog({
@@ -37,39 +39,38 @@ export default function ScopePickerDialog({
   onClose: () => void;
   onSelect: (scope: ChatScope) => void;
 }) {
-  const [folders, setFolders] = useState<Folder[]>([]);
-  const [docs, setDocs] = useState<DocumentInfo[]>([]);
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [currentName, setCurrentName] = useState<string>("All documents");
   const [stack, setStack] = useState<{ id: string | null; name: string }[]>([]);
-  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const load = useCallback((parentId: string | null) => {
-    setLoadError(null);
-    Promise.all([fetchFolders(parentId), fetchDocuments(parentId ?? undefined)])
-      .then(([fs, ds]) => {
-        setFolders(fs);
-        setDocs(ds);
-      })
-      .catch((err) => {
-        setFolders([]);
-        setDocs([]);
-        setLoadError(messageFromError(err));
-      });
-  }, []);
+  // Both share their caches with the Documents grid (same query keys).
+  const foldersQuery = useQuery({
+    queryKey: qk.folders(currentId),
+    queryFn: () => fetchFolders(currentId),
+    enabled: open,
+  });
+  const docsQuery = useQuery({
+    queryKey: qk.documents(currentId),
+    queryFn: () => fetchDocuments(currentId ?? undefined),
+    enabled: open,
+  });
+  const folders = foldersQuery.data ?? [];
+  const docs = docsQuery.data ?? [];
+  const loadError =
+    foldersQuery.isError || docsQuery.isError
+      ? messageFromError(foldersQuery.error ?? docsQuery.error)
+      : null;
 
   const handleOpen = useCallback(() => {
     setCurrentId(null);
     setCurrentName("All documents");
     setStack([]);
-    load(null);
-  }, [load]);
+  }, []);
 
   const navigateInto = (folder: Folder) => {
     setStack((prev) => [...prev, { id: currentId, name: currentName }]);
     setCurrentId(folder.id);
     setCurrentName(folder.name);
-    load(folder.id);
   };
 
   const navigateBack = () => {
@@ -77,7 +78,6 @@ export default function ScopePickerDialog({
     setStack((s) => s.slice(0, -1));
     setCurrentId(prev?.id ?? null);
     setCurrentName(prev?.name ?? "All documents");
-    load(prev?.id ?? null);
   };
 
   return (
@@ -90,7 +90,9 @@ export default function ScopePickerDialog({
     >
       <DialogTitle>Scope the search</DialogTitle>
       <DialogContent sx={{ px: 1, pb: 0 }}>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 1, mb: 1 }}>
+        <Box
+          sx={{ display: "flex", alignItems: "center", gap: 1, px: 1, mb: 1 }}
+        >
           {stack.length > 0 && (
             <Button
               size="small"
@@ -105,7 +107,11 @@ export default function ScopePickerDialog({
               Back
             </Button>
           )}
-          <Typography variant="body2" sx={{ color: alpha("#ffffff", 0.5) }} noWrap>
+          <Typography
+            variant="body2"
+            sx={{ color: alpha("#ffffff", 0.5) }}
+            noWrap
+          >
             {currentName}
           </Typography>
         </Box>

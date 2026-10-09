@@ -16,8 +16,10 @@ import {
 import FolderIcon from "@mui/icons-material/Folder";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import DriveFileMoveIcon from "@mui/icons-material/DriveFileMove";
+import { useQuery } from "@tanstack/react-query";
 import { fetchFolders } from "../lib/api";
 import type { Folder } from "../lib/api";
+import { qk } from "../lib/queryKeys";
 import { messageFromError } from "./ToastProvider";
 
 interface MoveDialogProps {
@@ -33,38 +35,34 @@ export default function MoveDialog({
   onClose,
   onSelect,
 }: MoveDialogProps) {
-  const [folders, setFolders] = useState<Folder[]>([]);
   const [currentParentId, setCurrentParentId] = useState<string | null>(null);
   const [parentStack, setParentStack] = useState<(string | null)[]>([]);
-  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const loadFolders = useCallback((parentId: string | null) => {
-    setLoadError(null);
-    fetchFolders(parentId)
-      .then(setFolders)
-      .catch((err) => {
-        setFolders([]);
-        setLoadError(messageFromError(err));
-      });
-  }, []);
+  // Shares the ['folders', parentId] cache with the Documents grid.
+  const foldersQuery = useQuery({
+    queryKey: qk.folders(currentParentId),
+    queryFn: () => fetchFolders(currentParentId),
+    enabled: open,
+  });
+  const folders = foldersQuery.data ?? [];
+  const loadError = foldersQuery.isError
+    ? messageFromError(foldersQuery.error)
+    : null;
 
   const handleOpen = useCallback(() => {
     setCurrentParentId(null);
     setParentStack([]);
-    loadFolders(null);
-  }, [loadFolders]);
+  }, []);
 
   const navigateInto = (folder: Folder) => {
     setParentStack((prev) => [...prev, currentParentId]);
     setCurrentParentId(folder.id);
-    loadFolders(folder.id);
   };
 
   const navigateBack = () => {
     const prev = parentStack[parentStack.length - 1];
     setParentStack((s) => s.slice(0, -1));
     setCurrentParentId(prev ?? null);
-    loadFolders(prev ?? null);
   };
 
   const handleMoveHere = () => {
@@ -81,13 +79,19 @@ export default function MoveDialog({
     >
       <DialogTitle>{title}</DialogTitle>
       <DialogContent sx={{ px: 1, pb: 0 }}>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 1, mb: 1 }}>
+        <Box
+          sx={{ display: "flex", alignItems: "center", gap: 1, px: 1, mb: 1 }}
+        >
           {parentStack.length > 0 && (
             <Button
               size="small"
               startIcon={<ArrowBackIcon sx={{ fontSize: 16 }} />}
               onClick={navigateBack}
-              sx={{ minWidth: 0, textTransform: "none", color: alpha("#ffffff", 0.6) }}
+              sx={{
+                minWidth: 0,
+                textTransform: "none",
+                color: alpha("#ffffff", 0.6),
+              }}
             >
               Back
             </Button>
