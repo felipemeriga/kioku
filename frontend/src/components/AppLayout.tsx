@@ -9,6 +9,7 @@ import {
   DialogTitle,
 } from "@mui/material";
 import { useNavigate, useLocation } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import IconRail, { type AppPage } from "./IconRail";
 import ContextPanel from "./ContextPanel";
 import { useAuth } from "../hooks/useAuth";
@@ -20,6 +21,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const location = useLocation();
   const toast = useToast();
+  const queryClient = useQueryClient();
   const { user, signOut } = useAuth();
   const {
     conversations,
@@ -61,8 +63,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     setBusy(true);
     try {
       await deleteFolder(deleteTarget.id, deleteDocs);
-      // Bounce the tree so it reflects the delete
-      window.dispatchEvent(new CustomEvent("folders-changed"));
+      // Refresh every folder list (sidebar tree + grid + dialogs).
+      queryClient.invalidateQueries({ queryKey: ["folders"] });
       // If we were viewing this folder, get out
       const search = new URLSearchParams(location.search);
       const viewingInDocuments =
