@@ -39,6 +39,12 @@ jobs:
     services:
       redis:
         image: redis:7
+        # Service containers are pulled before steps run, so a login step can't
+        # help them — authenticate the pull here to dodge Docker Hub's anonymous
+        # rate limit (which intermittently failed this job).
+        credentials:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
         ports:
           - 6379:6379
         options: >-

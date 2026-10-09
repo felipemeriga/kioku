@@ -20,6 +20,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Authenticate Docker Hub before `supabase start` pulls its images, so the
+      # job doesn't hit the anonymous pull rate limit on shared runners.
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Install Supabase CLI
         uses: supabase/setup-cli@v1
         with:
