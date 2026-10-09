@@ -40,7 +40,15 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const { error: authError } = isSignUp
-        ? await supabase.auth.signUp({ email, password })
+        ? await supabase.auth.signUp({
+            email,
+            password,
+            // Send the confirmation link back to the app it was requested
+            // from (https://kioku.merigafy.com in prod, localhost in dev)
+            // instead of relying solely on the project's Site URL. Must be
+            // allow-listed under Supabase Auth → URL Configuration.
+            options: { emailRedirectTo: window.location.origin },
+          })
         : await supabase.auth.signInWithPassword({ email, password });
       if (authError) {
         // Common cases: 400 Invalid login credentials, 422 email format, 429 rate limit
