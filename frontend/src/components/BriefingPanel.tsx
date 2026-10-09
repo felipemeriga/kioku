@@ -8,7 +8,9 @@
  * All edit / pin / reset / regenerate handlers are preserved.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { qk } from "../lib/queryKeys";
 import {
   Alert,
   Box,
@@ -36,7 +38,6 @@ import {
   clearBriefing,
   fetchBriefing,
   updateBriefingSection,
-  type BriefingResponse,
   type BriefingSection,
   type BriefingSectionKey,
 } from "../lib/api";
@@ -104,9 +105,30 @@ function mapStatus(s: BriefingSection["status"]): GlyphStatus {
 
 export default function BriefingPanel({ folderId }: Props) {
   const toast = useToast();
-  const [data, setData] = useState<BriefingResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
+  // Cached briefing; non-repo folders report "not a repo", which we treat as
+  // simply "no briefing" (null) rather than an error.
+  const briefingQuery = useQuery({
+    queryKey: qk.briefing(folderId),
+    queryFn: async () => {
+      try {
+        return await fetchBriefing(folderId);
+      } catch (err) {
+        if (/not a repo|only for repo/i.test(messageFromError(err)))
+          return null;
+        throw err;
+      }
+    },
+  });
+  const data = briefingQuery.data ?? null;
+  const loading = briefingQuery.isPending;
+  const error = briefingQuery.isError
+    ? messageFromError(briefingQuery.error)
+    : null;
+  const refresh = () =>
+    queryClient.invalidateQueries({ queryKey: qk.briefing(folderId) });
+
   const [editingSection, setEditingSection] =
     useState<BriefingSectionKey | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
@@ -144,40 +166,19 @@ export default function BriefingPanel({ folderId }: Props) {
         "Briefing cleared. Run `kioku init` in this repo to regenerate it.",
         "info"
       );
-      await refresh();
-      window.dispatchEvent(
-        new CustomEvent("briefing-cleared", { detail: { folderId } })
-      );
+      // Clearing the briefing also deletes the detailed doc — refresh both.
+      await Promise.all([
+        refresh(),
+        queryClient.invalidateQueries({
+          queryKey: qk.documentation(folderId),
+        }),
+      ]);
     } catch (err) {
       toast.showError(err, "Couldn't clear the briefing.");
     } finally {
       setClearing(false);
     }
   };
-
-  const refresh = async () => {
-    try {
-      const res = await fetchBriefing(folderId);
-      setData(res);
-      setError(null);
-    } catch (err) {
-      const msg = messageFromError(err);
-      if (/not a repo|only for repo/i.test(msg)) {
-        setData(null);
-        setError(null);
-      } else {
-        setError(msg);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    setLoading(true);
-    void refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [folderId]);
 
   const scrollToSection = (i: number) => {
     setActiveRailIndex(i);

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import {
   Box,
   Paper,
@@ -11,8 +11,10 @@ import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { useQuery } from "@tanstack/react-query";
 import { brand, fonts } from "../theme";
-import { fetchDocumentation, type RepoDocumentation } from "../lib/api";
+import { fetchDocumentation } from "../lib/api";
+import { qk } from "../lib/queryKeys";
 
 function relTime(iso: string): string {
   const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
@@ -26,49 +28,18 @@ function relTime(iso: string): string {
  *  nothing for non-repo folders (the endpoint 400s) so it's safe to drop on any
  *  folder view. */
 export default function DocumentationPanel({ folderId }: { folderId: string }) {
-  const [doc, setDoc] = useState<RepoDocumentation | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [hidden, setHidden] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  // Bumped on every load so a stale response from a previous folder/request
-  // can't overwrite a newer one.
-  const reqRef = useRef(0);
 
-  const load = useCallback(async () => {
-    const seq = ++reqRef.current;
-    setLoading(true);
-    try {
-      const res = await fetchDocumentation(folderId);
-      if (seq !== reqRef.current) return;
-      setDoc(res.documentation);
-      setHidden(false);
-    } catch {
-      // Non-repo folder → 400. Render nothing.
-      if (seq === reqRef.current) setHidden(true);
-    } finally {
-      if (seq === reqRef.current) setLoading(false);
-    }
-  }, [folderId]);
+  // Non-repo folders 400 here → isError → render nothing. The briefing
+  // "Clear & regenerate" invalidates ['documentation', folderId], so this
+  // refetches automatically (no more briefing-cleared event needed).
+  const { data, isPending, isError } = useQuery({
+    queryKey: qk.documentation(folderId),
+    queryFn: () => fetchDocumentation(folderId),
+  });
+  const doc = data?.documentation ?? null;
 
-  // Initial load + reload when the folder changes.
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  // The briefing "Clear & regenerate" deletes the detailed doc too. Refetch on
-  // that event so this panel drops the now-deleted doc instead of showing it
-  // stale until a page reload.
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const cleared = (e as CustomEvent<{ folderId?: string }>).detail
-        ?.folderId;
-      if (!cleared || cleared === folderId) void load();
-    };
-    window.addEventListener("briefing-cleared", handler);
-    return () => window.removeEventListener("briefing-cleared", handler);
-  }, [folderId, load]);
-
-  if (loading || hidden) return null;
+  if (isPending || isError || !doc) return null;
 
   const cardSx = {
     p: 2.5,

@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { qk } from "../lib/queryKeys";
 import {
   Box,
   Stack,
@@ -44,36 +46,26 @@ function indexGlyph(at: string | null): { glyph: string; color: string } {
 }
 
 export default function StatusPanel({ folderId }: { folderId: string }) {
-  const [status, setStatus] = useState<FolderStatus | null>(null);
   const [pending, setPending] = useState<Pending>(null);
   const [note, setNote] = useState<string>("");
-  const pollsRef = useRef(0);
 
-  const load = useCallback(async () => {
-    const s = await getFolderStatus(folderId);
-    setStatus(s);
-    return s;
-  }, [folderId]);
+  // Initial status read is cached (instant on revisit, background-refreshes).
+  const { data: status, refetch } = useQuery({
+    queryKey: qk.folderStatus(folderId),
+    queryFn: () => getFolderStatus(folderId),
+  });
 
-  useEffect(() => {
-    void (async () => {
-      try {
-        await load();
-      } catch {
-        setNote("Couldn't load status.");
-      }
-    })();
-  }, [load]);
-
-  // Poll while a refresh is pending until the watched field advances or we time out.
+  // Poll while a refresh is pending until the watched field advances or we
+  // time out. refetch() keeps the cached status in sync for the whole UI.
   useEffect(() => {
     if (!pending) return;
-    pollsRef.current = 0;
+    let polls = 0;
     const id = setInterval(async () => {
-      pollsRef.current += 1;
+      polls += 1;
       let s: FolderStatus | null = null;
       try {
-        s = await load();
+        const r = await refetch();
+        s = r.data ?? null;
       } catch {
         /* keep polling */
       }
@@ -81,14 +73,14 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
         setPending(null);
         setNote("Updated just now.");
         clearInterval(id);
-      } else if (pollsRef.current >= 36) {
+      } else if (polls >= 36) {
         setPending(null);
         setNote("Still running — check back in a bit.");
         clearInterval(id);
       }
     }, 5000);
     return () => clearInterval(id);
-  }, [pending, load]);
+  }, [pending, refetch]);
 
   const start = async (
     target: "index" | "sections",
