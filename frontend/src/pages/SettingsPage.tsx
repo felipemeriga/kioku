@@ -1,4 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { qk } from "../lib/queryKeys";
 import {
   Box,
   Typography,
@@ -25,8 +27,6 @@ import {
   createApiKey,
   revokeApiKey,
   fetchRootFolders,
-  type ApiKeyInfo,
-  type Folder,
 } from "../lib/api";
 import { NotionIntegrationSection } from "../components/NotionIntegrationSection";
 import { messageFromError } from "../components/ToastProvider";
@@ -36,9 +36,17 @@ import { brand, fonts } from "../theme";
 type SettingsTab = "api-keys" | "integrations" | "mcp-client";
 
 export default function SettingsPage() {
-  const [keys, setKeys] = useState<ApiKeyInfo[]>([]);
-  const [scopes, setScopes] = useState<Folder[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const keysQuery = useQuery({ queryKey: qk.apiKeys(), queryFn: fetchApiKeys });
+  const scopesQuery = useQuery({
+    queryKey: ["root-folders"],
+    queryFn: fetchRootFolders,
+  });
+  const keys = keysQuery.data ?? [];
+  const scopes = scopesQuery.data ?? [];
+  const loading = keysQuery.isPending || scopesQuery.isPending;
+  const reloadKeys = () =>
+    queryClient.invalidateQueries({ queryKey: qk.apiKeys() });
   const [newKey, setNewKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [revokeTarget, setRevokeTarget] = useState<string | null>(null);
@@ -46,26 +54,6 @@ export default function SettingsPage() {
   const [selectedScope, setSelectedScope] = useState<string>("");
   const [keyName, setKeyName] = useState("Default");
   const [activeTab, setActiveTab] = useState<SettingsTab>("api-keys");
-
-  const loadData = useCallback(async () => {
-    try {
-      setError(null);
-      const [keysData, scopesData] = await Promise.all([
-        fetchApiKeys(),
-        fetchRootFolders(),
-      ]);
-      setKeys(keysData);
-      setScopes(scopesData);
-    } catch (err) {
-      setError(`Couldn't load settings: ${messageFromError(err)}`);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
 
   const handleGenerate = async () => {
     if (!selectedScope) {
@@ -76,7 +64,7 @@ export default function SettingsPage() {
       setError(null);
       const result = await createApiKey(keyName || "Default", selectedScope);
       setNewKey(result.key);
-      await loadData();
+      await reloadKeys();
     } catch (err) {
       setError(`Couldn't generate API key: ${messageFromError(err)}`);
     }
@@ -103,7 +91,7 @@ export default function SettingsPage() {
     try {
       setError(null);
       await revokeApiKey(revokeTarget);
-      setKeys((prev) => prev.filter((k) => k.id !== revokeTarget));
+      await reloadKeys();
       setNewKey(null);
       setRevokeTarget(null);
     } catch (err) {

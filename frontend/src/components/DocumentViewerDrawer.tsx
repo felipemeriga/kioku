@@ -27,7 +27,9 @@ import CloseIcon from "@mui/icons-material/Close";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 
+import { useQuery } from "@tanstack/react-query";
 import { fetchDocumentContent, type DocumentContent } from "../lib/api";
+import { qk } from "../lib/queryKeys";
 import { brand, fonts } from "../theme";
 import { useToast } from "./ToastProvider";
 
@@ -133,49 +135,37 @@ export default function DocumentViewerDrawer({
   onClose: () => void;
 }) {
   const toast = useToast();
-  const [doc, setDoc] = useState<DocumentContent | null>(null);
-  const [loading, setLoading] = useState(false);
+  // Content is cached per (filename, folder) so reopening the same doc is
+  // instant. While it loads we render a placeholder shell (same as before).
+  const contentQuery = useQuery({
+    queryKey: qk.documentContent(filename ?? "", folderId ?? null),
+    queryFn: () => fetchDocumentContent(filename!, folderId ?? undefined),
+    enabled: !!filename,
+  });
+  const doc: DocumentContent | null = filename
+    ? contentQuery.data ?? {
+        source_filename: filename,
+        source_type: null,
+        metadata: {},
+        chunk_count: 0,
+        folder_id: folderId ?? null,
+        status: null,
+        created_at: null,
+        content: "",
+        viewable_as: "text",
+        file_url: null,
+        bucket: null,
+      }
+    : null;
+  const loading = !!filename && contentQuery.isPending;
 
+  // A content-fetch failure closes the drawer (same as the old catch path).
   useEffect(() => {
-    if (!filename) {
-      setDoc(null);
-      return;
+    if (contentQuery.isError) {
+      toast.showError(contentQuery.error, "Couldn't load document content.");
+      onClose();
     }
-    let cancelled = false;
-    setLoading(true);
-    // Loading placeholder — real values arrive from fetchDocumentContent.
-    setDoc({
-      source_filename: filename,
-      source_type: null,
-      metadata: {},
-      chunk_count: 0,
-      folder_id: folderId ?? null,
-      status: null,
-      created_at: null,
-      content: "",
-      viewable_as: "text",
-      file_url: null,
-      bucket: null,
-    });
-    fetchDocumentContent(filename, folderId ?? undefined)
-      .then((d) => {
-        if (!cancelled) setDoc(d);
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          toast.showError(err, "Couldn't load document content.");
-          setDoc(null);
-          onClose();
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filename, folderId]);
+  }, [contentQuery.isError, contentQuery.error, onClose, toast]);
 
   const handleCopy = async (content: string) => {
     try {
