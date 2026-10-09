@@ -28,8 +28,13 @@ function readScopes(): Record<string, ChatScope> {
 
 export default function ChatPage() {
   const toast = useToast();
-  const { selectedId, messages, setMessages, loadConversations } =
-    useConversationsContext();
+  const {
+    selectedId,
+    messages,
+    setMessages,
+    loadConversations,
+    createConversation,
+  } = useConversationsContext();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [streamingContent, setStreamingContent] = useState("");
@@ -84,12 +89,26 @@ export default function ChatPage() {
     mode?: ChatMode,
     debug?: boolean
   ) => {
-    if (!selectedId || isStreaming) return;
+    if (isStreaming) return;
+
+    // A brand-new user may not have a conversation yet. Create one on first
+    // send instead of silently dropping the message — the old `!selectedId`
+    // guard made the very first send a no-op with no feedback.
+    let convId = selectedId;
+    if (!convId) {
+      try {
+        const conv = await createConversation();
+        convId = conv.id;
+      } catch (err) {
+        toast.showError(err, "Couldn't start a conversation.");
+        return;
+      }
+    }
 
     // Consume a URL-provided scope on first use: persist it to this
     // conversation and clean the address bar.
     if (urlScope) {
-      applyScope(selectedId, urlScope);
+      applyScope(convId, urlScope);
       setSearchParams({}, { replace: true });
     }
 
@@ -117,7 +136,7 @@ export default function ChatPage() {
 
     try {
       await streamChat(
-        selectedId,
+        convId,
         content,
         (token) => {
           setCurrentStage(null);

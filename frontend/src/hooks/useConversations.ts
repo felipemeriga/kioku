@@ -22,21 +22,37 @@ export function useConversations() {
   // Initial load - subscribe to external data
   useEffect(() => {
     let active = true;
-    fetchConversations().then((convs) => {
+    fetchConversations().then(async (convs) => {
       if (!active) return;
-      setConversations(convs);
       if (convs.length > 0) {
+        setConversations(convs);
         setSelectedId(convs[0].id);
+      } else {
+        // Brand-new user with no conversations: create one so the chat is
+        // immediately usable. Without a selected conversation, sending a
+        // message was a silent no-op (handleSend bailed on the missing id).
+        try {
+          const conv = await apiCreateConversation();
+          if (!active) return;
+          setConversations([conv]);
+          setSelectedId(conv.id);
+        } catch {
+          if (active) setConversations(convs);
+        }
       }
-      setInitialized(true);
+      if (active) setInitialized(true);
     });
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, []);
 
   // React to external mutations (e.g. rename from the sidebar row).
   useEffect(() => {
     const handler = () => {
-      fetchConversations().then(setConversations).catch(() => {});
+      fetchConversations()
+        .then(setConversations)
+        .catch(() => {});
     };
     window.addEventListener("conversations-changed", handler);
     return () => window.removeEventListener("conversations-changed", handler);
@@ -52,7 +68,9 @@ export function useConversations() {
       if (!active) return;
       setMessages(conv.messages);
     });
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [selectedId, initialized]);
 
   const selectConversation = useCallback((id: string) => {
@@ -64,6 +82,7 @@ export function useConversations() {
     setConversations((prev) => [conv, ...prev]);
     setSelectedId(conv.id);
     setMessages([]);
+    return conv;
   }, []);
 
   const removeConversation = useCallback(
