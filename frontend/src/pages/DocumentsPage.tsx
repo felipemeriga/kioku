@@ -54,7 +54,12 @@ import {
   downloadDocument,
 } from "../lib/api";
 import type { Breadcrumb } from "../lib/api";
-import { getCached, setCached } from "../lib/folderCache";
+import {
+  useQuery,
+  useQueryClient,
+  keepPreviousData,
+} from "@tanstack/react-query";
+import { qk } from "../lib/queryKeys";
 import DocumentCard from "../components/DocumentCard";
 import DocumentViewerDrawer from "../components/DocumentViewerDrawer";
 import MoveDialog from "../components/MoveDialog";
@@ -78,10 +83,6 @@ const pulse = keyframes`
   100% { opacity: 1; transform: scale(1); }
 `;
 
-// folderCache keys for the two folder-scoped lists this page owns.
-const subfKey = (id?: string | null) => `subf:${id ?? "root"}`;
-const bcKey = (id: string) => `bc:${id}`;
-
 export default function DocumentsPage() {
   const toast = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -103,7 +104,7 @@ export default function DocumentsPage() {
   useEffect(() => {
     localStorage.setItem("kioku.documents.viewMode", viewMode);
   }, [viewMode]);
-  const [breadcrumbs, setBreadcrumbs] = useState<Breadcrumb[]>([]);
+  const queryClient = useQueryClient();
   const [folderTab, setFolderTab] = useState<
     "files" | "briefing" | "status" | "memory"
   >("files");
@@ -328,53 +329,27 @@ export default function DocumentsPage() {
     setDragOver(false);
   }, []);
 
-  const [subFolders, setSubFolders] = useState<
-    { id: string; name: string; kind?: "folder" | "repo" }[]
-  >(() => getCached(subfKey(currentFolderId)) ?? []);
+  // Subfolders of the current directory for the grid. keepPreviousData keeps
+  // the previous folder's children on screen while the new folder loads.
+  const subFoldersQuery = useQuery({
+    queryKey: qk.folders(currentFolderId),
+    queryFn: () => fetchFolders(currentFolderId),
+    placeholderData: keepPreviousData,
+  });
+  const subFolders = useMemo(
+    () =>
+      (subFoldersQuery.data ?? []).map((f) => ({
+        id: f.id,
+        name: f.name,
+        kind: f.kind,
+      })),
+    [subFoldersQuery.data]
+  );
 
-  // Load subfolders of current directory for the grid view.
-  // Non-critical: page still renders. Logged so devs see repeated failures.
+  // Imperative refresh for the sync-progress and folders-changed handlers.
   const loadSubFolders = useCallback(() => {
-    fetchFolders(currentFolderId)
-      .then((data) => {
-        const mapped = data.map((f) => ({
-          id: f.id,
-          name: f.name,
-          kind: f.kind,
-        }));
-        setCached(subfKey(currentFolderId), mapped);
-        setSubFolders(mapped);
-      })
-      .catch((err) => {
-        console.warn("[DocumentsPage] failed to load subfolders:", err);
-      });
-  }, [currentFolderId]);
-
-  // On folder change: seed from cache so the grid renders instantly, then
-  // revalidate. `active` drops a stale response if the user switches again
-  // mid-flight, so an earlier folder's result can't overwrite the current one.
-  useEffect(() => {
-    let active = true;
-    setSubFolders(getCached(subfKey(currentFolderId)) ?? []);
-    fetchFolders(currentFolderId)
-      .then((data) => {
-        if (!active) return;
-        const mapped = data.map((f) => ({
-          id: f.id,
-          name: f.name,
-          kind: f.kind,
-        }));
-        setCached(subfKey(currentFolderId), mapped);
-        setSubFolders(mapped);
-      })
-      .catch((err) => {
-        if (active)
-          console.warn("[DocumentsPage] failed to load subfolders:", err);
-      });
-    return () => {
-      active = false;
-    };
-  }, [currentFolderId]);
+    queryClient.invalidateQueries({ queryKey: qk.folders(currentFolderId) });
+  }, [queryClient, currentFolderId]);
 
   // Refresh the file grid + subfolders as a Notion sync ingests new pages,
   // so documents appear live without a manual reload.
@@ -393,33 +368,17 @@ export default function DocumentsPage() {
     return () => window.removeEventListener("folders-changed", handler);
   }, [loadSubFolders]);
 
-  // Load breadcrumbs for the current folder. Non-critical — falling back to
-  // empty means the breadcrumb strip shows just Home. Surfaced only via toast
-  // if the failure is not a network transient (network is common while
-  // uploading, so we don't spam on those).
-  useEffect(() => {
-    if (!currentFolderId) {
-      setBreadcrumbs([]);
-      return;
-    }
-    let active = true;
-    // Seed from cache so the strip doesn't blank to "Home" on every switch.
-    setBreadcrumbs(getCached(bcKey(currentFolderId)) ?? []);
-    fetchBreadcrumbs(currentFolderId)
-      .then((bc) => {
-        if (!active) return;
-        setCached(bcKey(currentFolderId), bc);
-        setBreadcrumbs(bc);
-      })
-      .catch((err) => {
-        if (!active) return;
-        setBreadcrumbs(getCached(bcKey(currentFolderId)) ?? []);
-        console.warn("[DocumentsPage] failed to load breadcrumbs:", err);
-      });
-    return () => {
-      active = false;
-    };
-  }, [currentFolderId]);
+  // Breadcrumbs for the current folder (empty at root). keepPreviousData so the
+  // strip doesn't blank to "Home" while the next folder's path loads.
+  const breadcrumbsQuery = useQuery({
+    queryKey: qk.breadcrumbs(currentFolderId ?? "none"),
+    queryFn: () => fetchBreadcrumbs(currentFolderId!),
+    enabled: !!currentFolderId,
+    placeholderData: keepPreviousData,
+  });
+  const breadcrumbs: Breadcrumb[] = currentFolderId
+    ? breadcrumbsQuery.data ?? []
+    : [];
 
   // Global drag-and-drop from OS: dim entire content area whenever the user
   // starts dragging files anywhere over the page.
