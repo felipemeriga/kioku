@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Conversation, Message } from "../lib/api";
 import {
   fetchConversations,
@@ -6,63 +7,68 @@ import {
   deleteConversation as apiDeleteConversation,
   fetchConversation,
 } from "../lib/api";
+import { qk } from "../lib/queryKeys";
 
 export function useConversations() {
-  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const queryClient = useQueryClient();
+  // selectedId + messages stay local: messages are both server-loaded AND
+  // appended live during the chat SSE stream, which React Query shouldn't own.
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [initialized, setInitialized] = useState(false);
 
-  const loadConversations = useCallback(async () => {
-    const convs = await fetchConversations();
-    setConversations(convs);
-    return convs;
-  }, []);
+  const { data: conversations = [], isSuccess } = useQuery({
+    queryKey: qk.conversations(),
+    queryFn: fetchConversations,
+  });
 
-  // Initial load - subscribe to external data
+  const loadConversations = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: qk.conversations() }),
+    [queryClient]
+  );
+
+  const createConversation = useCallback(async () => {
+    const conv = await apiCreateConversation();
+    queryClient.setQueryData<Conversation[]>(qk.conversations(), (prev) => [
+      conv,
+      ...(prev ?? []),
+    ]);
+    setSelectedId(conv.id);
+    setMessages([]);
+    return conv;
+  }, [queryClient]);
+
+  // Auto-select the first conversation, or create one for a brand-new user so
+  // the chat is immediately usable (#90). Runs once after the list first loads.
+  const didInitRef = useRef(false);
   useEffect(() => {
-    let active = true;
-    fetchConversations().then(async (convs) => {
-      if (!active) return;
-      if (convs.length > 0) {
-        setConversations(convs);
-        setSelectedId(convs[0].id);
+    if (!isSuccess || didInitRef.current) return;
+    didInitRef.current = true;
+    void (async () => {
+      if (conversations.length > 0) {
+        setSelectedId(conversations[0].id);
       } else {
-        // Brand-new user with no conversations: create one so the chat is
-        // immediately usable. Without a selected conversation, sending a
-        // message was a silent no-op (handleSend bailed on the missing id).
         try {
-          const conv = await apiCreateConversation();
-          if (!active) return;
-          setConversations([conv]);
-          setSelectedId(conv.id);
+          await createConversation();
         } catch {
-          if (active) setConversations(convs);
+          /* leave unselected; the next send retries via ChatPage */
         }
       }
-      if (active) setInitialized(true);
-    });
-    return () => {
-      active = false;
-    };
-  }, []);
+    })();
+  }, [isSuccess, conversations, createConversation]);
 
-  // React to external mutations (e.g. rename from the sidebar row).
+  // Rename-from-sidebar dispatches conversations-changed → refetch the list.
   useEffect(() => {
     const handler = () => {
-      fetchConversations()
-        .then(setConversations)
-        .catch(() => {});
+      void queryClient.invalidateQueries({ queryKey: qk.conversations() });
     };
     window.addEventListener("conversations-changed", handler);
     return () => window.removeEventListener("conversations-changed", handler);
-  }, []);
+  }, [queryClient]);
 
-  // Load messages when selectedId changes
+  // Load messages for the selected conversation; chat streaming then appends
+  // to this local state live via setMessages.
   useEffect(() => {
-    if (!initialized) return;
     if (!selectedId) return;
-
     let active = true;
     fetchConversation(selectedId).then((conv) => {
       if (!active) return;
@@ -71,34 +77,26 @@ export function useConversations() {
     return () => {
       active = false;
     };
-  }, [selectedId, initialized]);
+  }, [selectedId]);
 
   const selectConversation = useCallback((id: string) => {
     setSelectedId(id);
   }, []);
 
-  const createConversation = useCallback(async () => {
-    const conv = await apiCreateConversation();
-    setConversations((prev) => [conv, ...prev]);
-    setSelectedId(conv.id);
-    setMessages([]);
-    return conv;
-  }, []);
-
   const removeConversation = useCallback(
     async (id: string) => {
       await apiDeleteConversation(id);
-      setConversations((prev) => {
-        const remaining = prev.filter((c) => c.id !== id);
-        if (selectedId === id) {
-          const next = remaining.length > 0 ? remaining[0].id : null;
-          setSelectedId(next);
-          if (!next) setMessages([]);
-        }
-        return remaining;
-      });
+      const prev =
+        queryClient.getQueryData<Conversation[]>(qk.conversations()) ?? [];
+      const remaining = prev.filter((c) => c.id !== id);
+      queryClient.setQueryData(qk.conversations(), remaining);
+      if (selectedId === id) {
+        const next = remaining.length > 0 ? remaining[0].id : null;
+        setSelectedId(next);
+        if (!next) setMessages([]);
+      }
     },
-    [selectedId]
+    [queryClient, selectedId]
   );
 
   return {

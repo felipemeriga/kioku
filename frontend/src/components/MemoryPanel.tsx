@@ -5,7 +5,9 @@
  * Drop it anywhere a folderId is available — currently used by DocumentsPage.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { qk } from "../lib/queryKeys";
 import {
   Alert,
   Box,
@@ -82,42 +84,38 @@ const CATEGORY_OPTIONS: {
 export default function MemoryPanel({ folderId }: { folderId: string }) {
   const toast = useToast();
 
-  const [available, setAvailable] = useState(false);
-  const [memories, setMemories] = useState<MemoryRecord[]>([]);
-  const [loading, setLoading] = useState(true);
   const [addMemoryOpen, setAddMemoryOpen] = useState(false);
+  const queryClient = useQueryClient();
 
-  const loadMem0 = useCallback(async () => {
-    setLoading(true);
-    try {
+  // One query resolves both "is mem0 available for this repo" and its memories;
+  // cached so reopening the tab is instant with a background refresh.
+  const { data, isPending } = useQuery({
+    queryKey: qk.folderMemories(folderId),
+    queryFn: async () => {
       const status = await fetchMem0Status(folderId);
-      setAvailable(!!status.available);
-      if (status.available) {
-        const res = await listFolderMemories(folderId, {
-          scope: "any",
-          limit: 200,
-        });
-        setMemories(res.memories);
-      } else {
-        setMemories([]);
+      if (!status.available) {
+        return { available: false, memories: [] as MemoryRecord[] };
       }
-    } catch (err) {
-      toast.showError(err, "Couldn't load memories.");
-    } finally {
-      setLoading(false);
-    }
-  }, [folderId, toast]);
+      const res = await listFolderMemories(folderId, {
+        scope: "any",
+        limit: 200,
+      });
+      return { available: true, memories: res.memories };
+    },
+  });
+  const available = data?.available ?? false;
+  const memories = useMemo(() => data?.memories ?? [], [data]);
+  const loading = isPending;
 
-  useEffect(() => {
-    void loadMem0();
-  }, [loadMem0]);
+  const invalidateMemories = () =>
+    queryClient.invalidateQueries({ queryKey: qk.folderMemories(folderId) });
 
   const deleteMemory = async (memory: MemoryRecord) => {
     if (!confirm(`Delete this memory?\n\n${memory.content.slice(0, 120)}…`))
       return;
     try {
       await deleteFolderMemory(folderId, memory.id);
-      setMemories((prev) => prev.filter((m) => m.id !== memory.id));
+      await invalidateMemories();
       toast.showSuccess("Memory deleted.");
     } catch (err) {
       toast.showError(err, "Couldn't delete memory.");
@@ -151,7 +149,7 @@ export default function MemoryPanel({ folderId }: { folderId: string }) {
       } else {
         toast.showSuccess("Memory added.");
       }
-      await loadMem0();
+      await invalidateMemories();
     } catch (err) {
       toast.showError(err, "Couldn't save memory.");
     }
