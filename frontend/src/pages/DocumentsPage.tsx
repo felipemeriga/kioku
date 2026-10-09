@@ -346,7 +346,7 @@ export default function DocumentsPage() {
     [subFoldersQuery.data]
   );
 
-  // Imperative refresh for the sync-progress and folders-changed handlers.
+  // Imperative refresh used by the Notion sync-progress handler.
   const loadSubFolders = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: qk.folders(currentFolderId) });
   }, [queryClient, currentFolderId]);
@@ -357,16 +357,6 @@ export default function DocumentsPage() {
     loadDocuments();
     loadSubFolders();
   }, [loadDocuments, loadSubFolders]);
-
-  // Keep the folder grid in sync with folder changes made elsewhere — most
-  // importantly a delete from the sidebar tree, which dispatches
-  // `folders-changed`. Without this, a folder deleted in the sidebar lingered
-  // in the grid on the right until a manual refresh.
-  useEffect(() => {
-    const handler = () => loadSubFolders();
-    window.addEventListener("folders-changed", handler);
-    return () => window.removeEventListener("folders-changed", handler);
-  }, [loadSubFolders]);
 
   // Breadcrumbs for the current folder (empty at root). keepPreviousData so the
   // strip doesn't blank to "Home" while the next folder's path loads.
@@ -442,8 +432,7 @@ export default function DocumentsPage() {
       await createFolder(newFolderName.trim(), currentFolderId);
       setNewFolderName("");
       setNewFolderOpen(false);
-      loadSubFolders();
-      window.dispatchEvent(new CustomEvent("folders-changed"));
+      queryClient.invalidateQueries({ queryKey: ["folders"] });
     } catch (err) {
       toast.show(`Couldn't create folder: ${messageFromError(err)}`, "error");
     }
@@ -464,8 +453,7 @@ export default function DocumentsPage() {
         if (currentFolderId === deleteConfirm.id) {
           setCurrentFolderId(null);
         }
-        loadSubFolders();
-        window.dispatchEvent(new CustomEvent("folders-changed"));
+        queryClient.invalidateQueries({ queryKey: ["folders"] });
       } else if (deleteConfirm.id.includes(",")) {
         const filenames = deleteConfirm.id.split(",");
         const failed: string[] = [];

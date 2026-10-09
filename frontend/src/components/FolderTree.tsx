@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Box,
   List,
@@ -19,6 +20,7 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import HubIcon from "@mui/icons-material/Hub";
 import { fetchFolders } from "../lib/api";
 import type { Folder } from "../lib/api";
+import { qk } from "../lib/queryKeys";
 import { brand, fonts } from "../theme";
 
 // Drop-onto-folder support in the tree — mirrors the card-grid drop behavior.
@@ -51,39 +53,22 @@ function FolderTreeNode({
   onOsFilesDropped,
 }: FolderTreeNodeProps) {
   const [open, setOpen] = useState(false);
-  const [children, setChildren] = useState<Folder[]>([]);
-  const [loaded, setLoaded] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const isSelected = selectedId === folder.id;
 
-  const loadChildren = useCallback(async () => {
-    try {
-      const data = await fetchFolders(folder.id);
-      setChildren(data);
-      setLoaded(true);
-    } catch (err) {
-      // Tree still opens — the node just shows no children.
-      // eslint-disable-next-line no-console
-      console.warn(`[FolderTree] failed to load children of ${folder.name}:`, err);
-    }
-  }, [folder.id, folder.name]);
+  // Children load lazily on expand; shares the ['folders', id] cache with the
+  // Documents grid + dialogs and refetches whenever a folder mutation
+  // invalidates that key (no more folders-changed event needed).
+  const childrenQuery = useQuery({
+    queryKey: qk.folders(folder.id),
+    queryFn: () => fetchFolders(folder.id),
+    enabled: open,
+  });
+  const children = childrenQuery.data ?? [];
 
-  // Keep an expanded node's children in sync when folders change elsewhere
-  // (e.g. a nested subfolder was deleted). Without this, only the root list
-  // refreshed on `folders-changed`, so deleted subfolders lingered in the
-  // parent's cached children until collapse/refresh.
-  useEffect(() => {
-    const handler = () => {
-      if (loaded) void loadChildren();
-    };
-    window.addEventListener("folders-changed", handler);
-    return () => window.removeEventListener("folders-changed", handler);
-  }, [loaded, loadChildren]);
-
-  const handleToggle = async (e: React.MouseEvent) => {
+  const handleToggle = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!loaded) await loadChildren();
-    setOpen(!open);
+    setOpen((o) => !o);
   };
 
   const handleDelete = (e: React.MouseEvent) => {
@@ -93,10 +78,7 @@ function FolderTreeNode({
 
   const handleSelect = () => {
     onSelect(folder.id);
-    if (!loaded) {
-      void loadChildren();
-      setOpen(true);
-    }
+    setOpen(true);
   };
 
   const handleContextMenu = (e: React.MouseEvent) => {
@@ -125,13 +107,16 @@ function FolderTreeNode({
           e.preventDefault();
           e.stopPropagation();
           setDragOver(false);
-          const inAppFile = e.dataTransfer.getData("application/x-document-filename");
+          const inAppFile = e.dataTransfer.getData(
+            "application/x-document-filename"
+          );
           if (inAppFile && onFileDropped) {
             onFileDropped(folder.id, inAppFile);
             return;
           }
           const files = Array.from(e.dataTransfer.files);
-          if (files.length && onOsFilesDropped) onOsFilesDropped(folder.id, files);
+          if (files.length && onOsFilesDropped)
+            onOsFilesDropped(folder.id, files);
         }}
         sx={{
           pl: 1.25 + depth * 1.75,
@@ -141,7 +126,9 @@ function FolderTreeNode({
           mx: 0.5,
           mb: 0.25,
           bgcolor: dragOver ? alpha(brand.violet, 0.18) : undefined,
-          border: dragOver ? `1px dashed ${brand.violet2}` : "1px solid transparent",
+          border: dragOver
+            ? `1px dashed ${brand.violet2}`
+            : "1px solid transparent",
           "&.Mui-selected": {
             bgcolor: alpha(brand.violet, 0.18),
             "&:hover": { bgcolor: alpha(brand.violet, 0.24) },
@@ -208,7 +195,10 @@ function FolderTreeNode({
               sx={{
                 p: 0.25,
                 color: brand.muted,
-                "&:hover": { color: brand.violet2, bgcolor: alpha(brand.violet, 0.15) },
+                "&:hover": {
+                  color: brand.violet2,
+                  bgcolor: alpha(brand.violet, 0.15),
+                },
               }}
             >
               <HubIcon sx={{ fontSize: 14 }} />
@@ -222,7 +212,10 @@ function FolderTreeNode({
               sx={{
                 p: 0.25,
                 color: brand.muted,
-                "&:hover": { color: "#ef4444", bgcolor: alpha("#ef4444", 0.15) },
+                "&:hover": {
+                  color: "#ef4444",
+                  bgcolor: alpha("#ef4444", 0.15),
+                },
               }}
             >
               <DeleteIcon sx={{ fontSize: 14 }} />
@@ -268,28 +261,13 @@ export default function FolderTree({
   onFileDropped,
   onOsFilesDropped,
 }: FolderTreeProps) {
-  const [rootFolders, setRootFolders] = useState<Folder[]>([]);
   const [rootDragOver, setRootDragOver] = useState(false);
 
-  const loadRoot = useCallback(() => {
-    // Non-critical: sidebar tree renders empty on failure. Not surfaced as a
-    // toast because it fires on every mount + on every `folders-changed`
-    // event — a persistent network problem would flood the user. It's
-    // logged so devtools still shows the failure.
-    fetchFolders(null)
-      .then(setRootFolders)
-      .catch((err) => {
-        // eslint-disable-next-line no-console
-        console.warn("[FolderTree] failed to load root folders:", err);
-      });
-  }, []);
-
-  useEffect(() => {
-    loadRoot();
-    const handler = () => loadRoot();
-    window.addEventListener("folders-changed", handler);
-    return () => window.removeEventListener("folders-changed", handler);
-  }, [loadRoot]);
+  // Root folders; refetched when a folder mutation invalidates ['folders'].
+  const { data: rootFolders = [] } = useQuery({
+    queryKey: qk.folders(null),
+    queryFn: () => fetchFolders(null),
+  });
 
   return (
     <Box sx={{ py: 1 }}>
@@ -304,7 +282,9 @@ export default function FolderTree({
         onDrop={(e) => {
           e.preventDefault();
           setRootDragOver(false);
-          const inAppFile = e.dataTransfer.getData("application/x-document-filename");
+          const inAppFile = e.dataTransfer.getData(
+            "application/x-document-filename"
+          );
           if (inAppFile && onFileDropped) {
             onFileDropped(null, inAppFile);
             return;
@@ -320,7 +300,9 @@ export default function FolderTree({
           mb: 0.25,
           pl: 1.5,
           bgcolor: rootDragOver ? alpha(brand.violet, 0.18) : undefined,
-          border: rootDragOver ? `1px dashed ${brand.violet2}` : "1px solid transparent",
+          border: rootDragOver
+            ? `1px dashed ${brand.violet2}`
+            : "1px solid transparent",
           "&.Mui-selected": {
             bgcolor: alpha(brand.violet, 0.18),
             "&:hover": { bgcolor: alpha(brand.violet, 0.24) },
