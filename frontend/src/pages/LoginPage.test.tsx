@@ -10,7 +10,10 @@ vi.mock("../lib/supabase", () => ({
   supabase: {
     auth: {
       signInWithPassword: vi.fn().mockResolvedValue({ error: null }),
-      signUp: vi.fn().mockResolvedValue({ error: null }),
+      // Email confirmation required → success with no session yet.
+      signUp: vi
+        .fn()
+        .mockResolvedValue({ data: { session: null }, error: null }),
     },
   },
 }));
@@ -29,6 +32,18 @@ describe("LoginPage", () => {
     renderWithProviders(<LoginPage />, { initialEntries: ["/login"] });
     await user.click(screen.getByText("Sign up"));
     expect(screen.getByRole("button", { name: "Sign up" })).toBeInTheDocument();
+  });
+
+  it("tells the user to check their email after signing up", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<LoginPage />, { initialEntries: ["/login"] });
+    await user.click(screen.getByText("Sign up")); // toggle to sign-up
+    await user.type(screen.getByLabelText("Email"), "new@example.com");
+    await user.type(screen.getByLabelText("Password"), "password123");
+    await user.click(screen.getByRole("button", { name: "Sign up" }));
+    expect(
+      await screen.findByText(/confirmation link to new@example.com/i)
+    ).toBeInTheDocument();
   });
 
   it("shows retrowave background (sun + grid aria-hidden elements)", () => {
