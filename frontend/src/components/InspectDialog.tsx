@@ -72,9 +72,15 @@ export default function InspectDialog({
           border: `1px solid ${brand.cyan}`,
           borderRadius: 1,
           boxShadow: `0 0 4px ${brand.cyan}88, 0 0 24px ${brand.cyan}33, 0 24px 64px rgba(0,0,0,0.7)`,
-          // Bound the modal so the header + tabs stay fixed and only the body
-          // scrolls (long tool-call results pushed the tabs off-screen before).
+          // Bound the modal and make it a flex column whose Paper never scrolls
+          // (overflow:hidden) — so a tall tab scrolls the DialogContent body
+          // only, keeping the header + tabs pinned instead of scrolling them off
+          // the top (MUI's Paper has overflowY:auto by default, which carried
+          // the tabs away on long reasoning/tool-call content).
           maxHeight: "85vh",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
         },
       }}
     >
@@ -86,6 +92,7 @@ export default function InspectDialog({
           pb: 1,
           px: "22px",
           pt: "18px",
+          flexShrink: 0,
         }}
       >
         <Typography
@@ -135,6 +142,7 @@ export default function InspectDialog({
           px: "22px",
           borderBottom: `1px solid ${brand.line}`,
           minHeight: 0,
+          flexShrink: 0,
           "& .MuiTabs-indicator": { display: "none" },
           "& .MuiTab-root": {
             textTransform: "none",

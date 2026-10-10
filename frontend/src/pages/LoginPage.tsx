@@ -26,6 +26,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
 
   const [params] = useSearchParams();
@@ -37,22 +38,40 @@ export default function LoginPage() {
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError("");
+    setNotice("");
     setLoading(true);
     try {
-      const { error: authError } = isSignUp
-        ? await supabase.auth.signUp({
-            email,
-            password,
-            // Send the confirmation link back to the app it was requested
-            // from (https://kioku.merigafy.com in prod, localhost in dev)
-            // instead of relying solely on the project's Site URL. Must be
-            // allow-listed under Supabase Auth → URL Configuration.
-            options: { emailRedirectTo: window.location.origin },
-          })
-        : await supabase.auth.signInWithPassword({ email, password });
-      if (authError) {
-        // Common cases: 400 Invalid login credentials, 422 email format, 429 rate limit
-        setError(authError.message);
+      if (isSignUp) {
+        const { data, error: authError } = await supabase.auth.signUp({
+          email,
+          password,
+          // Send the confirmation link back to the app it was requested
+          // from (https://kioku.merigafy.com in prod, localhost in dev)
+          // instead of relying solely on the project's Site URL. Must be
+          // allow-listed under Supabase Auth → URL Configuration.
+          options: { emailRedirectTo: window.location.origin },
+        });
+        if (authError) {
+          setError(authError.message);
+        } else if (!data.session) {
+          // Email confirmation is required → no session yet. Tell the user to
+          // go confirm (otherwise the screen just sat there with no feedback).
+          setNotice(
+            `Almost there — we sent a confirmation link to ${email}. ` +
+              "Open it (check spam too), then come back and sign in."
+          );
+        }
+        // If a session exists (confirmations disabled), the auth listener
+        // redirects automatically via the <Navigate> above.
+      } else {
+        const { error: authError } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+        if (authError) {
+          // Common cases: 400 Invalid login credentials, 422 email format, 429 rate limit
+          setError(authError.message);
+        }
       }
     } catch (err) {
       // TypeError from fetch: DNS/CORS/network — Supabase throws bare Errors here,
@@ -324,6 +343,7 @@ export default function LoginPage() {
           />
 
           {error && <Alert severity="error">{error}</Alert>}
+          {notice && <Alert severity="success">{notice}</Alert>}
 
           {/* Sign in / Sign up button */}
           <Button
@@ -383,6 +403,7 @@ export default function LoginPage() {
               onClick={() => {
                 setIsSignUp(!isSignUp);
                 setError("");
+                setNotice("");
               }}
               sx={{
                 color: brand.violet2,
