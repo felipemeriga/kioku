@@ -927,6 +927,30 @@ ALTER TABLE "public"."notion_sync_configs" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."retrieval_log" ENABLE ROW LEVEL SECURITY;
 
 
+CREATE POLICY "Users manage own git keys" ON "public"."user_git_keys" USING (("user_id" = "auth"."uid"())) WITH CHECK (("user_id" = "auth"."uid"()));
+
+
+CREATE POLICY "Users manage own watched repos" ON "public"."watched_repos" USING (("user_id" = "auth"."uid"())) WITH CHECK (("user_id" = "auth"."uid"()));
+
+
+CREATE POLICY "Users manage own code chunks" ON "public"."code_chunks" USING (("user_id" = "auth"."uid"())) WITH CHECK (("user_id" = "auth"."uid"()));
+
+
+CREATE POLICY "Users manage own repo freshness" ON "public"."repo_freshness" USING (("user_id" = "auth"."uid"())) WITH CHECK (("user_id" = "auth"."uid"()));
+
+
+ALTER TABLE "public"."user_git_keys" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."watched_repos" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."code_chunks" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."repo_freshness" ENABLE ROW LEVEL SECURITY;
+
+
 GRANT USAGE ON SCHEMA "public" TO "postgres";
 GRANT USAGE ON SCHEMA "public" TO "anon";
 GRANT USAGE ON SCHEMA "public" TO "authenticated";
