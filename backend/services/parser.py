@@ -4,11 +4,10 @@ import base64
 import logging
 import os
 import tempfile
+import threading
 from pathlib import Path
 
-from docling.datamodel.base_models import InputFormat
-from docling.datamodel.pipeline_options import PdfPipelineOptions
-from docling.document_converter import DocumentConverter, PdfFormatOption
+from docling.document_converter import DocumentConverter
 from langsmith import traceable
 
 from services.llm import Task, complete
@@ -16,6 +15,10 @@ from services.llm import Task, complete
 PLAIN_TEXT_EXTENSIONS = {".json", ".yaml", ".yml", ".txt", ".text"}
 
 logger = logging.getLogger(__name__)
+
+# PDFium (via pypdfium2) is not thread-safe; serialize text extraction so
+# concurrent uploads on the worker pool can't race inside the C library.
+_PDFIUM_LOCK = threading.Lock()
 
 
 def _strip_image_markers(text: str) -> str:
@@ -54,22 +57,46 @@ def parse_document(file_bytes: bytes, filename: str) -> str:
         Path(tmp_path).unlink(missing_ok=True)
 
 
+def _extract_pdf_text_fast(tmp_path: str) -> str:
+    """Pull the embedded text layer with pypdfium2.
+
+    ~1000x faster than running docling's layout model (measured: 0.26s vs
+    272s for an 80-page PDF) and plenty for chunking + embedding, which don't
+    need layout structure. Returns "" for scanned/image PDFs with no text
+    layer, so the caller can fall back to OCR.
+    """
+    import pypdfium2 as pdfium
+
+    with _PDFIUM_LOCK:
+        pdf = pdfium.PdfDocument(tmp_path)
+        try:
+            parts = []
+            for i in range(len(pdf)):
+                page = pdf[i]
+                textpage = page.get_textpage()
+                parts.append(textpage.get_text_range())
+                textpage.close()
+                page.close()
+            return "\n\n".join(parts)
+        finally:
+            pdf.close()
+
+
 def _parse_pdf(tmp_path: str) -> str:
-    """Parse PDF: try text extraction first, fall back to OCR if no text found."""
-    # First pass: text-only, no OCR, no table structure (fast)
-    pdf_options = PdfPipelineOptions(do_ocr=False, do_table_structure=False)
-    converter = DocumentConverter(
-        format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pdf_options)}
-    )
-    result = converter.convert(tmp_path)
-    text = result.document.export_to_markdown()
+    """Parse PDF: fast embedded-text extraction first, fall back to docling's
+    full OCR pipeline only for scanned/image PDFs that have no text layer."""
+    try:
+        text = _extract_pdf_text_fast(tmp_path)
+    except Exception:
+        logger.warning("fast PDF text extraction failed; falling back to docling", exc_info=True)
+        text = ""
 
     if _strip_image_markers(text):
-        logger.info("PDF parsed successfully with text extraction (no OCR needed)")
+        logger.info("PDF parsed via fast text-layer extraction (pypdfium2)")
         return text
 
-    # Second pass: full pipeline with OCR for scanned/image-based PDFs
-    logger.info("No text found in PDF, falling back to OCR")
+    # No embedded text — scanned/image-based PDF. Full docling pipeline + OCR.
+    logger.info("No embedded text in PDF, falling back to docling OCR")
     converter = DocumentConverter()
     result = converter.convert(tmp_path)
     return result.document.export_to_markdown()
