@@ -11,7 +11,6 @@ from langsmith.wrappers import wrap_anthropic
 class Task(str, Enum):
     """Logical tasks routed to specific Claude models. Single source of truth."""
 
-    METADATA = "metadata"
     QUERY_REWRITE = "query_rewrite"
     MULTI_QUERY = "multi_query"
     IMAGE_OCR = "image_ocr"
@@ -31,7 +30,6 @@ class Task(str, Enum):
 
 
 MODEL_FOR_TASK: dict[Task, str] = {
-    Task.METADATA: "claude-haiku-4-5-20251001",
     Task.QUERY_REWRITE: "claude-haiku-4-5-20251001",
     Task.MULTI_QUERY: "claude-haiku-4-5-20251001",
     Task.IMAGE_OCR: "claude-haiku-4-5-20251001",

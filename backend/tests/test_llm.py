@@ -25,7 +25,7 @@ class TestComplete(unittest.TestCase):
         mock_client = self._patched_client()
         with patch("services.llm.get_client", return_value=mock_client):
             complete(
-                task=Task.METADATA,
+                task=Task.QUERY_REWRITE,
                 messages=[{"role": "user", "content": "hi"}],
                 system="be helpful",
             )
@@ -42,7 +42,7 @@ class TestComplete(unittest.TestCase):
         mock_client = self._patched_client()
         with patch("services.llm.get_client", return_value=mock_client):
             complete(
-                task=Task.METADATA,
+                task=Task.QUERY_REWRITE,
                 messages=[{"role": "user", "content": "hi"}],
                 system="be helpful",
                 cache_system=False,
@@ -56,7 +56,7 @@ class TestComplete(unittest.TestCase):
 
         mock_client = self._patched_client()
         with patch("services.llm.get_client", return_value=mock_client):
-            complete(task=Task.METADATA, messages=[{"role": "user", "content": "hi"}])
+            complete(task=Task.QUERY_REWRITE, messages=[{"role": "user", "content": "hi"}])
 
         call_kwargs = mock_client.messages.create.call_args.kwargs
         self.assertNotIn("system", call_kwargs)

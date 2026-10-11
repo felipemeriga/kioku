@@ -4,14 +4,13 @@ Task boundaries:
 - Producer tasks (notion_sync_task, ingest_notion_page_task) build chunk batches
   and enqueue embed_and_store_batch_task per batch.
 - embed_and_store_batch_task does the heavy lifting: Voyage batch embed +
-  parallel Haiku metadata + bulk INSERT + progress increment.
+  bulk INSERT + progress increment.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
@@ -25,7 +24,6 @@ except ImportError:  # pragma: no cover - fallback for older codebases
 from services.chunker import chunk_text
 from services.crypto import decrypt_secret
 from services.embeddings import embed_batch
-from services.metadata import extract_metadata
 from services.notion_sync.attachments import resolve_attachments
 from services.notion_sync.blocks_to_markdown import blocks_to_markdown
 from services.notion_sync.client import NotionClient, NotionPage
@@ -45,8 +43,6 @@ from services.queue.jobs import (
 )
 
 logger = logging.getLogger(__name__)
-
-_METADATA_CONCURRENCY = int(os.environ.get("METADATA_CONCURRENCY", "20"))
 
 
 async def embed_and_store_batch_task(ctx: dict, payload: dict) -> None:
@@ -71,15 +67,11 @@ async def embed_and_store_batch_task(ctx: dict, payload: dict) -> None:
         supabase = get_supabase_thread_safe()
 
         embeddings = await asyncio.to_thread(embed_batch, chunks)
-        metadata_list = await _parallel_metadata(chunks)
 
         rows: list[dict[str, Any]] = []
-        for i, (chunk, embedding, meta) in enumerate(
-            zip(chunks, embeddings, metadata_list, strict=True)
-        ):
+        for i, (chunk, embedding) in enumerate(zip(chunks, embeddings, strict=True)):
             merged_meta = {
                 **metadata_base,
-                **(meta or {}),
                 "chunk_index": chunk_index_offset + i,
             }
             row: dict[str, Any] = {
@@ -630,14 +622,3 @@ async def embed_code_chunks_task(ctx: dict, payload: dict) -> None:
         batch = rows[i : i + insert_size]
         await asyncio.to_thread(lambda b=batch: supabase.table("code_chunks").insert(b).execute())
     logger.info("embed_code_chunks_task: embedded %d chunks", len(rows))
-
-
-async def _parallel_metadata(chunks: list[str]) -> list[dict]:
-    """Run extract_metadata(chunk) concurrently with a semaphore."""
-    sem = asyncio.Semaphore(_METADATA_CONCURRENCY)
-
-    async def _one(text: str) -> dict:
-        async with sem:
-            return (await asyncio.to_thread(extract_metadata, text)) or {}
-
-    return await asyncio.gather(*(_one(c) for c in chunks))

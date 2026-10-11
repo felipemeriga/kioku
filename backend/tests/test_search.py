@@ -27,7 +27,7 @@ class TestHybridSearchParallel(unittest.TestCase):
             patch("services.search._vector_search", return_value=[_fake_vec("v1")]) as v_mock,
             patch("services.search._keyword_search", return_value=[_fake_kw("k1")]) as k_mock,
         ):
-            vec, kw = _run_hybrid_search([0.1] * 1024, "hello", None, 20, None, None, None)
+            vec, kw = _run_hybrid_search([0.1] * 1024, "hello", None, 20, None)
 
         v_mock.assert_called_once()
         k_mock.assert_called_once()
@@ -41,7 +41,7 @@ class TestHybridSearchParallel(unittest.TestCase):
             patch("services.search._vector_search", return_value=[_fake_vec("v1")]),
             patch("services.search._keyword_search") as k_mock,
         ):
-            vec, kw = _run_hybrid_search([0.1] * 1024, "", None, 20, None, None, None)
+            vec, kw = _run_hybrid_search([0.1] * 1024, "", None, 20, None)
 
         k_mock.assert_not_called()
         self.assertEqual(vec, [_fake_vec("v1")])
@@ -54,7 +54,7 @@ class TestHybridSearchParallel(unittest.TestCase):
             patch("services.search._vector_search", side_effect=RuntimeError("db down")),
             patch("services.search._keyword_search", return_value=[_fake_kw("k1")]),
         ):
-            vec, kw = _run_hybrid_search([0.1] * 1024, "q", None, 20, None, None, None)
+            vec, kw = _run_hybrid_search([0.1] * 1024, "q", None, 20, None)
 
         self.assertEqual(vec, [])
         self.assertEqual(kw, [_fake_kw("k1")])
@@ -188,7 +188,7 @@ class TestParallelSpeedup(unittest.TestCase):
             patch("services.search._keyword_search", side_effect=slow_kw),
         ):
             t0 = time.monotonic()
-            _run_hybrid_search([0.1] * 4, "q", None, 20, None, None, None)
+            _run_hybrid_search([0.1] * 4, "q", None, 20, None)
             elapsed = time.monotonic() - t0
 
         # Parallel: ~0.10s. Serial would be ~0.20s. Allow generous margin.

@@ -7,7 +7,6 @@ import ChatInput from "./ChatInput";
 
 // Mock the api module
 vi.mock("../lib/api", () => ({
-  fetchDocumentFilters: vi.fn().mockResolvedValue({ topics: [], keywords: [] }),
   uploadDocument: vi.fn(),
   getAuthHeaders: vi.fn().mockResolvedValue({ Authorization: "Bearer test" }),
 }));

@@ -123,9 +123,8 @@ export default function ChatArea({
                     mt: 0.5,
                   }}
                 >
-                  Query your repos, docs, and memories. Filter by topic or
-                  metadata, or reach for the web when your corpus doesn't have
-                  the answer.
+                  Query your repos, docs, and memories, or reach for the web
+                  when your corpus doesn't have the answer.
                 </Typography>
               </Stack>
 
