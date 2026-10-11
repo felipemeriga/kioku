@@ -17,8 +17,6 @@ class TestScopeFiltersReachRpc(unittest.TestCase):
                 [0.0] * 1024,
                 "u1",
                 5,
-                None,
-                None,
                 root_folder_id="root-1",
                 folder_ids=["f1", "f2"],
                 source_filename="notes.pdf",
@@ -37,8 +35,6 @@ class TestScopeFiltersReachRpc(unittest.TestCase):
                 "query",
                 "u1",
                 5,
-                None,
-                None,
                 folder_ids=["f1"],
                 source_filename="notes.pdf",
             )
@@ -51,7 +47,7 @@ class TestScopeFiltersReachRpc(unittest.TestCase):
 
         sb = self._capture_rpc()
         with patch("services.search.get_supabase", return_value=sb):
-            _vector_search([0.0] * 1024, "u1", 5, None, None)
+            _vector_search([0.0] * 1024, "u1", 5)
         params = sb.rpc.call_args.args[1]
         self.assertNotIn("filter_folder_ids", params)
         self.assertNotIn("filter_source_filename", params)
