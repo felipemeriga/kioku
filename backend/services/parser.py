@@ -82,24 +82,37 @@ def _extract_pdf_text_fast(tmp_path: str) -> str:
             pdf.close()
 
 
+class ScannedPdfError(ValueError):
+    """A PDF has no extractable text layer and no OCR engine is available."""
+
+
 def _parse_pdf(tmp_path: str) -> str:
-    """Parse PDF: fast embedded-text extraction first, fall back to docling's
-    full OCR pipeline only for scanned/image PDFs that have no text layer."""
+    """Parse a PDF via fast embedded-text extraction (pypdfium2).
+
+    Scanned/image-based PDFs with no text layer can't be ingested yet — no OCR
+    engine is installed — so we fail with a clear, user-facing message instead
+    of crashing on a missing engine, and log it so we can gauge how often this
+    actually happens on prod before investing in OCR.
+    """
     try:
         text = _extract_pdf_text_fast(tmp_path)
     except Exception:
-        logger.warning("fast PDF text extraction failed; falling back to docling", exc_info=True)
+        logger.warning("fast PDF text extraction failed", exc_info=True)
         text = ""
 
     if _strip_image_markers(text):
         logger.info("PDF parsed via fast text-layer extraction (pypdfium2)")
         return text
 
-    # No embedded text — scanned/image-based PDF. Full docling pipeline + OCR.
-    logger.info("No embedded text in PDF, falling back to docling OCR")
-    converter = DocumentConverter()
-    result = converter.convert(tmp_path)
-    return result.document.export_to_markdown()
+    logger.warning(
+        "PDF has no extractable text layer (scanned/image-based?); OCR not available — "
+        "rejecting %s",
+        tmp_path,
+    )
+    raise ScannedPdfError(
+        "This PDF appears to be scanned or image-based: it has no extractable text "
+        "layer, and OCR isn't enabled yet, so it can't be ingested."
+    )
 
 
 IMAGE_EXTRACTION_PROMPT = (
