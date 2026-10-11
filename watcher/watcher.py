@@ -26,6 +26,7 @@ Two run modes:
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import stat
@@ -43,7 +44,11 @@ from cryptography.fernet import Fernet
 
 SUPABASE_URL = os.environ["SUPABASE_URL"].rstrip("/")
 SERVICE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
-FERNET = Fernet(os.environ["SECRETS_ENCRYPTION_KEY"].encode())
+# Legacy Fernet fallback (same key value the backend calls
+# NOTION_TOKEN_ENCRYPTION_KEY). Optional now — once every row is re-sealed to
+# KMS, SECRETS_ENCRYPTION_KEY can be removed.
+_FERNET_KEY = os.environ.get("SECRETS_ENCRYPTION_KEY")
+FERNET = Fernet(_FERNET_KEY.encode()) if _FERNET_KEY else None
 MCP_URL = os.environ["KIOKU_MCP_URL"]
 API_URL = os.environ.get("KIOKU_API_URL", "").rstrip("/")
 DATA = Path(os.environ.get("WATCHER_DATA", "/data"))
@@ -93,7 +98,32 @@ def rest_patch(path: str, params: dict, body: dict) -> None:
     r.raise_for_status()
 
 
+# New secrets are KMS-encrypted (prefix below); legacy rows are Fernet.
+_KMS_PREFIX = "kms:v1:"
+_KMS_ENC_CONTEXT = {"app": "kioku"}
+_kms_client = None
+
+
+def _kms():
+    global _kms_client
+    if _kms_client is None:
+        import boto3
+
+        region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
+        _kms_client = boto3.client("kms", region_name=region)
+    return _kms_client
+
+
 def decrypt(ciphertext: str) -> str:
+    if ciphertext.startswith(_KMS_PREFIX):
+        blob = base64.b64decode(ciphertext[len(_KMS_PREFIX) :])
+        return _kms().decrypt(CiphertextBlob=blob, EncryptionContext=_KMS_ENC_CONTEXT)[
+            "Plaintext"
+        ].decode()
+    if FERNET is None:
+        raise RuntimeError(
+            "Got legacy Fernet ciphertext but SECRETS_ENCRYPTION_KEY is not set."
+        )
     return FERNET.decrypt(ciphertext.encode()).decode()
 
 

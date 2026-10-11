@@ -25,7 +25,7 @@ RUN cd /tmp/kioku-cli && npm ci && npm run build && npm pack && \
 
 # watcher runtime deps in a venv (PEP 668-safe)
 RUN python3 -m venv /opt/watcher-venv && \
-    /opt/watcher-venv/bin/pip install --no-cache-dir requests cryptography
+    /opt/watcher-venv/bin/pip install --no-cache-dir requests cryptography boto3
 
 COPY watcher/watcher.py /app/watcher.py
 

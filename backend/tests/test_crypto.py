@@ -1,36 +1,61 @@
+import base64
 import os
-import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 
-class TestCrypto(unittest.TestCase):
-    def setUp(self):
-        # Fernet key is 32 url-safe base64 bytes. Use a deterministic test key.
-        self.test_key = "kX3Q1Y6uJcC5V0X6UeMHnf4Y4v1eYlDqfM3sFq5aBcE="
+def test_encrypt_uses_kms_and_prefixes():
+    import services.crypto as crypto
 
-    def test_encrypt_decrypt_roundtrip(self):
-        with patch.dict(os.environ, {"NOTION_TOKEN_ENCRYPTION_KEY": self.test_key}):
-            from services.crypto import decrypt_secret, encrypt_secret
+    fake = MagicMock()
+    fake.encrypt.return_value = {"CiphertextBlob": b"RAWCIPHER"}
+    with (
+        patch.dict(os.environ, {"KIOKU_KMS_KEY_ID": "alias/test"}),
+        patch("services.crypto._kms", return_value=fake),
+    ):
+        out = crypto.encrypt_secret("hunter2")
 
-            token = "secret_ABCDEF123456"
-            ciphertext = encrypt_secret(token)
-            self.assertNotEqual(ciphertext, token)
-            self.assertEqual(decrypt_secret(ciphertext), token)
+    assert out.startswith("kms:v1:")
+    assert base64.b64decode(out[len("kms:v1:") :]) == b"RAWCIPHER"
+    # AAD is bound on encrypt.
+    assert fake.encrypt.call_args.kwargs["EncryptionContext"] == {"app": "kioku"}
 
-    def test_encrypt_is_non_deterministic(self):
-        with patch.dict(os.environ, {"NOTION_TOKEN_ENCRYPTION_KEY": self.test_key}):
-            from services.crypto import encrypt_secret
 
-            a = encrypt_secret("same-input")
-            b = encrypt_secret("same-input")
-            self.assertNotEqual(a, b, "Fernet uses a per-encryption IV")
+def test_decrypt_kms_ciphertext():
+    import services.crypto as crypto
 
-    def test_missing_key_raises(self):
-        with patch.dict(os.environ, {}, clear=True):
-            import importlib
+    fake = MagicMock()
+    fake.decrypt.return_value = {"Plaintext": b"hunter2"}
+    token = "kms:v1:" + base64.b64encode(b"RAWCIPHER").decode()
+    with patch("services.crypto._kms", return_value=fake):
+        assert crypto.decrypt_secret(token) == "hunter2"
+    assert fake.decrypt.call_args.kwargs["EncryptionContext"] == {"app": "kioku"}
 
-            import services.crypto as crypto_mod
 
-            importlib.reload(crypto_mod)
-            with self.assertRaises(RuntimeError):
-                crypto_mod.encrypt_secret("x")
+def test_decrypt_falls_back_to_legacy_fernet():
+    from cryptography.fernet import Fernet
+
+    import services.crypto as crypto
+
+    key = Fernet.generate_key().decode()
+    token = Fernet(key.encode()).encrypt(b"legacy-secret").decode()
+    # A legacy Fernet token must NOT trigger a KMS call.
+    with (
+        patch.dict(os.environ, {"NOTION_TOKEN_ENCRYPTION_KEY": key}),
+        patch("services.crypto._kms", side_effect=AssertionError("KMS must not run")),
+    ):
+        crypto._fernet.cache_clear()
+        assert crypto.decrypt_secret(token) == "legacy-secret"
+    crypto._fernet.cache_clear()
+
+
+def test_encrypt_requires_kms_key_id():
+    import services.crypto as crypto
+
+    with (
+        patch("services.crypto._kms", return_value=MagicMock()),
+        patch.dict(os.environ, {}, clear=True),
+    ):
+        with pytest.raises(RuntimeError):
+            crypto.encrypt_secret("x")
