@@ -25,7 +25,6 @@ export const qk = {
   notionConfigs: () => ["notion-configs"] as const,
   notionPending: (configId: string) => ["notion-pending", configId] as const,
 
-  documentFilters: () => ["document-filters"] as const,
   documentContent: (filename: string, folderId: string | null) =>
     ["document-content", filename, folderId ?? "root"] as const,
 

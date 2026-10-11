@@ -342,8 +342,6 @@ export async function fetchConversation(
 }
 
 export interface ChatFilters {
-  topic?: string;
-  keyword?: string;
   /** Restrict retrieval to a folder subtree and/or a single document. */
   scopeFolderId?: string | null;
   scopeFilename?: string | null;
@@ -364,16 +362,6 @@ export type ChatMode = "plain" | "agentic" | "deep";
 export interface StageEvent {
   stage: ChatStage;
   docs?: number;
-}
-
-export interface DocumentFilters {
-  topics: string[];
-  keywords: string[];
-}
-
-export async function fetchDocumentFilters(): Promise<DocumentFilters> {
-  const res = await apiFetch("/api/documents/filters");
-  return res.json();
 }
 
 export async function streamChat(
@@ -416,8 +404,6 @@ export async function streamChat(
       body: JSON.stringify({
         conversation_id: conversationId,
         content,
-        topic: filters?.topic || null,
-        keyword: filters?.keyword || null,
         model: model ?? "sonnet",
         mode: mode ?? "deep",
         debug: debug ?? false,

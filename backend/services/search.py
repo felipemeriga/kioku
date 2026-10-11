@@ -144,8 +144,6 @@ def _vector_search(
     query_embedding: list[float],
     user_id: str | None,
     top_k: int,
-    topic: str | None,
-    keyword: str | None,
     root_folder_id: str | None = None,
     folder_ids: list[str] | None = None,
     source_filename: str | None = None,
@@ -157,10 +155,6 @@ def _vector_search(
     params: dict = {"query_embedding": query_embedding, "match_count": top_k}
     if user_id:
         params["filter_user_id"] = user_id
-    if topic:
-        params["filter_topic"] = topic
-    if keyword:
-        params["filter_keyword"] = keyword
     if root_folder_id:
         params["filter_root_folder_id"] = root_folder_id
     if folder_ids:
@@ -180,8 +174,6 @@ def _keyword_search(
     query: str,
     user_id: str | None,
     top_k: int,
-    topic: str | None,
-    keyword: str | None,
     root_folder_id: str | None = None,
     folder_ids: list[str] | None = None,
     source_filename: str | None = None,
@@ -193,10 +185,6 @@ def _keyword_search(
     params: dict = {"search_query": query, "match_count": top_k}
     if user_id:
         params["filter_user_id"] = user_id
-    if topic:
-        params["filter_topic"] = topic
-    if keyword:
-        params["filter_keyword"] = keyword
     if root_folder_id:
         params["filter_root_folder_id"] = root_folder_id
     if folder_ids:
@@ -243,8 +231,6 @@ def _run_hybrid_search(
     query_text: str,
     user_id: str | None,
     fetch_k: int,
-    topic: str | None,
-    keyword: str | None,
     root_folder_id: str | None,
     folder_ids: list[str] | None = None,
     source_filename: str | None = None,
@@ -263,8 +249,6 @@ def _run_hybrid_search(
             query_embedding,
             user_id,
             fetch_k,
-            topic,
-            keyword,
             root_folder_id,
             folder_ids,
             source_filename,
@@ -278,8 +262,6 @@ def _run_hybrid_search(
                 query_text,
                 user_id,
                 fetch_k,
-                topic,
-                keyword,
                 root_folder_id,
                 folder_ids,
                 source_filename,
@@ -308,8 +290,6 @@ def _embed_and_search(
     variant_text: str,
     user_id: str | None,
     fetch_k: int,
-    topic: str | None,
-    keyword: str | None,
     root_folder_id: str | None,
     precomputed_embedding: list[float] | None = None,
     folder_ids: list[str] | None = None,
@@ -330,8 +310,6 @@ def _embed_and_search(
         variant_text,
         user_id,
         fetch_k,
-        topic,
-        keyword,
         root_folder_id,
         folder_ids,
         source_filename,
@@ -346,8 +324,6 @@ def search_documents(
     query_text: str = "",
     user_id: str | None = None,
     top_k: int = 5,
-    topic: str | None = None,
-    keyword: str | None = None,
     root_folder_id: str | None = None,
     fast_mode: bool = False,
     folder_ids: list[str] | None = None,
@@ -385,8 +361,6 @@ def search_documents(
                     query_text,
                     user_id,
                     fetch_k,
-                    topic,
-                    keyword,
                     root_folder_id,
                     folder_ids,
                     source_filename,
@@ -480,8 +454,6 @@ def search_documents(
                         vt,
                         user_id,
                         fetch_k,
-                        topic,
-                        keyword,
                         root_folder_id,
                         emb,
                         folder_ids,

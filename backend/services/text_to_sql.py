@@ -14,7 +14,7 @@ DOCUMENTS_SCHEMA = """Table: documents
 Columns:
   - id: uuid (primary key)
   - content: text (document chunk text)
-  - metadata: jsonb (contains "topic" string and "keywords" string array)
+  - metadata: jsonb (contains "source_filename", "chunk_index", "total_chunks")
   - user_id: uuid (owner)
   - source_filename: text (original filename)
   - source_type: text (pdf, docx, html, markdown, text)
@@ -24,10 +24,8 @@ Columns:
 
 Notes:
   - Multiple rows per file (one per chunk). Use DISTINCT source_filename to count files.
-  - metadata->>'topic' gets the topic string.
-  - metadata->'keywords' gets the keywords JSON array.
-    To search keywords use: metadata->>'keywords' ILIKE '%term%'
-  - NEVER use ILIKE or text operators on jsonb columns.
+  - To extract a jsonb field as text use ->> (e.g. metadata->>'source_filename').
+  - NEVER use ILIKE or text operators directly on jsonb columns.
     Always use ->> to extract as text first.
   - source_type can be: pdf, docx, html, markdown, text, json, yaml, image, audio
   - root_folder_id: uuid (scope — root folder this document belongs to)

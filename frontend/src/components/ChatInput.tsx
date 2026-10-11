@@ -1,6 +1,4 @@
 import { useState, useRef } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { qk } from "../lib/queryKeys";
 import {
   Box,
   TextField,
@@ -9,21 +7,13 @@ import {
   Chip,
   Menu,
   MenuItem,
-  ListSubheader,
   Tooltip,
   Typography,
 } from "@mui/material";
 import AttachFileIcon from "@mui/icons-material/AttachFile";
-import FilterListIcon from "@mui/icons-material/FilterList";
 import CenterFocusStrongIcon from "@mui/icons-material/CenterFocusStrong";
-import { uploadDocument, fetchDocumentFilters } from "../lib/api";
-import type {
-  ChatFilters,
-  ChatMode,
-  ChatModel,
-  ChatScope,
-  DocumentFilters,
-} from "../lib/api";
+import { uploadDocument } from "../lib/api";
+import type { ChatFilters, ChatMode, ChatModel, ChatScope } from "../lib/api";
 import { useToast } from "./ToastProvider";
 import { brand, fonts } from "../theme";
 
@@ -59,7 +49,6 @@ export default function ChatInput({
   const [input, setInput] = useState("");
   const [uploading, setUploading] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<string | null>(null);
-  const [activeFilters, setActiveFilters] = useState<ChatFilters>({});
   // Two independent knobs (default: Sonnet + Deep).
   const [mode, setMode] = useState<ChatMode>("deep");
   const [modeAnchor, setModeAnchor] = useState<null | HTMLElement>(null);
@@ -67,23 +56,12 @@ export default function ChatInput({
   const [modelAnchor, setModelAnchor] = useState<null | HTMLElement>(null);
   // On by default so every response gets a persisted Inspect card.
   const [debug, setDebug] = useState(true);
-  const [filterAnchor, setFilterAnchor] = useState<null | HTMLElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const queryClient = useQueryClient();
-
-  // Cached globally; non-critical so an error just yields empty dropdowns.
-  const { data: availableFilters = { topics: [], keywords: [] } } =
-    useQuery<DocumentFilters>({
-      queryKey: qk.documentFilters(),
-      queryFn: fetchDocumentFilters,
-    });
 
   const handleSend = () => {
     const trimmed = input.trim();
     if (!trimmed) return;
-    const filters =
-      activeFilters.topic || activeFilters.keyword ? activeFilters : undefined;
-    onSend(trimmed, filters, model, mode, debug);
+    onSend(trimmed, undefined, model, mode, debug);
     setInput("");
     setUploadedFile(null);
   };
@@ -103,8 +81,6 @@ export default function ChatInput({
     try {
       await uploadDocument(file);
       setUploadedFile(file.name);
-      // Refresh filters after upload — non-critical.
-      void queryClient.invalidateQueries({ queryKey: qk.documentFilters() });
     } catch (err) {
       toast.showError(err, `Upload failed for “${file.name}”.`);
     } finally {
@@ -113,9 +89,6 @@ export default function ChatInput({
     }
   };
 
-  const hasFilters = activeFilters.topic || activeFilters.keyword;
-  const hasAvailableFilters =
-    availableFilters.topics.length > 0 || availableFilters.keywords.length > 0;
   const scopeLabel = scope
     ? scope.filename
       ? `File: ${scope.filename}`
@@ -166,36 +139,6 @@ export default function ChatInput({
               fontSize: "0.75rem",
               borderRadius: "3px",
             }}
-          />
-        )}
-        {activeFilters.topic && (
-          <Chip
-            label={`Topic: ${activeFilters.topic}`}
-            size="small"
-            color="primary"
-            sx={{
-              fontFamily: fonts.mono,
-              fontSize: "0.75rem",
-              borderRadius: "3px",
-            }}
-            onDelete={() =>
-              setActiveFilters((f) => ({ ...f, topic: undefined }))
-            }
-          />
-        )}
-        {activeFilters.keyword && (
-          <Chip
-            label={`Keyword: ${activeFilters.keyword}`}
-            size="small"
-            color="secondary"
-            sx={{
-              fontFamily: fonts.mono,
-              fontSize: "0.75rem",
-              borderRadius: "3px",
-            }}
-            onDelete={() =>
-              setActiveFilters((f) => ({ ...f, keyword: undefined }))
-            }
           />
         )}
       </Box>
@@ -262,29 +205,6 @@ export default function ChatInput({
             </IconButton>
           </Tooltip>
         )}
-
-        {/* Filter */}
-        <Tooltip
-          title={
-            hasAvailableFilters ? "Filter search" : "No filters available yet"
-          }
-        >
-          <span>
-            <IconButton
-              aria-label="Filters"
-              onClick={(e) => setFilterAnchor(e.currentTarget)}
-              disabled={disabled || !hasAvailableFilters}
-              sx={{
-                width: 34,
-                height: 34,
-                flexShrink: 0,
-                color: hasFilters ? brand.magenta : brand.muted,
-              }}
-            >
-              <FilterListIcon sx={{ fontSize: 18 }} />
-            </IconButton>
-          </span>
-        </Tooltip>
 
         {/* Mode chip */}
         <Tooltip title="Mode — Plain (one-shot RAG) · Agentic (tools + loop) · Deep (+ reasoning)">
@@ -493,50 +413,6 @@ export default function ChatInput({
           ➤
         </IconButton>
       </Box>
-
-      {/* Filter menus (kept out of toolbar to preserve DOM structure) */}
-      <Menu
-        anchorEl={filterAnchor}
-        open={Boolean(filterAnchor)}
-        onClose={() => setFilterAnchor(null)}
-      >
-        {availableFilters.topics.length > 0 && (
-          <ListSubheader>Topics</ListSubheader>
-        )}
-        {availableFilters.topics.map((t) => (
-          <MenuItem
-            key={`topic-${t}`}
-            selected={activeFilters.topic === t}
-            onClick={() => {
-              setActiveFilters((f) => ({
-                ...f,
-                topic: f.topic === t ? undefined : t,
-              }));
-              setFilterAnchor(null);
-            }}
-          >
-            {t}
-          </MenuItem>
-        ))}
-        {availableFilters.keywords.length > 0 && (
-          <ListSubheader>Keywords</ListSubheader>
-        )}
-        {availableFilters.keywords.map((k) => (
-          <MenuItem
-            key={`kw-${k}`}
-            selected={activeFilters.keyword === k}
-            onClick={() => {
-              setActiveFilters((f) => ({
-                ...f,
-                keyword: f.keyword === k ? undefined : k,
-              }));
-              setFilterAnchor(null);
-            }}
-          >
-            {k}
-          </MenuItem>
-        ))}
-      </Menu>
     </Box>
   );
 }

@@ -15,8 +15,6 @@ router = APIRouter(prefix="/api")
 class ChatRequest(BaseModel):
     conversation_id: str
     content: str
-    topic: str | None = None
-    keyword: str | None = None
     # Two independent knobs: which model, and the mode.
     # mode: plain (classic one-shot RAG) | agentic (tool loop) | deep (+ thinking)
     model: Literal["haiku", "sonnet"] = "sonnet"
@@ -44,8 +42,6 @@ async def chat(request: ChatRequest, user_id: str = Depends(get_current_user)):
             conversation_id=request.conversation_id,
             user_message=request.content,
             user_id=user_id,
-            topic=request.topic,
-            keyword=request.keyword,
             model=request.model,
             mode=request.mode,
             debug=request.debug,

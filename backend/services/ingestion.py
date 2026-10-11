@@ -143,7 +143,6 @@ def ingest_document(
     """
     from services.chunker import chunk_text
     from services.embeddings import embed_batch
-    from services.metadata import extract_metadata
     from services.parser import extract_from_image, parse_document, transcribe_audio
     from services.scope import resolve_root_folder_id
 
@@ -172,13 +171,11 @@ def ingest_document(
     sb = get_supabase()
     ids: list[str] = []
     for i, (chunk, embedding) in enumerate(zip(chunks, embeddings, strict=True)):
-        meta = extract_metadata(chunk) or {}
         row = {
             "user_id": user_id,
             "content": chunk,
             "embedding": embedding,
             "metadata": {
-                **meta,
                 "source_filename": filename,
                 "chunk_index": i,
                 "total_chunks": len(chunks),
@@ -215,7 +212,6 @@ def replace_document(
     """
     from services.chunker import chunk_text
     from services.embeddings import embed_batch
-    from services.metadata import extract_metadata
     from services.scope import resolve_root_folder_id
 
     if not text or not text.strip():
@@ -239,13 +235,11 @@ def replace_document(
 
     ids: list[str] = []
     for i, (chunk, embedding) in enumerate(zip(chunks, embeddings, strict=True)):
-        meta = extract_metadata(chunk) or {}
         row = {
             "user_id": user_id,
             "content": chunk,
             "embedding": embedding,
             "metadata": {
-                **meta,
                 "source_filename": filename,
                 "chunk_index": i,
                 "total_chunks": len(chunks),

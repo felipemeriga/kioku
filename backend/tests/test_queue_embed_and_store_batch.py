@@ -50,10 +50,6 @@ class TestEmbedAndStoreBatchTask(unittest.TestCase):
                 return_value=[[0.1] * 1024, [0.2] * 1024],
             ) as embed_mock,
             patch(
-                "services.queue.tasks.extract_metadata",
-                return_value={"topic": "t", "keywords": []},
-            ),
-            patch(
                 "services.queue.tasks.increment_processed_batches",
                 return_value={"completed": False},
             ),
@@ -106,7 +102,6 @@ class TestEmbedAndStoreBatchTask(unittest.TestCase):
                 "services.queue.tasks.embed_batch",
                 return_value=[[0.0] * 1024] * n,
             ),
-            patch("services.queue.tasks.extract_metadata", return_value={}),
             patch(
                 "services.queue.tasks.increment_processed_batches",
                 return_value={"completed": True},
@@ -123,50 +118,6 @@ class TestEmbedAndStoreBatchTask(unittest.TestCase):
         # chunk_index must stay contiguous across sub-batches.
         flat = [row for rows in inserted_rows for row in rows]
         self.assertEqual([r["chunk_index"] for r in flat], list(range(n)))
-
-    def test_metadata_extraction_parallel_across_chunks(self):
-        from services.queue.tasks import embed_and_store_batch_task
-
-        calls: list[str] = []
-
-        def _record_metadata(text: str) -> dict:
-            calls.append(text)
-            return {"topic": "t"}
-
-        supabase = MagicMock()
-        supabase.table.return_value.insert.return_value.execute.return_value.data = []
-
-        payload = {
-            "job_id": "job-1",
-            "row_template": {
-                "user_id": "u1",
-                "root_folder_id": "root",
-                "source_filename": "x",
-                "source_type": "notion",
-                "status": "completed",
-            },
-            "chunks": ["a", "b", "c", "d", "e"],
-        }
-        with (
-            patch(
-                "services.queue.tasks.get_supabase_thread_safe",
-                return_value=supabase,
-                create=True,
-            ),
-            patch(
-                "services.queue.tasks.get_supabase",
-                return_value=supabase,
-                create=True,
-            ),
-            patch("services.queue.tasks.embed_batch", return_value=[[0.0] * 1024] * 5),
-            patch("services.queue.tasks.extract_metadata", side_effect=_record_metadata),
-            patch(
-                "services.queue.tasks.increment_processed_batches",
-                return_value={"completed": False},
-            ),
-        ):
-            self._run(embed_and_store_batch_task({"redis": None}, payload))
-        self.assertEqual(sorted(calls), ["a", "b", "c", "d", "e"])
 
     def test_replace_existing_page_deletes_only_after_embed_succeeds(self):
         # The whole point of replace_existing_page is that the delete happens
@@ -196,7 +147,6 @@ class TestEmbedAndStoreBatchTask(unittest.TestCase):
                 create=True,
             ),
             patch("services.queue.tasks.embed_batch", return_value=[[0.0] * 1024]),
-            patch("services.queue.tasks.extract_metadata", return_value={}),
             patch(
                 "services.queue.tasks.increment_processed_batches",
                 return_value={"completed": True},
@@ -272,7 +222,6 @@ class TestEmbedAndStoreBatchTask(unittest.TestCase):
                 create=True,
             ),
             patch("services.queue.tasks.embed_batch", return_value=[[0.0] * 1024]),
-            patch("services.queue.tasks.extract_metadata", return_value={}),
             patch(
                 "services.queue.tasks.increment_processed_batches",
                 return_value={"completed": True},
