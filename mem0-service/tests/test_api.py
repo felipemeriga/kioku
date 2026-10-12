@@ -54,13 +54,15 @@ class FakeStore:
             if query in m["memory"]
         ]
 
-    def delete(self, memory_id):
-        for bucket in self._rows.values():
-            for m in list(bucket):
-                if m["id"] == memory_id:
-                    bucket.remove(m)
-                    return {"ok": True}
-        return {"ok": False, "error": "not found"}
+    def delete(self, memory_id, user_id, folder_id):
+        # Ownership-aware, mirroring the real store: only delete a memory that
+        # lives in the caller's (user_id, folder_id) bucket.
+        bucket = self._rows.get((user_id, folder_id), [])
+        for m in list(bucket):
+            if m["id"] == memory_id:
+                bucket.remove(m)
+                return {"ok": True}
+        return {"ok": False, "error": "forbidden"}
 
     def ping(self):
         return True, None
@@ -175,6 +177,14 @@ def test_delete(client):
         },
     )
     mem_id = add.json()["memory_id"]
+
+    # A different user/folder cannot delete this memory (cross-user guard).
+    foreign = client.delete(
+        f"/memories/{mem_id}", headers=AUTH, params={"user_id": "u2", "folder_id": "fB"}
+    )
+    assert foreign.status_code == 200 and foreign.json()["ok"] is False
+
+    # The owner can.
     d = client.delete(
         f"/memories/{mem_id}", headers=AUTH, params={"user_id": "u1", "folder_id": "f1"}
     )

@@ -98,8 +98,14 @@ class Mem0AppClient:
         return res
 
     def delete(self, memory_id: str) -> dict:
+        # Pass the caller's scope so the service verifies the memory belongs to
+        # this (user_id, folder_id) before deleting — otherwise any memory could
+        # be deleted by raw id regardless of owner.
         try:
-            http.call("DELETE", f"/memories/{memory_id}")
+            http.call(
+                "DELETE",
+                f"/memories/{memory_id}?user_id={self.user_id}&folder_id={self.folder_id}",
+            )
             return {"ok": True}
         except Exception as e:  # noqa: BLE001
             log.exception("mem0 delete failed: %s", e)
