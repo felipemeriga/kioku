@@ -48,9 +48,22 @@ export default function ChatArea({
   onClearScope,
 }: ChatAreaProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // Whether the view is pinned to the bottom. Only auto-scroll while pinned, so
+  // streaming tokens don't yank the user back down when they've scrolled up to
+  // read earlier content. A ref (not state) avoids a re-render on every scroll.
+  const pinnedRef = useRef(true);
+
+  const handleScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  };
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (pinnedRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages, streamingContent]);
 
   return (
@@ -62,7 +75,11 @@ export default function ChatArea({
         height: "100vh",
       }}
     >
-      <Box sx={{ flex: 1, overflow: "auto" }}>
+      <Box
+        ref={scrollRef}
+        onScroll={handleScroll}
+        sx={{ flex: 1, overflow: "auto" }}
+      >
         <Box sx={{ py: 3, px: 3 }}>
           {messages.length === 0 && !isStreaming && (
             <Stack
