@@ -33,6 +33,4 @@ export const qk = {
 
   usageConversations: () => ["usage-conversations"] as const,
   usageMonthly: () => ["usage-monthly"] as const,
-
-  aiConfig: () => ["ai-config"] as const,
 };
