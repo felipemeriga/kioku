@@ -105,12 +105,12 @@ function AiModelsSection() {
     >
       <Box>
         <Typography sx={{ fontSize: 19, fontWeight: 600, m: 0, mb: "4px" }}>
-          Modelos de IA
+          AI Models
         </Typography>
         <Typography sx={{ fontSize: 13, color: brand.muted, m: 0 }}>
-          Traga sua própria API key e escolha o modelo do chat. Sem chave
-          configurada, o kioku usa o modelo padrão. Deep mode (thinking) é só
-          Anthropic ou modelos de raciocínio (o4-mini, deepseek-reasoner).
+          Bring your own API key and pick the chat model. With no key
+          configured, kioku uses its default model. Deep mode (thinking) is
+          Anthropic-only, or reasoning models (o4-mini, deepseek-reasoner).
         </Typography>
       </Box>
 
@@ -137,7 +137,7 @@ function AiModelsSection() {
               size="small"
               type="password"
               placeholder={
-                data?.keys?.[p] ? "•••••••• (configurada)" : "API key"
+                data?.keys?.[p] ? "•••••••• (configured)" : "API key"
               }
               value={keyInputs[p] ?? ""}
               onChange={(e) =>
@@ -151,7 +151,7 @@ function AiModelsSection() {
               disabled={isPending}
               onClick={() => saveKey(p)}
             >
-              Salvar
+              Save
             </Button>
           </Box>
         ))}
@@ -189,7 +189,7 @@ function AiModelsSection() {
             onChange={(e) => setPickModel(e.target.value)}
           >
             <MenuItem value="">
-              <em>Escolha um modelo</em>
+              <em>Select a model</em>
             </MenuItem>
             {catalog.map((m) => (
               <MenuItem key={m.id} value={m.id}>
@@ -205,7 +205,7 @@ function AiModelsSection() {
           disabled={isPending || !model}
           onClick={saveModel}
         >
-          Salvar modelo
+          Save model
         </Button>
       </Box>
     </CornerCard>
@@ -478,7 +478,7 @@ export default function SettingsPage() {
           <Tab value="integrations" label="Integrations" />
           <Tab value="mcp-client" label="MCP Client" />
           <Tab value="usage" label="Usage" />
-          <Tab value="models" label="Modelos de IA" />
+          <Tab value="models" label="AI Models" />
         </Tabs>
 
         {/* Tab: API Keys */}
