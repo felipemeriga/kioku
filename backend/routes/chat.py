@@ -1,10 +1,11 @@
 from typing import Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from auth import get_current_user
+from db.client import get_supabase
 from routes._validation import require_uuid
 from services.rag import stream_rag_response
 from services.scope import validate_scope_folder
@@ -33,6 +34,23 @@ async def chat(request: ChatRequest, user_id: str = Depends(get_current_user)):
     # the uuid column in stream_rag_response and raises 22P02, which crashes the
     # generator (client gets a silent empty stream + a server-side traceback).
     require_uuid(request.conversation_id, "Conversation not found")
+    # Ownership gate: the conversation must belong to the caller. Without this,
+    # a client could pass another user's conversation_id and have
+    # stream_rag_response read their history, inject messages, and save replies
+    # into it (messages carry no user_id — ownership lives on the conversation).
+    sb = get_supabase()
+    owns = (
+        sb.table("conversations")
+        .select("id")
+        .eq("id", request.conversation_id)
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+        .data
+    )
+    if not owns:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
     if request.scope_folder_id:
         require_uuid(request.scope_folder_id, "Scope folder not found")
         validate_scope_folder(request.scope_folder_id, user_id)

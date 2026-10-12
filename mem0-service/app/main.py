@@ -71,5 +71,7 @@ def list_(body: ListReq, _=Depends(require_token)):
 
 
 @app.delete("/memories/{memory_id}")
-def delete(memory_id: str, _=Depends(require_token)):
-    return get_store().delete(memory_id)
+def delete(memory_id: str, user_id: str, folder_id: str, _=Depends(require_token)):
+    # user_id + folder_id scope the delete: the store verifies the memory
+    # belongs to this (user, folder) before removing it.
+    return get_store().delete(memory_id, user_id, folder_id)

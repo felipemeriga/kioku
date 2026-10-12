@@ -59,6 +59,15 @@ def _validate_sql(sql: str) -> bool:
     return not forbidden.search(cleaned)
 
 
+def _is_user_scoped(sql: str, user_id: str) -> bool:
+    """True if the query filters on the caller's own user_id (verbatim).
+
+    The generation prompt instructs `WHERE user_id = '<user_id>'`; this enforces
+    it structurally so the RLS-bypassing RPC can't be coerced (prompt injection
+    via the question, or a model lapse) into reading another user's rows."""
+    return re.search(rf"user_id\s*=\s*'{re.escape(user_id)}'", sql, re.IGNORECASE) is not None
+
+
 @traceable(name="generate_and_execute_sql", run_type="chain")
 def generate_and_execute_sql(
     question: str, user_id: str, root_folder_id: str | None = None
@@ -95,6 +104,14 @@ def generate_and_execute_sql(
 
         if not _validate_sql(sql):
             return {"sql": sql, "results": [], "error": "Generated SQL failed safety validation"}
+
+        # Enforce user-scoping STRUCTURALLY, not just via the prompt. The RPC is
+        # SECURITY DEFINER (bypasses RLS), so a prompt-injected or malformed query
+        # that drops/changes the user filter could read another user's rows.
+        # Require the caller's own user_id predicate to be present verbatim.
+        if not _is_user_scoped(sql, user_id):
+            logger.warning("Text-to-SQL rejected: generated query not scoped to caller's user_id")
+            return {"sql": sql, "results": [], "error": "Generated SQL is not user-scoped"}
 
         sb = get_supabase()
         result = sb.rpc("execute_readonly_query", {"query_text": sql}).execute()

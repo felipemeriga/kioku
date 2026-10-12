@@ -201,8 +201,19 @@ class MemoryStore:
         )
         return self._filter_scope(self._unwrap(res), scope)
 
-    def delete(self, memory_id: str) -> dict:
+    def delete(self, memory_id: str, user_id: str, folder_id: str) -> dict:
+        # Ownership check: a memory may only be deleted by the user+folder that
+        # owns it. folder_id is the agent namespace and is always written into
+        # our metadata (build_metadata); mem0 also tracks user_id. Without this,
+        # any memory could be deleted by raw id regardless of owner.
         try:
+            mem = self._m.get(memory_id)
+            if not mem:
+                return {"ok": False, "error": "not found"}
+            meta = (mem.get("metadata") or {}) if isinstance(mem, dict) else {}
+            mem_user = mem.get("user_id") if isinstance(mem, dict) else None
+            if meta.get("folder_id") != folder_id or (mem_user not in (None, user_id)):
+                return {"ok": False, "error": "forbidden"}
             self._m.delete(memory_id=memory_id)
             return {"ok": True}
         except Exception as e:  # noqa: BLE001 — degrade, never raise

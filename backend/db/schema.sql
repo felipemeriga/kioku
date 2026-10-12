@@ -46,6 +46,10 @@ CREATE OR REPLACE FUNCTION "public"."execute_readonly_query"("query_text" "text"
 
 ALTER FUNCTION "public"."execute_readonly_query"("query_text" "text") OWNER TO "postgres";
 
+-- SECURITY DEFINER + arbitrary SELECT: must only be callable by the backend
+-- (service_role), never via the public anon key. Drop the implicit PUBLIC grant.
+REVOKE ALL ON FUNCTION "public"."execute_readonly_query"("query_text" "text") FROM PUBLIC;
+
 
 CREATE OR REPLACE FUNCTION "public"."keyword_search"("search_query" "text", "match_count" integer DEFAULT 20, "filter_user_id" "uuid" DEFAULT NULL::"uuid", "filter_topic" "text" DEFAULT NULL::"text", "filter_keyword" "text" DEFAULT NULL::"text", "filter_root_folder_id" "uuid" DEFAULT NULL::"uuid", "filter_folder_ids" "uuid"[] DEFAULT NULL::"uuid"[], "filter_source_filename" "text" DEFAULT NULL::"text", "filter_created_after" timestamp with time zone DEFAULT NULL, "filter_created_before" timestamp with time zone DEFAULT NULL) RETURNS TABLE("id" "uuid", "content" "text", "metadata" "jsonb", "rank" real, "created_at" timestamp with time zone, "source_type" "text")
     LANGUAGE "sql" STABLE
@@ -958,8 +962,8 @@ GRANT USAGE ON SCHEMA "public" TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."execute_readonly_query"("query_text" "text") TO "anon";
-GRANT ALL ON FUNCTION "public"."execute_readonly_query"("query_text" "text") TO "authenticated";
+-- NOT granted to anon/authenticated: this RPC bypasses RLS, so only the
+-- backend's service_role may call it (see the REVOKE above).
 GRANT ALL ON FUNCTION "public"."execute_readonly_query"("query_text" "text") TO "service_role";
 
 
