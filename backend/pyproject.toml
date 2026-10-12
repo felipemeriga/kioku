@@ -20,6 +20,7 @@ dependencies = [
     "voyageai>=0.3.7",
     "langsmith>=0.3.0",
     "openai>=1.0.0",
+    "litellm>=1.50.0",
     "ragas>=0.2.0",
     "torch>=2.0.0",
     "torchvision>=0.15.0",

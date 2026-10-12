@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from db.client import get_supabase
+from routes.ai_config import router as ai_config_router
 from routes.api_keys import router as api_keys_router
 from routes.briefing import router as briefing_router
 from routes.chat import router as chat_router
@@ -59,6 +60,7 @@ app.include_router(chat_router)
 app.include_router(documents_router)
 app.include_router(folders_router)
 app.include_router(api_keys_router)
+app.include_router(ai_config_router)
 app.include_router(drop_router)
 app.include_router(evaluation_router)
 app.include_router(notes_router)
