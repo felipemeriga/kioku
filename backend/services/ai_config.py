@@ -25,6 +25,7 @@ _KEY_COLUMN = {
 # vision=True models can back the image-OCR task (used in PR 2).
 MODEL_CATALOG: dict[str, list[dict]] = {
     "anthropic": [
+        {"id": "claude-opus-4-8", "label": "Claude Opus 4.8", "reasoning": True, "vision": True},
         {
             "id": "claude-sonnet-4-6",
             "label": "Claude Sonnet 4.6",
@@ -40,7 +41,11 @@ MODEL_CATALOG: dict[str, list[dict]] = {
     ],
     "openai": [
         {"id": "gpt-5", "label": "GPT-5", "reasoning": True, "vision": True},
+        {"id": "gpt-5-mini", "label": "GPT-5 mini", "reasoning": True, "vision": True},
+        {"id": "gpt-4.1", "label": "GPT-4.1", "reasoning": False, "vision": True},
         {"id": "gpt-4o", "label": "GPT-4o", "reasoning": False, "vision": True},
+        {"id": "gpt-4o-mini", "label": "GPT-4o mini", "reasoning": False, "vision": True},
+        {"id": "o3", "label": "o3 (reasoning)", "reasoning": True, "vision": True},
         {"id": "o4-mini", "label": "o4-mini (reasoning)", "reasoning": True, "vision": True},
     ],
     "deepseek": [
