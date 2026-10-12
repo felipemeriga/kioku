@@ -27,13 +27,123 @@ import {
   createApiKey,
   revokeApiKey,
   fetchRootFolders,
+  fetchUsageByConversation,
+  fetchUsageByMonth,
 } from "../lib/api";
 import { NotionIntegrationSection } from "../components/NotionIntegrationSection";
 import { messageFromError } from "../components/ToastProvider";
 import CornerCard from "../components/neo/CornerCard";
 import { brand, fonts } from "../theme";
 
-type SettingsTab = "api-keys" | "integrations" | "mcp-client";
+type SettingsTab = "api-keys" | "integrations" | "mcp-client" | "usage";
+
+const fmtTokens = (n: number) => n.toLocaleString();
+const fmtCost = (n: number) => `$${n.toFixed(4)}`;
+
+function UsageTable({
+  title,
+  labelHeader,
+  loading,
+  rows,
+}: {
+  title: string;
+  labelHeader: string;
+  loading: boolean;
+  rows: { key: string; label: string; tokens: number; cost: number }[];
+}) {
+  return (
+    <Box>
+      <Typography
+        sx={{
+          fontFamily: fonts.mono,
+          fontSize: 12,
+          color: brand.muted,
+          letterSpacing: "0.1em",
+          mb: "8px",
+        }}
+      >
+        {title}
+      </Typography>
+      {loading ? (
+        <Typography sx={{ fontSize: 13, color: brand.muted }}>
+          Loading…
+        </Typography>
+      ) : rows.length === 0 ? (
+        <Typography sx={{ fontSize: 13, color: brand.muted }}>
+          No usage recorded yet.
+        </Typography>
+      ) : (
+        <Box
+          component="table"
+          sx={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}
+        >
+          <Box component="thead">
+            <Box component="tr" sx={{ color: brand.muted }}>
+              <Box
+                component="th"
+                sx={{ py: "6px", fontWeight: 500, textAlign: "left" }}
+              >
+                {labelHeader}
+              </Box>
+              <Box
+                component="th"
+                sx={{ py: "6px", fontWeight: 500, textAlign: "right" }}
+              >
+                Tokens
+              </Box>
+              <Box
+                component="th"
+                sx={{ py: "6px", fontWeight: 500, textAlign: "right" }}
+              >
+                Cost
+              </Box>
+            </Box>
+          </Box>
+          <Box component="tbody">
+            {rows.map((r) => (
+              <Box
+                component="tr"
+                key={r.key}
+                sx={{ borderTop: `1px solid ${brand.line}` }}
+              >
+                <Box
+                  component="td"
+                  sx={{
+                    py: "6px",
+                    pr: "12px",
+                    maxWidth: 320,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {r.label}
+                </Box>
+                <Box
+                  component="td"
+                  sx={{ py: "6px", textAlign: "right", fontFamily: fonts.mono }}
+                >
+                  {fmtTokens(r.tokens)}
+                </Box>
+                <Box
+                  component="td"
+                  sx={{
+                    py: "6px",
+                    textAlign: "right",
+                    fontFamily: fonts.mono,
+                    color: brand.cyan,
+                  }}
+                >
+                  {fmtCost(r.cost)}
+                </Box>
+              </Box>
+            ))}
+          </Box>
+        </Box>
+      )}
+    </Box>
+  );
+}
 
 export default function SettingsPage() {
   const queryClient = useQueryClient();
@@ -41,6 +151,14 @@ export default function SettingsPage() {
   const scopesQuery = useQuery({
     queryKey: ["root-folders"],
     queryFn: fetchRootFolders,
+  });
+  const usageByConv = useQuery({
+    queryKey: qk.usageConversations(),
+    queryFn: fetchUsageByConversation,
+  });
+  const usageByMonth = useQuery({
+    queryKey: qk.usageMonthly(),
+    queryFn: fetchUsageByMonth,
   });
   const keys = keysQuery.data ?? [];
   const scopes = scopesQuery.data ?? [];
@@ -184,6 +302,7 @@ export default function SettingsPage() {
           <Tab value="api-keys" label="API Keys" />
           <Tab value="integrations" label="Integrations" />
           <Tab value="mcp-client" label="MCP Client" />
+          <Tab value="usage" label="Usage" />
         </Tabs>
 
         {/* Tab: API Keys */}
@@ -519,6 +638,55 @@ export default function SettingsPage() {
               </Box>
               {" }\n    }\n  }\n}"}
             </Box>
+          </CornerCard>
+        )}
+
+        {/* Tab: Usage */}
+        {activeTab === "usage" && (
+          <CornerCard
+            color={brand.cyan}
+            sx={{
+              p: "22px 24px",
+              display: "flex",
+              flexDirection: "column",
+              gap: "20px",
+            }}
+          >
+            <Box>
+              <Typography
+                sx={{ fontSize: 19, fontWeight: 600, m: 0, mb: "4px" }}
+              >
+                Usage &amp; Cost
+              </Typography>
+              <Typography sx={{ fontSize: 13, color: brand.muted, m: 0 }}>
+                Chat token usage and estimated cost. Tracked going forward; $
+                figures are approximate.
+              </Typography>
+            </Box>
+
+            <UsageTable
+              title="BY MONTH"
+              labelHeader="Month"
+              loading={usageByMonth.isPending}
+              rows={(usageByMonth.data ?? []).map((m) => ({
+                key: m.month,
+                label: m.month,
+                tokens: m.input_tokens + m.output_tokens,
+                cost: m.cost_usd,
+              }))}
+            />
+
+            <UsageTable
+              title="BY CONVERSATION"
+              labelHeader="Conversation"
+              loading={usageByConv.isPending}
+              rows={(usageByConv.data ?? []).map((c) => ({
+                key: c.conversation_id,
+                label: c.title,
+                tokens: c.input_tokens + c.output_tokens,
+                cost: c.cost_usd,
+              }))}
+            />
           </CornerCard>
         )}
       </Box>

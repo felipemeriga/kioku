@@ -1250,3 +1250,23 @@ CREATE TABLE IF NOT EXISTS "public"."repo_freshness" (
 );
 
 ALTER TABLE "public"."repo_freshness" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."chat_usage" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "conversation_id" "uuid" NOT NULL,
+    "model" "text" NOT NULL,
+    "input_tokens" integer DEFAULT 0 NOT NULL,
+    "output_tokens" integer DEFAULT 0 NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    CONSTRAINT "chat_usage_pkey" PRIMARY KEY ("id")
+);
+
+ALTER TABLE "public"."chat_usage" OWNER TO "postgres";
+
+CREATE INDEX IF NOT EXISTS "chat_usage_user_created_idx" ON "public"."chat_usage" ("user_id", "created_at");
+CREATE INDEX IF NOT EXISTS "chat_usage_user_conversation_idx" ON "public"."chat_usage" ("user_id", "conversation_id");
+
+ALTER TABLE "public"."chat_usage" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users manage own chat usage" ON "public"."chat_usage" USING (("user_id" = "auth"."uid"())) WITH CHECK (("user_id" = "auth"."uid"()));

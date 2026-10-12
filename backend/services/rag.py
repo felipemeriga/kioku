@@ -290,6 +290,7 @@ def stream_rag_response(
         sb_bg = get_supabase_thread_safe()
         full = ""
         debug_payload: dict | None = None
+        usage_payload: dict | None = None
         try:
             with collect_request(f"rag chat turn ({_label})"), request(f"rag chat turn ({_label})"):
                 for chunk_kind, payload in _run_loop_and_stream_final(
@@ -302,6 +303,10 @@ def stream_rag_response(
                     scope_folder_ids=scope_folder_ids,
                     scope_filename=scope_filename,
                 ):
+                    # Usage is captured for billing, not streamed to the client.
+                    if chunk_kind == "usage":
+                        usage_payload = json.loads(payload)
+                        continue
                     events.put((chunk_kind, payload))
                     if chunk_kind == "text_delta":
                         full += payload
@@ -324,6 +329,27 @@ def stream_rag_response(
                     sb_bg.table("messages").insert(row).execute()
                 except Exception:  # noqa: BLE001
                     logger.warning("failed to save assistant message", exc_info=True)
+            # Record this turn's token usage (going-forward billing view).
+            if (
+                usage_payload
+                and (
+                    (usage_payload.get("input_tokens") or 0)
+                    + (usage_payload.get("output_tokens") or 0)
+                )
+                > 0
+            ):
+                try:
+                    sb_bg.table("chat_usage").insert(
+                        {
+                            "user_id": user_id,
+                            "conversation_id": conversation_id,
+                            "model": usage_payload.get("model") or model,
+                            "input_tokens": usage_payload.get("input_tokens") or 0,
+                            "output_tokens": usage_payload.get("output_tokens") or 0,
+                        }
+                    ).execute()
+                except Exception:  # noqa: BLE001
+                    logger.warning("failed to save chat usage", exc_info=True)
             events.put(_END)
 
     threading.Thread(target=_generate_and_save, name="rag-generate", daemon=True).start()
@@ -379,6 +405,16 @@ def _run_loop_and_stream_final(
     debug_trace: dict | None = (
         {"model": model, "reasoning": [], "tool_calls": [], "retrieval": []} if debug else None
     )
+    # Accumulate token usage across every round of this turn (tool rounds + the
+    # final answer) for the Settings usage/cost view.
+    usage_in = 0
+    usage_out = 0
+
+    def _usage_event() -> tuple[str, str]:
+        return (
+            "usage",
+            json.dumps({"input_tokens": usage_in, "output_tokens": usage_out, "model": model}),
+        )
 
     for round_num in range(max_rounds):
         # Tell the UI what's happening before the (possibly long) model call:
@@ -399,6 +435,10 @@ def _run_loop_and_stream_final(
                     if text:
                         yield ("text_delta", text)
                 final = stream.get_final_message()
+                u = getattr(final, "usage", None)
+                if u:
+                    usage_in += getattr(u, "input_tokens", 0) or 0
+                    usage_out += getattr(u, "output_tokens", 0) or 0
 
         if debug_trace is not None:
             for b in final.content:
@@ -469,8 +509,10 @@ def _run_loop_and_stream_final(
         # No tool_use → the answer streamed above; loop is done.
         if debug_trace is not None:
             yield ("debug", json.dumps(debug_trace, default=str))
+        yield _usage_event()
         return
 
     if debug_trace is not None:
         yield ("debug", json.dumps(debug_trace, default=str))
     yield ("text_delta", "I was unable to complete the request after multiple attempts.")
+    yield _usage_event()
