@@ -9,13 +9,6 @@ import ChatInput from "./ChatInput";
 vi.mock("../lib/api", () => ({
   uploadDocument: vi.fn(),
   getAuthHeaders: vi.fn().mockResolvedValue({ Authorization: "Bearer test" }),
-  // No BYOK configured → the Sonnet/Haiku toggle renders (default "sonnet").
-  fetchAiConfig: vi.fn().mockResolvedValue({
-    keys: { anthropic: false, openai: false, deepseek: false },
-    chat_provider: null,
-    chat_model: null,
-    catalog: { anthropic: [], openai: [], deepseek: [] },
-  }),
 }));
 
 describe("ChatInput", () => {
