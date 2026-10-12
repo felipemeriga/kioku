@@ -1144,3 +1144,30 @@ export async function deviceDeny(requestId: string): Promise<void> {
     body: JSON.stringify({ request_id: requestId }),
   });
 }
+
+// --- Usage / cost ---
+
+export interface ConversationUsage {
+  conversation_id: string;
+  title: string;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number;
+}
+
+export interface MonthlyUsage {
+  month: string;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number;
+}
+
+export async function fetchUsageByConversation(): Promise<ConversationUsage[]> {
+  const res = await apiFetch("/api/usage/conversations");
+  return res.json();
+}
+
+export async function fetchUsageByMonth(): Promise<MonthlyUsage[]> {
+  const res = await apiFetch("/api/usage/monthly");
+  return res.json();
+}

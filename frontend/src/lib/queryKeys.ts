@@ -30,4 +30,7 @@ export const qk = {
 
   ingestionStatus: () => ["ingestion-status"] as const,
   ingestionJob: (jobId: string) => ["ingestion-job", jobId] as const,
+
+  usageConversations: () => ["usage-conversations"] as const,
+  usageMonthly: () => ["usage-monthly"] as const,
 };
