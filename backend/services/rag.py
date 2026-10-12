@@ -627,6 +627,12 @@ def _run_loop_litellm(
             kwargs["reasoning_effort"] = "medium"
 
         tool_calls: dict[int, dict] = {}
+        # Reasoning models (deepseek-reasoner, etc.) stream a separate
+        # reasoning_content channel. Preserve it on the assistant turn so the
+        # next round gets the model's own reasoning chain back — otherwise the
+        # provider injects a blank placeholder and quality degrades (and the
+        # agent tends to loop more rounds).
+        reasoning = ""
         with stage(f"round {round_num + 1}: {provider} stream"):
             for chunk in litellm.completion(**kwargs):
                 choices = getattr(chunk, "choices", None) or []
@@ -636,6 +642,9 @@ def _run_loop_litellm(
                         content = getattr(delta, "content", None)
                         if content:
                             yield ("text_delta", content)
+                        rc = getattr(delta, "reasoning_content", None)
+                        if rc:
+                            reasoning += rc
                         for tc in getattr(delta, "tool_calls", None) or []:
                             idx = getattr(tc, "index", 0) or 0
                             slot = tool_calls.setdefault(idx, {"id": None, "name": "", "args": ""})
@@ -660,20 +669,21 @@ def _run_loop_litellm(
             return
 
         ordered = [tool_calls[i] for i in sorted(tool_calls)]
-        oai_messages.append(
-            {
-                "role": "assistant",
-                "content": None,
-                "tool_calls": [
-                    {
-                        "id": s["id"],
-                        "type": "function",
-                        "function": {"name": s["name"], "arguments": s["args"] or "{}"},
-                    }
-                    for s in ordered
-                ],
-            }
-        )
+        assistant_msg: dict = {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": s["id"],
+                    "type": "function",
+                    "function": {"name": s["name"], "arguments": s["args"] or "{}"},
+                }
+                for s in ordered
+            ],
+        }
+        if reasoning:
+            assistant_msg["reasoning_content"] = reasoning
+        oai_messages.append(assistant_msg)
         yield ("stage", "searching")
         for s in ordered:
             try:
