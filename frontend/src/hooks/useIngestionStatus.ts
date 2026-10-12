@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchIngestionStatus, uploadDocument } from "../lib/api";
 import type { IngestionTask } from "../lib/api";
 import { qk } from "../lib/queryKeys";
+import { useToast } from "../components/ToastProvider";
 
 const TERMINAL_STAGES = new Set(["completed", "error", "duplicate"]);
 const POLL_INTERVAL = 2000;
@@ -12,6 +13,10 @@ const isActive = (t: IngestionTask) => !TERMINAL_STAGES.has(t.stage);
 
 export function useIngestionStatus() {
   const queryClient = useQueryClient();
+  const toast = useToast();
+  // Task ids we've already toasted a failure for, so the 2s poll doesn't
+  // re-toast the same error every tick.
+  const toastedErrorsRef = useRef<Set<string>>(new Set());
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Stays idle until the first upload this session (matches the old behavior
   // where `tasks` started empty and nothing polled until you uploaded).
@@ -36,6 +41,23 @@ export function useIngestionStatus() {
 
   const activeTasks = tasks.filter(isActive);
   const hasActiveTasks = activeTasks.length > 0;
+
+  // Surface ingestion failures (e.g. a scanned PDF with no text layer) as a
+  // toast so the user is told why, even if the drawer has auto-closed or they
+  // navigated away. Dedup per task id. toast.show is a post-commit side effect.
+  useEffect(() => {
+    for (const t of tasks) {
+      if (t.stage === "error" && !toastedErrorsRef.current.has(t.id)) {
+        toastedErrorsRef.current.add(t.id);
+        toast.show(
+          `Couldn't ingest “${t.filename}”: ${
+            t.error_message || "processing failed."
+          }`,
+          "error"
+        );
+      }
+    }
+  }, [tasks, toast]);
 
   // Auto-close the drawer ~10s after everything finishes (unless the user
   // interacted). setState runs inside the timer callback, not the effect body.

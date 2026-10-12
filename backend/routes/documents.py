@@ -205,6 +205,8 @@ async def get_ingestion_status(user_id: str = Depends(get_current_user)):
             "folder_id": job.get("root_folder_id"),
             "stage": stage_map.get(status, status),
             "stage_detail": (job.get("error") if status == "failed" else None),
+            # error_message is what the frontend drawer renders for failed jobs.
+            "error_message": (job.get("error") if status == "failed" else None),
             "chunks_total": total,
             "chunks_done": done,
             "created_at": job.get("created_at"),
