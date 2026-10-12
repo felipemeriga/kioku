@@ -1270,19 +1270,3 @@ CREATE INDEX IF NOT EXISTS "chat_usage_user_conversation_idx" ON "public"."chat_
 
 ALTER TABLE "public"."chat_usage" ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users manage own chat usage" ON "public"."chat_usage" USING (("user_id" = "auth"."uid"())) WITH CHECK (("user_id" = "auth"."uid"()));
-
-CREATE TABLE IF NOT EXISTS "public"."user_ai_config" (
-    "user_id" "uuid" NOT NULL,
-    "anthropic_key_encrypted" "text",
-    "openai_key_encrypted" "text",
-    "deepseek_key_encrypted" "text",
-    "chat_provider" "text",
-    "chat_model" "text",
-    "updated_at" timestamp with time zone DEFAULT "now"(),
-    CONSTRAINT "user_ai_config_pkey" PRIMARY KEY ("user_id")
-);
-
-ALTER TABLE "public"."user_ai_config" OWNER TO "postgres";
-
-ALTER TABLE "public"."user_ai_config" ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users manage own ai config" ON "public"."user_ai_config" USING (("user_id" = "auth"."uid"())) WITH CHECK (("user_id" = "auth"."uid"()));

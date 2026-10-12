@@ -10,7 +10,6 @@ from concurrent.futures import ThreadPoolExecutor
 from langsmith import traceable
 
 from db.client import get_supabase, get_supabase_thread_safe
-from services.ai_config import is_reasoning_model, resolve_chat
 from services.llm import Task, complete, stream_complete
 from services.metrics import collect_request, record, submit_with_context
 from services.timing import request, stage
@@ -234,10 +233,6 @@ def stream_rag_response(
     """Agentic RAG pipeline: save message, run tool-use loop, stream response."""
     sb = get_supabase()
 
-    # BYOK: resolve the user's chat provider/model/key. Defaults to anthropic
-    # with api_key=None, which means "use the existing kioku Anthropic path".
-    chat_cfg = resolve_chat(sb, user_id)
-
     # Resolve a folder scope to its subtree once — the agent may call the
     # search tool several times per turn.
     scope_folder_ids: list[str] | None = None
@@ -307,9 +302,6 @@ def stream_rag_response(
                     history=prior_messages,
                     scope_folder_ids=scope_folder_ids,
                     scope_filename=scope_filename,
-                    provider=chat_cfg["provider"],
-                    chat_model=chat_cfg["model"],
-                    api_key=chat_cfg["api_key"],
                 ):
                     # Usage is captured for billing, not streamed to the client.
                     if chunk_kind == "usage":
@@ -395,9 +387,6 @@ def _run_loop_and_stream_final(
     history: list[dict] | None,
     scope_folder_ids: list[str] | None = None,
     scope_filename: str | None = None,
-    provider: str = "anthropic",
-    chat_model: str | None = None,
-    api_key: str | None = None,
 ) -> Generator[tuple[str, str], None, None]:
     """Tool-use loop that streams text deltas via Anthropic's streaming API.
 
@@ -416,26 +405,6 @@ def _run_loop_and_stream_final(
     debug_trace: dict | None = (
         {"model": model, "reasoning": [], "tool_calls": [], "retrieval": []} if debug else None
     )
-
-    # BYOK: non-Anthropic providers run a parallel LiteLLM loop. Anthropic (the
-    # default / no-BYOK case) falls through to the existing untouched code below.
-    if provider != "anthropic":
-        yield from _run_loop_litellm(
-            provider=provider,
-            model=chat_model or "",
-            api_key=api_key,
-            mode=mode,
-            system_prompt=system_prompt,
-            tools=tools,
-            messages=messages,
-            user_id=user_id,
-            scope_folder_ids=scope_folder_ids,
-            scope_filename=scope_filename,
-            debug_trace=debug_trace,
-            max_rounds=max_rounds,
-        )
-        return
-
     # Accumulate token usage across every round of this turn (tool rounds + the
     # final answer) for the Settings usage/cost view.
     usage_in = 0
@@ -542,172 +511,6 @@ def _run_loop_and_stream_final(
             yield ("debug", json.dumps(debug_trace, default=str))
         yield _usage_event()
         return
-
-    if debug_trace is not None:
-        yield ("debug", json.dumps(debug_trace, default=str))
-    yield ("text_delta", "I was unable to complete the request after multiple attempts.")
-    yield _usage_event()
-
-
-def _anthropic_tools_to_openai(tools: list[dict]) -> list[dict]:
-    """Translate our Anthropic-format tool defs to OpenAI function-tool format."""
-    return [
-        {
-            "type": "function",
-            "function": {
-                "name": t["name"],
-                "description": t.get("description", ""),
-                "parameters": t["input_schema"],
-            },
-        }
-        for t in tools
-    ]
-
-
-def _to_openai_messages(system_prompt: str, messages: list[dict]) -> list[dict]:
-    """Seed the OpenAI-format message list: system prompt + plain chat history.
-
-    `messages` here is prior history + the current user turn, all plain
-    {role, content:str} — the tool-call/tool-result turns are appended by the
-    loop itself in OpenAI format."""
-    out: list[dict] = [{"role": "system", "content": system_prompt}]
-    for m in messages:
-        out.append({"role": m["role"], "content": m["content"]})
-    return out
-
-
-def _run_loop_litellm(
-    *,
-    provider: str,
-    model: str,
-    api_key: str | None,
-    mode: str,
-    system_prompt: str,
-    tools: list[dict],
-    messages: list[dict],
-    user_id: str,
-    scope_folder_ids: list[str] | None,
-    scope_filename: str | None,
-    debug_trace: dict | None,
-    max_rounds: int,
-) -> Generator[tuple[str, str], None, None]:
-    """Tool-use streaming loop for non-Anthropic providers (OpenAI / DeepSeek)
-    via LiteLLM. Mirrors the SSE event contract of the Anthropic loop
-    (text_delta / stage / debug / usage) so nothing downstream changes.
-
-    Caveats vs the Anthropic path: no prompt caching, and "deep mode" maps to
-    reasoning_effort only on reasoning-capable models (else it just runs)."""
-    import litellm
-
-    oai_messages = _to_openai_messages(system_prompt, messages)
-    oai_tools = _anthropic_tools_to_openai(tools)
-    use_reasoning = mode == "deep" and is_reasoning_model(provider, model)
-
-    usage_in = 0
-    usage_out = 0
-
-    def _usage_event() -> tuple[str, str]:
-        return (
-            "usage",
-            json.dumps({"input_tokens": usage_in, "output_tokens": usage_out, "model": model}),
-        )
-
-    for round_num in range(max_rounds):
-        yield ("stage", "thinking" if use_reasoning else "searching")
-        kwargs: dict = {
-            "model": f"{provider}/{model}",
-            "messages": oai_messages,
-            "tools": oai_tools,
-            "stream": True,
-            "stream_options": {"include_usage": True},
-        }
-        if api_key:
-            kwargs["api_key"] = api_key
-        if use_reasoning:
-            kwargs["reasoning_effort"] = "medium"
-
-        tool_calls: dict[int, dict] = {}
-        with stage(f"round {round_num + 1}: {provider} stream"):
-            for chunk in litellm.completion(**kwargs):
-                choices = getattr(chunk, "choices", None) or []
-                if choices:
-                    delta = getattr(choices[0], "delta", None)
-                    if delta is not None:
-                        content = getattr(delta, "content", None)
-                        if content:
-                            yield ("text_delta", content)
-                        for tc in getattr(delta, "tool_calls", None) or []:
-                            idx = getattr(tc, "index", 0) or 0
-                            slot = tool_calls.setdefault(idx, {"id": None, "name": "", "args": ""})
-                            if getattr(tc, "id", None):
-                                slot["id"] = tc.id
-                            fn = getattr(tc, "function", None)
-                            if fn is not None:
-                                if getattr(fn, "name", None):
-                                    slot["name"] = fn.name
-                                if getattr(fn, "arguments", None):
-                                    slot["args"] += fn.arguments
-                usage = getattr(chunk, "usage", None)
-                if usage:
-                    usage_in += getattr(usage, "prompt_tokens", 0) or 0
-                    usage_out += getattr(usage, "completion_tokens", 0) or 0
-
-        if not tool_calls:
-            # No tool calls → the answer streamed above; loop is done.
-            if debug_trace is not None:
-                yield ("debug", json.dumps(debug_trace, default=str))
-            yield _usage_event()
-            return
-
-        ordered = [tool_calls[i] for i in sorted(tool_calls)]
-        oai_messages.append(
-            {
-                "role": "assistant",
-                "content": None,
-                "tool_calls": [
-                    {
-                        "id": s["id"],
-                        "type": "function",
-                        "function": {"name": s["name"], "arguments": s["args"] or "{}"},
-                    }
-                    for s in ordered
-                ],
-            }
-        )
-        yield ("stage", "searching")
-        for s in ordered:
-            try:
-                args = json.loads(s["args"] or "{}")
-            except json.JSONDecodeError:
-                args = {}
-            with stage(f"tool: {s['name']}", indent=1):
-                try:
-                    result_text = execute_tool(
-                        s["name"],
-                        args,
-                        user_id,
-                        fast_mode=False,
-                        scope_folder_ids=scope_folder_ids,
-                        scope_filename=scope_filename,
-                        debug_retrieval=(
-                            debug_trace["retrieval"] if debug_trace is not None else None
-                        ),
-                    )
-                    is_error = False
-                except Exception as exc:  # noqa: BLE001
-                    result_text = f"Tool {s['name']!r} raised: {exc}"
-                    is_error = True
-            if debug_trace is not None:
-                debug_trace["tool_calls"].append(
-                    {
-                        "round": round_num + 1,
-                        "name": s["name"],
-                        "input": args,
-                        "result_preview": (result_text or "")[:1500],
-                        "is_error": is_error,
-                    }
-                )
-            oai_messages.append({"role": "tool", "tool_call_id": s["id"], "content": result_text})
 
     if debug_trace is not None:
         yield ("debug", json.dumps(debug_trace, default=str))

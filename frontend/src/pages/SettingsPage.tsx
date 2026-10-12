@@ -29,188 +29,13 @@ import {
   fetchRootFolders,
   fetchUsageByConversation,
   fetchUsageByMonth,
-  fetchAiConfig,
-  setProviderKey,
-  setChatModel,
 } from "../lib/api";
-import type { AiProvider } from "../lib/api";
 import { NotionIntegrationSection } from "../components/NotionIntegrationSection";
 import { messageFromError } from "../components/ToastProvider";
 import CornerCard from "../components/neo/CornerCard";
 import { brand, fonts } from "../theme";
 
-type SettingsTab =
-  | "api-keys"
-  | "integrations"
-  | "mcp-client"
-  | "usage"
-  | "models";
-
-const PROVIDER_LABELS: Record<AiProvider, string> = {
-  anthropic: "Anthropic",
-  openai: "OpenAI",
-  deepseek: "DeepSeek",
-};
-const ALL_PROVIDERS: AiProvider[] = ["anthropic", "openai", "deepseek"];
-
-function AiModelsSection() {
-  const queryClient = useQueryClient();
-  const { data, isPending } = useQuery({
-    queryKey: qk.aiConfig(),
-    queryFn: fetchAiConfig,
-  });
-  const [keyInputs, setKeyInputs] = useState<Record<string, string>>({});
-  const [pickProvider, setPickProvider] = useState<AiProvider | null>(null);
-  const [pickModel, setPickModel] = useState<string | null>(null);
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-
-  const provider: AiProvider =
-    pickProvider ?? data?.chat_provider ?? "anthropic";
-  const model = pickModel ?? data?.chat_model ?? "";
-  const catalog = data?.catalog?.[provider] ?? [];
-
-  const saveKey = async (p: AiProvider) => {
-    try {
-      await setProviderKey(p, keyInputs[p] ?? "");
-      setKeyInputs((s) => ({ ...s, [p]: "" }));
-      await queryClient.invalidateQueries({ queryKey: qk.aiConfig() });
-      setMsg({ ok: true, text: `${PROVIDER_LABELS[p]} key saved.` });
-    } catch (err) {
-      setMsg({ ok: false, text: messageFromError(err) });
-    }
-  };
-
-  const saveModel = async () => {
-    if (!model) return;
-    try {
-      await setChatModel(provider, model);
-      setPickProvider(null);
-      setPickModel(null);
-      await queryClient.invalidateQueries({ queryKey: qk.aiConfig() });
-      setMsg({ ok: true, text: "Chat model saved." });
-    } catch (err) {
-      setMsg({ ok: false, text: messageFromError(err) });
-    }
-  };
-
-  return (
-    <CornerCard
-      color={brand.cyan}
-      sx={{
-        p: "22px 24px",
-        display: "flex",
-        flexDirection: "column",
-        gap: "20px",
-      }}
-    >
-      <Box>
-        <Typography sx={{ fontSize: 19, fontWeight: 600, m: 0, mb: "4px" }}>
-          Modelos de IA
-        </Typography>
-        <Typography sx={{ fontSize: 13, color: brand.muted, m: 0 }}>
-          Traga sua própria API key e escolha o modelo do chat. Sem chave
-          configurada, o kioku usa o modelo padrão. Deep mode (thinking) é só
-          Anthropic ou modelos de raciocínio (o4-mini, deepseek-reasoner).
-        </Typography>
-      </Box>
-
-      {msg && (
-        <Alert
-          severity={msg.ok ? "success" : "error"}
-          onClose={() => setMsg(null)}
-        >
-          {msg.text}
-        </Alert>
-      )}
-
-      {/* Provider keys */}
-      <Box sx={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-        {ALL_PROVIDERS.map((p) => (
-          <Box
-            key={p}
-            sx={{ display: "flex", alignItems: "center", gap: "10px" }}
-          >
-            <Typography sx={{ width: 90, fontSize: 13 }}>
-              {PROVIDER_LABELS[p]}
-            </Typography>
-            <TextField
-              size="small"
-              type="password"
-              placeholder={
-                data?.keys?.[p] ? "•••••••• (configurada)" : "API key"
-              }
-              value={keyInputs[p] ?? ""}
-              onChange={(e) =>
-                setKeyInputs((s) => ({ ...s, [p]: e.target.value }))
-              }
-              sx={{ flex: 1 }}
-            />
-            <Button
-              variant="outlined"
-              size="small"
-              disabled={isPending}
-              onClick={() => saveKey(p)}
-            >
-              Salvar
-            </Button>
-          </Box>
-        ))}
-      </Box>
-
-      {/* Chat model picker */}
-      <Box
-        sx={{
-          display: "flex",
-          alignItems: "center",
-          gap: "10px",
-          flexWrap: "wrap",
-        }}
-      >
-        <Typography sx={{ width: 90, fontSize: 13 }}>Chat</Typography>
-        <FormControl size="small" sx={{ minWidth: 140 }}>
-          <Select
-            value={provider}
-            onChange={(e) => {
-              setPickProvider(e.target.value as AiProvider);
-              setPickModel("");
-            }}
-          >
-            {ALL_PROVIDERS.map((p) => (
-              <MenuItem key={p} value={p}>
-                {PROVIDER_LABELS[p]}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-        <FormControl size="small" sx={{ minWidth: 220 }}>
-          <Select
-            displayEmpty
-            value={model}
-            onChange={(e) => setPickModel(e.target.value)}
-          >
-            <MenuItem value="">
-              <em>Escolha um modelo</em>
-            </MenuItem>
-            {catalog.map((m) => (
-              <MenuItem key={m.id} value={m.id}>
-                {m.label}
-                {m.reasoning ? " · reasoning" : ""}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-        <Button
-          variant="contained"
-          size="small"
-          disabled={isPending || !model}
-          onClick={saveModel}
-        >
-          Salvar modelo
-        </Button>
-      </Box>
-    </CornerCard>
-  );
-}
+type SettingsTab = "api-keys" | "integrations" | "mcp-client" | "usage";
 
 const fmtTokens = (n: number) => n.toLocaleString();
 const fmtCost = (n: number) => `$${n.toFixed(4)}`;
@@ -478,7 +303,6 @@ export default function SettingsPage() {
           <Tab value="integrations" label="Integrations" />
           <Tab value="mcp-client" label="MCP Client" />
           <Tab value="usage" label="Usage" />
-          <Tab value="models" label="Modelos de IA" />
         </Tabs>
 
         {/* Tab: API Keys */}
@@ -865,8 +689,6 @@ export default function SettingsPage() {
             />
           </CornerCard>
         )}
-
-        {activeTab === "models" && <AiModelsSection />}
       </Box>
 
       <Dialog open={!!revokeTarget} onClose={() => setRevokeTarget(null)}>
