@@ -63,3 +63,10 @@ select = ["E", "F", "I", "W"]
 [tool.ruff.lint.per-file-ignores]
 "db/seed.py" = ["E402"]
 "mcp_server.py" = ["E402"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+# importlib mode imports each test by file path — robust against the stale-pycache
+# "ModuleNotFoundError: No module named 'tests.X'" collection failures.
+addopts = "--import-mode=importlib"
