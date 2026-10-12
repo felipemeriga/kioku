@@ -1171,3 +1171,46 @@ export async function fetchUsageByMonth(): Promise<MonthlyUsage[]> {
   const res = await apiFetch("/api/usage/monthly");
   return res.json();
 }
+
+// --- BYOK AI provider config ---
+
+export type AiProvider = "anthropic" | "openai" | "deepseek";
+
+export interface CatalogModel {
+  id: string;
+  label: string;
+  reasoning: boolean;
+  vision: boolean;
+}
+
+export interface AiConfig {
+  keys: Record<AiProvider, boolean>;
+  chat_provider: AiProvider | null;
+  chat_model: string | null;
+  catalog: Record<AiProvider, CatalogModel[]>;
+}
+
+export async function fetchAiConfig(): Promise<AiConfig> {
+  const res = await apiFetch("/api/ai-config");
+  return res.json();
+}
+
+export async function setProviderKey(
+  provider: AiProvider,
+  key: string
+): Promise<void> {
+  await apiFetch("/api/ai-config/key", {
+    method: "PUT",
+    body: JSON.stringify({ provider, key }),
+  });
+}
+
+export async function setChatModel(
+  provider: AiProvider,
+  model: string
+): Promise<void> {
+  await apiFetch("/api/ai-config/chat-model", {
+    method: "PUT",
+    body: JSON.stringify({ provider, model }),
+  });
+}
