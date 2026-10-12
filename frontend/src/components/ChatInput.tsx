@@ -12,8 +12,10 @@ import {
 } from "@mui/material";
 import AttachFileIcon from "@mui/icons-material/AttachFile";
 import CenterFocusStrongIcon from "@mui/icons-material/CenterFocusStrong";
-import { uploadDocument } from "../lib/api";
+import { useQuery } from "@tanstack/react-query";
+import { uploadDocument, fetchAiConfig } from "../lib/api";
 import type { ChatFilters, ChatMode, ChatModel, ChatScope } from "../lib/api";
+import { qk } from "../lib/queryKeys";
 import { useToast } from "./ToastProvider";
 import { brand, fonts } from "../theme";
 
@@ -54,6 +56,20 @@ export default function ChatInput({
   const [modeAnchor, setModeAnchor] = useState<null | HTMLElement>(null);
   const [model, setModel] = useState<ChatModel>("sonnet");
   const [modelAnchor, setModelAnchor] = useState<null | HTMLElement>(null);
+  // When a BYOK chat model is configured (Settings → AI Models), the backend
+  // uses it regardless of the Sonnet/Haiku toggle — so show that model here
+  // (read-only) instead of the misleading Anthropic toggle.
+  const { data: aiConfig } = useQuery({
+    queryKey: qk.aiConfig(),
+    queryFn: fetchAiConfig,
+    staleTime: 60_000,
+  });
+  const byokModelLabel =
+    aiConfig?.chat_provider && aiConfig?.chat_model
+      ? aiConfig.catalog?.[aiConfig.chat_provider]?.find(
+          (m) => m.id === aiConfig.chat_model
+        )?.label ?? aiConfig.chat_model
+      : null;
   // On by default so every response gets a persisted Inspect card.
   const [debug, setDebug] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -261,49 +277,71 @@ export default function ChatInput({
           </MenuItem>
         </Menu>
 
-        {/* Model chip */}
-        <Tooltip title="Model — pick Sonnet (stronger) or Haiku (faster/cheaper)">
-          <Chip
-            label={model === "sonnet" ? "Sonnet" : "Haiku"}
-            size="small"
-            variant="outlined"
-            disabled={disabled}
-            onClick={(e) => setModelAnchor(e.currentTarget)}
-            sx={{
-              fontFamily: fonts.mono,
-              fontSize: "0.75rem",
-              borderRadius: "3px",
-              cursor: "pointer",
-              flexShrink: 0,
-              borderColor: brand.lineGlow,
-              "& .MuiChip-label": { px: 1 },
-            }}
-          />
-        </Tooltip>
-        <Menu
-          anchorEl={modelAnchor}
-          open={Boolean(modelAnchor)}
-          onClose={() => setModelAnchor(null)}
-        >
-          <MenuItem
-            selected={model === "sonnet"}
-            onClick={() => {
-              setModel("sonnet");
-              setModelAnchor(null);
-            }}
+        {/* Model chip: a read-only BYOK model, or the Sonnet/Haiku toggle */}
+        {byokModelLabel ? (
+          <Tooltip
+            title={`Using your ${aiConfig?.chat_provider} model — change it in Settings → AI Models`}
           >
-            Sonnet — stronger reasoning
-          </MenuItem>
-          <MenuItem
-            selected={model === "haiku"}
-            onClick={() => {
-              setModel("haiku");
-              setModelAnchor(null);
-            }}
-          >
-            Haiku — faster & cheaper
-          </MenuItem>
-        </Menu>
+            <Chip
+              label={byokModelLabel}
+              size="small"
+              variant="outlined"
+              sx={{
+                fontFamily: fonts.mono,
+                fontSize: "0.75rem",
+                borderRadius: "3px",
+                flexShrink: 0,
+                borderColor: brand.lineGlow,
+                "& .MuiChip-label": { px: 1 },
+              }}
+            />
+          </Tooltip>
+        ) : (
+          <>
+            <Tooltip title="Model — pick Sonnet (stronger) or Haiku (faster/cheaper)">
+              <Chip
+                label={model === "sonnet" ? "Sonnet" : "Haiku"}
+                size="small"
+                variant="outlined"
+                disabled={disabled}
+                onClick={(e) => setModelAnchor(e.currentTarget)}
+                sx={{
+                  fontFamily: fonts.mono,
+                  fontSize: "0.75rem",
+                  borderRadius: "3px",
+                  cursor: "pointer",
+                  flexShrink: 0,
+                  borderColor: brand.lineGlow,
+                  "& .MuiChip-label": { px: 1 },
+                }}
+              />
+            </Tooltip>
+            <Menu
+              anchorEl={modelAnchor}
+              open={Boolean(modelAnchor)}
+              onClose={() => setModelAnchor(null)}
+            >
+              <MenuItem
+                selected={model === "sonnet"}
+                onClick={() => {
+                  setModel("sonnet");
+                  setModelAnchor(null);
+                }}
+              >
+                Sonnet — stronger reasoning
+              </MenuItem>
+              <MenuItem
+                selected={model === "haiku"}
+                onClick={() => {
+                  setModel("haiku");
+                  setModelAnchor(null);
+                }}
+              >
+                Haiku — faster & cheaper
+              </MenuItem>
+            </Menu>
+          </>
+        )}
 
         {/* DBG toggle */}
         <Tooltip
