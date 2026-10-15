@@ -1272,3 +1272,9 @@ CREATE INDEX IF NOT EXISTS "chat_usage_user_conversation_idx" ON "public"."chat_
 
 ALTER TABLE "public"."chat_usage" ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users manage own chat usage" ON "public"."chat_usage" USING (("user_id" = "auth"."uid"())) WITH CHECK (("user_id" = "auth"."uid"()));
+
+-- Assistant-message debug trace (Inspect card) and inline-citation registry;
+-- both nullable, set only when the turn produced them. See migrations
+-- 20260930010000_messages_debug.sql and 20261015010000_messages_citations.sql.
+ALTER TABLE "public"."messages" ADD COLUMN IF NOT EXISTS "debug" "jsonb";
+ALTER TABLE "public"."messages" ADD COLUMN IF NOT EXISTS "citations" "jsonb";

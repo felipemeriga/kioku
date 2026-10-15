@@ -5,6 +5,7 @@ import json
 from langsmith import traceable
 
 from db.client import get_supabase
+from services.citations import CitationRegistry
 from services.embeddings import embed_query
 from services.folder_summary.repo import get_latest_summary
 from services.repo_graph import store as graph_store
@@ -254,12 +255,17 @@ def execute_tool(
     scope_folder_ids: list[str] | None = None,
     scope_filename: str | None = None,
     debug_retrieval: list | None = None,
+    citations: CitationRegistry | None = None,
 ) -> str:
     """Execute a tool call and return the result as a string.
 
     When debug_retrieval is a list, knowledge_base_search appends a structured
     record per retrieved chunk (content, source, type, rerank score, date) for
     the UI's debug inspector. Purely additive — the returned text is unchanged.
+
+    When a CitationRegistry is passed, each retrieved chunk's header is prefixed
+    with its stable [N] so the model can cite it inline, and the source is
+    registered for the frontend to map N → source.
     """
     if tool_name == "knowledge_base_search":
         query = tool_input["query"]
@@ -288,12 +294,18 @@ def execute_tool(
                 symbol = meta.get("code_symbol")
                 updated = str(r.get("created_at") or "")[:10]
                 label = f"{source} — {symbol}" if symbol else source
-                header = f"[Code: {label} — updated {updated}]" if updated else f"[Code: {label}]"
+                body = f"Code: {label} — updated {updated}" if updated else f"Code: {label}"
             else:
                 # Date in the header lets the model weigh freshness and cite
                 # as-of dates — retrieval alone can't resolve conflicting facts.
                 date = str(r.get("created_at") or "")[:10]
-                header = f"[Source: {source} — {date}]" if date else f"[Source: {source}]"
+                body = f"Source: {source} — {date}" if date else f"Source: {source}"
+            # Prefix with the stable citation number [N] so the model can cite it
+            # inline; without a registry, keep the original bracketed header.
+            if citations is not None:
+                header = f"[{citations.register(r)}] {body}"
+            else:
+                header = f"[{body}]"
             chunks.append(f"{header}\n{r['content']}")
             if debug_retrieval is not None:
                 meta = r.get("metadata") or {}
