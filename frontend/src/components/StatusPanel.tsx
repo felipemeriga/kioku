@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { qk } from "../lib/queryKeys";
 import {
@@ -15,8 +15,12 @@ import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import { brand, fonts } from "../theme";
-import { getFolderStatus, refreshFolder, type FolderStatus } from "../lib/api";
+import { getFolderStatus, refreshFolder } from "../lib/api";
 import CornerCard from "./neo/CornerCard";
+
+// A refresh older than this with no output advance is treated as stale/failed,
+// so a crashed watcher never pins the UI in "refreshing" forever.
+const REFRESH_TIMEOUT_MS = 30 * 60 * 1000;
 
 function timeAgo(iso: string | null): string {
   if (!iso) return "never";
@@ -29,11 +33,18 @@ function timeAgo(iso: string | null): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-type Pending = {
-  target: "index" | "sections";
-  field: keyof FolderStatus;
-  since: string | null;
-} | null;
+/** True if a refresh started but its output timestamp hasn't advanced past the
+ * start yet (and it isn't stale). Server-derived, so it survives page reloads. */
+function isRefreshing(
+  startedAt: string | null | undefined,
+  outputAt: string | null | undefined
+): boolean {
+  if (!startedAt) return false;
+  const started = new Date(startedAt).getTime();
+  if (Date.now() - started > REFRESH_TIMEOUT_MS) return false;
+  if (!outputAt) return true;
+  return new Date(outputAt).getTime() < started;
+}
 
 /** Maps a timeAgo string to a simple status glyph + color for the index-status cards. */
 function indexGlyph(at: string | null): { glyph: string; color: string } {
@@ -46,61 +57,63 @@ function indexGlyph(at: string | null): { glyph: string; color: string } {
 }
 
 export default function StatusPanel({ folderId }: { folderId: string }) {
-  const [pending, setPending] = useState<Pending>(null);
   const [note, setNote] = useState<string>("");
+  // Optimistic flag for the brief moment between the click and the refetch that
+  // pulls the server's refresh-started timestamp.
+  const [clicking, setClicking] = useState<null | "index" | "sections">(null);
 
   // Initial status read is cached (instant on revisit, background-refreshes).
-  const { data: status, refetch } = useQuery({
+  // isPending is only true on the very first load (no cache) — used to show a
+  // loading state instead of "never".
+  const {
+    data: status,
+    isPending,
+    refetch,
+  } = useQuery({
     queryKey: qk.folderStatus(folderId),
     queryFn: () => getFolderStatus(folderId),
   });
 
-  // Poll while a refresh is pending until the watched field advances or we
-  // time out. refetch() keeps the cached status in sync for the whole UI.
+  // Refresh-in-progress is derived from the SERVER (started_at vs output), so
+  // reloading the page still shows a running refresh.
+  const indexRunning =
+    clicking === "index" ||
+    isRefreshing(status?.index_refresh_started_at, status?.graph_at);
+  const sectionsRunning =
+    clicking === "sections" ||
+    isRefreshing(status?.sections_refresh_started_at, status?.architecture_at);
+  const anyRunning = indexRunning || sectionsRunning;
+
+  // Poll while anything is running, until the output advances (or it times out).
   useEffect(() => {
-    if (!pending) return;
-    let polls = 0;
-    const id = setInterval(async () => {
-      polls += 1;
-      let s: FolderStatus | null = null;
-      try {
-        const r = await refetch();
-        s = r.data ?? null;
-      } catch {
-        /* keep polling */
-      }
-      if (s && s[pending.field] !== pending.since) {
-        setPending(null);
-        setNote("Updated just now.");
-        clearInterval(id);
-      } else if (polls >= 36) {
-        setPending(null);
-        setNote("Still running — check back in a bit.");
-        clearInterval(id);
-      }
+    if (!anyRunning) return;
+    const id = setInterval(() => {
+      void refetch();
     }, 5000);
     return () => clearInterval(id);
-  }, [pending, refetch]);
+  }, [anyRunning, refetch]);
 
-  const start = async (
-    target: "index" | "sections",
-    field: keyof FolderStatus
-  ) => {
-    if (pending) return;
+  // Surface a "done" note when a running refresh finishes (incl. one that was
+  // already running when the page loaded).
+  const wasRunning = useRef(false);
+  useEffect(() => {
+    if (wasRunning.current && !anyRunning) setNote("Updated just now.");
+    wasRunning.current = anyRunning;
+  }, [anyRunning]);
+
+  const start = async (target: "index" | "sections") => {
+    if (anyRunning) return;
     setNote("");
+    setClicking(target);
     try {
       await refreshFolder(folderId, target);
-      setPending({
-        target,
-        field,
-        since: status ? (status[field] as string | null) : null,
-      });
       setNote("Refresh started…");
+      await refetch(); // pull the server's started_at so the state persists
     } catch (e) {
-      const status409 = (e as { status?: number })?.status === 409;
-      setNote(
-        status409 ? "A refresh is already running." : "Watcher unavailable."
-      );
+      const is409 = (e as { status?: number })?.status === 409;
+      setNote(is409 ? "A refresh is already running." : "Watcher unavailable.");
+    } finally {
+      setClicking(null); // server-derived running() takes over from here
     }
   };
 
@@ -205,16 +218,17 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
                   {glyph.glyph}
                 </Box>
               </Stack>
-              {/* Time ago */}
+              {/* Time ago — show a loading dash until the first fetch lands, so
+                  the cards don't flash "never" before the values arrive. */}
               <Typography
                 sx={{
                   fontFamily: fonts.mono,
                   fontSize: 14,
-                  color: brand.text,
+                  color: isPending ? brand.muted : brand.text,
                   fontWeight: 500,
                 }}
               >
-                {timeAgo(c.at)}
+                {isPending ? "…" : timeAgo(c.at)}
               </Typography>
               {/* Sub-label */}
               {c.sub && (
@@ -244,14 +258,10 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
           variant="outlined"
           size="small"
           startIcon={
-            pending?.target === "index" ? (
-              <CircularProgress size={14} />
-            ) : (
-              <RefreshIcon />
-            )
+            indexRunning ? <CircularProgress size={14} /> : <RefreshIcon />
           }
-          disabled={!!pending}
-          onClick={() => start("index", "graph_at")}
+          disabled={anyRunning}
+          onClick={() => start("index")}
           sx={{
             fontFamily: fonts.mono,
             fontSize: 11,
@@ -269,20 +279,16 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
             },
           }}
         >
-          {pending?.target === "index" ? "Refreshing…" : "Refresh code index"}
+          {indexRunning ? "Refreshing…" : "Refresh code index"}
         </Button>
         <Button
           variant="outlined"
           size="small"
           startIcon={
-            pending?.target === "sections" ? (
-              <CircularProgress size={14} />
-            ) : (
-              <RefreshIcon />
-            )
+            sectionsRunning ? <CircularProgress size={14} /> : <RefreshIcon />
           }
-          disabled={!!pending}
-          onClick={() => start("sections", "architecture_at")}
+          disabled={anyRunning}
+          onClick={() => start("sections")}
           sx={{
             fontFamily: fonts.mono,
             fontSize: 11,
@@ -300,9 +306,7 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
             },
           }}
         >
-          {pending?.target === "sections"
-            ? "Refreshing…"
-            : "Refresh detail sections"}
+          {sectionsRunning ? "Refreshing…" : "Refresh detail sections"}
         </Button>
         {note && (
           <Typography

@@ -21,6 +21,8 @@ describe("StatusPanel", () => {
       overview_at: null,
       overview_by: null,
       detailed_doc_at: null,
+      index_refresh_started_at: null,
+      sections_refresh_started_at: null,
     });
     renderWithProviders(<StatusPanel folderId="f1" />);
     await waitFor(() =>
@@ -44,6 +46,8 @@ describe("StatusPanel", () => {
       overview_at: null,
       overview_by: null,
       detailed_doc_at: null,
+      index_refresh_started_at: null,
+      sections_refresh_started_at: null,
     });
     const spy = vi
       .spyOn(api, "refreshFolder")

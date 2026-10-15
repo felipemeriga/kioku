@@ -1242,6 +1242,8 @@ CREATE TABLE IF NOT EXISTS "public"."repo_freshness" (
     "stale_sections" "text"[] DEFAULT '{}' NOT NULL,
     "changed_files" integer DEFAULT 0 NOT NULL,
     "checked_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "index_refresh_started_at" timestamp with time zone,
+    "sections_refresh_started_at" timestamp with time zone,
     CONSTRAINT "repo_freshness_pkey" PRIMARY KEY ("folder_id"),
     CONSTRAINT "repo_freshness_folder_id_fkey" FOREIGN KEY ("folder_id")
         REFERENCES "public"."folders"("id") ON DELETE CASCADE,
