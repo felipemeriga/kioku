@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from langsmith import traceable
 
 from db.client import get_supabase, get_supabase_thread_safe
+from services.citations import CitationRegistry
 from services.llm import Task, complete, stream_complete
 from services.metrics import collect_request, record, submit_with_context
 from services.timing import request, stage
@@ -64,17 +65,21 @@ if the only support is old, say so. When the user asks about a specific period (
 'since March'), pass created_after / created_before to knowledge_base_search.
 
 ## Answering
-Ground every claim in what you retrieved and cite sources — file:line for code, source name + date \
-for documents. If after honest effort the knowledge base does not cover it, say so plainly rather \
-than guessing."""
+Ground every claim in what you retrieved. Each search result is labelled with a bracketed number \
+([1], [2], …) in its header — when you use information from a result, cite it INLINE with that \
+number right after the statement it supports (e.g. "…uses RRF fusion [3]."), not all bunched at \
+the end. Only cite numbers that actually appeared in the search results. If after honest effort \
+the knowledge base does not cover it, say so plainly rather than guessing."""
 
 # Plain (non-agentic) RAG: one retrieval, then answer. No tool loop, no code
 # graph / recent-changes / web, no extended thinking — the classic path.
 PLAIN_PROMPT = """You are a helpful assistant answering from the user's knowledge base.
 
 Call knowledge_base_search once with the user's question, then answer using the retrieved content. \
-Cite your sources — file:line for code, source name + date for documents. If the retrieved content \
-does not answer the question, say so plainly; do not guess or rely on outside knowledge."""
+Each result is labelled with a bracketed number ([1], [2], …) — cite the number you used INLINE, \
+right after the statement it supports, not all bunched at the end. Only cite numbers that appeared \
+in the results. If the retrieved content does not answer the question, say so plainly; do not \
+guess or rely on outside knowledge."""
 
 # Extended-thinking budget for deep-mode turns. < max_tokens so thinking and the
 # answer share the ceiling.
@@ -138,6 +143,7 @@ def answer_question(
     rounds_used = 0
     task, max_tokens, thinking_budget = _agent_params(model, mode)
     system_prompt, tools = _mode_config(mode)
+    citations = CitationRegistry()
 
     for round_num in range(max_rounds):
         rounds_used = round_num + 1
@@ -166,6 +172,7 @@ def answer_question(
                         fast_mode=False,
                         scope_folder_ids=scope_folder_ids,
                         scope_filename=scope_filename,
+                        citations=citations,
                     )
                 return {
                     "type": "tool_result",
@@ -216,6 +223,7 @@ def answer_question(
         "retrieved_chunks": retrieved_chunks,
         "rounds_used": rounds_used,
         "tool_calls": tool_call_count,
+        "citations": citations.entries(),
     }
 
 
@@ -291,6 +299,7 @@ def stream_rag_response(
         full = ""
         debug_payload: dict | None = None
         usage_payload: dict | None = None
+        citations_payload: list | None = None
         try:
             with collect_request(f"rag chat turn ({_label})"), request(f"rag chat turn ({_label})"):
                 for chunk_kind, payload in _run_loop_and_stream_final(
@@ -312,6 +321,8 @@ def stream_rag_response(
                         full += payload
                     elif chunk_kind == "debug":
                         debug_payload = json.loads(payload)
+                    elif chunk_kind == "citations":
+                        citations_payload = json.loads(payload)
         except Exception as exc:  # noqa: BLE001
             logger.warning("rag generation failed", exc_info=True)
             events.put(("error", str(exc)))
@@ -325,6 +336,8 @@ def stream_rag_response(
                 }
                 if debug_payload is not None:
                     row["debug"] = debug_payload
+                if citations_payload:
+                    row["citations"] = citations_payload
                 try:
                     sb_bg.table("messages").insert(row).execute()
                 except Exception:  # noqa: BLE001
@@ -366,6 +379,8 @@ def stream_rag_response(
             yield f"data: {json.dumps({'stage': payload})}\n\n"
         elif kind == "debug":
             yield f"data: {json.dumps({'debug': json.loads(payload)})}\n\n"
+        elif kind == "citations":
+            yield f"data: {json.dumps({'citations': json.loads(payload)})}\n\n"
         elif kind == "error":
             yield f"data: {json.dumps({'error': payload})}\n\n"
         elif kind == "text_delta":
@@ -415,6 +430,12 @@ def _run_loop_and_stream_final(
             "usage",
             json.dumps({"input_tokens": usage_in, "output_tokens": usage_out, "model": model}),
         )
+
+    # One citation registry per turn — sources keep a stable [N] across rounds.
+    citations = CitationRegistry()
+
+    def _citations_event() -> tuple[str, str]:
+        return ("citations", json.dumps(citations.entries()))
 
     for round_num in range(max_rounds):
         # Tell the UI what's happening before the (possibly long) model call:
@@ -469,6 +490,7 @@ def _run_loop_and_stream_final(
                             debug_retrieval=(
                                 debug_trace["retrieval"] if debug_trace is not None else None
                             ),
+                            citations=citations,
                         )
                     except Exception as exc:  # noqa: BLE001
                         return {
@@ -509,10 +531,12 @@ def _run_loop_and_stream_final(
         # No tool_use → the answer streamed above; loop is done.
         if debug_trace is not None:
             yield ("debug", json.dumps(debug_trace, default=str))
+        yield _citations_event()
         yield _usage_event()
         return
 
     if debug_trace is not None:
         yield ("debug", json.dumps(debug_trace, default=str))
     yield ("text_delta", "I was unable to complete the request after multiple attempts.")
+    yield _citations_event()
     yield _usage_event()
