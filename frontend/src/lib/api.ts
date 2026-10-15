@@ -906,6 +906,8 @@ export interface FolderStatus {
   overview_at: string | null;
   overview_by: string | null;
   detailed_doc_at: string | null;
+  index_refresh_started_at: string | null;
+  sections_refresh_started_at: string | null;
 }
 
 export async function getFolderStatus(folderId: string): Promise<FolderStatus> {
