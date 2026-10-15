@@ -8,10 +8,12 @@ import type {
   ChatMode,
   ChatModel,
   ChatScope,
+  Citation,
   DebugTrace,
   StageEvent,
 } from "../lib/api";
 import { streamChat } from "../lib/api";
+import DocumentViewerDrawer from "../components/DocumentViewerDrawer";
 import { useConversationsContext } from "../hooks/useConversationsContext";
 import { useToast, messageFromError } from "../components/ToastProvider";
 
@@ -46,6 +48,14 @@ export default function ChatPage() {
     readScopes()
   );
   const [pickerOpen, setPickerOpen] = useState(false);
+
+  // Document citation clicks open the same in-app viewer the Documents page uses.
+  const [viewerFile, setViewerFile] = useState<string | null>(null);
+  const [viewerFolder, setViewerFolder] = useState<string | null>(null);
+  const openDocument = (filename: string, folderId?: string | null) => {
+    setViewerFolder(folderId ?? null);
+    setViewerFile(filename);
+  };
 
   // A "Chat with this" navigation from the Documents page pre-scopes the
   // conversation via query params. The scope is DERIVED (no effect needed):
@@ -123,8 +133,10 @@ export default function ChatPage() {
     setStreamingContent("");
     setCurrentStage(null);
     streamingRef.current = "";
-    // Debug trace arrives just before 'done'; hold it until we build the message.
+    // Debug trace and citations arrive just before 'done'; hold them until we
+    // build the committed assistant message.
     let debugTrace: DebugTrace | undefined;
+    let citations: Citation[] | undefined;
 
     const scopedFilters: ChatFilters | undefined = scope
       ? {
@@ -150,6 +162,7 @@ export default function ChatPage() {
             content: streamingRef.current,
             created_at: new Date().toISOString(),
             debug: debugTrace,
+            citations,
           };
           setMessages((msgs) => [...msgs, assistantMsg]);
           setStreamingContent("");
@@ -165,6 +178,10 @@ export default function ChatPage() {
         debug,
         (trace) => {
           debugTrace = trace;
+        },
+        undefined,
+        (cites) => {
+          citations = cites;
         }
       );
     } catch (err) {
@@ -204,6 +221,12 @@ export default function ChatPage() {
         scope={scope}
         onPickScope={() => setPickerOpen(true)}
         onClearScope={() => setScope(null)}
+        onOpenDocument={openDocument}
+      />
+      <DocumentViewerDrawer
+        filename={viewerFile}
+        folderId={viewerFolder}
+        onClose={() => setViewerFile(null)}
       />
       <ScopePickerDialog
         open={pickerOpen}
