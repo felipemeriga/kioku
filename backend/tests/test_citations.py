@@ -69,6 +69,135 @@ class TestCitationRegistry(unittest.TestCase):
         self.assertIsNone(code["url"])
 
 
+class TestGithubBlobUrl(unittest.TestCase):
+    def test_ssh_remote_to_https_blob(self):
+        from services.citations import github_blob_url
+
+        self.assertEqual(
+            github_blob_url("git@github.com:felipemeriga/hive.git", "main", "backend/app.py", 10),
+            "https://github.com/felipemeriga/hive/blob/main/backend/app.py#L10",
+        )
+
+    def test_https_remote_strips_dot_git(self):
+        from services.citations import github_blob_url
+
+        self.assertEqual(
+            github_blob_url("https://github.com/org/repo.git", "dev", "pkg/x.py", None),
+            "https://github.com/org/repo/blob/dev/pkg/x.py",
+        )
+
+    def test_defaults_branch_to_main_and_handles_leading_slash(self):
+        from services.citations import github_blob_url
+
+        self.assertEqual(
+            github_blob_url("https://github.com/org/repo", None, "/pkg/x.py", 3),
+            "https://github.com/org/repo/blob/main/pkg/x.py#L3",
+        )
+
+    def test_non_github_remote_returns_none(self):
+        from services.citations import github_blob_url
+
+        self.assertIsNone(github_blob_url("git@gitlab.com:org/repo.git", "main", "x.py", 1))
+        self.assertIsNone(github_blob_url(None, "main", "x.py", 1))
+
+
+class _FakeQuery:
+    """Minimal supabase query-builder stub capturing the filter chain."""
+
+    def __init__(self, rows, calls):
+        self._rows = rows
+        self._calls = calls
+
+    def select(self, *a):
+        return self
+
+    def eq(self, col, val):
+        self._calls["eq"] = (col, val)
+        return self
+
+    def in_(self, col, vals):
+        self._calls["in_"] = (col, list(vals))
+        return self
+
+    def execute(self):
+        return type("R", (), {"data": self._rows})()
+
+
+class _FakeSupabase:
+    def __init__(self, rows):
+        self._rows = rows
+        self.calls: dict = {}
+
+    def table(self, name):
+        self.calls["table"] = name
+        return _FakeQuery(self._rows, self.calls)
+
+
+class TestEnrichUrls(unittest.TestCase):
+    def _code(self, loc, folder_id):
+        return {
+            "source_type": "code",
+            "content": "code",
+            "metadata": {"source_filename": loc, "folder_id": folder_id},
+        }
+
+    def test_fills_github_url_for_code_scoped_to_user(self):
+        from services.citations import CitationRegistry
+
+        reg = CitationRegistry()
+        reg.register(self._code("backend/app.py:10-20", "f1"))
+        reg.register(self._code("pkg/x.py:5-9", "f2"))
+
+        sb = _FakeSupabase(
+            [
+                {"folder_id": "f1", "remote_url": "git@github.com:org/repo.git", "branch": "main"},
+                {
+                    "folder_id": "f2",
+                    "remote_url": "https://github.com/org/other.git",
+                    "branch": "dev",
+                },
+            ]
+        )
+        reg.enrich_urls(sb, "u1")
+
+        a, b = reg.entries()
+        self.assertEqual(a["url"], "https://github.com/org/repo/blob/main/backend/app.py#L10")
+        self.assertEqual(b["url"], "https://github.com/org/other/blob/dev/pkg/x.py#L5")
+        # Query is scoped to the caller's user_id (service key bypasses RLS).
+        self.assertEqual(sb.calls["eq"], ("user_id", "u1"))
+        self.assertEqual(sb.calls["table"], "watched_repos")
+        self.assertEqual(set(sb.calls["in_"][1]), {"f1", "f2"})
+
+    def test_missing_repo_leaves_url_none_and_is_idempotent(self):
+        from services.citations import CitationRegistry
+
+        reg = CitationRegistry()
+        reg.register(self._code("backend/app.py:10-20", "f1"))
+        sb = _FakeSupabase([])  # no matching watched_repos row
+        reg.enrich_urls(sb, "u1")
+        self.assertIsNone(reg.entries()[0]["url"])
+        # A second call is a no-op (does not re-query).
+        sb2 = _FakeSupabase(
+            [{"folder_id": "f1", "remote_url": "git@github.com:o/r.git", "branch": "main"}]
+        )
+        reg.enrich_urls(sb2, "u1")
+        self.assertNotIn("table", sb2.calls)
+
+    def test_documents_are_untouched(self):
+        from services.citations import CitationRegistry
+
+        reg = CitationRegistry()
+        reg.register(
+            {
+                "source_type": "document",
+                "content": "x",
+                "metadata": {"source_filename": "a.pdf", "folder_id": "f1"},
+            }
+        )
+        reg.enrich_urls(_FakeSupabase([]), "u1")
+        self.assertIsNone(reg.entries()[0]["url"])
+
+
 class TestExecuteToolCitations(unittest.TestCase):
     def test_header_prefixed_and_sources_registered(self):
         from services.citations import CitationRegistry

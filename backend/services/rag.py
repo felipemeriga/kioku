@@ -218,6 +218,11 @@ def answer_question(
 
     record("agent_loop", n_rounds=rounds_used, n_tool_calls=tool_call_count)
 
+    try:
+        citations.enrich_urls(get_supabase_thread_safe(), user_id)
+    except Exception:  # noqa: BLE001
+        logger.debug("citation url enrichment failed", exc_info=True)
+
     return {
         "response": full_response,
         "retrieved_chunks": retrieved_chunks,
@@ -435,6 +440,12 @@ def _run_loop_and_stream_final(
     citations = CitationRegistry()
 
     def _citations_event() -> tuple[str, str]:
+        # Resolve code-source GitHub links just before emitting, so the live SSE
+        # frame and the persisted payload both carry clickable URLs.
+        try:
+            citations.enrich_urls(get_supabase_thread_safe(), user_id)
+        except Exception:  # noqa: BLE001
+            logger.debug("citation url enrichment failed", exc_info=True)
         return ("citations", json.dumps(citations.entries()))
 
     for round_num in range(max_rounds):

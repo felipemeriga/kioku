@@ -321,6 +321,20 @@ export interface DebugTrace {
   retrieval: DebugRetrievalChunk[];
 }
 
+/** One cited source, numbered [N] inline in the assistant answer. */
+export interface Citation {
+  number: number;
+  source: string;
+  source_type: "document" | "code";
+  symbol?: string | null;
+  file?: string | null;
+  line?: number | null;
+  folder_id?: string | null;
+  /** Doc: signed file URL. Code: GitHub blob deep link. Null → excerpt only. */
+  url?: string | null;
+  excerpt: string;
+}
+
 export interface Message {
   id: string;
   role: "user" | "assistant";
@@ -328,6 +342,8 @@ export interface Message {
   created_at: string;
   /** Present only for assistant messages answered with debug mode on. */
   debug?: DebugTrace;
+  /** Numbered sources the answer cites inline as [N]. */
+  citations?: Citation[];
 }
 
 export interface ConversationWithMessages extends Conversation {
@@ -375,7 +391,8 @@ export async function streamChat(
   mode?: ChatMode,
   debug?: boolean,
   onDebug?: (trace: DebugTrace) => void,
-  onError?: (err: ApiError) => void
+  onError?: (err: ApiError) => void,
+  onCitations?: (citations: Citation[]) => void
 ): Promise<void> {
   // A stream is "clean" only if it emits a data.done frame. Anything else —
   // TCP drop, backend timeout, JSON parse loss — should raise, not silently
@@ -493,6 +510,9 @@ export async function streamChat(
           }
           if (data.debug && onDebug) {
             onDebug(data.debug as DebugTrace);
+          }
+          if (data.citations && onCitations) {
+            onCitations(data.citations as Citation[]);
           }
           if (data.token) {
             onToken(data.token);

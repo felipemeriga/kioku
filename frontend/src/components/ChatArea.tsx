@@ -28,6 +28,8 @@ interface ChatAreaProps {
   scope?: ChatScope | null;
   onPickScope?: () => void;
   onClearScope?: () => void;
+  /** Open a cited document in the in-app viewer drawer. */
+  onOpenDocument?: (filename: string, folderId?: string | null) => void;
 }
 
 const SUGGESTIONS = [
@@ -46,6 +48,7 @@ export default function ChatArea({
   scope,
   onPickScope,
   onClearScope,
+  onOpenDocument,
 }: ChatAreaProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -184,6 +187,8 @@ export default function ChatArea({
               role={msg.role}
               content={msg.content}
               debug={msg.debug}
+              citations={msg.citations}
+              onOpenDocument={onOpenDocument}
             />
           ))}
           {isStreaming && currentStage && !streamingContent && (
