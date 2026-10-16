@@ -10,6 +10,7 @@ Task boundaries:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 from datetime import datetime, timezone
 from typing import Any, Iterable
@@ -187,6 +188,42 @@ async def _ingest_notion_page_task_impl(ctx: dict, payload: dict) -> None:
     markdown = blocks_to_markdown(blocks)
     markdown = resolve_attachments(markdown)
 
+    # Content-hash gate: Notion bumps a page's last_edited_time on no-op touches
+    # (opening it, editing a child, a property change), so the reconcile diff
+    # re-queues the page even when its rendered markdown is byte-identical.
+    # Re-embedding then burns Voyage + the contextual-retrieval LLM for nothing.
+    # Skip when the hash matches what we already stored.
+    content_hash = hashlib.sha256(markdown.encode()).hexdigest()
+    existing = (
+        supabase.table("documents")
+        .select("content_hash")
+        .eq("user_id", payload["user_id"])
+        .eq("root_folder_id", payload["root_folder_id"])
+        .eq("notion_page_id", payload["page_id"])
+        .eq("status", "completed")
+        .limit(1)
+        .execute()
+        .data
+    ) or []
+    if existing and existing[0].get("content_hash") == content_hash:
+        # Unchanged — refresh the stored edit time so the next reconcile stops
+        # re-queuing it, then finalize without touching the embedded rows.
+        supabase.table("documents").update(
+            {"notion_last_edited_time": page.last_edited_time.isoformat()}
+        ).eq("user_id", payload["user_id"]).eq("root_folder_id", payload["root_folder_id"]).eq(
+            "notion_page_id", payload["page_id"]
+        ).execute()
+        set_total_batches(supabase, job_id=payload["job_id"], total=0)
+        mark_completed(supabase, job_id=payload["job_id"])
+        parent_id = payload.get("parent_job_id")
+        if parent_id:
+            increment_processed_pages(supabase, job_id=parent_id)
+        logger.info(
+            "notion page %s unchanged (content-hash match) — skipped re-embed",
+            payload["page_id"],
+        )
+        return
+
     titles = ancestor_chain_titles(notion, page, payload["mapped_root_page_id"])
     leaf_folder_id, parent_path = ensure_notion_folder_path(
         supabase,
@@ -240,6 +277,7 @@ async def _ingest_notion_page_task_impl(ctx: dict, payload: dict) -> None:
         "notion_page_id": page.page_id,
         "notion_last_edited_time": page.last_edited_time.isoformat(),
         "notion_parent_path": parent_path,
+        "content_hash": content_hash,
         "status": "completed",
     }
 

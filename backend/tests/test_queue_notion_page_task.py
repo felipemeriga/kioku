@@ -223,3 +223,124 @@ class TestIngestNotionPageTask(unittest.TestCase):
         # second batch renumbers from 0 and the viewer re-joins out of order.
         offsets = [c.args[1]["chunk_index_offset"] for c in pool.enqueue_job.call_args_list]
         self.assertEqual(offsets, [0, 128])
+
+    def test_unchanged_page_skips_reembed_on_hash_match(self):
+        # Notion re-queues a page on a no-op touch; when the rendered markdown
+        # hashes to what we stored, skip embedding entirely — only refresh the
+        # edit time and finalize the job.
+        import hashlib
+
+        from services.queue.tasks import ingest_notion_page_task
+
+        markdown = "FIXED PAGE BODY that is stable across syncs"
+        expected = hashlib.sha256(markdown.encode()).hexdigest()
+
+        supabase = MagicMock()
+        table = supabase.table.return_value
+        (
+            table.select.return_value.eq.return_value.eq.return_value.eq.return_value.eq.return_value.limit.return_value.execute.return_value.data
+        ) = [{"content_hash": expected}]
+
+        notion_mock = MagicMock()
+        notion_mock.get_page.return_value = _page()
+
+        pool = self._mock_enqueue_pool()
+        payload = {
+            "job_id": "page-job-1",
+            "parent_job_id": "sync-job-1",
+            "config_id": "cfg-1",
+            "user_id": "u1",
+            "root_folder_id": "root-1",
+            "mapped_root_page_id": "cosm",
+            "page_id": "p1",
+            "integration_token": "t",
+        }
+
+        with (
+            patch(
+                "services.queue.tasks.get_supabase_thread_safe",
+                return_value=supabase,
+                create=True,
+            ),
+            patch("services.queue.tasks.NotionClient", return_value=notion_mock, create=True),
+            patch("services.queue.tasks.fetch_block_tree", return_value=[], create=True),
+            patch("services.queue.tasks.blocks_to_markdown", return_value=markdown, create=True),
+            patch(
+                "services.queue.tasks.resolve_attachments",
+                side_effect=lambda m: m,
+                create=True,
+            ),
+            patch("services.queue.tasks.chunk_text", create=True) as chunk_mock,
+            patch("services.queue.tasks.set_total_batches"),
+            patch("services.queue.tasks.mark_completed") as mark_completed_mock,
+            patch("services.queue.tasks.increment_processed_pages") as incr_pages_mock,
+        ):
+            _run(ingest_notion_page_task({"redis": pool}, payload))
+
+        pool.enqueue_job.assert_not_called()
+        table.delete.assert_not_called()
+        chunk_mock.assert_not_called()  # never reached chunk/embed
+        # last_edited_time refreshed so the next reconcile stops re-queuing it
+        # (mark_running also updates the jobs table, hence not assert_called_once).
+        update_payloads = [c.args[0] for c in table.update.call_args_list if c.args]
+        self.assertIn({"notion_last_edited_time": "2026-07-01T12:00:00+00:00"}, update_payloads)
+        mark_completed_mock.assert_called_once_with(supabase, job_id="page-job-1")
+        incr_pages_mock.assert_called_once_with(supabase, job_id="sync-job-1")
+
+    def test_changed_page_proceeds_and_stores_content_hash(self):
+        import hashlib
+
+        from services.queue.tasks import ingest_notion_page_task
+
+        markdown = "A BRAND NEW BODY after a real edit"
+        expected = hashlib.sha256(markdown.encode()).hexdigest()
+
+        supabase = MagicMock()
+        table = supabase.table.return_value
+        (
+            table.select.return_value.eq.return_value.eq.return_value.eq.return_value.eq.return_value.limit.return_value.execute.return_value.data
+        ) = [{"content_hash": "an-old-different-hash"}]
+
+        notion_mock = MagicMock()
+        notion_mock.get_page.return_value = _page()
+
+        pool = self._mock_enqueue_pool()
+        payload = {
+            "job_id": "page-job-1",
+            "parent_job_id": "sync-job-1",
+            "config_id": "cfg-1",
+            "user_id": "u1",
+            "root_folder_id": "root-1",
+            "mapped_root_page_id": "cosm",
+            "page_id": "p1",
+            "integration_token": "t",
+        }
+
+        with (
+            patch(
+                "services.queue.tasks.get_supabase_thread_safe",
+                return_value=supabase,
+                create=True,
+            ),
+            patch("services.queue.tasks.NotionClient", return_value=notion_mock, create=True),
+            patch("services.queue.tasks.fetch_block_tree", return_value=[], create=True),
+            patch("services.queue.tasks.blocks_to_markdown", return_value=markdown, create=True),
+            patch(
+                "services.queue.tasks.resolve_attachments",
+                side_effect=lambda m: m,
+                create=True,
+            ),
+            patch(
+                "services.queue.tasks.ensure_notion_folder_path",
+                return_value=("leaf-fid", "Cosm"),
+                create=True,
+            ),
+            patch("services.queue.tasks.chunk_text", return_value=["c1"], create=True),
+            patch("services.queue.tasks.contextualize_chunks", return_value=[""], create=True),
+            patch("services.queue.tasks.set_total_batches"),
+        ):
+            _run(ingest_notion_page_task({"redis": pool}, payload))
+
+        self.assertEqual(pool.enqueue_job.call_count, 1)
+        batch_payload = pool.enqueue_job.call_args.args[1]
+        self.assertEqual(batch_payload["row_template"]["content_hash"], expected)
