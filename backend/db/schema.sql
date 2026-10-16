@@ -345,7 +345,7 @@ CREATE TABLE IF NOT EXISTS "public"."documents" (
     "content_hash" "text",
     "status" "text" DEFAULT 'completed'::"text" NOT NULL,
     "source_type" "text",
-    "fts" "tsvector" GENERATED ALWAYS AS ("to_tsvector"('"english"'::"regconfig", "content")) STORED,
+    "fts" "tsvector" GENERATED ALWAYS AS ((setweight(to_tsvector('english'::"regconfig", COALESCE("source_filename", ''::"text")), 'A'::"char") || setweight(to_tsvector('english'::"regconfig", "content"), 'B'::"char"))) STORED,
     "folder_id" "uuid",
     "root_folder_id" "uuid",
     "notion_page_id" "text",
