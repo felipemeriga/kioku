@@ -32,6 +32,17 @@ CODE_BLEND_FETCH = 40
 CODE_RESERVE_SLOTS = 4
 CODE_RESERVE_THRESHOLD = 0.45
 
+# Candidate pool size per leg (vector, keyword) before rerank. Wider than the
+# old 20 so the cross-encoder has more to choose from — it trims back to top_k,
+# so the rerank stays the precision gate and over-fetching here buys recall.
+_FETCH_K = 50
+
+# Multi-query RRF weights: the primary (rewritten) query counts full; the
+# auxiliary multi-query paraphrases are recall boosters, weighted lower so they
+# lift genuinely corroborated hits without letting one noisy paraphrase dominate.
+_PRIMARY_VARIANT_WEIGHT = 1.0
+_AUX_VARIANT_WEIGHT = 0.6
+
 
 def _rerank_with_code_reservation(
     query_text: str, fused: list[dict], code_results: list[dict], top_k: int
@@ -200,30 +211,36 @@ def _keyword_search(
     return result.data
 
 
+def _weighted_rrf(
+    weighted_lists: list[tuple[list[dict], float]],
+    k: int = 60,
+) -> list[dict]:
+    """Merge any number of ranked lists with Reciprocal Rank Fusion.
+
+    Score for each document = sum over lists of weight * 1/(k + rank). A document
+    that surfaces in several lists accumulates their contributions — so a hit
+    found by multiple query variants is boosted (the signal that a plain
+    dedup-then-fuse throws away). ``weight`` lets the primary query count for
+    more than the auxiliary multi-query variants.
+    """
+    scores: dict[str, float] = {}
+    docs_by_id: dict[str, dict] = {}
+    for ranked, weight in weighted_lists:
+        for rank, doc in enumerate(ranked):
+            doc_id = doc["id"]
+            scores[doc_id] = scores.get(doc_id, 0.0) + weight / (k + rank + 1)
+            docs_by_id.setdefault(doc_id, doc)
+    sorted_ids = sorted(scores, key=lambda x: scores[x], reverse=True)
+    return [docs_by_id[doc_id] for doc_id in sorted_ids]
+
+
 def _reciprocal_rank_fusion(
     vector_results: list[dict],
     keyword_results: list[dict],
     k: int = 60,
 ) -> list[dict]:
-    """Merge two ranked lists using Reciprocal Rank Fusion (RRF).
-
-    Score for each document = sum of 1/(k + rank) across both lists.
-    """
-    scores: dict[str, float] = {}
-    docs_by_id: dict[str, dict] = {}
-
-    for rank, doc in enumerate(vector_results):
-        doc_id = doc["id"]
-        scores[doc_id] = scores.get(doc_id, 0) + 1 / (k + rank + 1)
-        docs_by_id[doc_id] = doc
-
-    for rank, doc in enumerate(keyword_results):
-        doc_id = doc["id"]
-        scores[doc_id] = scores.get(doc_id, 0) + 1 / (k + rank + 1)
-        docs_by_id[doc_id] = doc
-
-    sorted_ids = sorted(scores, key=lambda x: scores[x], reverse=True)
-    return [docs_by_id[doc_id] for doc_id in sorted_ids]
+    """Uniform-weight RRF of a vector and a keyword leg (the single-query case)."""
+    return _weighted_rrf([(vector_results, 1.0), (keyword_results, 1.0)], k)
 
 
 def _run_hybrid_search(
@@ -342,7 +359,7 @@ def search_documents(
     retrieval is narrowed to a single file or a date window — those filters
     describe documents, not code.
     """
-    fetch_k = 20
+    fetch_k = _FETCH_K
     blend_code = include_code and not source_filename and not created_after and not created_before
 
     if fast_mode:
@@ -486,31 +503,19 @@ def search_documents(
             per_variant_kw,
         )
 
-        # Deduplicate by document id (keep first occurrence)
-        seen: set[str] = set()
-        deduped_vector: list[dict] = []
-        for doc in all_vector:
-            if doc["id"] not in seen:
-                seen.add(doc["id"])
-                deduped_vector.append(doc)
-
-        seen_kw: set[str] = set()
-        deduped_keyword: list[dict] = []
-        for doc in all_keyword:
-            if doc["id"] not in seen_kw:
-                seen_kw.add(doc["id"])
-                deduped_keyword.append(doc)
-
-        if not deduped_vector and not deduped_keyword and not code_results:
+        if not all_vector and not all_keyword and not code_results:
             return []
 
-        # Step 4: RRF fusion
-        if not deduped_keyword:
-            fused = deduped_vector
-        elif not deduped_vector:
-            fused = deduped_keyword
-        else:
-            fused = _reciprocal_rank_fusion(deduped_vector, deduped_keyword)
+        # Step 4: weighted multi-list RRF across every variant's two legs. Each
+        # variant keeps its own ranking (no pre-dedup), so a document surfaced by
+        # several variants accumulates their contributions and rises — and the
+        # primary query outweighs the auxiliary paraphrases.
+        weighted_lists: list[tuple[list[dict], float]] = []
+        for i, (vec, kw) in enumerate(zip(per_variant_vec, per_variant_kw)):
+            weight = _PRIMARY_VARIANT_WEIGHT if i == 0 else _AUX_VARIANT_WEIGHT
+            weighted_lists.append((vec, weight))
+            weighted_lists.append((kw, weight))
+        fused = _weighted_rrf(weighted_lists)
 
         # Step 5: Rerank with score threshold filtering — code candidates join
         # the pool here and compete with doc chunks on the same cross-encoder.

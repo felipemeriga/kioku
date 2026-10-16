@@ -3,6 +3,8 @@ import os
 import voyageai
 from langsmith import traceable
 
+from services.query_cache import get_cached, set_cached
+
 
 def get_voyage_client() -> voyageai.Client:
     return voyageai.Client(api_key=os.environ["VOYAGE_API_KEY"])
@@ -10,10 +12,19 @@ def get_voyage_client() -> voyageai.Client:
 
 @traceable(name="embed_query", run_type="embedding")
 def embed_query(text: str) -> list[float]:
-    """Embed a single query string. Returns a 1024-dim vector."""
+    """Embed a single query string. Returns a 1024-dim vector.
+
+    Query embeddings are cached in Redis (best-effort) so repeated questions and
+    the per-variant search fan-out skip redundant Voyage calls.
+    """
+    cached = get_cached("voyage-3:query", text)
+    if cached is not None:
+        return cached
     client = get_voyage_client()
     result = client.embed([text], model="voyage-3", input_type="query")
-    return result.embeddings[0]
+    embedding = result.embeddings[0]
+    set_cached("voyage-3:query", text, embedding)
+    return embedding
 
 
 @traceable(name="embed_document", run_type="embedding")
@@ -47,12 +58,17 @@ CODE_EMBEDDING_MODEL = "voyage-code-3"
 
 @traceable(name="embed_code_query", run_type="embedding")
 def embed_code_query(text: str) -> list[float]:
-    """Embed a code-search query. Returns a 1024-dim vector."""
+    """Embed a code-search query. Returns a 1024-dim vector (cached, best-effort)."""
+    cached = get_cached("voyage-code-3:query", text)
+    if cached is not None:
+        return cached
     client = get_voyage_client()
     result = client.embed(
         [text], model=CODE_EMBEDDING_MODEL, input_type="query", output_dimension=1024
     )
-    return result.embeddings[0]
+    embedding = result.embeddings[0]
+    set_cached("voyage-code-3:query", text, embedding)
+    return embedding
 
 
 def embed_code_batch(texts: list[str]) -> list[list[float]]:

@@ -166,6 +166,39 @@ class TestFullPipelineParallel(unittest.TestCase):
         self.assertEqual(kw_mock.call_count, 1)
 
 
+class TestWeightedRRF(unittest.TestCase):
+    """Multi-list RRF: multiplicity boosts, and the primary query outweighs aux."""
+
+    def test_doc_found_in_multiple_lists_outranks_single_hit(self):
+        from services.search import _weighted_rrf
+
+        # "shared" sits at rank 1 in both lists; "solo" is rank 0 in one list.
+        list_a = [_fake_vec("solo"), _fake_vec("shared")]
+        list_b = [_fake_kw("other"), _fake_vec("shared")]
+        out = _weighted_rrf([(list_a, 1.0), (list_b, 1.0)])
+        ids = [d["id"] for d in out]
+        self.assertEqual(ids[0], "shared")  # corroborated across lists → top
+
+    def test_primary_weight_beats_aux_weight_at_same_rank(self):
+        from services.search import _weighted_rrf
+
+        primary = [_fake_vec("p")]
+        aux = [_fake_vec("a")]
+        out = _weighted_rrf([(primary, 1.0), (aux, 0.6)])
+        self.assertEqual(out[0]["id"], "p")
+
+    def test_two_arg_wrapper_still_fuses_uniformly(self):
+        from services.search import _reciprocal_rank_fusion
+
+        out = _reciprocal_rank_fusion([_fake_vec("v1")], [_fake_kw("k1")])
+        self.assertCountEqual([d["id"] for d in out], ["v1", "k1"])
+
+    def test_empty_lists_fuse_to_empty(self):
+        from services.search import _weighted_rrf
+
+        self.assertEqual(_weighted_rrf([([], 1.0), ([], 0.6)]), [])
+
+
 class TestParallelSpeedup(unittest.TestCase):
     """Soft timing check — ensures we're not silently re-serializing the pipeline."""
 
