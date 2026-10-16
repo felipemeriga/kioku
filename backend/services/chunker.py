@@ -6,10 +6,7 @@ def build_contextual_header(metadata: dict) -> str:
 
     Format: 'Source: file.pdf | Topic: ... | Keywords: a, b, c | Chunk 3 of 10'.
 
-    Used at ingestion (prepended before embedding so vector search matches the
-    contextualized text) AND at rerank time (the cross-encoder must score the
-    same text shape that was indexed; otherwise it scores naked chunks and the
-    contextual signal is lost).
+    One line of the text shape produced by ``contextualized_text`` — see there.
     """
     parts = [f"Source: {metadata.get('source_filename', 'unknown')}"]
     topic = metadata.get("topic")
@@ -26,6 +23,22 @@ def build_contextual_header(metadata: dict) -> str:
     if notion_parent_path:
         parts.append(f"Section: {notion_parent_path}")
     return " | ".join(parts)
+
+
+def contextualized_text(metadata: dict, context: str | None, content: str) -> str:
+    """The exact text shape indexed at embed time AND scored at rerank time.
+
+    Shape: a one-line header (``build_contextual_header``) + an optional LLM
+    "situating" blurb (contextual retrieval, see ``services/contextual.py``) +
+    a blank line + the raw chunk. Keeping embed-time and rerank-time text in
+    lockstep is load-bearing: the cross-encoder must score the same shape that
+    was embedded, or the contextual signal is lost. The stored ``content``
+    column always remains the raw chunk — only the embed/rerank INPUT is shaped.
+    """
+    parts = [build_contextual_header(metadata)]
+    if context and context.strip():
+        parts.append(context.strip())
+    return "\n".join(parts) + "\n\n" + content
 
 
 def chunk_text(

@@ -13,6 +13,9 @@ class Task(str, Enum):
 
     QUERY_REWRITE = "query_rewrite"
     MULTI_QUERY = "multi_query"
+    # Index-time contextual retrieval: a short standalone blurb situating each
+    # chunk within its parent document, prepended before embedding (and rerank).
+    CONTEXTUAL = "contextual"
     IMAGE_OCR = "image_ocr"
     TEXT_TO_SQL = "text_to_sql"
     EVAL_JUDGE = "eval_judge"
@@ -32,6 +35,7 @@ class Task(str, Enum):
 MODEL_FOR_TASK: dict[Task, str] = {
     Task.QUERY_REWRITE: "claude-haiku-4-5-20251001",
     Task.MULTI_QUERY: "claude-haiku-4-5-20251001",
+    Task.CONTEXTUAL: "claude-haiku-4-5-20251001",
     Task.IMAGE_OCR: "claude-haiku-4-5-20251001",
     Task.TEXT_TO_SQL: "claude-haiku-4-5-20251001",
     Task.EVAL_JUDGE: "claude-haiku-4-5-20251001",

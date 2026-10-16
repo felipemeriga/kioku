@@ -21,7 +21,8 @@ try:
 except ImportError:  # pragma: no cover - fallback for older codebases
     from db.client import get_supabase as get_supabase_thread_safe  # type: ignore
 
-from services.chunker import chunk_text
+from services.chunker import chunk_text, contextualized_text
+from services.contextual import contextualize_chunks
 from services.crypto import decrypt_secret
 from services.embeddings import embed_batch
 from services.notion_sync.attachments import resolve_attachments
@@ -79,6 +80,8 @@ async def embed_and_store_batch_task(ctx: dict, payload: dict) -> None:
         "row_template": dict,              # base row (documents columns) shared across chunks
         "metadata_base": dict = {},        # jsonb defaults merged with per-chunk metadata
         "chunks": list[str],               # up to 128 chunk texts
+        "contexts": list[str] = [],        # parallel situating blurbs (contextual
+                                           # retrieval); "" / absent → header + chunk
         "chunk_index_offset": int = 0,     # first chunk_index for upload/drop (not notion)
         "replace_existing_page": bool,     # notion re-ingest: delete the page's old rows
                                            # here, after embedding succeeds, not before
@@ -86,6 +89,7 @@ async def embed_and_store_batch_task(ctx: dict, payload: dict) -> None:
     """
     job_id = payload["job_id"]
     chunks: list[str] = payload["chunks"]
+    contexts: list[str] = payload.get("contexts") or [""] * len(chunks)
     row_template: dict = payload["row_template"]
     metadata_base: dict = payload.get("metadata_base") or {}
     chunk_index_offset: int = payload.get("chunk_index_offset", 0)
@@ -93,19 +97,30 @@ async def embed_and_store_batch_task(ctx: dict, payload: dict) -> None:
     try:
         supabase = get_supabase_thread_safe()
 
-        embeddings = await asyncio.to_thread(embed_batch, chunks)
-
-        rows: list[dict[str, Any]] = []
-        for i, (chunk, embedding) in enumerate(zip(chunks, embeddings, strict=True)):
+        # Embed the contextualized shape (header + situating blurb + chunk), but
+        # store the RAW chunk in `content` so FTS and the viewer are unaffected.
+        merged_metas: list[dict[str, Any]] = []
+        embed_inputs: list[str] = []
+        for i, chunk in enumerate(chunks):
+            ctx = contexts[i] if i < len(contexts) else ""
             merged_meta = {
                 **metadata_base,
                 "chunk_index": chunk_index_offset + i,
             }
+            if ctx:
+                merged_meta["context"] = ctx
+            merged_metas.append(merged_meta)
+            embed_inputs.append(contextualized_text(merged_meta, ctx, chunk))
+
+        embeddings = await asyncio.to_thread(embed_batch, embed_inputs)
+
+        rows: list[dict[str, Any]] = []
+        for i, (chunk, embedding) in enumerate(zip(chunks, embeddings, strict=True)):
             row: dict[str, Any] = {
                 **row_template,
                 "content": chunk,
                 "embedding": embedding,
-                "metadata": merged_meta,
+                "metadata": merged_metas[i],
             }
             if row_template.get("source_type") != "notion":
                 row["chunk_index"] = chunk_index_offset + i
@@ -228,6 +243,18 @@ async def _ingest_notion_page_task_impl(ctx: dict, payload: dict) -> None:
         "status": "completed",
     }
 
+    # Baked into each chunk's metadata so the contextual header carries the real
+    # page title / section (not "Source: unknown") at both embed and rerank time.
+    metadata_base = {
+        "source_filename": page.title,
+        "total_chunks": len(chunks),
+        "notion_parent_path": parent_path,
+    }
+
+    # Contextual retrieval: situating blurbs from the full page markdown, shipped
+    # with the chunks for the batch task to embed (see embed_and_store_batch_task).
+    contexts = await asyncio.to_thread(contextualize_chunks, markdown, chunks)
+
     offset = 0
     for batch in batches:
         await ctx["redis"].enqueue_job(
@@ -235,7 +262,9 @@ async def _ingest_notion_page_task_impl(ctx: dict, payload: dict) -> None:
             {
                 "job_id": payload["job_id"],
                 "row_template": row_template,
+                "metadata_base": metadata_base,
                 "chunks": batch,
+                "contexts": contexts[offset : offset + len(batch)],
                 # Without the offset every batch numbers its chunks from 0,
                 # and the viewer's metadata->chunk_index ordering scrambles
                 # multi-batch pages on re-join.
@@ -595,6 +624,11 @@ async def ingest_document_task(ctx: dict, payload: dict) -> None:
             }.get(media_kind, "file_url")
             metadata_base[key] = payload["media_url"]
 
+        # Contextual retrieval: generate per-chunk situating blurbs here, where
+        # the whole document is in hand (one cached doc reused across chunks),
+        # and ship them alongside the chunks for the batch task to embed.
+        contexts = await asyncio.to_thread(contextualize_chunks, text, chunks)
+
         offset = 0
         for batch in batches:
             await ctx["redis"].enqueue_job(
@@ -604,6 +638,7 @@ async def ingest_document_task(ctx: dict, payload: dict) -> None:
                     "row_template": row_template,
                     "metadata_base": metadata_base,
                     "chunks": batch,
+                    "contexts": contexts[offset : offset + len(batch)],
                     "chunk_index_offset": offset,
                 },
             )
