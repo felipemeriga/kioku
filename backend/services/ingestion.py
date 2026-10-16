@@ -141,7 +141,8 @@ def ingest_document(
     parse → chunk → embed_batch → insert steps but blocks the caller so eval
     scripts can drive it without a worker running.
     """
-    from services.chunker import chunk_text
+    from services.chunker import chunk_text, contextualized_text
+    from services.contextual import contextualize_chunks
     from services.embeddings import embed_batch
     from services.parser import extract_from_image, parse_document, transcribe_audio
     from services.scope import resolve_root_folder_id
@@ -167,7 +168,23 @@ def ingest_document(
         return {"duplicate": False, "chunks": 0, "document_ids": []}
 
     source_type = EXTENSION_TO_TYPE.get(ext, "text")
-    embeddings = embed_batch(chunks)
+    # Contextual retrieval: embed the header + situating blurb + chunk, but store
+    # the raw chunk in `content`.
+    contexts = contextualize_chunks(text, chunks)
+    metas: list[dict] = []
+    embed_inputs: list[str] = []
+    for i, chunk in enumerate(chunks):
+        meta = {
+            "source_filename": filename,
+            "chunk_index": i,
+            "total_chunks": len(chunks),
+        }
+        if contexts[i]:
+            meta["context"] = contexts[i]
+        metas.append(meta)
+        embed_inputs.append(contextualized_text(meta, contexts[i], chunk))
+
+    embeddings = embed_batch(embed_inputs)
     sb = get_supabase()
     ids: list[str] = []
     for i, (chunk, embedding) in enumerate(zip(chunks, embeddings, strict=True)):
@@ -175,11 +192,7 @@ def ingest_document(
             "user_id": user_id,
             "content": chunk,
             "embedding": embedding,
-            "metadata": {
-                "source_filename": filename,
-                "chunk_index": i,
-                "total_chunks": len(chunks),
-            },
+            "metadata": metas[i],
             "source_filename": filename,
             "source_type": source_type,
             "content_hash": content_hash,
@@ -210,7 +223,8 @@ def replace_document(
     failure leaves the existing document intact. No dedup check — a replace is
     intentional, and the caller has already confirmed the document exists.
     """
-    from services.chunker import chunk_text
+    from services.chunker import chunk_text, contextualized_text
+    from services.contextual import contextualize_chunks
     from services.embeddings import embed_batch
     from services.scope import resolve_root_folder_id
 
@@ -220,7 +234,23 @@ def replace_document(
     if not chunks:
         return {"chunks": 0, "document_ids": []}
 
-    embeddings = embed_batch(chunks)  # do this first — failure leaves old intact
+    # Contextual retrieval: embed header + situating blurb + chunk (content stays
+    # raw). Embed BEFORE deleting old rows — an embed failure leaves old intact.
+    contexts = contextualize_chunks(text, chunks)
+    metas: list[dict] = []
+    embed_inputs: list[str] = []
+    for i, chunk in enumerate(chunks):
+        meta = {
+            "source_filename": filename,
+            "chunk_index": i,
+            "total_chunks": len(chunks),
+        }
+        if contexts[i]:
+            meta["context"] = contexts[i]
+        metas.append(meta)
+        embed_inputs.append(contextualized_text(meta, contexts[i], chunk))
+
+    embeddings = embed_batch(embed_inputs)
     sb = get_supabase()
     root_folder_id = resolve_root_folder_id(folder_id, user_id) if folder_id else None
     content_hash = hashlib.sha256(text.encode()).hexdigest()
@@ -239,11 +269,7 @@ def replace_document(
             "user_id": user_id,
             "content": chunk,
             "embedding": embedding,
-            "metadata": {
-                "source_filename": filename,
-                "chunk_index": i,
-                "total_chunks": len(chunks),
-            },
+            "metadata": metas[i],
             "source_filename": filename,
             "source_type": source_type,
             "content_hash": content_hash,

@@ -11,7 +11,9 @@ class TestEmbedAndStoreBatchTask(unittest.TestCase):
         finally:
             loop.close()
 
-    def test_one_voyage_call_and_bulk_insert(self):
+    def test_embeds_contextualized_shape_but_stores_raw_content(self):
+        # The embed INPUT is header + situating blurb + chunk; the stored
+        # `content` stays the raw chunk and metadata.context carries the blurb.
         from services.queue.tasks import embed_and_store_batch_task
 
         supabase = MagicMock()
@@ -31,7 +33,9 @@ class TestEmbedAndStoreBatchTask(unittest.TestCase):
                 "notion_parent_path": "Cosm",
                 "status": "completed",
             },
+            "metadata_base": {"source_filename": "Overview", "total_chunks": 2},
             "chunks": ["hello world", "second chunk"],
+            "contexts": ["about greetings", ""],
         }
 
         with (
@@ -56,13 +60,24 @@ class TestEmbedAndStoreBatchTask(unittest.TestCase):
         ):
             self._run(embed_and_store_batch_task({"redis": None}, payload))
 
-        embed_mock.assert_called_once_with(["hello world", "second chunk"])
+        embedded = embed_mock.call_args.args[0]
+        # chunk 0 carries header + the situating blurb; chunk 1 has no blurb.
+        self.assertIn("Source: Overview", embedded[0])
+        self.assertIn("about greetings", embedded[0])
+        self.assertIn("hello world", embedded[0])
+        self.assertIn("second chunk", embedded[1])
+        self.assertNotIn("about greetings", embedded[1])
+
         insert_call = supabase.table.return_value.insert.call_args.args[0]
         self.assertEqual(len(insert_call), 2)
         self.assertEqual(insert_call[0]["user_id"], "u1")
         self.assertEqual(insert_call[0]["notion_page_id"], "p1")
         self.assertEqual(insert_call[0]["source_type"], "notion")
         self.assertEqual(insert_call[0]["embedding"], [0.1] * 1024)
+        # Stored content is the RAW chunk, and the blurb lands in metadata.context.
+        self.assertEqual(insert_call[0]["content"], "hello world")
+        self.assertEqual(insert_call[0]["metadata"]["context"], "about greetings")
+        self.assertNotIn("context", insert_call[1]["metadata"])
 
     def test_large_batch_insert_is_sub_batched(self):
         # A full 128-chunk batch is a multi-MB payload; it must be inserted in

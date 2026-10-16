@@ -29,6 +29,25 @@ class TestRerankScoringText(unittest.TestCase):
         # Header must precede content with a blank line, matching ingestion.
         self.assertTrue(text.split("\n\n", 1)[0].startswith("Source:"))
 
+    def test_scoring_text_matches_embed_shape_with_context(self):
+        # Parity: rerank must score the exact shape embedded — header + the
+        # situating blurb (metadata.context) + raw chunk.
+        from services.chunker import contextualized_text
+        from services.rerank import _scoring_text
+
+        metadata = {
+            "source_filename": "rag.pdf",
+            "chunk_index": 0,
+            "total_chunks": 2,
+            "context": "This chunk defines embeddings within the RAG overview.",
+        }
+        doc = {"content": "Embeddings are dense vectors.", "metadata": metadata}
+        text = _scoring_text(doc)
+        self.assertEqual(text, contextualized_text(metadata, metadata["context"], doc["content"]))
+        self.assertIn("This chunk defines embeddings", text)
+        self.assertIn("Source: rag.pdf", text)
+        self.assertIn("Embeddings are dense vectors.", text)
+
     def test_scoring_text_handles_missing_metadata(self):
         from services.rerank import _scoring_text
 

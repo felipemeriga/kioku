@@ -2,7 +2,22 @@
 
 import unittest
 
-from services.chunker import build_contextual_header
+from services.chunker import build_contextual_header, contextualized_text
+
+
+class TestContextualizedText(unittest.TestCase):
+    def test_header_context_and_content(self):
+        meta = {"source_filename": "a.pdf", "chunk_index": 0, "total_chunks": 2}
+        out = contextualized_text(meta, "situates the chunk", "raw body")
+        self.assertEqual(out, "Source: a.pdf | Chunk 1 of 2\nsituates the chunk\n\nraw body")
+
+    def test_without_context_matches_bare_header_shape(self):
+        # With no context the shape equals the legacy header + blank line + body,
+        # so embed/rerank parity holds for pre-contextual chunks.
+        meta = {"source_filename": "a.pdf", "chunk_index": 0, "total_chunks": 2}
+        header = build_contextual_header(meta)
+        self.assertEqual(contextualized_text(meta, None, "raw body"), f"{header}\n\nraw body")
+        self.assertEqual(contextualized_text(meta, "", "raw body"), f"{header}\n\nraw body")
 
 
 class TestBuildContextualHeader(unittest.TestCase):

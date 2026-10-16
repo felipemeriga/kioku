@@ -4,7 +4,7 @@ import logging
 
 import voyageai
 
-from services.chunker import build_contextual_header
+from services.chunker import contextualized_text
 from services.metrics import record
 
 logger = logging.getLogger(__name__)
@@ -26,12 +26,11 @@ def _scoring_text(doc: dict) -> str:
     """Reconstruct the contextualized chunk text that was indexed at embed time.
 
     The cross-encoder must score the same text shape that was indexed; otherwise
-    it scores naked chunks stripped of filename/topic/keyword/position context
-    and the contextual signal is lost.
+    it scores naked chunks stripped of header/situating context and the signal
+    is lost. Mirrors the embed-time shape exactly (``contextualized_text``).
     """
     metadata = doc.get("metadata") or {}
-    header = build_contextual_header(metadata)
-    return f"{header}\n\n{doc['content']}"
+    return contextualized_text(metadata, metadata.get("context"), doc["content"])
 
 
 def rerank(
