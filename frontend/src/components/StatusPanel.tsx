@@ -13,6 +13,7 @@ import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
 import CodeIcon from "@mui/icons-material/Code";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
+import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import { brand, fonts } from "../theme";
 import { getFolderStatus, refreshFolder } from "../lib/api";
@@ -68,6 +69,7 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
   const {
     data: status,
     isPending,
+    isError,
     refetch,
   } = useQuery({
     queryKey: qk.folderStatus(folderId),
@@ -165,6 +167,57 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
     },
   ];
 
+  // First load failed with nothing cached to fall back on — show an explicit
+  // error + retry instead of a grid of misleading "never" cards. A background
+  // refetch failure with cached data still shows the (stale) cards.
+  if (isError && !status) {
+    return (
+      <Box
+        data-testid="status-error"
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          gap: 1.5,
+          p: 2,
+          border: `1px solid ${brand.magenta}44`,
+          borderRadius: 1,
+          background: `${brand.magenta}0d`,
+        }}
+      >
+        <ErrorOutlineIcon sx={{ fontSize: 18, color: brand.magenta }} />
+        <Typography
+          sx={{
+            fontFamily: fonts.mono,
+            fontSize: 13,
+            color: brand.text,
+            flexGrow: 1,
+          }}
+        >
+          Couldn't load status.
+        </Typography>
+        <Button
+          variant="outlined"
+          size="small"
+          startIcon={<RefreshIcon />}
+          onClick={() => void refetch()}
+          sx={{
+            fontFamily: fonts.mono,
+            fontSize: 11,
+            letterSpacing: "0.08em",
+            borderColor: brand.magenta,
+            color: brand.magenta,
+            "&:hover": {
+              borderColor: brand.magenta,
+              backgroundColor: `${brand.magenta}12`,
+            },
+          }}
+        >
+          Retry
+        </Button>
+      </Box>
+    );
+  }
+
   return (
     <Box>
       <Stack direction="row" spacing={1.5} sx={{ flexWrap: "wrap", mb: 2 }}>
@@ -218,18 +271,24 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
                   {glyph.glyph}
                 </Box>
               </Stack>
-              {/* Time ago — show a loading dash until the first fetch lands, so
-                  the cards don't flash "never" before the values arrive. */}
-              <Typography
-                sx={{
-                  fontFamily: fonts.mono,
-                  fontSize: 14,
-                  color: isPending ? brand.muted : brand.text,
-                  fontWeight: 500,
-                }}
-              >
-                {isPending ? "…" : timeAgo(c.at)}
-              </Typography>
+              {/* Time ago — show a spinner until the first fetch lands, so the
+                  cards don't flash "never" before the values arrive. */}
+              {isPending ? (
+                <Box sx={{ height: 21, display: "flex", alignItems: "center" }}>
+                  <CircularProgress size={13} sx={{ color: brand.muted }} />
+                </Box>
+              ) : (
+                <Typography
+                  sx={{
+                    fontFamily: fonts.mono,
+                    fontSize: 14,
+                    color: brand.text,
+                    fontWeight: 500,
+                  }}
+                >
+                  {timeAgo(c.at)}
+                </Typography>
+              )}
               {/* Sub-label */}
               {c.sub && (
                 <Typography
