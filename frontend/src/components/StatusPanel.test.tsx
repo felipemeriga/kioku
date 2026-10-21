@@ -57,4 +57,28 @@ describe("StatusPanel", () => {
     fireEvent.click(screen.getByText("Refresh detail sections"));
     await waitFor(() => expect(spy).toHaveBeenCalledWith("f1", "sections"));
   });
+
+  it("shows a loading spinner until the status arrives", async () => {
+    // Never resolves → the query stays pending.
+    vi.spyOn(api, "getFolderStatus").mockReturnValue(
+      new Promise<never>(() => {})
+    );
+    renderWithProviders(<StatusPanel folderId="f1" />);
+    await waitFor(() =>
+      expect(screen.getAllByRole("progressbar").length).toBeGreaterThan(0)
+    );
+    // Must not flash the misleading "never" fallback while loading.
+    expect(screen.queryByText("never")).not.toBeInTheDocument();
+  });
+
+  it("shows an error with a Retry when the status fails to load", async () => {
+    const spy = vi
+      .spyOn(api, "getFolderStatus")
+      .mockRejectedValue(new Error("boom"));
+    renderWithProviders(<StatusPanel folderId="f1" />);
+    await screen.findByText("Couldn't load status.");
+    expect(spy).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByText("Retry"));
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
+  });
 });
