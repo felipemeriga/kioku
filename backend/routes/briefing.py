@@ -458,6 +458,36 @@ async def briefing_history(
     return out
 
 
+@router.get("/{folder_id}/briefing/version/{version_id}")
+async def briefing_version(
+    folder_id: str,
+    version_id: str,
+    user_id: str = Depends(get_current_user),
+):
+    sb = get_supabase()
+    _folder_must_be_repo(sb, folder_id, user_id)
+    r = (
+        sb.table("folder_summaries")
+        .select("*")
+        .eq("id", version_id)
+        .eq("folder_id", folder_id)
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+    )
+    if not r.data:
+        raise HTTPException(status_code=404, detail="Version not found")
+    row = r.data[0]
+    sections = (row.get("content") or {}).get("sections") or row.get("sections") or {}
+    return {
+        "id": row["id"],
+        "generated_at": row.get("generated_at"),
+        "trigger": row.get("trigger"),
+        "updated_by": row.get("updated_by"),
+        "sections": sections,
+    }
+
+
 def _persist_sections(sb, *, folder_id: str, user_id: str, sections: dict) -> dict | None:
     """Insert a new briefing row with the given sections map. We insert
     a fresh row on every edit so the history endpoint keeps its audit

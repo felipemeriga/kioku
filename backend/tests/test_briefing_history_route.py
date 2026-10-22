@@ -51,3 +51,23 @@ class TestHistoryRoute(unittest.TestCase):
         body = r.json()
         self.assertEqual([v["id"] for v in body], ["v2", "v1"])
         self.assertIn("overview", body[0]["changed_sections"])  # v2 changed overview vs v1
+
+    def test_version_detail_returns_sections(self):
+        row = {
+            "id": "v1",
+            "generated_at": "t",
+            "trigger": "edit",
+            "updated_by": "u1",
+            "content": {"sections": _sections("A")},
+        }
+        sb = MagicMock()
+        q = sb.table.return_value.select.return_value.eq.return_value.eq.return_value.eq.return_value.limit.return_value
+        q.execute.return_value.data = [row]
+        with (
+            patch("routes.briefing.get_supabase", return_value=sb),
+            patch("routes.briefing._folder_must_be_repo", return_value={"kind": "repo"}),
+        ):
+            c = self._client()
+            r = c.get("/api/folders/11111111-1111-1111-1111-111111111111/briefing/version/v1")
+        assert r.status_code == 200, r.text
+        self.assertEqual(r.json()["sections"]["overview"]["content"]["purpose"], "A")
