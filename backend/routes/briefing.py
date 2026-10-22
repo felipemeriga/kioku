@@ -31,6 +31,7 @@ from db.client import get_supabase
 from services.folder_summary.briefing_schema import (
     BRIEFING_SCHEMA_VERSION,
     SECTION_KEYS,
+    briefing_content_hash,
     empty_briefing,
     new_section,
 )
@@ -428,14 +429,30 @@ async def update_briefing_section(
     return {"ok": True, "section": sections[section_name]}
 
 
-def _persist_sections(sb, *, folder_id: str, user_id: str, sections: dict) -> None:
+def _persist_sections(sb, *, folder_id: str, user_id: str, sections: dict) -> dict | None:
     """Insert a new briefing row with the given sections map. We insert
     a fresh row on every edit so the history endpoint keeps its audit
     trail; the frontend always reads via get_latest_summary.
 
+    Dedup gate: if the section *content* (metadata excluded) is identical
+    to the latest stored version, the insert is skipped and the existing
+    row is returned so callers can still reference it.
+
     Migration-safe: sequentially tries relaxed schema → downgraded kind
     → downgraded trigger, so pre-migration databases still persist.
     """
+    new_hash = briefing_content_hash(sections)
+    latest = get_latest_summary(sb, folder_id, user_id)
+    if latest is not None:
+        latest_hash = latest.get("content_hash")
+        if not latest_hash:
+            latest_sections = (
+                (latest.get("content") or {}).get("sections") or latest.get("sections") or {}
+            )
+            latest_hash = briefing_content_hash(latest_sections)
+        if latest_hash == new_hash:
+            return latest  # identical content -> no new version
+
     payload = {
         "folder_id": folder_id,
         "user_id": user_id,
@@ -451,8 +468,10 @@ def _persist_sections(sb, *, folder_id: str, user_id: str, sections: dict) -> No
         "duration_ms": 0,
         "briefing_schema_version": BRIEFING_SCHEMA_VERSION,
         "sections": sections,
+        "content_hash": new_hash,
     }
     _insert_with_fallbacks(sb, payload)
+    return payload
 
 
 def _insert_with_fallbacks(sb, payload: dict) -> None:
