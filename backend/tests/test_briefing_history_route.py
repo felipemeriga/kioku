@@ -71,3 +71,22 @@ class TestHistoryRoute(unittest.TestCase):
             r = c.get("/api/folders/11111111-1111-1111-1111-111111111111/briefing/version/v1")
         assert r.status_code == 200, r.text
         self.assertEqual(r.json()["sections"]["overview"]["content"]["purpose"], "A")
+
+    def test_restore_reinserts_version_sections(self):
+        row = {"id": "v1", "content": {"sections": _sections("A")}}
+        sb = MagicMock()
+        q = sb.table.return_value.select.return_value.eq.return_value.eq.return_value.eq.return_value.limit.return_value
+        q.execute.return_value.data = [row]
+        with (
+            patch("routes.briefing.get_supabase", return_value=sb),
+            patch("routes.briefing._folder_must_be_repo", return_value={"kind": "repo"}),
+            patch("routes.briefing._persist_sections") as persist,
+        ):
+            c = self._client()
+            r = c.post("/api/folders/11111111-1111-1111-1111-111111111111/briefing/restore/v1")
+        assert r.status_code == 200, r.text
+        self.assertEqual(r.json()["restored_from"], "v1")
+        # sections handed to _persist_sections are v1's sections
+        kw = persist.call_args.kwargs
+        self.assertEqual(kw["sections"]["overview"]["content"]["purpose"], "A")
+        self.assertEqual(kw.get("trigger"), "restore")

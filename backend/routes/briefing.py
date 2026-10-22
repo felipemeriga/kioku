@@ -488,7 +488,35 @@ async def briefing_version(
     }
 
 
-def _persist_sections(sb, *, folder_id: str, user_id: str, sections: dict) -> dict | None:
+@router.post("/{folder_id}/briefing/restore/{version_id}")
+async def briefing_restore(
+    folder_id: str,
+    version_id: str,
+    user_id: str = Depends(get_current_user),
+):
+    sb = get_supabase()
+    _folder_must_be_repo(sb, folder_id, user_id)
+    r = (
+        sb.table("folder_summaries")
+        .select("*")
+        .eq("id", version_id)
+        .eq("folder_id", folder_id)
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+    )
+    if not r.data:
+        raise HTTPException(status_code=404, detail="Version not found")
+    sections = (r.data[0].get("content") or {}).get("sections") or r.data[0].get("sections") or {}
+    _persist_sections(
+        sb, folder_id=folder_id, user_id=user_id, sections=sections, trigger="restore"
+    )
+    return {"ok": True, "restored_from": version_id}
+
+
+def _persist_sections(
+    sb, *, folder_id: str, user_id: str, sections: dict, trigger: str = "edit"
+) -> dict | None:
     """Insert a new briefing row with the given sections map. We insert
     a fresh row on every edit so the history endpoint keeps its audit
     trail; the frontend always reads via get_latest_summary.
@@ -516,7 +544,7 @@ def _persist_sections(sb, *, folder_id: str, user_id: str, sections: dict) -> di
         "folder_id": folder_id,
         "user_id": user_id,
         "kind": "briefing",
-        "trigger": "edit",
+        "trigger": trigger,
         "content": {"__briefing_v": BRIEFING_SCHEMA_VERSION, "sections": sections},
         "previous_content": None,
         "included_hashes": [],
