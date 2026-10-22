@@ -117,7 +117,7 @@ function SectionDiff({ sectionKey, oldText, newText }: SectionDiffProps) {
                   .split("\n")
                   .map((line, li) => (
                     <span key={li}>
-                      {li === 0 ? `${prefix} ` : `${prefix} `}
+                      {`${prefix} `}
                       {line}
                       {li <
                         part.value.replace(/\n$/, "").split("\n").length -
@@ -141,7 +141,8 @@ interface Props {
 
 export default function BriefingHistoryPanel({ folderId }: Props) {
   const queryClient = useQueryClient();
-  // selected: up to 2 version IDs. First click = older, second = newer (for diff direction).
+  // selected: up to 2 version IDs, in click order. Diff direction is resolved
+  // chronologically (by generated_at), NOT by click order — see below.
   const [selected, setSelected] = useState<string[]>([]);
   const [restoring, setRestoring] = useState<string | null>(null);
 
@@ -273,15 +274,31 @@ export default function BriefingHistoryPanel({ folderId }: Props) {
   const showDiff =
     selected.length === 2 && version0 != null && version1 != null;
 
+  // Resolve diff direction CHRONOLOGICALLY, not by click order. The timeline
+  // renders newest-first, so clicking top-to-bottom selects newer→older; using
+  // click order as old→new would swap additions/removals. Look each selected id
+  // up in `history` (already fetched) and make the OLDER version the baseline
+  // (oldText) and the NEWER version the additions (newText).
+  const ts = (id: string | null): number => {
+    const at = history?.find((h) => h.id === id)?.generated_at ?? null;
+    return at ? new Date(at).getTime() : 0;
+  };
+  const [olderVersion, newerVersion] = showDiff
+    ? ts(v0Id) <= ts(v1Id)
+      ? [version0, version1]
+      : [version1, version0]
+    : [undefined, undefined];
+
   // Collect all section keys from both versions
-  const allKeys = showDiff
-    ? Array.from(
-        new Set([
-          ...Object.keys(version0.sections),
-          ...Object.keys(version1.sections),
-        ])
-      )
-    : [];
+  const allKeys =
+    showDiff && olderVersion && newerVersion
+      ? Array.from(
+          new Set([
+            ...Object.keys(olderVersion.sections),
+            ...Object.keys(newerVersion.sections),
+          ])
+        )
+      : [];
 
   // ── render ────────────────────────────────────────────────────────────────
 
@@ -478,7 +495,7 @@ export default function BriefingHistoryPanel({ folderId }: Props) {
             Diff
           </Typography>
 
-          {!version0 || !version1 ? (
+          {!olderVersion || !newerVersion ? (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
               <CircularProgress size={14} sx={{ color: brand.cyan }} />
               <Typography
@@ -494,8 +511,8 @@ export default function BriefingHistoryPanel({ folderId }: Props) {
           ) : (
             <Box>
               {allKeys.map((key) => {
-                const oldSec = version0.sections[key];
-                const newSec = version1.sections[key];
+                const oldSec = olderVersion.sections[key];
+                const newSec = newerVersion.sections[key];
                 const oldText = serializeSection(oldSec?.content ?? null);
                 const newText = serializeSection(newSec?.content ?? null);
                 return (
