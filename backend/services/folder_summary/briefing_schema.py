@@ -93,6 +93,7 @@ def empty_briefing() -> dict[str, dict]:
                 "highlights": [],
             }
         ),
+        "documentation": new_section(""),
     }
 
 
@@ -118,6 +119,12 @@ def merge_briefing(*, existing: dict | None, refresh: dict) -> dict:
 
 def _canonical(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def snapshot_sections(row: dict | None) -> dict:
+    """Merge legacy snapshot content with canonical per-section overrides."""
+    row = row or {}
+    return {**((row.get("content") or {}).get("sections") or {}), **(row.get("sections") or {})}
 
 
 def briefing_content_hash(sections: dict) -> str:

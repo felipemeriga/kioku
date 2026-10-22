@@ -17,6 +17,8 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from db.client import get_supabase
 from services.embeddings import embed_query
 from services.evaluation import evaluate_rag_pipeline
+from services.folder_summary.briefing_schema import snapshot_sections
+from services.folder_summary.persistence import persist_sections
 from services.mem0_sync import MemoryCategory, get_client_for_folder
 from services.mem0_sync.client import MemoryScope
 from services.mem0_sync.fanout import fanout_search
@@ -1211,7 +1213,6 @@ def replace_folder_briefing(
     if not _current_user_id.get():
         return "Error: Not authenticated."
     from services.folder_summary.briefing import (
-        BRIEFING_SCHEMA_VERSION,
         SECTION_KEYS,
         empty_briefing,
         new_section,
@@ -1255,11 +1256,7 @@ def replace_folder_briefing(
         )
 
     latest = get_latest_summary(sb, resolved_id, user_id)
-    current = (
-        (latest or {}).get("sections")
-        or ((latest or {}).get("content") or {}).get("sections")
-        or empty_briefing()
-    )
+    current = snapshot_sections(latest) or empty_briefing()
     for key, content in payload_sections.items():
         current[key] = new_section(
             content,
@@ -1269,53 +1266,16 @@ def replace_folder_briefing(
         )
     # Reuse the same downgrade-safe insert pipeline the section update
     # tool uses so pre-migration DBs still land the row.
-    payload = {
-        "folder_id": resolved_id,
-        "user_id": user_id,
-        "kind": "briefing",
-        "trigger": "mcp_edit",
-        "content": {"__briefing_v": BRIEFING_SCHEMA_VERSION, "sections": current},
-        "previous_content": None,
-        "included_hashes": [],
-        "doc_count": 0,
-        "changed_files": {},
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "duration_ms": 0,
-        "briefing_schema_version": BRIEFING_SCHEMA_VERSION,
-        "sections": current,
-    }
-    last_err = None
-    for _ in range(4):
-        try:
-            sb.table("folder_summaries").insert(payload).execute()
-            return json.dumps(
-                {
-                    "ok": True,
-                    "replaced": list(payload_sections.keys()),
-                    "total_sections": len(current),
-                },
-                ensure_ascii=False,
-            )
-        except Exception as exc:  # noqa: BLE001
-            last_err = exc
-            msg = str(exc)
-            downgraded = False
-            if "kind_check" in msg and payload.get("kind") != "full":
-                payload["kind"] = "full"
-                downgraded = True
-            if "trigger_check" in msg and payload.get("trigger") != "manual":
-                payload["trigger"] = "manual"
-                downgraded = True
-            if (
-                "briefing_schema_version" in msg or "sections" in msg
-            ) and "briefing_schema_version" in payload:
-                payload.pop("briefing_schema_version", None)
-                payload.pop("sections", None)
-                downgraded = True
-            if not downgraded:
-                break
-    return f"Error persisting briefing: {str(last_err)[:200]}"
+    try:
+        persist_sections(
+            sb, folder_id=resolved_id, user_id=user_id, sections=current, trigger="mcp_edit"
+        )
+    except Exception as exc:  # noqa: BLE001
+        return f"Error persisting briefing: {str(exc)[:200]}"
+    return json.dumps(
+        {"ok": True, "replaced": list(payload_sections.keys()), "total_sections": len(current)},
+        ensure_ascii=False,
+    )
 
 
 @mcp.tool()
@@ -1341,7 +1301,6 @@ def save_repo_documentation(
     if not _current_user_id.get():
         return "Error: Not authenticated."
     from services.folder_summary.briefing import (
-        BRIEFING_SCHEMA_VERSION,
         empty_briefing,
         new_section,
     )
@@ -1386,11 +1345,7 @@ def save_repo_documentation(
     # 2. Write the abstract into the `documentation` briefing section so it
     #    injects each session, with a pointer to the full doc.
     latest = get_latest_summary(sb, resolved_id, user_id)
-    current = (
-        (latest or {}).get("sections")
-        or ((latest or {}).get("content") or {}).get("sections")
-        or empty_briefing()
-    )
+    current = snapshot_sections(latest) or empty_briefing()
     pointer = "\n\nFull architecture docs available — call get_repo_documentation."
     current["documentation"] = new_section(
         (abstract or "").strip() + pointer,
@@ -1398,46 +1353,14 @@ def save_repo_documentation(
         provenance="agent_mcp",
         updated_by="agent_mcp",
     )
-    payload = {
-        "folder_id": resolved_id,
-        "user_id": user_id,
-        "kind": "briefing",
-        "trigger": "mcp_edit",
-        "content": {"__briefing_v": BRIEFING_SCHEMA_VERSION, "sections": current},
-        "previous_content": None,
-        "included_hashes": [],
-        "doc_count": 0,
-        "changed_files": {},
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "duration_ms": 0,
-        "briefing_schema_version": BRIEFING_SCHEMA_VERSION,
-        "sections": current,
-    }
-    for _ in range(4):
-        try:
-            sb.table("folder_summaries").insert(payload).execute()
-            break
-        except Exception as exc:  # noqa: BLE001
-            msg = str(exc)
-            downgraded = False
-            if "kind_check" in msg and payload.get("kind") != "full":
-                payload["kind"] = "full"
-                downgraded = True
-            if "trigger_check" in msg and payload.get("trigger") != "manual":
-                payload["trigger"] = "manual"
-                downgraded = True
-            if (
-                "briefing_schema_version" in msg or "sections" in msg
-            ) and "briefing_schema_version" in payload:
-                payload.pop("briefing_schema_version", None)
-                payload.pop("sections", None)
-                downgraded = True
-            if not downgraded:
-                break
+    try:
+        persist_sections(
+            sb, folder_id=resolved_id, user_id=user_id, sections=current, trigger="mcp_edit"
+        )
+    except Exception as exc:  # noqa: BLE001
+        return f"Error persisting briefing: {str(exc)[:200]}"
     return json.dumps(
-        {"ok": True, "doc_chars": len(content), "abstract_saved": True},
-        ensure_ascii=False,
+        {"ok": True, "doc_chars": len(content), "abstract_saved": True}, ensure_ascii=False
     )
 
 
@@ -1636,7 +1559,6 @@ def update_folder_briefing_section(
     if not _current_user_id.get():
         return "Error: Not authenticated."
     from services.folder_summary.briefing import (
-        BRIEFING_SCHEMA_VERSION,
         SECTION_KEYS,
         empty_briefing,
         new_section,
@@ -1713,58 +1635,20 @@ def update_folder_briefing_section(
         parsed_content = content
 
     latest = get_latest_summary(sb, folder_id, user_id)
-    sections = (
-        (latest or {}).get("sections")
-        or ((latest or {}).get("content") or {}).get("sections")
-        or empty_briefing()
-    )
+    sections = snapshot_sections(latest) or empty_briefing()
     sections[section] = new_section(
         parsed_content,
         status="pinned" if pin else "auto",
         provenance="agent_mcp",
         updated_by="api_key_id_placeholder",  # TODO: thread real id through the middleware
     )
-    payload = {
-        "folder_id": folder_id,
-        "user_id": user_id,
-        "kind": "briefing",
-        "trigger": "mcp_edit",
-        "content": {"__briefing_v": BRIEFING_SCHEMA_VERSION, "sections": sections},
-        "previous_content": None,
-        "included_hashes": [],
-        "doc_count": 0,
-        "changed_files": {},
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "duration_ms": 0,
-        "briefing_schema_version": BRIEFING_SCHEMA_VERSION,
-        "sections": sections,
-    }
-    # Migration-safe downgrade chain — matches routes/briefing.py.
-    last_err = None
-    for _ in range(4):
-        try:
-            sb.table("folder_summaries").insert(payload).execute()
-            return f"Updated section '{section}' (status={'pinned' if pin else 'auto'})."
-        except Exception as exc:  # noqa: BLE001
-            last_err = exc
-            msg = str(exc)
-            downgraded = False
-            if "kind_check" in msg and payload.get("kind") != "full":
-                payload["kind"] = "full"
-                downgraded = True
-            if "trigger_check" in msg and payload.get("trigger") != "manual":
-                payload["trigger"] = "manual"
-                downgraded = True
-            if (
-                "briefing_schema_version" in msg or "sections" in msg
-            ) and "briefing_schema_version" in payload:
-                payload.pop("briefing_schema_version", None)
-                payload.pop("sections", None)
-                downgraded = True
-            if not downgraded:
-                break
-    return f"Error persisting briefing: {str(last_err)[:200]}"
+    try:
+        persist_sections(
+            sb, folder_id=folder_id, user_id=user_id, sections=sections, trigger="mcp_edit"
+        )
+    except Exception as exc:  # noqa: BLE001
+        return f"Error persisting briefing: {str(exc)[:200]}"
+    return f"Updated section '{section}' (status={'pinned' if pin else 'auto'})."
 
 
 @mcp.tool()

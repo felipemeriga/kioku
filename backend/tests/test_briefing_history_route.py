@@ -13,6 +13,11 @@ def _sections(purpose):
 
 
 class TestHistoryRoute(unittest.TestCase):
+    def tearDown(self):
+        from main import app
+
+        app.dependency_overrides.clear()
+
     def _client(self):
         from auth import get_current_user
         from main import app
@@ -43,7 +48,7 @@ class TestHistoryRoute(unittest.TestCase):
         with (
             patch("routes.briefing.get_supabase", return_value=sb),
             patch("routes.briefing._folder_must_be_repo", return_value={"kind": "repo"}),
-            patch("routes.briefing.list_summaries", return_value=rows),
+            patch("routes.briefing.list_summaries", return_value=rows) as listing,
         ):
             c = self._client()
             r = c.get("/api/folders/11111111-1111-1111-1111-111111111111/briefing/history")
@@ -51,6 +56,9 @@ class TestHistoryRoute(unittest.TestCase):
         body = r.json()
         self.assertEqual([v["id"] for v in body], ["v2", "v1"])
         self.assertIn("overview", body[0]["changed_sections"])  # v2 changed overview vs v1
+        listing.assert_called_once_with(
+            sb, "11111111-1111-1111-1111-111111111111", "u1", limit=51, offset=0
+        )
 
     def test_version_detail_returns_sections(self):
         row = {
@@ -90,3 +98,67 @@ class TestHistoryRoute(unittest.TestCase):
         kw = persist.call_args.kwargs
         self.assertEqual(kw["sections"]["overview"]["content"]["purpose"], "A")
         self.assertEqual(kw.get("trigger"), "restore")
+        self.assertEqual(kw["sections"]["overview"]["updated_by"], "u1")
+        self.assertEqual(kw["sections"]["overview"]["provenance"], "user_ui")
+
+    def test_history_page_compares_last_result_with_unreturned_predecessor(self):
+        rows = [
+            {"id": "v3", "content": {"sections": _sections("B")}},
+            {"id": "v2", "content": {"sections": _sections("B")}},
+            {"id": "v1", "content": {"sections": _sections("A")}},
+        ]
+        with (
+            patch("routes.briefing.get_supabase"),
+            patch("routes.briefing._folder_must_be_repo"),
+            patch("routes.briefing.list_summaries", return_value=rows),
+        ):
+            response = self._client().get(
+                "/api/folders/11111111-1111-1111-1111-111111111111/briefing/history?limit=2"
+            )
+        self.assertEqual(response.status_code, 200)
+        versions = response.json()
+        self.assertEqual(len(versions), 2)
+        self.assertEqual(versions[0]["changed_sections"], [])
+        self.assertEqual(versions[1]["changed_sections"], ["overview"])
+        self.assertEqual(len(versions[0]["content_hash"]), 64)
+
+    def test_pagination_rejects_invalid_bounds(self):
+        client = self._client()
+        for query in ("limit=0", "limit=101", "offset=-1"):
+            response = client.get(
+                f"/api/folders/11111111-1111-1111-1111-111111111111/briefing/history?{query}"
+            )
+            self.assertEqual(response.status_code, 422)
+
+    def test_history_rejects_non_owner_and_non_repo(self):
+        for folder, status in ((None, 404), ({"kind": "folder"}, 400)):
+            with (
+                patch("routes.briefing.get_supabase"),
+                patch("routes.briefing.get_folder", return_value=folder),
+            ):
+                response = self._client().get(
+                    "/api/folders/11111111-1111-1111-1111-111111111111/briefing/history"
+                )
+            self.assertEqual(response.status_code, status)
+
+    def test_detail_and_restore_reject_missing_or_foreign_version(self):
+        sb = MagicMock()
+        query = sb.table.return_value.select.return_value.eq.return_value.eq.return_value.eq.return_value.limit.return_value
+        query.execute.return_value.data = []
+        with (
+            patch("routes.briefing.get_supabase", return_value=sb),
+            patch("routes.briefing._folder_must_be_repo"),
+        ):
+            client = self._client()
+            for action, method in (("version", client.get), ("restore", client.post)):
+                response = method(
+                    f"/api/folders/11111111-1111-1111-1111-111111111111/briefing/{action}/foreign"
+                )
+                self.assertEqual(response.status_code, 404)
+        sb.table.return_value.select.return_value.eq.assert_called_with("id", "foreign")
+        sb.table.return_value.select.return_value.eq.return_value.eq.assert_called_with(
+            "folder_id", "11111111-1111-1111-1111-111111111111"
+        )
+        sb.table.return_value.select.return_value.eq.return_value.eq.return_value.eq.assert_called_with(
+            "user_id", "u1"
+        )

@@ -9,6 +9,17 @@ from services.folder_summary.briefing_schema import (
 
 
 class TestDedupGate(unittest.TestCase):
+    def test_partial_canonical_sections_override_legacy_snapshot(self):
+        from services.folder_summary.briefing_schema import snapshot_sections
+
+        row = {
+            "content": {"sections": self._sections("old")},
+            "sections": {"overview": new_section("current")},
+        }
+        merged = snapshot_sections(row)
+        self.assertEqual(merged["overview"]["content"], "current")
+        self.assertIn("architecture", merged)
+
     def _sections(self, purpose):
         s = empty_briefing()
         s["overview"] = new_section({"purpose": purpose, "description": ""})
@@ -23,7 +34,7 @@ class TestDedupGate(unittest.TestCase):
             "content": {"sections": sections},
             "content_hash": briefing_content_hash(sections),
         }
-        with patch("routes.briefing.get_latest_summary", return_value=latest):
+        with patch("services.folder_summary.persistence.get_latest_summary", return_value=latest):
             _persist_sections(sb, folder_id="f1", user_id="u1", sections=sections)
         sb.table.return_value.insert.assert_not_called()
 
@@ -36,7 +47,7 @@ class TestDedupGate(unittest.TestCase):
             "content_hash": briefing_content_hash(self._sections("old")),
         }
         new = self._sections("new")
-        with patch("routes.briefing.get_latest_summary", return_value=latest):
+        with patch("services.folder_summary.persistence.get_latest_summary", return_value=latest):
             _persist_sections(sb, folder_id="f1", user_id="u1", sections=new)
         payload = sb.table.return_value.insert.call_args.args[0]
         self.assertEqual(payload["content_hash"], briefing_content_hash(new))
@@ -45,7 +56,7 @@ class TestDedupGate(unittest.TestCase):
         from routes.briefing import _persist_sections
 
         sb = MagicMock()
-        with patch("routes.briefing.get_latest_summary", return_value=None):
+        with patch("services.folder_summary.persistence.get_latest_summary", return_value=None):
             _persist_sections(sb, folder_id="f1", user_id="u1", sections=self._sections("first"))
         sb.table.return_value.insert.assert_called_once()
 
@@ -55,6 +66,6 @@ class TestDedupGate(unittest.TestCase):
         sb = MagicMock()
         sections = self._sections("same")
         latest = {"content": {"sections": sections}, "content_hash": None}  # legacy row
-        with patch("routes.briefing.get_latest_summary", return_value=latest):
+        with patch("services.folder_summary.persistence.get_latest_summary", return_value=latest):
             _persist_sections(sb, folder_id="f1", user_id="u1", sections=sections)
         sb.table.return_value.insert.assert_not_called()  # identical -> still dedup'd
