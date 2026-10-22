@@ -9,6 +9,8 @@ Deliberately thin:  no I/O, no DB, no LLM, no local-clone logic.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import datetime, timezone
 from typing import Any, Literal
 
@@ -91,6 +93,7 @@ def empty_briefing() -> dict[str, dict]:
                 "highlights": [],
             }
         ),
+        "documentation": new_section(""),
     }
 
 
@@ -111,4 +114,42 @@ def merge_briefing(*, existing: dict | None, refresh: dict) -> dict:
             continue
         # Fall back to the refresh; if refresh missing the key, keep empty.
         out[key] = r or e or empty_briefing()[key]
+    return out
+
+
+def _canonical(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def snapshot_sections(row: dict | None) -> dict:
+    """Merge legacy snapshot content with canonical per-section overrides."""
+    row = row or {}
+    return {**((row.get("content") or {}).get("sections") or {}), **(row.get("sections") or {})}
+
+
+def briefing_content_hash(sections: dict) -> str:
+    """sha256 of the sections CONTENT only (metadata excluded), canonical + stable."""
+    content = {k: (sections.get(k) or {}).get("content") for k in SECTION_KEYS}
+    return hashlib.sha256(_canonical(content).encode()).hexdigest()
+
+
+def _is_empty(content: Any) -> bool:
+    return content in (None, "", [], {}) or (
+        isinstance(content, dict) and all(_is_empty(v) for v in content.values())
+    )
+
+
+def changed_sections(prev: dict | None, cur: dict) -> list[str]:
+    """Section keys whose content differs between two briefings. prev=None ->
+    every key whose content is non-empty."""
+    out: list[str] = []
+    for k in SECTION_KEYS:
+        cur_c = (cur.get(k) or {}).get("content")
+        if prev is None:
+            if not _is_empty(cur_c):
+                out.append(k)
+            continue
+        prev_c = (prev.get(k) or {}).get("content")
+        if _canonical(prev_c) != _canonical(cur_c):
+            out.append(k)
     return out

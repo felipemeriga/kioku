@@ -187,40 +187,36 @@ CREATE OR REPLACE FUNCTION "public"."folder_breadcrumbs"(
 ALTER FUNCTION "public"."folder_breadcrumbs"("p_folder_id" "uuid", "p_user_id" "uuid") OWNER TO "postgres";
 
 
-CREATE OR REPLACE FUNCTION "public"."set_briefing_section"(
-    "p_folder_id" "uuid",
-    "p_user_id" "uuid",
-    "p_section" "text",
-    "p_value" "jsonb"
-) RETURNS boolean
-    LANGUAGE "plpgsql"
-    AS $$
+CREATE OR REPLACE FUNCTION public.set_briefing_section(
+    p_folder_id uuid, p_user_id uuid, p_section text, p_value jsonb
+) RETURNS boolean LANGUAGE plpgsql AS $$
 DECLARE
-    v_id uuid;
+    v_latest record;
+    v_sections jsonb;
 BEGIN
-    SELECT id INTO v_id
-    FROM public.folder_summaries
+    PERFORM 1 FROM public.folders
+    WHERE id = p_folder_id AND user_id = p_user_id FOR UPDATE;
+    IF NOT FOUND THEN RETURN false; END IF;
+    SELECT * INTO v_latest FROM public.folder_summaries
     WHERE folder_id = p_folder_id AND user_id = p_user_id
-    ORDER BY generated_at DESC
-    LIMIT 1
-    FOR UPDATE;
-    IF v_id IS NULL THEN
-        RETURN false;
+    ORDER BY generated_at DESC LIMIT 1;
+    IF NOT FOUND THEN RETURN false; END IF;
+    v_sections := COALESCE(v_latest.content->'sections', '{}'::jsonb)
+                  || COALESCE(v_latest.sections, '{}'::jsonb);
+    IF (v_sections->p_section->'content') IS NOT DISTINCT FROM (p_value->'content') THEN
+        RETURN true;
     END IF;
-    UPDATE public.folder_summaries
-    SET sections = jsonb_set(
-            COALESCE(sections, '{}'::jsonb),
-            ARRAY[p_section],
-            p_value,
-            true
-        ),
-        content = jsonb_set(
-            COALESCE(content, '{}'::jsonb),
-            ARRAY['sections', p_section],
-            p_value,
-            true
-        )
-    WHERE id = v_id;
+    v_sections := jsonb_set(v_sections, ARRAY[p_section], p_value, true);
+    INSERT INTO public.folder_summaries (
+        folder_id, user_id, kind, trigger, content, sections, briefing_schema_version, generated_at
+    ) VALUES (
+        p_folder_id, p_user_id, v_latest.kind, 'refresh',
+        jsonb_set(v_latest.content, '{sections}', v_sections, true),
+        v_sections, v_latest.briefing_schema_version,
+        GREATEST(clock_timestamp(), v_latest.generated_at + interval '1 microsecond')
+    );
+    -- NULL content_hash is intentional: readers compute the canonical Python
+    -- hash for legacy/SQL-written rows, avoiding divergent JSON serialization.
     RETURN true;
 END;
 $$;
@@ -343,6 +339,8 @@ CREATE TABLE IF NOT EXISTS "public"."documents" (
     "user_id" "uuid",
     "source_filename" "text",
     "content_hash" "text",
+    "sections" "jsonb",
+    "briefing_schema_version" integer,
     "status" "text" DEFAULT 'completed'::"text" NOT NULL,
     "source_type" "text",
     "fts" "tsvector" GENERATED ALWAYS AS ((setweight(to_tsvector('english'::"regconfig", COALESCE("source_filename", ''::"text")), 'A'::"char") || setweight(to_tsvector('english'::"regconfig", "content"), 'B'::"char"))) STORED,
@@ -373,9 +371,10 @@ CREATE TABLE IF NOT EXISTS "public"."folder_summaries" (
     "input_tokens" integer,
     "output_tokens" integer,
     "duration_ms" integer,
+    "content_hash" "text",
     "trigger" "text",
-    CONSTRAINT "folder_summaries_kind_check" CHECK (("kind" = ANY (ARRAY['full'::"text", 'delta'::"text", 'seed'::"text"]))),
-    CONSTRAINT "folder_summaries_trigger_check" CHECK ((("trigger" IS NULL) OR ("trigger" = ANY (ARRAY['cron_nightly'::"text", 'cron_weekly'::"text", 'manual'::"text", 'seed'::"text"]))))
+    CONSTRAINT "folder_summaries_kind_check" CHECK (kind IN ('full', 'delta', 'seed', 'workspace_rollup', 'briefing')),
+    CONSTRAINT "folder_summaries_trigger_check" CHECK (trigger IS NULL OR trigger IN ('cron_nightly', 'cron_weekly', 'manual', 'seed', 'edit', 'mcp_edit', 'restore', 'refresh', 'rollup_bootstrap:manual', 'rollup_bootstrap:cron_nightly', 'rollup_bootstrap:cron_weekly'))
 );
 
 

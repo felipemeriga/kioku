@@ -178,3 +178,18 @@ def get_latest_summary(sb, folder_id: str, user_id: str) -> dict | None:
         .execute()
     )
     return r.data[0] if r.data else None
+
+
+def list_summaries(
+    sb, folder_id: str, user_id: str, limit: int = 50, offset: int = 0
+) -> list[dict]:
+    r = (
+        sb.table("folder_summaries")
+        .select("*")
+        .eq("folder_id", folder_id)
+        .eq("user_id", user_id)
+        .order("generated_at", desc=True)
+        .range(offset, offset + limit - 1)
+        .execute()
+    )
+    return r.data or []

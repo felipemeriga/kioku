@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -31,10 +31,14 @@ from db.client import get_supabase
 from services.folder_summary.briefing_schema import (
     BRIEFING_SCHEMA_VERSION,
     SECTION_KEYS,
+    briefing_content_hash,
+    changed_sections,
     empty_briefing,
     new_section,
+    snapshot_sections,
 )
-from services.folder_summary.repo import get_folder, get_latest_summary
+from services.folder_summary.persistence import persist_sections as _persist_sections
+from services.folder_summary.repo import get_folder, get_latest_summary, list_summaries
 
 router = APIRouter(prefix="/api/folders")
 logger = logging.getLogger(__name__)
@@ -428,63 +432,98 @@ async def update_briefing_section(
     return {"ok": True, "section": sections[section_name]}
 
 
-def _persist_sections(sb, *, folder_id: str, user_id: str, sections: dict) -> None:
-    """Insert a new briefing row with the given sections map. We insert
-    a fresh row on every edit so the history endpoint keeps its audit
-    trail; the frontend always reads via get_latest_summary.
+@router.get("/{folder_id}/briefing/history")
+async def briefing_history(
+    folder_id: str,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    user_id: str = Depends(get_current_user),
+):
+    sb = get_supabase()
+    _folder_must_be_repo(sb, folder_id, user_id)
+    rows = list_summaries(sb, folder_id, user_id, limit=limit + 1, offset=offset)
+    out = []
+    for i, row in enumerate(rows[:limit]):
+        cur = snapshot_sections(row)
+        nxt = rows[i + 1] if i + 1 < len(rows) else None
+        prev = snapshot_sections(nxt) if nxt else None
+        out.append(
+            {
+                "id": row["id"],
+                "generated_at": row.get("generated_at"),
+                "trigger": row.get("trigger"),
+                "updated_by": _snapshot_author(cur),
+                "content_hash": row.get("content_hash") or briefing_content_hash(cur),
+                "changed_sections": changed_sections(prev, cur),
+            }
+        )
+    return out
 
-    Migration-safe: sequentially tries relaxed schema → downgraded kind
-    → downgraded trigger, so pre-migration databases still persist.
-    """
-    payload = {
-        "folder_id": folder_id,
-        "user_id": user_id,
-        "kind": "briefing",
-        "trigger": "edit",
-        "content": {"__briefing_v": BRIEFING_SCHEMA_VERSION, "sections": sections},
-        "previous_content": None,
-        "included_hashes": [],
-        "doc_count": 0,
-        "changed_files": {},
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "duration_ms": 0,
-        "briefing_schema_version": BRIEFING_SCHEMA_VERSION,
+
+@router.get("/{folder_id}/briefing/version/{version_id}")
+async def briefing_version(
+    folder_id: str,
+    version_id: str,
+    user_id: str = Depends(get_current_user),
+):
+    sb = get_supabase()
+    _folder_must_be_repo(sb, folder_id, user_id)
+    r = (
+        sb.table("folder_summaries")
+        .select("*")
+        .eq("id", version_id)
+        .eq("folder_id", folder_id)
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+    )
+    if not r.data:
+        raise HTTPException(status_code=404, detail="Version not found")
+    row = r.data[0]
+    sections = snapshot_sections(row)
+    return {
+        "id": row["id"],
+        "generated_at": row.get("generated_at"),
+        "trigger": row.get("trigger"),
+        "updated_by": _snapshot_author(sections),
         "sections": sections,
     }
-    _insert_with_fallbacks(sb, payload)
 
 
-def _insert_with_fallbacks(sb, payload: dict) -> None:
-    """Persist a folder_summaries row, downgrading schema on each
-    known constraint mismatch until it lands. Order:
-      1. As-is (full new schema)
-      2. Downgrade kind='briefing' → 'full' if kind_check rejects
-      3. Downgrade trigger to 'manual' if trigger_check rejects
-      4. Drop new columns if they don't exist yet
-    """
-    attempt = dict(payload)
-    for _ in range(4):
-        try:
-            sb.table("folder_summaries").insert(attempt).execute()
-            return
-        except Exception as exc:  # noqa: BLE001
-            msg = str(exc)
-            downgraded = False
-            if "kind_check" in msg and attempt.get("kind") != "full":
-                attempt["kind"] = "full"
-                downgraded = True
-            if "trigger_check" in msg and attempt.get("trigger") != "manual":
-                attempt["trigger"] = "manual"
-                downgraded = True
-            if (
-                "briefing_schema_version" in msg or "sections" in msg
-            ) and "briefing_schema_version" in attempt:
-                attempt.pop("briefing_schema_version", None)
-                attempt.pop("sections", None)
-                downgraded = True
-            if not downgraded:
-                raise
-    raise RuntimeError(
-        "briefing persistence exhausted downgrade attempts; last error surfaced from Postgrest"
+@router.post("/{folder_id}/briefing/restore/{version_id}")
+async def briefing_restore(
+    folder_id: str,
+    version_id: str,
+    user_id: str = Depends(get_current_user),
+):
+    sb = get_supabase()
+    _folder_must_be_repo(sb, folder_id, user_id)
+    r = (
+        sb.table("folder_summaries")
+        .select("*")
+        .eq("id", version_id)
+        .eq("folder_id", folder_id)
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
     )
+    if not r.data:
+        raise HTTPException(status_code=404, detail="Version not found")
+    sections = {
+        key: {
+            **value,
+            "provenance": "user_ui",
+            "updated_by": user_id,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        for key, value in snapshot_sections(r.data[0]).items()
+    }
+    _persist_sections(
+        sb, folder_id=folder_id, user_id=user_id, sections=sections, trigger="restore"
+    )
+    return {"ok": True, "restored_from": version_id}
+
+
+def _snapshot_author(sections: dict) -> str | None:
+    latest = max(sections.values(), key=lambda section: section.get("updated_at") or "", default={})
+    return latest.get("updated_by")

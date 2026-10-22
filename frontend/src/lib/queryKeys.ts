@@ -33,4 +33,8 @@ export const qk = {
 
   usageConversations: () => ["usage-conversations"] as const,
   usageMonthly: () => ["usage-monthly"] as const,
+
+  briefingHistory: (folderId: string) => ["briefingHistory", folderId] as const,
+  briefingVersion: (folderId: string, versionId: string) =>
+    ["briefingVersion", folderId, versionId] as const,
 };
