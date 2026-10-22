@@ -373,6 +373,7 @@ CREATE TABLE IF NOT EXISTS "public"."folder_summaries" (
     "input_tokens" integer,
     "output_tokens" integer,
     "duration_ms" integer,
+    "content_hash" "text",
     "trigger" "text",
     CONSTRAINT "folder_summaries_kind_check" CHECK (("kind" = ANY (ARRAY['full'::"text", 'delta'::"text", 'seed'::"text"]))),
     CONSTRAINT "folder_summaries_trigger_check" CHECK ((("trigger" IS NULL) OR ("trigger" = ANY (ARRAY['cron_nightly'::"text", 'cron_weekly'::"text", 'manual'::"text", 'seed'::"text"]))))
