@@ -9,7 +9,11 @@
  */
 
 import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { diffLines } from "diff";
 import { qk } from "../lib/queryKeys";
 import {
@@ -31,6 +35,7 @@ import {
 import { serializeSection } from "../lib/serializeSection";
 import { brand, fonts } from "../theme";
 import CornerCard from "./neo/CornerCard";
+import { useToast } from "./ToastProvider";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -141,6 +146,7 @@ interface Props {
 
 export default function BriefingHistoryPanel({ folderId }: Props) {
   const queryClient = useQueryClient();
+  const toast = useToast();
   // selected: up to 2 version IDs, in click order. Diff direction is resolved
   // chronologically (by generated_at), NOT by click order — see below.
   const [selected, setSelected] = useState<string[]>([]);
@@ -149,29 +155,40 @@ export default function BriefingHistoryPanel({ folderId }: Props) {
   // ── queries ──────────────────────────────────────────────────────────────
 
   const {
-    data: history,
+    data: historyPages,
     isPending,
     isError,
     refetch,
-  } = useQuery({
+    hasNextPage,
+    fetchNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
     queryKey: qk.briefingHistory(folderId),
-    queryFn: () => fetchBriefingHistory(folderId),
+    queryFn: ({ pageParam }) => fetchBriefingHistory(folderId, 50, pageParam),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, pages) =>
+      lastPage.length === 50 ? pages.length * 50 : undefined,
   });
+  const history = historyPages?.pages.flat();
 
   const v0Id = selected[0] ?? null;
   const v1Id = selected[1] ?? null;
 
-  const { data: version0 } = useQuery({
+  const firstVersion = useQuery({
     queryKey: qk.briefingVersion(folderId, v0Id ?? ""),
     queryFn: () => fetchBriefingVersion(folderId, v0Id!),
-    enabled: v0Id != null && selected.length === 2,
+    enabled: v0Id != null,
   });
 
-  const { data: version1 } = useQuery({
+  const secondVersion = useQuery({
     queryKey: qk.briefingVersion(folderId, v1Id ?? ""),
     queryFn: () => fetchBriefingVersion(folderId, v1Id!),
     enabled: v1Id != null && selected.length === 2,
   });
+  const version0 = firstVersion.data;
+  const version1 = secondVersion.data;
+  const versionError =
+    firstVersion.isError || (selected.length === 2 && secondVersion.isError);
 
   // ── handlers ──────────────────────────────────────────────────────────────
 
@@ -201,6 +218,9 @@ export default function BriefingHistoryPanel({ folderId }: Props) {
           queryKey: qk.briefing(folderId),
         }),
       ]);
+      toast.showSuccess("Briefing restored.");
+    } catch (error) {
+      toast.showError(error, "Couldn't restore this version.");
     } finally {
       setRestoring(null);
     }
@@ -303,9 +323,22 @@ export default function BriefingHistoryPanel({ folderId }: Props) {
   // ── render ────────────────────────────────────────────────────────────────
 
   return (
-    <Box sx={{ display: "flex", gap: 3, alignItems: "flex-start" }}>
+    <Box
+      sx={{
+        display: "flex",
+        flexDirection: { xs: "column", md: "row" },
+        gap: 3,
+        alignItems: "flex-start",
+      }}
+    >
       {/* Left: version timeline */}
-      <Box sx={{ flex: "0 0 320px", minWidth: 0 }}>
+      <Box
+        sx={{
+          flex: { md: "0 0 320px" },
+          width: { xs: "100%", md: "auto" },
+          minWidth: 0,
+        }}
+      >
         <Typography
           sx={{
             fontFamily: fonts.mono,
@@ -422,6 +455,19 @@ export default function BriefingHistoryPanel({ folderId }: Props) {
                 )}
 
                 {/* Restore button */}
+                {v.updated_by && (
+                  <Typography
+                    sx={{
+                      fontFamily: fonts.mono,
+                      fontSize: 10,
+                      color: brand.muted,
+                      mb: 1,
+                      overflowWrap: "anywhere",
+                    }}
+                  >
+                    By {v.updated_by}
+                  </Typography>
+                )}
                 <Button
                   data-testid={`restore-${v.id}`}
                   variant="outlined"
@@ -464,6 +510,15 @@ export default function BriefingHistoryPanel({ folderId }: Props) {
           })}
         </Stack>
 
+        {hasNextPage && (
+          <Button
+            disabled={isFetchingNextPage}
+            onClick={() => void fetchNextPage()}
+          >
+            {isFetchingNextPage ? "Loading…" : "Load older versions"}
+          </Button>
+        )}
+
         {selected.length > 0 && selected.length < 2 && (
           <Typography
             sx={{
@@ -479,7 +534,7 @@ export default function BriefingHistoryPanel({ folderId }: Props) {
       </Box>
 
       {/* Right: diff panel (only when 2 selected and data loaded) */}
-      {selected.length === 2 && (
+      {selected.length > 0 && (
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Typography
             sx={{
@@ -492,10 +547,45 @@ export default function BriefingHistoryPanel({ folderId }: Props) {
               mb: 1.5,
             }}
           >
-            Diff
+            {selected.length === 2 ? "Diff" : "Version details"}
           </Typography>
 
-          {!olderVersion || !newerVersion ? (
+          {versionError ? (
+            <Box role="alert">
+              <Typography>Couldn't load this version.</Typography>
+              <Button
+                onClick={() => {
+                  void firstVersion.refetch();
+                  if (selected.length === 2) void secondVersion.refetch();
+                }}
+              >
+                Retry
+              </Button>
+            </Box>
+          ) : selected.length === 1 && version0 ? (
+            <Box data-testid="version-details">
+              {Object.entries(version0.sections).map(([key, section]) => (
+                <Box key={key} sx={{ mb: 2 }}>
+                  <Typography
+                    sx={{ color: brand.cyan, fontFamily: fonts.mono }}
+                  >
+                    {key}
+                  </Typography>
+                  <Box
+                    component="pre"
+                    sx={{
+                      whiteSpace: "pre-wrap",
+                      overflowWrap: "anywhere",
+                      fontFamily: fonts.mono,
+                      fontSize: 12,
+                    }}
+                  >
+                    {serializeSection(section.content)}
+                  </Box>
+                </Box>
+              ))}
+            </Box>
+          ) : !olderVersion || !newerVersion ? (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
               <CircularProgress size={14} sx={{ color: brand.cyan }} />
               <Typography

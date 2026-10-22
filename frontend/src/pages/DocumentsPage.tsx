@@ -1092,7 +1092,7 @@ export default function DocumentsPage() {
         )}
 
         {currentFolderIsRepo && folderTab === "history" && currentFolderId && (
-          <BriefingHistoryPanel folderId={currentFolderId} />
+          <BriefingHistoryPanel key={currentFolderId} folderId={currentFolderId} />
         )}
 
         {/* Documents grid */}
