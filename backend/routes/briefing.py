@@ -32,10 +32,11 @@ from services.folder_summary.briefing_schema import (
     BRIEFING_SCHEMA_VERSION,
     SECTION_KEYS,
     briefing_content_hash,
+    changed_sections,
     empty_briefing,
     new_section,
 )
-from services.folder_summary.repo import get_folder, get_latest_summary
+from services.folder_summary.repo import get_folder, get_latest_summary, list_summaries
 
 router = APIRouter(prefix="/api/folders")
 logger = logging.getLogger(__name__)
@@ -427,6 +428,34 @@ async def update_briefing_section(
     )
     _persist_sections(sb, folder_id=folder_id, user_id=user_id, sections=sections)
     return {"ok": True, "section": sections[section_name]}
+
+
+@router.get("/{folder_id}/briefing/history")
+async def briefing_history(
+    folder_id: str,
+    limit: int = 50,
+    offset: int = 0,
+    user_id: str = Depends(get_current_user),
+):
+    sb = get_supabase()
+    _folder_must_be_repo(sb, folder_id, user_id)
+    rows = list_summaries(sb, folder_id, user_id, limit=limit + 1, offset=offset)
+    out = []
+    for i, row in enumerate(rows[:limit]):
+        cur = (row.get("content") or {}).get("sections") or row.get("sections") or {}
+        nxt = rows[i + 1] if i + 1 < len(rows) else None
+        prev = ((nxt.get("content") or {}).get("sections") or nxt.get("sections")) if nxt else None
+        out.append(
+            {
+                "id": row["id"],
+                "generated_at": row.get("generated_at"),
+                "trigger": row.get("trigger"),
+                "updated_by": row.get("updated_by"),
+                "content_hash": row.get("content_hash"),
+                "changed_sections": changed_sections(prev, cur),
+            }
+        )
+    return out
 
 
 def _persist_sections(sb, *, folder_id: str, user_id: str, sections: dict) -> dict | None:
