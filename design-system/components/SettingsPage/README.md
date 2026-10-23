@@ -1,4 +1,4 @@
-Screen: Settings — MCP API keys scoped to root folders, Notion integration, Mem0 memory.
+Screen: Settings — MCP API keys scoped to root folders, Notion integration.
 
 ## Use
 Reference for settings composition.

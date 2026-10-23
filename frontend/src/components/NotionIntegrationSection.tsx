@@ -591,7 +591,7 @@ export function NotionConnectDialog({
   open: boolean;
   rootFolders: { id: string; name: string }[];
   /** If set, the folder picker is hidden and this folder is used. Matches the
-   *  Mem0ConnectDialog / GitHubConnectDialog signature so the per-folder
+   *  GitHubConnectDialog signature so the per-folder
    *  FolderIntegrationsDialog can reuse the same dialog. */
   fixedFolderId?: string;
   onClose: () => void;

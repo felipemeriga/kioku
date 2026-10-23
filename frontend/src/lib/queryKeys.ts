@@ -17,10 +17,6 @@ export const qk = {
   documentation: (folderId: string) => ["documentation", folderId] as const,
   folderStatus: (folderId: string) => ["folder-status", folderId] as const,
 
-  mem0Status: (rootFolderId: string) => ["mem0-status", rootFolderId] as const,
-  folderMemories: (rootFolderId: string) =>
-    ["folder-memories", rootFolderId] as const,
-
   apiKeys: () => ["api-keys"] as const,
   notionConfigs: () => ["notion-configs"] as const,
   notionPending: (configId: string) => ["notion-pending", configId] as const,

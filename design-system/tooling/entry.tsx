@@ -32,14 +32,13 @@ import FolderTreeC from "@app/components/FolderTree";
 import IconRailC from "@app/components/IconRail";
 import IngestionDrawerC from "@app/components/IngestionDrawer";
 import InspectDialogC from "@app/components/InspectDialog";
-import { Mem0IntegrationSection as Mem0IntegrationSectionC } from "@app/components/Mem0IntegrationSection";
 import MessageBubbleC from "@app/components/MessageBubble";
 import MoveDialogC from "@app/components/MoveDialog";
 import { NotionIntegrationSection as NotionIntegrationSectionC, NotionConnectDialog as NotionConnectDialogC } from "@app/components/NotionIntegrationSection";
 import { NotionSyncBanner as NotionSyncBannerC } from "@app/components/NotionSyncBanner";
 import ScopePickerDialogC from "@app/components/ScopePickerDialog";
 import ThinkingBarC from "@app/components/ThinkingBar";
-import { GitHubBrandIcon, NotionBrandIcon, Mem0BrandIcon } from "@app/components/BrandIcons";
+import { GitHubBrandIcon, NotionBrandIcon } from "@app/components/BrandIcons";
 import ChatPageC from "@app/pages/ChatPage";
 import DocumentsPageC from "@app/pages/DocumentsPage";
 import FolderDetailPageC from "@app/pages/FolderDetailPage";
@@ -169,12 +168,10 @@ const KiokuNS = {
   NotionIntegrationSection: wrap("NotionIntegrationSection", NotionIntegrationSectionC, "/settings"),
   NotionConnectDialog: wrap("NotionConnectDialog", NotionConnectDialogC, "/settings"),
   NotionSyncBanner: wrap("NotionSyncBanner", NotionSyncBannerC),
-  Mem0IntegrationSection: wrap("Mem0IntegrationSection", Mem0IntegrationSectionC, "/settings"),
   ErrorBoundary: wrap("ErrorBoundary", ErrorBoundaryC),
   Toast: wrap("Toast", ToastDemoC),
   GitHubBrandIcon: wrap("GitHubBrandIcon", GitHubBrandIcon),
   NotionBrandIcon: wrap("NotionBrandIcon", NotionBrandIcon),
-  Mem0BrandIcon: wrap("Mem0BrandIcon", Mem0BrandIcon),
   // screens (full routes, AppLayout included)
   ChatPage: screen("ChatPage", "/"),
   DocumentsPage: screen("DocumentsPage", "/documents"),

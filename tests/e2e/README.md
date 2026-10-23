@@ -42,15 +42,13 @@ tests/e2e/run_all_e2e.sh --list
 | Chat + SSE | Streaming end-to-end incl. disconnect resilience |
 | MCP + detail page | MCP tool surface + Playwright UI walk |
 | Claude Code first session | Full session simulation via real MCP over SSE |
-| Dedup Mem0 | Same content 3× = 1 memory, paraphrase = 2 |
 | Multi-type file viewer | pdf / image / md / txt / json render inline |
 | Focus folder | Root-scoped key + drill-into-subrepo |
 | Persona: UX Playwright | Automated UI regression sweep |
 | Persona: Developer with Claude Code | Session start → update briefing → PC switch |
 | Persona: Bug hunter | Adversarial: quotas, huge payloads, malformed data |
-| Dev workflow | Real MCP + Mem0 mutation across sessions |
+| Dev workflow | Real MCP and briefing updates across sessions |
 | Briefing lifecycle | ⭐ Full 33-check lifecycle: MCP replace, section edits, resets |
-| CLI capture (Stop hook) | Threshold + transcript delta + Mem0 write |
 | CLI smoothness | Smart defaults + fallback menu |
 | CLI GitHub auth ladder | gh CLI → env var → PAT paste chain |
 | CLI pro tier | Auto-refresh, --json, NO_COLOR, briefing/ls/logout |

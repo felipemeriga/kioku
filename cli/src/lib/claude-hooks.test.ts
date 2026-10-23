@@ -1,9 +1,20 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { installSessionStartHook, installStopHook } from "./claude.js";
+import {
+  installSessionStartHook,
+  removeLegacyCaptureHooks,
+  secondBrainSnippet,
+  isRetiredCaptureCommand,
+} from "./claude.js";
 
 function setup(seed?: unknown): string {
   const repo = mkdtempSync(join(tmpdir(), "kioku-hooks-"));
@@ -58,17 +69,49 @@ test("re-install migrates the stale bare hook instead of duplicating", () => {
   }
 });
 
-test("installing a different subcommand leaves others intact", () => {
-  const repo = setup();
+test("retired capture hooks are removed while session and unrelated hooks survive", () => {
+  const repo = setup({
+    hooks: {
+      Stop: [
+        {
+          hooks: [
+            { type: "command", command: "kioku capture" },
+            { type: "command", command: "other-hook" },
+          ],
+        },
+      ],
+    },
+  });
   try {
     installSessionStartHook(repo);
-    installStopHook(repo);
+    assert.equal(removeLegacyCaptureHooks(repo), true);
+    assert.equal(removeLegacyCaptureHooks(repo), false);
     const s = JSON.parse(
       readFileSync(join(repo, ".claude", "settings.local.json"), "utf8")
     );
-    assert.ok(s.hooks.SessionStart[0].hooks[0].command.endsWith(" session-start"));
-    assert.ok(s.hooks.Stop[0].hooks[0].command.endsWith(" capture"));
+    assert.ok(
+      s.hooks.SessionStart[0].hooks[0].command.endsWith(" session-start")
+    );
+    assert.equal(s.hooks.Stop[0].hooks[0].command, "other-hook");
   } finally {
     rmSync(repo, { recursive: true, force: true });
   }
+});
+
+test("agent instructions only advertise available knowledge tools", () => {
+  const snippet = secondBrainSnippet();
+  assert.doesNotMatch(snippet, /Mem0|save_memory|search_memory|Stop hook/);
+  assert.match(snippet, /update_folder_briefing_section/);
+});
+
+test("capture migration only matches Kioku commands including installed absolute paths", () => {
+  assert.equal(isRetiredCaptureCommand("kioku capture"), true);
+  assert.equal(
+    isRetiredCaptureCommand(
+      "'/opt/homebrew/bin/node' '/opt/homebrew/lib/node_modules/@felipemeriga/kioku/dist/index.js' capture"
+    ),
+    true
+  );
+  assert.equal(isRetiredCaptureCommand("other-tool capture"), false);
+  assert.equal(isRetiredCaptureCommand("kioku session-start"), false);
 });

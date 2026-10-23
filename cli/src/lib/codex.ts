@@ -1,11 +1,11 @@
 /**
  * Everything that touches the OpenAI Codex surface — the GLOBAL
- * ~/.codex/config.toml (MCP server + SessionStart/Stop hooks) and the
+ * ~/.codex/config.toml (MCP server + SessionStart hooks) and the
  * per-repo AGENTS.md instructions file.
  *
  * Mirrors claude.ts, but Codex config is a single global TOML file (not a
  * per-repo .mcp.json / .claude/settings.local.json). The hooks fire for every
- * Codex session; `kioku session-start` / `kioku capture` already no-op when the
+ * Codex session; `kioku session-start` already no-ops when the
  * cwd isn't a wired kioku repo (they check for the repo's state files), so a
  * global install is safe.
  *
@@ -19,7 +19,7 @@ import { homedir } from "node:os";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import {
   SUB_SESSION_START,
-  SUB_STOP,
+  isRetiredCaptureCommand,
   SUB_POST_PUSH,
   cliInvocation,
   secondBrainSnippet,
@@ -236,12 +236,25 @@ export function installCodexSessionStartHook(): {
   return { path, addedHook: changed };
 }
 
-export function installCodexStopHook(): { path: string; addedHook: boolean } {
+/** Remove the retired capture hook, preserving unrelated Stop handlers. */
+export function removeCodexCaptureHooks(): boolean {
   const path = codexConfigPath();
+  if (!existsSync(path)) return false;
   const cfg = loadConfig(path);
-  const changed = ensureCodexHook(cfg, "Stop", SUB_STOP);
+  const hooks = cfg.hooks as TomlTable | undefined;
+  if (!Array.isArray(hooks?.Stop)) return false;
+  const before = JSON.stringify(hooks.Stop);
+  hooks.Stop = (hooks.Stop as MatcherGroup[])
+    .map((group) => ({
+      ...group,
+      hooks: group.hooks.filter(
+        (handler) => !isRetiredCaptureCommand(handler.command)
+      ),
+    }))
+    .filter((group) => group.hooks.length > 0);
+  if (JSON.stringify(hooks.Stop) === before) return false;
   writeConfig(path, cfg);
-  return { path, addedHook: changed };
+  return true;
 }
 
 /** PostToolUse hook scoped to the shell (Bash) tool. `kioku on-push` filters
@@ -266,7 +279,7 @@ export function installCodexPostPushHook(): {
 // ── AGENTS.md ─────────────────────────────────────────────────────
 
 /** Mirror updateClaudeMd into AGENTS.md (Codex's project-instructions file).
- *  Uses the push-hook snippet — the Codex surface now wires SessionStart, Stop,
+ *  Uses the push-hook snippet — the Codex surface now wires SessionStart,
  *  (same fenced block as CLAUDE.md — one source of truth). */
 export function updateAgentsMd(repoRoot: string): {
   path: string;

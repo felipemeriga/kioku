@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { parse as parseToml } from "smol-toml";
 import {
   installCodexSessionStartHook,
-  installCodexStopHook,
+  removeCodexCaptureHooks,
   installCodexPostPushHook,
   readCodexMcpEntry,
   toStreamableHttpUrl,
@@ -82,9 +82,7 @@ test("hooks write the correct [[hooks.Event]] / [[hooks.Event.hooks]] nesting", 
   const { path, cleanup } = setup();
   try {
     const start = installCodexSessionStartHook();
-    const stop = installCodexStopHook();
     assert.ok(start.addedHook);
-    assert.ok(stop.addedHook);
     const cfg = parseToml(readFileSync(path, "utf8")) as any;
 
     const ssGroups = cfg.hooks.SessionStart;
@@ -96,9 +94,7 @@ test("hooks write the correct [[hooks.Event]] / [[hooks.Event.hooks]] nesting", 
     // Absolute invocation, not a bare `kioku`.
     assert.notEqual(ssHandler.command, "kioku session-start");
 
-    const stopHandler = cfg.hooks.Stop[0].hooks[0];
-    assert.equal(stopHandler.type, "command");
-    assert.ok(stopHandler.command.endsWith(" capture"));
+    assert.equal(cfg.hooks.Stop, undefined);
   } finally {
     cleanup();
   }
@@ -165,19 +161,35 @@ test("a stale bare push hook is migrated, not duplicated", () => {
   }
 });
 
-test("push + session-start + stop hooks coexist independently", () => {
+test("push + session-start hooks coexist independently", () => {
   const { path, cleanup } = setup();
   try {
     installCodexSessionStartHook();
-    installCodexStopHook();
     installCodexPostPushHook();
     const cfg = parseToml(readFileSync(path, "utf8")) as any;
     assert.ok(
       cfg.hooks.SessionStart[0].hooks[0].command.endsWith(" session-start")
     );
-    assert.ok(cfg.hooks.Stop[0].hooks[0].command.endsWith(" capture"));
+    assert.equal(cfg.hooks.Stop, undefined);
     assert.ok(cfg.hooks.PostToolUse[0].hooks[0].command.endsWith(" on-push"));
     assert.equal(cfg.hooks.PostToolUse[0].matcher, "Bash");
+  } finally {
+    cleanup();
+  }
+});
+
+test("retired capture hook cleanup preserves unrelated handlers and is idempotent", () => {
+  const { path, cleanup } = setup();
+  try {
+    writeFileSync(
+      path,
+      `[[hooks.Stop]]\n[[hooks.Stop.hooks]]\ntype = "command"\ncommand = "kioku capture"\n[[hooks.Stop.hooks]]\ntype = "command"\ncommand = "other-hook"\n`
+    );
+    assert.equal(removeCodexCaptureHooks(), true);
+    assert.equal(removeCodexCaptureHooks(), false);
+    const cfg = parseToml(readFileSync(path, "utf8")) as any;
+    assert.equal(cfg.hooks.Stop[0].hooks.length, 1);
+    assert.equal(cfg.hooks.Stop[0].hooks[0].command, "other-hook");
   } finally {
     cleanup();
   }

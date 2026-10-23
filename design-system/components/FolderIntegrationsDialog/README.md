@@ -1,4 +1,4 @@
-Per-folder integrations: GitHub (repo binding via `kioku init`), Notion (connect / sync / reconcile) and Mem0 status.
+Per-folder integrations: GitHub (repo binding via `kioku init`), Notion (connect / sync / reconcile).
 
 ## Use
 From the folder menu or the folder page's Integrations button. Consumer supplies `open`, `folder`, `onClose`.

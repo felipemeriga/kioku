@@ -67,13 +67,13 @@ const SECTION_DESCRIPTIONS: Record<BriefingSectionKey, string> = {
   overview: "One-line purpose and a short what/why.",
   architecture:
     "How the system fits together — subsystems, boundaries, data flow.",
-  preferences: "Auto-populated from Mem0 [preference] rules.",
+  preferences: "Repository working conventions and preferences.",
   important_files: "3–8 files a fresh agent would want to open first.",
   how_it_runs: "Local dev requirements + setup + run commands.",
   deployment: "Environments, deploy steps, CI/CD notes.",
   dependencies:
     "Auto-parsed from manifests (package.json, pyproject.toml, etc).",
-  activity: "Auto-pooled from GitHub sync + Mem0 findings/decisions/sessions.",
+  activity: "Recent repository activity from git history.",
 };
 
 /** Colors cycling for sections 03–08 */

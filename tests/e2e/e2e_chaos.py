@@ -252,58 +252,7 @@ async def main():
               r.status_code < 500 and ("detail" in r.text or r.text == "[]"),
               f"status={r.status_code} body={r.text[:200]}")
 
-    hr("I. Rate-limit 429 → returns Retry-After header cleanly")
-    # Hammer the endpoint with an api-key scoped to folder X, but send
-    # requests with folder_id=OUT_OF_SCOPE — the 403 short-circuits
-    # BEFORE the LLM call, so we can fill the rate-limit bucket fast.
-    async with httpx.AsyncClient(timeout=15, headers=H) as c:
-        from db.client import get_supabase
-        sb = get_supabase()
-        cfgs = sb.table("mem0_sync_configs").select("root_folder_id").eq(
-            "user_id", user_id).limit(1).execute().data or []
-        if cfgs:
-            fid = cfgs[0]["root_folder_id"]
-            sb.table("folders").update({"kind":"repo"}).eq("id", fid).eq(
-                "user_id", user_id).execute()
-            r = await c.post(f"{BACKEND}/api/api-keys", json={
-                "name": f"chaos-i-{uuid.uuid4().hex[:6]}",
-                "scope_folder_id": fid,
-            })
-            apik = r.json()["key"]
-            apik_id = r.json()["id"]
-            H_key = {"Authorization": f"Bearer {apik}"}
-            payload = {
-                "folder_id": fid,
-                "session_id": "chaos-i",
-                "transcript_delta": [
-                    {"role":"user","content":"x"},
-                    {"role":"assistant","content":"y"},
-                ],
-            }
-            # Hit endpoint N+1 times. Each returns 200 (Mem0 saves)
-            # until the in-server rate-limit bucket fills.
-            codes = []
-            for _ in range(9):
-                r = await c.post(f"{BACKEND}/api/cli/session-capture",
-                                  headers=H_key, json=payload)
-                codes.append(r.status_code)
-                if r.status_code == 429:
-                    break
-            check("hitting the endpoint enough eventually returns 429",
-                  429 in codes, f"codes: {codes}")
-            if 429 in codes:
-                # Find the 429 response
-                for _ in range(3):
-                    r = await c.post(f"{BACKEND}/api/cli/session-capture",
-                                      headers=H_key, json=payload)
-                    if r.status_code == 429:
-                        break
-                check("Retry-After header present",
-                      "retry-after" in {k.lower() for k in r.headers.keys()},
-                      f"headers={dict(r.headers)}")
-            await c.delete(f"{BACKEND}/api/api-keys/{apik_id}")
-
-    hr("J. Concurrent captures on same session — no data corruption")
+    hr("J. Concurrent briefing updates — no data corruption")
     # Rely on existing concurrency tests — this is a summary check via
     # the folder we just used.
     async with httpx.AsyncClient(timeout=45, headers=H) as c:

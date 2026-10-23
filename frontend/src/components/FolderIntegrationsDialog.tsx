@@ -2,9 +2,6 @@
  * FolderIntegrationsDialog — manage a folder's integrations (Notion),
  * opened from the folder context menu.
  *
- * Mem0 memory is auto-on for repo folders and is now browsable via the
- * dedicated Mem0 tab on the repo page. Only Notion has a connect/sync/disconnect
- * flow here.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -151,8 +148,7 @@ export default function FolderIntegrationsDialog({
             variant="body2"
             sx={{ color: brand.muted, lineHeight: 1.55, mb: 2 }}
           >
-            Wire this folder to Notion for note-sync. Mem0 memory is auto-on for
-            repo folders and is browsable via the Mem0 tab on the repo page.
+            Wire this folder to Notion for note-sync.
           </Typography>
 
           <Stack spacing={2}>

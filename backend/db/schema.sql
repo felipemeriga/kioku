@@ -422,24 +422,6 @@ CREATE TABLE IF NOT EXISTS "public"."ingestion_jobs" (
 ALTER TABLE "public"."ingestion_jobs" OWNER TO "postgres";
 
 
--- DEPRECATED (self-hosted mem0): no longer written or read. Memory is auto-on
--- for repo folders via the self-hosted mem0 service; the hosted "paste your API
--- key" config model is gone. Retained read-only for one release, then droppable.
-CREATE TABLE IF NOT EXISTS "public"."mem0_sync_configs" (
-    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
-    "user_id" "uuid" NOT NULL,
-    "root_folder_id" "uuid" NOT NULL,
-    "api_key_encrypted" "text" NOT NULL,
-    "org_id" "text",
-    "project_id" "text",
-    "last_verified_at" timestamp with time zone,
-    "last_error" "text",
-    "created_at" timestamp with time zone DEFAULT "now"(),
-    "updated_at" timestamp with time zone DEFAULT "now"()
-);
-
-
-ALTER TABLE "public"."mem0_sync_configs" OWNER TO "postgres";
 
 
 CREATE TABLE IF NOT EXISTS "public"."messages" (
@@ -571,13 +553,9 @@ ALTER TABLE ONLY "public"."ingestion_jobs"
 
 
 
-ALTER TABLE ONLY "public"."mem0_sync_configs"
-    ADD CONSTRAINT "mem0_sync_configs_folder_unique" UNIQUE ("user_id", "root_folder_id");
 
 
 
-ALTER TABLE ONLY "public"."mem0_sync_configs"
-    ADD CONSTRAINT "mem0_sync_configs_pkey" PRIMARY KEY ("id");
 
 
 
@@ -671,7 +649,6 @@ CREATE INDEX "idx_ingestion_jobs_user_status" ON "public"."ingestion_jobs" USING
 
 
 
-CREATE INDEX "idx_mem0_sync_configs_user_id" ON "public"."mem0_sync_configs" USING "btree" ("user_id");
 
 
 
@@ -708,7 +685,6 @@ CREATE OR REPLACE TRIGGER "ingestion_jobs_updated_at" BEFORE UPDATE ON "public".
 
 
 
-CREATE OR REPLACE TRIGGER "mem0_sync_configs_updated_at" BEFORE UPDATE ON "public"."mem0_sync_configs" FOR EACH ROW EXECUTE FUNCTION "public"."update_updated_at"();
 
 
 
@@ -791,13 +767,9 @@ ALTER TABLE ONLY "public"."ingestion_jobs"
 
 
 
-ALTER TABLE ONLY "public"."mem0_sync_configs"
-    ADD CONSTRAINT "mem0_sync_configs_folder_fk" FOREIGN KEY ("root_folder_id") REFERENCES "public"."folders"("id") ON DELETE CASCADE;
 
 
 
-ALTER TABLE ONLY "public"."mem0_sync_configs"
-    ADD CONSTRAINT "mem0_sync_configs_user_fk" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
 
 
 
@@ -869,7 +841,6 @@ CREATE POLICY "Users manage own ingestion jobs" ON "public"."ingestion_jobs" USI
 
 
 
-CREATE POLICY "Users manage own mem0 configs" ON "public"."mem0_sync_configs" USING (("auth"."uid"() = "user_id")) WITH CHECK (("auth"."uid"() = "user_id"));
 
 
 
@@ -915,7 +886,6 @@ ALTER TABLE "public"."folders" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."ingestion_jobs" ENABLE ROW LEVEL SECURITY;
 
 
-ALTER TABLE "public"."mem0_sync_configs" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."messages" ENABLE ROW LEVEL SECURITY;
@@ -1058,9 +1028,6 @@ GRANT ALL ON TABLE "public"."ingestion_jobs" TO "service_role";
 
 
 
-GRANT ALL ON TABLE "public"."mem0_sync_configs" TO "anon";
-GRANT ALL ON TABLE "public"."mem0_sync_configs" TO "authenticated";
-GRANT ALL ON TABLE "public"."mem0_sync_configs" TO "service_role";
 
 
 

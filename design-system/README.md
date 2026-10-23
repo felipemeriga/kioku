@@ -45,7 +45,7 @@ Kioku (記憶, "memory") is a second brain for your repos. The interface is **cy
 
 ## Iconography
 - **Material Icons** (`@mui/icons-material`) for all UI — filled by default, `Outlined` variants inside the briefing. Sizes 16–20px in dense rows, 24px default. Icons take the accent of their context (`cyan` for AI, `magenta` for brand actions) or `muted`.
-- Integration marks — `GitHubBrandIcon`, `NotionBrandIcon`, `Mem0BrandIcon` — are SvgIcons tinted by `currentColor`, used only beside their integration's name. The Mem0 mark is an approximation (their SVG isn't open).
+- Integration marks — `GitHubBrandIcon`, `NotionBrandIcon` — are SvgIcons tinted by `currentColor`, used only beside their integration's name.
 - File types map to an icon + color in DocumentCard: pdf `tw-red-500`, docx `tw-blue-500`, md `tw-emerald-500`, html `tw-amber-500`, txt white at 50%.
 - The logo is the **hanko** (`assets/Logos/kioku-hanko.svg`): an `ink` tile with a magenta→cyan gradient frame, a glowing 記 and cyan scan ticks. It's the favicon and sits in the IconRail beside the `KIOKU` wordmark (Rubik, with キオク above). No emoji anywhere.
 

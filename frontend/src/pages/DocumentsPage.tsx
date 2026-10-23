@@ -44,7 +44,6 @@ import HomeIcon from "@mui/icons-material/Home";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import InsightsIcon from "@mui/icons-material/Insights";
 import HistoryIcon from "@mui/icons-material/History";
-import { Mem0BrandIcon } from "../components/BrandIcons";
 import { useDocuments } from "../hooks/useDocuments";
 import { useIngestionStatus } from "../hooks/useIngestionStatus";
 import {
@@ -69,7 +68,6 @@ import BriefingPanel from "../components/BriefingPanel";
 import BriefingHistoryPanel from "../components/BriefingHistoryPanel";
 import DocumentationPanel from "../components/DocumentationPanel";
 import StatusPanel from "../components/StatusPanel";
-import MemoryPanel from "../components/MemoryPanel";
 import FolderIntegrationsDialog from "../components/FolderIntegrationsDialog";
 import { NotionSyncBanner } from "../components/NotionSyncBanner";
 import { useToast, messageFromError } from "../components/ToastProvider";
@@ -108,7 +106,7 @@ export default function DocumentsPage() {
   }, [viewMode]);
   const queryClient = useQueryClient();
   const [folderTab, setFolderTab] = useState<
-    "files" | "briefing" | "status" | "memory" | "history"
+    "files" | "briefing" | "status" | "history"
   >("files");
   const [viewerFile, setViewerFile] = useState<string | null>(null);
 
@@ -863,12 +861,6 @@ export default function DocumentsPage() {
               iconPosition="start"
             />
             <Tab
-              value="memory"
-              label="Mem0"
-              icon={<Mem0BrandIcon sx={{ fontSize: 18 }} />}
-              iconPosition="start"
-            />
-            <Tab
               value="history"
               label="History"
               icon={<HistoryIcon sx={{ fontSize: 18 }} />}
@@ -1087,12 +1079,11 @@ export default function DocumentsPage() {
           <StatusPanel folderId={currentFolderId} />
         )}
 
-        {currentFolderIsRepo && folderTab === "memory" && currentFolderId && (
-          <MemoryPanel folderId={currentFolderId} />
-        )}
-
         {currentFolderIsRepo && folderTab === "history" && currentFolderId && (
-          <BriefingHistoryPanel key={currentFolderId} folderId={currentFolderId} />
+          <BriefingHistoryPanel
+            key={currentFolderId}
+            folderId={currentFolderId}
+          />
         )}
 
         {/* Documents grid */}

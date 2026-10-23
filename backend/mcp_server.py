@@ -19,9 +19,7 @@ from services.embeddings import embed_query
 from services.evaluation import evaluate_rag_pipeline
 from services.folder_summary.briefing_schema import snapshot_sections
 from services.folder_summary.persistence import persist_sections
-from services.mem0_sync import MemoryCategory, get_client_for_folder
-from services.mem0_sync.client import MemoryScope
-from services.mem0_sync.fanout import fanout_search
+from services.retrieval import retrieve_knowledge
 from services.text_to_sql import generate_and_execute_sql
 
 MCP_PORT = int(os.environ.get("MCP_PORT", "8001"))
@@ -280,16 +278,13 @@ async def knowledge_base_search(
     created_before: str | None = None,
 ) -> str:
     """Search across all knowledge for this scope: documents, indexed source
-    CODE, and any connected memory (Mem0) — fanned out in parallel, merged,
-    and reranked together.
+    CODE, merged and reranked together.
 
     Use this for any factual lookup: past decisions, code architecture,
     ingested documents, notes, learnings. Relevant code chunks (labeled
     [Code: file:lines — symbol]) compete with document chunks in the same
     reranker, so implementation questions surface actual source alongside
-    prose. For code-only precision search, use code_search instead. If Mem0
-    is connected for this folder, eternal preferences are always prepended
-    and episodic memories are searched semantically alongside documents.
+    prose. For code-only precision search, use code_search instead.
 
     Args:
         query: The search query.
@@ -318,10 +313,10 @@ async def knowledge_base_search(
             return f"Error: {resolved}"
         folder_ids = _descendant_folder_ids(sb, resolved_id, user_id)
 
-    # Tool is async so FastMCP's own event loop drives fanout_search directly
+    # Tool is async so FastMCP's own event loop drives retrieve_knowledge directly
     # (previously we tried asyncio.run which nested loops and crashed).
     embedding = embed_query(query)
-    result = await fanout_search(
+    result = await retrieve_knowledge(
         sb,
         embedding=embedding,
         query_text=query,
@@ -335,7 +330,7 @@ async def knowledge_base_search(
         created_before=created_before,
     )
     if not result.hits:
-        return "No relevant content found in documents or memory."
+        return "No relevant content found in documents or indexed code."
 
     parts = []
     for h in result.hits:
@@ -350,140 +345,7 @@ async def knowledge_base_search(
                 date = str(md.get("created_at") or "")[:10]
                 label = f"[Document: {src} — {date}]" if date else f"[Document: {src}]"
             parts.append(f"{label}\n{h.content}")
-        elif h.source == "mem0_eternal":
-            cat = (h.metadata or {}).get("category", "preference")
-            parts.append(f"[Eternal preference · {cat}]\n{h.content}")
-        else:  # mem0_episodic
-            cat = (h.metadata or {}).get("category", "note")
-            ts = (h.metadata or {}).get("created_at", "")
-            parts.append(f"[Memory · {cat} · {ts}]\n{h.content}")
     return "\n\n---\n\n".join(parts)
-
-
-@mcp.tool()
-def save_memory(
-    content: str,
-    category: str,
-    scope: str = "episodic",
-    tags: str = "",
-) -> str:
-    """Save a memory to Mem0. Every write carries user_id + agent_id + category.
-
-    Three fields are ALWAYS enforced by our proxy:
-      • user_id  — resolved from your API key.
-      • agent_id — set to the API key's scope folder id (memory namespace).
-                   API keys with no scope folder cannot save memories.
-      • category — you MUST provide one of the six values below. There is
-                   no default; picking the right category is how we
-                   distinguish policy from history, decisions from notes.
-
-    Categories:
-      • "decision"   — an architectural or design choice you made
-      • "finding"    — an empirical fact discovered by investigation
-      • "issue"      — a known bug, limitation, or workaround
-      • "preference" — how the user wants to work (usually eternal)
-      • "session"    — summary of what was done in a session
-      • "note"       — freeform (use sparingly; prefer a specific category)
-
-    Scopes:
-      • "eternal"  — always inlined at session start (typically preferences)
-      • "episodic" — recorded, retrievable via semantic search (default)
-
-    Args:
-        content: The memory to save. One sentence is ideal; two is fine.
-        category: REQUIRED. One of decision/finding/issue/preference/session/note.
-        scope: "eternal" for policies, "episodic" for history (default).
-        tags: Comma-separated tags for filtering (e.g. "auth,security").
-
-    Returns:
-        JSON with {ok, memory_id, duplicate, scope, category, tags}.
-    """
-    if not _current_user_id.get():
-        return json.dumps({"ok": False, "error": "Not authenticated. Provide a valid API key."})
-    folder_id = _current_scope_folder_id.get()
-    if not folder_id:
-        return json.dumps(
-            {
-                "ok": False,
-                "error": "This API key has no scope folder; cannot infer agent_id.",
-                "fix": "Mint an API key scoped to a folder in Settings.",
-            }
-        )
-    # Explicit category check — refuse (don't silently substitute 'note').
-    if not category or category not in MemoryCategory.all():
-        return json.dumps(
-            {
-                "ok": False,
-                "error": f"category is required and must be one of {list(MemoryCategory.all())}.",
-                "got": category,
-            }
-        )
-    if scope not in (MemoryScope.ETERNAL, MemoryScope.EPISODIC):
-        return json.dumps(
-            {
-                "ok": False,
-                "error": "scope must be 'eternal' or 'episodic'.",
-                "got": scope,
-            }
-        )
-    if not content or not content.strip():
-        return json.dumps({"ok": False, "error": "content is required."})
-
-    client = get_client_for_folder(get_supabase(), folder_id, _current_user_id.get())
-    if client is None:
-        return json.dumps(
-            {
-                "ok": False,
-                "error": "No Mem0 integration configured for this folder.",
-                "fix": "Connect Mem0 for this folder in the app's Settings page.",
-            }
-        )
-    tag_list = [t.strip() for t in (tags or "").split(",") if t.strip()]
-    result = client.add(
-        content, scope=scope, category=category, tags=tag_list, written_by="claude-code"
-    )
-    if not result.get("ok"):
-        return json.dumps({"ok": False, "error": result.get("error") or "Mem0 write failed."})
-    return json.dumps(
-        {
-            "ok": True,
-            "duplicate": result.get("duplicate", False),
-            "existing_id": result.get("existing_id"),
-            "scope": scope,
-            "category": category,
-            "tags": tag_list,
-            "user_id": _current_user_id.get(),
-            "agent_id": folder_id,
-            "mem0_result": result.get("raw"),
-        },
-        default=str,
-    )
-
-
-@mcp.tool()
-def search_memory(query: str, scope: str = "any", limit: int = 10) -> str:
-    """Search Mem0 memory ONLY (not documents). Use knowledge_base_search
-    for a unified query across docs + memory.
-
-    Args:
-        query: Natural language query.
-        scope: "any" (default) | "eternal" | "episodic".
-        limit: Max results (default 10).
-    """
-    if not _current_user_id.get():
-        return "Error: Not authenticated."
-    folder_id = _current_scope_folder_id.get()
-    if not folder_id:
-        return "Error: This API key has no scope folder."
-    client = get_client_for_folder(get_supabase(), folder_id, _current_user_id.get())
-    if client is None:
-        return "No Mem0 integration configured for this folder."
-    if scope not in (MemoryScope.ETERNAL, MemoryScope.EPISODIC):
-        scope = MemoryScope.ANY
-    hits = client.search(query, scope=scope, limit=limit)
-    if not hits:
-        return "No memories matched."
-    return json.dumps(hits, default=str, indent=2)
 
 
 @mcp.tool()
@@ -1070,9 +932,7 @@ def get_folder_briefing_schema() -> str:
                 "How the system fits together. summary (str), components "
                 "(list of {name, role, path}), data_flow (str)."
             ),
-            "preferences": (
-                "Verbatim rules. Prefer using save_memory + regen over editing directly."
-            ),
+            "preferences": ("Repository conventions maintained through briefing section updates."),
             "important_files": "3-8 files an agent would open first. list of {path, role, why}.",
             "how_it_runs": "Requirements list + local_dev setup string.",
             "deployment": "Environments list, how_to_deploy, ci_cd_notes.",
@@ -1580,8 +1440,7 @@ def update_folder_briefing_section(
         return (
             "The 'activity' section is auto-maintained by the kioku watcher "
             "(it folds new commits per repo, twice daily). Agents should not "
-            "write it — leave activity to the watcher. To record a learning, "
-            "use save_memory instead."
+            "write it — leave activity to the watcher."
         )
     sb = get_supabase()
     user_id = _current_user_id.get()
@@ -1678,10 +1537,7 @@ def get_folder_orientation(
     Returns:
         A JSON string containing:
         - summary: purpose, overview, themes, key_documents, key_facts, entities, gotchas
-        - rules: eternal preferences from Mem0 that ALWAYS apply (empty if Mem0
-                 is not connected for this folder)
         - recent_activity:
-            - learnings: last N days of episodic memories (empty if no Mem0)
             - changes: files added/removed/modified in the KB since the previous summary
             - commits: recent GitHub activity (empty if no GitHub integration)
         - subfolders: (workspace_rollup folders only) structured index of children
@@ -1723,36 +1579,6 @@ def get_folder_orientation(
 
     row = latest.data[0]
 
-    # Compose the recent_activity block. Each source is lazily-configured:
-    # if there's no integration, we return an empty list, not an error.
-    rules: list[dict] = []
-    recent_learnings: list[dict] = []
-    mem0_client = get_client_for_folder(sb, folder_id, user_id)
-    if mem0_client is not None:
-        try:
-            for r in mem0_client.list_eternal(limit=50):
-                md = r.get("metadata") or {}
-                rules.append(
-                    {
-                        "content": r.get("memory"),
-                        "category": md.get("category"),
-                        "tags": md.get("tags", []),
-                        "id": r.get("id"),
-                    }
-                )
-            for r in mem0_client.list_recent_episodic(days=14, limit=20):
-                md = r.get("metadata") or {}
-                recent_learnings.append(
-                    {
-                        "content": r.get("memory"),
-                        "category": md.get("category"),
-                        "created_at": r.get("created_at"),
-                        "tags": md.get("tags", []),
-                    }
-                )
-        except Exception:  # noqa: BLE001 — non-fatal
-            pass
-
     # GitHub commits: pull from documents where source_type in
     # github_commit/pr/issue and folder is in subtree, up to N recent.
     recent_commits: list[dict] = []
@@ -1786,9 +1612,7 @@ def get_folder_orientation(
     payload = {
         "folder": folder_name_resolved,
         "summary": row.get("content") or {},
-        "rules": rules,
         "recent_activity": {
-            "learnings": recent_learnings,
             "changes": row.get("changed_files") or {},
             "commits": recent_commits,
         },
@@ -1797,7 +1621,6 @@ def get_folder_orientation(
             "kind": row.get("kind"),
             "doc_count": row.get("doc_count"),
             "trigger": row.get("trigger"),
-            "mem0_connected": mem0_client is not None,
             # github_sync_configs table has been dropped (GitHub sync removed).
             # Use folder.kind == "repo" as the source of truth for whether this
             # is a repo folder (commits may still exist in documents).

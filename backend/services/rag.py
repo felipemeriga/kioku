@@ -485,7 +485,7 @@ def _run_loop_and_stream_final(
             yield ("stage", "searching")
 
             def _run_tool(block, _indent: int = 1) -> dict:
-                # Wrap execute_tool so a failing tool (Voyage 429, Mem0 down,
+                # Wrap execute_tool so a failing tool (Voyage 429, upstream outage,
                 # bad SQL) returns an is_error tool_result the model can
                 # gracefully compose an apology around, instead of the
                 # exception bubbling out of the generator and 500ing the SSE.

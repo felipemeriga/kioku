@@ -84,13 +84,6 @@ async function route(url: URL, init?: RequestInit): Promise<Response> {
   if (/^\/api\/notion\/configs\/[^/]+\/(sync|reconcile)$/.test(p)) return json({ job_id: "j-1", already_running: false });
   if (p.startsWith("/api/notion/configs/")) return json({ ok: true });
   if (p === "/api/notion/pages") return json([{ id: "pg-1", title: "Engineering Wiki" }, { id: "pg-2", title: "Product specs" }]);
-  if (p === "/api/mem0/status") {
-    const f = F.folders.find((x) => x.id === q.get("root_folder_id"));
-    return json(f?.kind === "repo" ? { available: true, healthy: true, error: null } : { available: false, reason: "not a repo folder" });
-  }
-  if (p === "/api/mem0/memories/rules") return json({ rules: F.memoriesRules });
-  if (p === "/api/mem0/memories/recent") return json({ memories: F.memoriesRecent });
-  if (p.startsWith("/api/mem0/memories")) return json({ ok: true, metadata: {} });
   if (p === "/api/github/repos") return json(F.githubRepos);
   if (p === "/api/cli/auth/device/info") return json({ hostname: "felipes-macbook-air", os: "darwin", valid: true, expired: false });
   if (p.startsWith("/api/cli/auth/device/")) return json({ ok: true });
