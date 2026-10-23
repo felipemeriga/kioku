@@ -122,9 +122,10 @@ export default function DocumentsPage() {
   const currentFolderId = searchParams.get("folder") || null;
   const setCurrentFolderId = useCallback(
     (id: string | null) => {
-      setSearchParams(id ? { folder: id } : {}, { replace: true });
+      if (id === currentFolderId) return;
+      setSearchParams(id ? { folder: id } : {});
     },
-    [setSearchParams]
+    [currentFolderId, setSearchParams]
   );
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
