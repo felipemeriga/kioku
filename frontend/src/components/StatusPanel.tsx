@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { qk } from "../lib/queryKeys";
 import {
@@ -18,10 +18,7 @@ import RefreshIcon from "@mui/icons-material/Refresh";
 import { brand, fonts } from "../theme";
 import { getFolderStatus, refreshFolder } from "../lib/api";
 import CornerCard from "./neo/CornerCard";
-
-// A refresh older than this with no output advance is treated as stale/failed,
-// so a crashed watcher never pins the UI in "refreshing" forever.
-const REFRESH_TIMEOUT_MS = 30 * 60 * 1000;
+import { refreshState } from "../lib/refreshState";
 
 function timeAgo(iso: string | null): string {
   if (!iso) return "never";
@@ -32,19 +29,6 @@ function timeAgo(iso: string | null): string {
   const h = Math.floor(m / 60);
   if (h < 24) return `${h}h ago`;
   return `${Math.floor(h / 24)}d ago`;
-}
-
-/** True if a refresh started but its output timestamp hasn't advanced past the
- * start yet (and it isn't stale). Server-derived, so it survives page reloads. */
-function isRefreshing(
-  startedAt: string | null | undefined,
-  outputAt: string | null | undefined
-): boolean {
-  if (!startedAt) return false;
-  const started = new Date(startedAt).getTime();
-  if (Date.now() - started > REFRESH_TIMEOUT_MS) return false;
-  if (!outputAt) return true;
-  return new Date(outputAt).getTime() < started;
 }
 
 /** Maps a timeAgo string to a simple status glyph + color for the index-status cards. */
@@ -59,6 +43,7 @@ function indexGlyph(at: string | null): { glyph: string; color: string } {
 
 export default function StatusPanel({ folderId }: { folderId: string }) {
   const [note, setNote] = useState<string>("");
+  const [now, setNow] = useState(Date.now);
   // Optimistic flag for the brief moment between the click and the refetch that
   // pulls the server's refresh-started timestamp.
   const [clicking, setClicking] = useState<null | "index" | "sections">(null);
@@ -76,41 +61,61 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
     queryFn: () => getFolderStatus(folderId),
   });
 
-  // Refresh-in-progress is derived from the SERVER (started_at vs output), so
-  // reloading the page still shows a running refresh.
-  const indexRunning =
-    clicking === "index" ||
-    isRefreshing(status?.index_refresh_started_at, status?.graph_at);
+  const indexState = refreshState(
+    status?.index_refresh_started_at,
+    status?.index_refresh_finished_at,
+    status?.index_refresh_error,
+    now
+  );
+  const sectionsState = refreshState(
+    status?.sections_refresh_started_at,
+    status?.sections_refresh_finished_at,
+    status?.sections_refresh_error,
+    now
+  );
+  const indexRunning = clicking === "index" || indexState === "running";
   const sectionsRunning =
-    clicking === "sections" ||
-    isRefreshing(status?.sections_refresh_started_at, status?.architecture_at);
+    clicking === "sections" || sectionsState === "running";
   const anyRunning = indexRunning || sectionsRunning;
 
-  // Poll while anything is running, until the output advances (or it times out).
+  // Poll until the watcher records completion (or the job times out).
   useEffect(() => {
     if (!anyRunning) return;
     const id = setInterval(() => {
+      // A clock tick must rerender even when polling returns identical data.
+      setNow(Date.now());
       void refetch();
     }, 5000);
     return () => clearInterval(id);
   }, [anyRunning, refetch]);
 
-  // Surface a "done" note when a running refresh finishes (incl. one that was
-  // already running when the page loaded).
-  const wasRunning = useRef(false);
-  useEffect(() => {
-    if (wasRunning.current && !anyRunning) setNote("Updated just now.");
-    wasRunning.current = anyRunning;
-  }, [anyRunning]);
+  const latestState =
+    (status?.index_refresh_started_at ?? "") >
+    (status?.sections_refresh_started_at ?? "")
+      ? indexState
+      : sectionsState;
+  const message =
+    note ||
+    (anyRunning
+      ? note
+      : latestState === "failed"
+      ? "Refresh failed. Check watcher logs and retry."
+      : latestState === "timed-out"
+      ? "Refresh timed out or was interrupted. Please retry."
+      : latestState === "completed"
+      ? "Refresh completed. Unchanged content keeps its original timestamp."
+      : "");
 
   const start = async (target: "index" | "sections") => {
     if (anyRunning) return;
     setNote("");
+    setNow(Date.now());
     setClicking(target);
     try {
       await refreshFolder(folderId, target);
       setNote("Refresh started…");
       await refetch(); // pull the server's started_at so the state persists
+      setNote("");
     } catch (e) {
       const is409 = (e as { status?: number })?.status === 409;
       setNote(is409 ? "A refresh is already running." : "Watcher unavailable.");
@@ -367,11 +372,11 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
         >
           {sectionsRunning ? "Refreshing…" : "Refresh detail sections"}
         </Button>
-        {note && (
+        {message && (
           <Typography
             sx={{ fontFamily: fonts.mono, fontSize: 11, color: brand.muted }}
           >
-            {note}
+            {message}
           </Typography>
         )}
       </Stack>

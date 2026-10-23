@@ -133,6 +133,19 @@ def test_index_status_handles_missing(monkeypatch):
     assert out["graph_at"] is None
 
 
+def test_status_returns_job_completion_independent_of_graph_timestamp():
+    fresh = {
+        "index_refresh_started_at": "2026-10-23T03:05:56Z",
+        "index_refresh_finished_at": "2026-10-23T03:06:02Z",
+        "index_refresh_error": None,
+        "sections_refresh_error": "Refresh failed",
+    }
+    out = briefing._index_status(_SB({}), "f1", "u1", fresh, None)
+    assert out["graph_at"] is None
+    assert out["index_refresh_finished_at"] == fresh["index_refresh_finished_at"]
+    assert out["sections_refresh_error"] == "Refresh failed"
+
+
 def test_status_route_returns_payload(monkeypatch):
     sb = _SB(
         {

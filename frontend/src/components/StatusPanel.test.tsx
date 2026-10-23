@@ -1,11 +1,75 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen, waitFor, fireEvent } from "@testing-library/react";
+import { screen, waitFor, fireEvent, act } from "@testing-library/react";
 import { renderWithProviders } from "../test/renderWithProviders";
 import StatusPanel from "./StatusPanel";
+import { refreshState } from "../lib/refreshState";
 import * as api from "../lib/api";
 
 describe("StatusPanel", () => {
   beforeEach(() => vi.restoreAllMocks());
+
+  it.each([false, true])(
+    "polls completion or times out even with identical data (%s)",
+    async (timeout) => {
+      vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+      const started = new Date(
+        Date.now() - (timeout ? 30 * 60000 - 2000 : 1000)
+      ).toISOString();
+      const initial = {
+        index_refresh_started_at: started,
+        graph_at: "2026-10-21T18:01:15Z",
+      } as api.FolderStatus;
+      const spy = vi.spyOn(api, "getFolderStatus").mockResolvedValue(initial);
+      const view = renderWithProviders(<StatusPanel folderId="f1" />);
+      await screen.findByText("Refreshing…");
+      if (!timeout)
+        spy.mockResolvedValue({
+          ...initial,
+          index_refresh_finished_at: new Date().toISOString(),
+        });
+      try {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(5000);
+        });
+        expect(
+          screen.getByText(timeout ? /Refresh timed out/ : /Refresh completed/)
+        ).toBeInTheDocument();
+        expect(screen.queryByText("Refreshing…")).not.toBeInTheDocument();
+      } finally {
+        view.unmount();
+        vi.useRealTimers();
+      }
+    }
+  );
+
+  it("uses job completion rather than content changes", () => {
+    const started = "2026-10-23T03:05:56Z";
+    const finished = "2026-10-23T03:06:02Z";
+    const now = Date.parse(finished);
+    expect(refreshState(started, null, null, now)).toBe("running");
+    expect(refreshState(started, finished, null, now)).toBe("completed");
+    expect(refreshState(started, finished, "failed", now)).toBe("failed");
+    expect(refreshState(started, null, null, now + 31 * 60000)).toBe(
+      "timed-out"
+    );
+    expect(refreshState(finished, started, null, now)).toBe("running");
+  });
+
+  it.each([null, "failed"])(
+    "shows completed/no-op or failure after reload (%s)",
+    async (error) => {
+      vi.spyOn(api, "getFolderStatus").mockResolvedValue({
+        graph_at: "2026-10-21T18:01:15Z",
+        index_refresh_started_at: new Date(Date.now() - 7000).toISOString(),
+        index_refresh_finished_at: new Date().toISOString(),
+        index_refresh_error: error,
+      } as api.FolderStatus);
+      renderWithProviders(<StatusPanel folderId="f1" />);
+      await screen.findByText(error ? /Refresh failed/ : /Refresh completed/);
+      expect(screen.queryByText("Refreshing…")).not.toBeInTheDocument();
+      expect(screen.getByText("Refresh code index")).toBeEnabled();
+    }
+  );
 
   it("renders the six status cards", async () => {
     vi.spyOn(api, "getFolderStatus").mockResolvedValue({
