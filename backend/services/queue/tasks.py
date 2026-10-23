@@ -196,7 +196,7 @@ async def _ingest_notion_page_task_impl(ctx: dict, payload: dict) -> None:
     content_hash = hashlib.sha256(markdown.encode()).hexdigest()
     existing = (
         supabase.table("documents")
-        .select("content_hash")
+        .select("content_hash, created_at")
         .eq("user_id", payload["user_id"])
         .eq("root_folder_id", payload["root_folder_id"])
         .eq("notion_page_id", payload["page_id"])
@@ -279,7 +279,15 @@ async def _ingest_notion_page_task_impl(ctx: dict, payload: dict) -> None:
         "notion_parent_path": parent_path,
         "content_hash": content_hash,
         "status": "completed",
+        "last_updated": page.last_edited_time.isoformat(),
     }
+    # A page keeps its original ingestion date when its chunks are replaced.
+    # Content freshness follows the source edit time, not the sync time. The
+    # hash-match return above deliberately does not change last_updated.
+    prior_created = existing[0].get("created_at") if existing else None
+    row_template["created_at"] = (
+        prior_created if isinstance(prior_created, str) else datetime.now(timezone.utc).isoformat()
+    )
 
     # Baked into each chunk's metadata so the contextual header carries the real
     # page title / section (not "Source: unknown") at both embed and rerank time.
@@ -638,12 +646,15 @@ async def ingest_document_task(ctx: dict, payload: dict) -> None:
         batches = list(into_batches(chunks, size=128))
         set_total_batches(supabase, job_id=job_id, total=len(batches))
 
+        timestamp = datetime.now(timezone.utc).isoformat()
         row_template: dict = {
             "user_id": payload["user_id"],
             "source_filename": filename,
             "source_type": payload["source_type"],
             "content_hash": payload["content_hash"],
             "status": "completed",
+            "created_at": timestamp,
+            "last_updated": timestamp,
         }
         if payload.get("folder_id"):
             row_template["folder_id"] = payload["folder_id"]

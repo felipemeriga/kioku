@@ -107,6 +107,8 @@ class CitationRegistry:
                     "number": n,
                     "source": source,
                     "source_type": "document",
+                    "created_at": result.get("created_at"),
+                    "last_updated": result.get("last_updated"),
                     "symbol": None,
                     "file": None,
                     "line": None,

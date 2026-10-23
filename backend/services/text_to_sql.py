@@ -21,6 +21,7 @@ Columns:
   - content_hash: text (SHA-256 of original file)
   - status: text (processing, completed, failed)
   - created_at: timestamptz
+  - last_updated: timestamptz (last content change; not the last sync)
 
 Notes:
   - Multiple rows per file (one per chunk). Use DISTINCT source_filename to count files.

@@ -284,6 +284,7 @@ class TestIngestNotionPageTask(unittest.TestCase):
         # (mark_running also updates the jobs table, hence not assert_called_once).
         update_payloads = [c.args[0] for c in table.update.call_args_list if c.args]
         self.assertIn({"notion_last_edited_time": "2026-07-01T12:00:00+00:00"}, update_payloads)
+        self.assertFalse(any("last_updated" in values for values in update_payloads))
         mark_completed_mock.assert_called_once_with(supabase, job_id="page-job-1")
         incr_pages_mock.assert_called_once_with(supabase, job_id="sync-job-1")
 
@@ -299,7 +300,7 @@ class TestIngestNotionPageTask(unittest.TestCase):
         table = supabase.table.return_value
         (
             table.select.return_value.eq.return_value.eq.return_value.eq.return_value.eq.return_value.limit.return_value.execute.return_value.data
-        ) = [{"content_hash": "an-old-different-hash"}]
+        ) = [{"content_hash": "an-old-different-hash", "created_at": "2025-01-01T00:00:00Z"}]
 
         notion_mock = MagicMock()
         notion_mock.get_page.return_value = _page()
@@ -344,3 +345,5 @@ class TestIngestNotionPageTask(unittest.TestCase):
         self.assertEqual(pool.enqueue_job.call_count, 1)
         batch_payload = pool.enqueue_job.call_args.args[1]
         self.assertEqual(batch_payload["row_template"]["content_hash"], expected)
+        self.assertEqual(batch_payload["row_template"]["created_at"], "2025-01-01T00:00:00Z")
+        self.assertEqual(batch_payload["row_template"]["last_updated"], "2026-07-01T12:00:00+00:00")

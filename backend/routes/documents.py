@@ -313,7 +313,7 @@ async def get_document_content(
         sb.table("documents")
         .select(
             "content, chunk_index, source_type, metadata, folder_id, status, "
-            "created_at, notion_page_id"
+            "created_at, last_updated, notion_page_id"
         )
         .eq("source_filename", filename)
         .eq("user_id", user_id)
@@ -342,6 +342,7 @@ async def get_document_content(
         "folder_id": first.get("folder_id"),
         "status": first.get("status"),
         "created_at": first.get("created_at"),
+        "last_updated": first.get("last_updated"),
         "content": content,
         "viewable_as": viewable_as,
         "file_url": view_url,

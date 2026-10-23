@@ -36,6 +36,8 @@ def _hits_from_docs(rag_rows: list[dict]) -> list[UnifiedHit]:
         metadata = dict(r.get("metadata") or {})
         if r.get("created_at") and "created_at" not in metadata:
             metadata["created_at"] = str(r["created_at"])
+        if r.get("last_updated"):
+            metadata["last_updated"] = str(r["last_updated"])
         out.append(
             UnifiedHit(
                 source="docs",

@@ -344,6 +344,9 @@ async def knowledge_base_search(
             else:
                 date = str(md.get("created_at") or "")[:10]
                 label = f"[Document: {src} — {date}]" if date else f"[Document: {src}]"
+                updated = str(md.get("last_updated") or "")[:10]
+                if updated:
+                    label = label[:-1] + f" — last updated {updated}]"
             parts.append(f"{label}\n{h.content}")
     return "\n\n---\n\n".join(parts)
 
@@ -412,7 +415,7 @@ def list_documents(folder: str | None = None) -> str:
         return "No folders in scope."
     rows = (
         sb.table("documents")
-        .select("source_filename, source_type, created_at")
+        .select("source_filename, source_type, created_at, last_updated")
         .eq("user_id", user_id)
         .in_("folder_id", ids)
         .execute()
@@ -423,13 +426,21 @@ def list_documents(folder: str | None = None) -> str:
     for r in rows:
         d = docs.setdefault(
             r["source_filename"],
-            {"chunks": 0, "type": r.get("source_type"), "created": r.get("created_at")},
+            {
+                "chunks": 0,
+                "type": r.get("source_type"),
+                "created": r.get("created_at"),
+                "last_updated": r.get("last_updated"),
+            },
         )
         d["chunks"] += 1
     lines = [f"{len(docs)} documents ({len(rows)} chunks):"]
     for name in sorted(docs):
         d = docs[name]
-        lines.append(f"- {name} · {d['chunks']} chunks · {d['type']} · {str(d['created'])[:10]}")
+        lines.append(
+            f"- {name} · {d['chunks']} chunks · {d['type']} · created {str(d['created'])[:10]}"
+            f" · last updated {str(d['last_updated'] or d['created'])[:10]}"
+        )
     return "\n".join(lines)
 
 
@@ -503,6 +514,8 @@ def update_document(filename: str, new_content: str, folder: str | None = None) 
     from services.ingestion import replace_document
 
     res = replace_document(new_content, filename, user_id, folder_id=target_folder)
+    if res.get("unchanged"):
+        return f"'{filename}' is unchanged — kept existing chunks and dates."
     if not res["chunks"]:
         return f"Update produced no content for '{filename}' — nothing changed."
     return f"Updated '{filename}': re-embedded {res['chunks']} chunks."
