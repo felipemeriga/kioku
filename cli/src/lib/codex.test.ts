@@ -195,6 +195,42 @@ test("retired capture hook cleanup preserves unrelated handlers and is idempoten
   }
 });
 
+test("capture cleanup preserves flat, unknown, and malformed Stop groups", () => {
+  const { path, cleanup } = setup();
+  try {
+    writeFileSync(
+      path,
+      `
+[hooks]
+Stop = [
+  { type = "command", command = "other-tool capture" },
+  { type = "command", command = "kioku capture" },
+  { matcher = "unknown-shape" },
+  { hooks = "invalid-array" },
+  { hooks = [] },
+  { hooks = ["unknown-handler", { type = "prompt", command = "kioku capture" }, { type = "command", command = 42 }, { type = "command", command = "kioku capture" }] },
+  { hooks = [{ type = "command", command = "kioku capture" }] }
+]
+`
+    );
+    const before = parseToml(readFileSync(path, "utf8")) as any;
+    assert.equal(removeCodexCaptureHooks(), true);
+    const cfg = parseToml(readFileSync(path, "utf8")) as any;
+    assert.deepEqual(cfg.hooks.Stop.slice(0, 4), [
+      before.hooks.Stop[0],
+      ...before.hooks.Stop.slice(2, 5),
+    ]);
+    assert.deepEqual(
+      cfg.hooks.Stop[4].hooks,
+      before.hooks.Stop[5].hooks.slice(0, 3)
+    );
+    assert.equal(cfg.hooks.Stop.length, 5);
+    assert.equal(removeCodexCaptureHooks(), false);
+  } finally {
+    cleanup();
+  }
+});
+
 test("re-installing hooks is idempotent (no duplicates)", () => {
   const { path, cleanup } = setup();
   try {

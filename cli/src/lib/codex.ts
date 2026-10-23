@@ -244,14 +244,30 @@ export function removeCodexCaptureHooks(): boolean {
   const hooks = cfg.hooks as TomlTable | undefined;
   if (!Array.isArray(hooks?.Stop)) return false;
   const before = JSON.stringify(hooks.Stop);
-  hooks.Stop = (hooks.Stop as MatcherGroup[])
-    .map((group) => ({
-      ...group,
-      hooks: group.hooks.filter(
-        (handler) => !isRetiredCaptureCommand(handler.command)
-      ),
-    }))
-    .filter((group) => group.hooks.length > 0);
+  hooks.Stop = (hooks.Stop as unknown[]).flatMap((group) => {
+    // Configs from older clients may contain flat handlers or unknown shapes.
+    // Remove only positively identified Kioku command handlers.
+    if (!group || typeof group !== "object") return [group];
+    const record = group as TomlTable;
+    if (
+      record.type === "command" &&
+      typeof record.command === "string" &&
+      isRetiredCaptureCommand(record.command)
+    )
+      return [];
+    if (!Array.isArray(record.hooks)) return [group];
+    const remaining = record.hooks.filter((handler: unknown) => {
+      if (!handler || typeof handler !== "object") return true;
+      const entry = handler as TomlTable;
+      return !(
+        entry.type === "command" &&
+        typeof entry.command === "string" &&
+        isRetiredCaptureCommand(entry.command)
+      );
+    });
+    if (remaining.length === record.hooks.length) return [group];
+    return remaining.length ? [{ ...record, hooks: remaining }] : [];
+  });
   if (JSON.stringify(hooks.Stop) === before) return false;
   writeConfig(path, cfg);
   return true;
