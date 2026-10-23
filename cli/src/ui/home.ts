@@ -23,7 +23,7 @@ export function buildMenu(state: HomeState): HomeItem[] {
 
   const items: HomeItem[] = [
     { name: "Browse workspace", value: "ls" },
-    { name: "Search memory", value: "search" },
+    { name: "Search knowledge", value: "search" },
   ];
 
   if (state.inRepo && state.repoWired) {

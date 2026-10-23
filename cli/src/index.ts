@@ -308,7 +308,7 @@ Examples:
 program
   .command("search <query...>")
   .description(
-    "Search the knowledge base + memory — same tool Claude Code uses"
+    "Search documents and indexed code — same tool coding agents use"
   )
   .option("--json", "Machine-readable JSON output")
   .option("--limit <n>", "How many hits to return (1-25, default 5)")
