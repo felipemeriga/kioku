@@ -1,0 +1,135 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { renderWithProviders } from "../test/renderWithProviders";
+import * as api from "../lib/api";
+import ContextPanel from "../components/ContextPanel";
+import DocumentsPage from "./DocumentsPage";
+
+vi.mock("../components/NotionSyncBanner", () => ({
+  NotionSyncBanner: () => null,
+}));
+vi.mock("../components/FolderIntegrationsDialog", () => ({
+  default: () => null,
+}));
+
+const parent = {
+  id: "parent",
+  user_id: "user",
+  name: "Parent",
+  parent_id: null,
+  kind: "folder" as const,
+  created_at: "2026-01-01",
+};
+const child = { ...parent, id: "child", name: "Child", parent_id: "parent" };
+
+function Navigation({ surface }: { surface: "grid" | "tree" }) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  return (
+    <>
+      <button onClick={() => navigate(-1)}>Browser Back</button>
+      <button onClick={() => navigate(1)}>Browser Forward</button>
+      <output data-testid="location">
+        {location.pathname + location.search}
+      </output>
+      <Routes>
+        <Route path="/" element={<div>Chat page</div>} />
+        <Route
+          path="/documents"
+          element={
+            surface === "grid" ? (
+              <DocumentsPage />
+            ) : (
+              <ContextPanel
+                activePage="/documents"
+                open
+                conversations={[]}
+                selectedConversationId={null}
+                onSelectConversation={vi.fn()}
+                onNewConversation={vi.fn()}
+                onDeleteConversation={vi.fn()}
+              />
+            )
+          }
+        />
+      </Routes>
+    </>
+  );
+}
+
+describe("folder browser history", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.stubGlobal("localStorage", {
+      getItem: vi.fn(() => null),
+      setItem: vi.fn(),
+    });
+    vi.spyOn(api, "fetchFolders").mockImplementation(async (id) =>
+      !id ? [parent] : id === "parent" ? [child] : []
+    );
+    vi.spyOn(api, "fetchDocuments").mockResolvedValue([]);
+    vi.spyOn(api, "fetchBreadcrumbs").mockImplementation(async (id) =>
+      id === "child" ? [parent, child] : [parent]
+    );
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it.each(["grid", "tree"] as const)(
+    "Back/Forward restores every %s folder before leaving Documents",
+    async (surface) => {
+      const user = userEvent.setup();
+      renderWithProviders(<Navigation surface={surface} />, {
+        initialEntries: ["/", "/documents"],
+      });
+      await user.click(await screen.findByText("Parent"));
+      expect(screen.getByTestId("location")).toHaveTextContent(
+        "/documents?folder=parent"
+      );
+      await user.click(await screen.findByText("Child"));
+      expect(screen.getByTestId("location")).toHaveTextContent(
+        "/documents?folder=child"
+      );
+      if (surface === "tree") await user.click(screen.getByText("Child"));
+
+      for (const path of ["/documents?folder=parent", "/documents", "/"]) {
+        await user.click(screen.getByText("Browser Back"));
+        expect(screen.getByTestId("location").textContent).toBe(path);
+      }
+      expect(screen.getByText("Chat page")).toBeInTheDocument();
+      for (const path of [
+        "/documents",
+        "/documents?folder=parent",
+        "/documents?folder=child",
+      ]) {
+        await user.click(screen.getByText("Browser Forward"));
+        expect(screen.getByTestId("location").textContent).toBe(path);
+      }
+    }
+  );
+
+  it("records breadcrumb and root navigation without duplicate current-folder entries", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Navigation surface="grid" />, {
+      initialEntries: ["/documents"],
+    });
+    await user.click(await screen.findByText("Parent"));
+    await user.click(await screen.findByText("Child"));
+    await user.click(await screen.findByRole("button", { name: "Parent" }));
+    expect(screen.getByTestId("location").textContent).toBe(
+      "/documents?folder=parent"
+    );
+    await user.click(screen.getByRole("button", { name: "Root" }));
+    await user.click(screen.getByRole("button", { name: "Root" }));
+    await user.click(screen.getByText("Browser Back"));
+    expect(screen.getByTestId("location").textContent).toBe(
+      "/documents?folder=parent"
+    );
+    await user.click(screen.getByText("Browser Back"));
+    expect(screen.getByTestId("location").textContent).toBe(
+      "/documents?folder=child"
+    );
+  });
+});

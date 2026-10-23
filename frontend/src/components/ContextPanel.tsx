@@ -54,9 +54,10 @@ export default function ContextPanel({
 
   const handleSelectFolder = useCallback(
     (id: string | null) => {
-      setSearchParams(id ? { folder: id } : {}, { replace: true });
+      if (id === selectedFolderId) return;
+      setSearchParams(id ? { folder: id } : {});
     },
-    [setSearchParams]
+    [selectedFolderId, setSearchParams]
   );
 
   const handleDeleteFolder = useCallback(
