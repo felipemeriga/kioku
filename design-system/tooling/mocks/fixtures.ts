@@ -108,15 +108,6 @@ export const ingestionTasks = [
 export const notionConfig = { id: "n-1", root_folder_id: "f-wiki", notion_page_id: "pg-1", notion_page_title: "Engineering Wiki", fast_poll_interval_min: 15, last_fast_sync_at: ago(14), last_full_sync_at: ago(60 * 20), last_error: null };
 export const notionJob = { id: "j-1", user_id: "u-demo", kind: "notion_sync", source_ref: "pg-1", parent_job_id: null, root_folder_id: "f-wiki", status: "running", current_step: "Syncing pages", total_batches: 4, processed_batches: 2, total_pages: 38, processed_pages: 23, error: null, started_at: ago(2), completed_at: null };
 
-export const memoriesRules = [
-  { id: "mem-1", memory: "Prefer small PRs with a test per fix.", metadata: { scope: "eternal", category: "preference", tags: ["workflow"], written_by: "felipe" }, created_at: ago(60 * 24 * 9), updated_at: ago(60 * 24 * 9) },
-  { id: "mem-2", memory: "Reranker stays on for chat, off for the MCP search tool (latency).", metadata: { scope: "eternal", category: "decision", tags: ["retrieval"], written_by: "claude-code" }, created_at: ago(60 * 24 * 2), updated_at: ago(60 * 24 * 2) },
-];
-export const memoriesRecent = [
-  { id: "mem-3", memory: "Chunker splits markdown on headings first, then 800-token windows with 100 overlap.", metadata: { scope: "episodic", category: "finding", tags: ["ingestion"], written_by: "claude-code" }, created_at: ago(60 * 3), updated_at: ago(60 * 3) },
-  { id: "mem-4", memory: "Notion sync stalls when a page has >100 child blocks — paginate block children.", metadata: { scope: "episodic", category: "issue", tags: ["notion"], written_by: "kioku-cli" }, created_at: ago(60 * 7), updated_at: ago(60 * 7) },
-  { id: "mem-5", memory: "Session: added index status cards to the briefing panel.", metadata: { scope: "episodic", category: "session", tags: [], written_by: "claude-code" }, created_at: ago(60 * 26), updated_at: ago(60 * 26) },
-];
 
 export const apiKeys = [
   { id: "k-1", name: "Claude Code — laptop", scope_folder_id: "f-kioku", scope_folder_name: "kioku", created_at: ago(60 * 24 * 14) },
