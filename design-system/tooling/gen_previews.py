@@ -102,7 +102,6 @@ add("IngestionDrawer", "Documents", 600, f"h(K.IngestionDrawer, {{open:true, tas
 # ── Repo & memory ──────────────────────────────────────────
 add("BriefingPanel", "Repo & memory", 1000, "h(M.Box, {sx:{p:3}}, h(K.BriefingPanel, {folderId:'f-kioku'}))", width=1100)
 add("DocumentationPanel", "Repo & memory", 560, "h(M.Box, {sx:{p:3}}, h(K.DocumentationPanel, {folderId:'f-kioku'}))", width=1000)
-add("Mem0IntegrationSection", "Repo & memory", 220, "h(M.Box, {sx:{p:2}}, h(K.Mem0IntegrationSection))", width=900)
 
 # ── Integrations ───────────────────────────────────────────
 add("FolderIntegrationsDialog", "Integrations", 600, f"h(K.FolderIntegrationsDialog, {{open:true, folder:{{id:'f-kioku', name:'kioku', kind:'repo'}}, onClose:{log}}})", width=1000)
@@ -116,7 +115,7 @@ h(K.ErrorBoundary, null, h(function Boom(){ throw new Error('Cannot read propert
 add("Toast", "Feedback", 200, "h(M.Box, {sx:{p:2}}, h(K.Toast))")
 
 # ── Brand icons ────────────────────────────────────────────
-for n in ["GitHubBrandIcon", "NotionBrandIcon", "Mem0BrandIcon"]:
+for n in ["GitHubBrandIcon", "NotionBrandIcon"]:
     add(n, "Brand icons", 72, f"h(M.Stack, {{direction:'row', spacing:2, sx:{{p:2, alignItems:'center'}}}}, h(K.{n}), h(K.{n}, {{sx:{{color:K.brand.cyan, fontSize:32}}}}), h(K.{n}, {{sx:{{color:K.brand.magenta, fontSize:20}}}}))")
 
 # ── Screens ────────────────────────────────────────────────

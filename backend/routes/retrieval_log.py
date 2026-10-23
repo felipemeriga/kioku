@@ -3,7 +3,7 @@
 Two views:
   GET /api/retrieval-log            recent rows (paginated), filterable by folder
   GET /api/retrieval-log/stats      aggregate: hits per source, per category,
-                                    latency p50/p95, unretrieved memory count
+                                    latency p50/p95
 """
 
 from __future__ import annotations
@@ -63,7 +63,6 @@ async def stats(
         return {
             "total_retrievals": 0,
             "docs_hit_count": 0,
-            "mem0_hit_count": 0,
             "avg_chunks_returned": 0,
             "latency_p50_ms": 0,
             "latency_p95_ms": 0,
@@ -71,7 +70,6 @@ async def stats(
         }
 
     docs_hits = 0
-    mem0_hits = 0
     zero_hits = 0
     latencies: list[int] = []
     chunks_returned_total = 0
@@ -85,8 +83,6 @@ async def stats(
         for src in r.get("sources_hit") or []:
             if src.get("source") == "docs":
                 docs_hits += int(src.get("count") or 0)
-            elif src.get("source") == "mem0":
-                mem0_hits += int(src.get("count") or 0)
         for cid in r.get("chunk_ids") or []:
             chunk_id_freq[cid] = chunk_id_freq.get(cid, 0) + 1
 
@@ -103,7 +99,6 @@ async def stats(
     return {
         "total_retrievals": total,
         "docs_hit_count": docs_hits,
-        "mem0_hit_count": mem0_hits,
         "avg_chunks_returned": round(chunks_returned_total / max(total, 1), 2),
         "latency_p50_ms": _pct(50),
         "latency_p95_ms": _pct(95),

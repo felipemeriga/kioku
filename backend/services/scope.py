@@ -69,9 +69,9 @@ def descendant_folder_ids(sb, folder_id: str, user_id: str) -> list[str]:
 def validate_scope_folder(scope_folder_id: str, user_id: str) -> None:
     """Validate that a folder ID belongs to the user. Root or sub-folder both OK.
 
-    Sub-folder scoping is what lets Mem0 + GitHub integrations bind to
+    Sub-folder scoping is what lets folder integrations bind to
     subprojects like 'personal/agentic-rag' — matches the relaxed validation
-    already applied to Mem0/GitHub configs.
+    already applied to folder configs.
 
     Raises HTTPException if folder is missing or not owned by the user.
     """

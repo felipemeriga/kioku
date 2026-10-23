@@ -78,7 +78,7 @@ export const briefing = {
       Backend: "FastAPI — auth, documents, chat streaming (SSE), briefing API.",
       Worker: "arq on Redis — parse → chunk → embed → store.",
       Storage: "Supabase Postgres + pgvector; files in Supabase Storage.",
-      Memory: "Self-hosted mem0 per repo folder.",
+      Memory: "Versioned repository briefings.",
     }, "pinned", "user_ui"),
     preferences: sec(["Prefer small PRs with a test per fix.", "Never call the LLM inside the ingestion worker's hot loop."]),
     important_files: sec(["backend/main.py — API entry", "backend/queue/jobs.py — ingestion jobs", "frontend/src/theme.ts — brand tokens", "cli/kioku/__main__.py — CLI"]),

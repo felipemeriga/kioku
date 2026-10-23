@@ -6,7 +6,6 @@ Categories:
   A. Docs + folders CRUD
   B. Chat + conversations
   C. Folder summaries
-  D. Mem0 integration + memory ops
   E. GitHub integration
   F. API keys
   G. Retrieval log
@@ -33,7 +32,6 @@ BACKEND = "http://localhost:8000"
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 ANON = "sb_publishable_VkQ6BsMHRpz1kiCSerG45g_KiW0o9hx"
 
-MEM0_KEY = "m0-DOov2IyXkEkeDTYOJPM1RP06YPOeNDn5WLvxT8Oa"
 
 
 def hr(t):
@@ -139,98 +137,6 @@ async def main():
 
         r = await c.post(f"{BACKEND}/api/folders/{bogus}/summary/regenerate", json={"mode": "auto"})
         check("POST regenerate bogus folder → 404", r.status_code == 404)
-
-        hr("D. Mem0 integration + memory ops")
-        r = await c.get(f"{BACKEND}/api/mem0/configs")
-        check("GET /api/mem0/configs", r.status_code == 200)
-        ar_config = None
-        for cfg in r.json():
-            if cfg["root_folder_id"] == ar:
-                ar_config = cfg
-                break
-
-        if ar_config:
-            r = await c.post(f"{BACKEND}/api/mem0/configs/{ar_config['id']}/verify")
-            check("POST verify Mem0 config", r.status_code == 200, r.text[:150])
-
-            r = await c.get(f"{BACKEND}/api/mem0/configs/{ar_config['id']}/memories?scope=any&limit=100")
-            check("GET config memories", r.status_code == 200)
-            mems_before = len(r.json().get("memories", []))
-
-            # Add memory with valid category
-            unique = f"bug-hunt probe {uuid.uuid4().hex[:8]}"
-            r = await c.post(f"{BACKEND}/api/mem0/memories", json={
-                "root_folder_id": ar,
-                "content": unique,
-                "category": "note",
-                "scope": "episodic",
-            })
-            check("POST memory valid", r.status_code == 200, r.text[:200])
-            added_id = None
-            if r.status_code == 200:
-                added_id = (r.json().get("raw") or {}).get("results", [{}])[0].get("id")
-
-            # Duplicate write → duplicate=True
-            r2 = await c.post(f"{BACKEND}/api/mem0/memories", json={
-                "root_folder_id": ar,
-                "content": unique,
-                "category": "note",
-                "scope": "episodic",
-            })
-            check("POST memory duplicate returns duplicate=True",
-                  r2.status_code == 200 and r2.json().get("duplicate") is True,
-                  r2.text[:200])
-
-            # Invalid category
-            r = await c.post(f"{BACKEND}/api/mem0/memories", json={
-                "root_folder_id": ar,
-                "content": "bug-hunt bad cat",
-                "category": "nonsense",
-                "scope": "episodic",
-            })
-            check("POST memory invalid category → 422", r.status_code == 422)
-
-            # Search
-            r = await c.post(f"{BACKEND}/api/mem0/search", json={
-                "root_folder_id": ar,
-                "query": "package manager backend",
-                "scope": "any",
-                "limit": 3,
-            })
-            check("POST /api/mem0/search", r.status_code == 200)
-
-            # Unified fanout search + retrieval_log write
-            log_before = sb.table("retrieval_log").select("id", count="exact").execute().count or 0
-            r = await c.post(f"{BACKEND}/api/mem0/unified-search", json={
-                "root_folder_id": ar,
-                "query": "package manager backend",
-                "limit": 5,
-            })
-            check("POST /api/mem0/unified-search", r.status_code == 200)
-            log_after = sb.table("retrieval_log").select("id", count="exact").execute().count or 0
-            check("retrieval_log incremented on unified search", log_after > log_before,
-                  f"before={log_before} after={log_after}")
-
-            # Rules endpoint
-            r = await c.get(f"{BACKEND}/api/mem0/memories/rules?root_folder_id={ar}")
-            check("GET /api/mem0/memories/rules", r.status_code == 200)
-
-            # Recent
-            r = await c.get(f"{BACKEND}/api/mem0/memories/recent?root_folder_id={ar}&days=14&limit=10")
-            check("GET /api/mem0/memories/recent", r.status_code == 200)
-
-            # Deduplicate dry-run
-            r = await c.post(f"{BACKEND}/api/mem0/configs/{ar_config['id']}/deduplicate?dry_run=true")
-            check("POST deduplicate dry-run", r.status_code == 200, r.text[:150])
-
-            # Clean up the probe memory
-            if added_id:
-                r = await c.delete(f"{BACKEND}/api/mem0/configs/{ar_config['id']}/memories/{added_id}")
-                check("DELETE folder memory", r.status_code == 200)
-
-            # Also delete the dedupe-detected probe (it was upserted with the same content)
-            for m in (sb.table("retrieval_log").select("id").limit(0).execute().data or []):
-                pass  # noop
 
         hr("E. GitHub integration")
         r = await c.get(f"{BACKEND}/api/github/configs")

@@ -120,8 +120,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <DialogContent>
           <DialogContentText sx={{ mb: 1 }}>
             Delete <strong>{deleteTarget?.name}</strong> and every subfolder
-            beneath it. This also removes any Mem0 / GitHub / Notion
-            integrations wired to those folders.
+            beneath it. This also removes any GitHub / Notion integrations wired
+            to those folders.
           </DialogContentText>
           <DialogContentText>
             Choose whether to also delete the ingested documents (and their

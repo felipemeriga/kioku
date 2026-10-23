@@ -1,7 +1,7 @@
 {
   "name": "@felipemeriga/kioku",
-  "version": "0.3.5",
-  "description": "Kioku (記憶) — second brain for your repos. Wires a local repo to your Kioku instance: MCP server, SessionStart hook, capture Stop hook, CLAUDE.md snippet.",
+  "version": "0.4.0",
+  "description": "Kioku (記憶) — second brain for your repos. Wires a local repo to your Kioku instance: MCP server, SessionStart hook, CLAUDE.md snippet.",
   "type": "module",
   "license": "MIT",
   "author": "felipemeriga",
@@ -30,7 +30,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc",
     "dev": "tsc --watch",
     "start": "node dist/index.js",
     "prepare": "npm run build",

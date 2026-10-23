@@ -62,12 +62,10 @@ export interface FolderIntegrationsDialogProps extends Routed { open: boolean; f
 export interface NotionIntegrationSectionProps extends Routed {}
 export interface NotionConnectDialogProps extends Routed { open: boolean; rootFolders: { id: string; name: string }[]; fixedFolderId?: string; onClose: () => void; onConnected: () => void }
 export interface NotionSyncBannerProps extends Routed { folderId: string; onPagesSynced?: () => void }
-export interface Mem0IntegrationSectionProps extends Routed {}
 export interface ErrorBoundaryProps extends Routed { children: React.ReactNode }
 export interface ToastProps extends Routed {}
 export type GitHubBrandIconProps = SvgIconProps;
 export type NotionBrandIconProps = SvgIconProps;
-export type Mem0BrandIconProps = SvgIconProps;
 
 // ── screens: the App.tsx route tree at a path ──
 export interface ScreenProps { path?: string }
@@ -88,9 +86,9 @@ export declare const Kioku: {
   AppLayout: React.FC<AppLayoutProps>; IconRail: React.FC<IconRailProps>; ContextPanel: React.FC<ContextPanelProps>; FolderTree: React.FC<FolderTreeProps>;
   ChatArea: React.FC<ChatAreaProps>; ChatInput: React.FC<ChatInputProps>; MessageBubble: React.FC<MessageBubbleProps>; ThinkingBar: React.FC<ThinkingBarProps>; InspectDialog: React.FC<InspectDialogProps>; ScopePickerDialog: React.FC<ScopePickerDialogProps>;
   DocumentCard: React.FC<DocumentCardProps>; DocumentViewerDrawer: React.FC<DocumentViewerDrawerProps>; MoveDialog: React.FC<MoveDialogProps>; IngestionDrawer: React.FC<IngestionDrawerProps>;
-  BriefingPanel: React.FC<BriefingPanelProps>; DocumentationPanel: React.FC<DocumentationPanelProps>; Mem0IntegrationSection: React.FC<Mem0IntegrationSectionProps>;
+  BriefingPanel: React.FC<BriefingPanelProps>; DocumentationPanel: React.FC<DocumentationPanelProps>;
   FolderIntegrationsDialog: React.FC<FolderIntegrationsDialogProps>; NotionIntegrationSection: React.FC<NotionIntegrationSectionProps>; NotionConnectDialog: React.FC<NotionConnectDialogProps>; NotionSyncBanner: React.FC<NotionSyncBannerProps>;
   ErrorBoundary: React.FC<ErrorBoundaryProps>; Toast: React.FC<ToastProps>;
-  GitHubBrandIcon: React.FC<SvgIconProps>; NotionBrandIcon: React.FC<SvgIconProps>; Mem0BrandIcon: React.FC<SvgIconProps>;
+  GitHubBrandIcon: React.FC<SvgIconProps>; NotionBrandIcon: React.FC<SvgIconProps>;
   ChatPage: React.FC<ScreenProps>; DocumentsPage: React.FC<ScreenProps>; FolderDetailPage: React.FC<ScreenProps>; SettingsPage: React.FC<ScreenProps>; LoginPage: React.FC<ScreenProps>; CliAuthPage: React.FC<ScreenProps>;
 };

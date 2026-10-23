@@ -1,6 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import kleur from "kleur";
 import { readConfig } from "../lib/config.js";
 import { whoami } from "../lib/api.js";
 import { detectGit } from "../lib/git.js";
@@ -22,7 +21,13 @@ export async function status(): Promise<void> {
       lines.push(`Auth     check failed — run kioku login`);
     }
   }
-  console.log(panel({ title: "Kioku status", body: lines.join("\n"), tone: cfg.access_token ? "default" : "warn" }));
+  console.log(
+    panel({
+      title: "Kioku status",
+      body: lines.join("\n"),
+      tone: cfg.access_token ? "default" : "warn",
+    })
+  );
 
   if (!cfg.access_token) {
     return;
@@ -40,17 +45,19 @@ export async function status(): Promise<void> {
   info(
     git.isRepo
       ? `git: ${git.owner ? `${git.owner}/${git.repo}` : "(no remote)"}`
-      : "git: not a repo",
+      : "git: not a repo"
   );
   if (existsSync(mcpPath)) ok(".mcp.json wired");
   else bad(".mcp.json missing", "Run: kioku init");
   if (existsSync(hookPath)) {
     try {
       const s = JSON.parse(readFileSync(hookPath, "utf8")) as {
-        hooks?: { SessionStart?: Array<{ hooks?: Array<{ command?: string }> }> };
+        hooks?: {
+          SessionStart?: Array<{ hooks?: Array<{ command?: string }> }>;
+        };
       };
       const has = s.hooks?.SessionStart?.some((g) =>
-        g.hooks?.some((h) => (h.command ?? "").includes("kioku")),
+        g.hooks?.some((h) => (h.command ?? "").includes("kioku"))
       );
       if (has) ok("SessionStart hook installed");
       else warn("SessionStart hook not set", "Run: kioku init");
@@ -63,41 +70,5 @@ export async function status(): Promise<void> {
   if (existsSync(claudeMdPath)) ok("CLAUDE.md present");
   else warn("CLAUDE.md missing");
 
-  // Capture state — subtle recency indicator showing the hook loop is
-  // actually running.
-  const statePath = join(repoRoot, ".claude", "kioku-state.json");
-  if (existsSync(statePath)) {
-    try {
-      const state = JSON.parse(readFileSync(statePath, "utf8")) as {
-        last_capture_at?: string;
-        last_capture_transcript_length?: number;
-      };
-      if (state.last_capture_at) {
-        const when = new Date(state.last_capture_at);
-        const ago = relative(when);
-        info(
-          `last capture: ${ago}${
-            state.last_capture_transcript_length
-              ? kleur.dim(` (${state.last_capture_transcript_length} turns)`)
-              : ""
-          }`,
-        );
-      } else {
-        info("last capture: none yet — captures fire from Claude Code's Stop hook");
-      }
-    } catch {
-      // ignore
-    }
-  }
   console.log();
-}
-
-function relative(d: Date): string {
-  const s = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
-  if (s < 60) return `${s}s ago`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
 }

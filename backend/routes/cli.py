@@ -283,239 +283,6 @@ async def auth_config():
     }
 
 
-class TranscriptTurn(BaseModel):
-    role: str  # 'user' | 'assistant'
-    content: str
-    ts: str | None = None  # optional ISO timestamp
-
-
-class SessionCaptureRequest(BaseModel):
-    folder_id: str
-    session_id: str
-    transcript_delta: list[TranscriptTurn] = Field(..., min_length=1, max_length=200)
-    cwd: str | None = None
-
-
-# In-memory rate limiter keyed on (user_id, folder_id). The Stop hook
-# is designed to fire at most every ~2 min under normal use; anything
-# faster than that is a misconfigured client or a runaway loop. We cap
-# at 6 requests per 10 minutes per folder — generous headroom over the
-# CLI's own 5-turn/10-min debounce.
-_CAPTURE_RATE_LIMIT_MAX = 6
-_CAPTURE_RATE_LIMIT_WINDOW_S = 600
-_capture_window: dict[tuple[str, str], list[float]] = {}
-
-
-def _capture_rate_limit(user_id: str, folder_id: str) -> tuple[bool, int]:
-    """Returns (allowed, retry_after_s). Prunes old entries as it goes."""
-    import time as _time
-
-    key = (user_id, folder_id)
-    now = _time.time()
-    window_start = now - _CAPTURE_RATE_LIMIT_WINDOW_S
-    hits = [t for t in _capture_window.get(key, []) if t > window_start]
-    if len(hits) >= _CAPTURE_RATE_LIMIT_MAX:
-        retry = int(hits[0] + _CAPTURE_RATE_LIMIT_WINDOW_S - now) + 1
-        _capture_window[key] = hits
-        return (False, max(1, retry))
-    hits.append(now)
-    _capture_window[key] = hits
-    return (True, 0)
-
-
-@router.post("/session-capture")
-async def session_capture(body: SessionCaptureRequest, request: Request):
-    """Called by the CLI's `capture` subcommand (which runs as a
-    Claude Code Stop hook every N turns / 10 minutes).
-
-    Authenticated by api key (not user session) — the CLI uses the same
-    scoped api key that .mcp.json holds. The folder_id must be inside
-    the api key's scope subtree.
-
-    Behavior:
-        1. Verify api key + scope containment.
-        2. Ensure the target folder has Mem0 wired (repo folders only).
-           If not, return a 200 with skipped=true so the hook doesn't
-           annoy the user.
-        3. Ask Haiku to distill the transcript delta into 1-3 memory
-           entries with the right category (preference / finding /
-           decision / session).
-        4. Save each via the existing Mem0 add path with hard dedup.
-    """
-    import hashlib
-
-    from fastapi import HTTPException as HE
-
-    auth = request.headers.get("Authorization") or ""
-    if not auth.startswith("Bearer rag_"):
-        raise HE(status_code=401, detail="Bearer api key required")
-    key = auth[len("Bearer ") :]
-    key_hash = hashlib.sha256(key.encode()).hexdigest()
-
-    sb = get_supabase()
-    row = (
-        sb.table("api_keys")
-        .select("user_id, scope_folder_id")
-        .eq("key_hash", key_hash)
-        .limit(1)
-        .execute()
-        .data
-    )
-    if not row or not row[0].get("scope_folder_id"):
-        raise HE(status_code=401, detail="Invalid or unscoped api key")
-    user_id = row[0]["user_id"]
-    scope_id = row[0]["scope_folder_id"]
-
-    # Verify folder is inside scope
-    from mcp_server import _descendant_folder_ids  # existing helper
-
-    subtree = _descendant_folder_ids(sb, scope_id, user_id)
-    if body.folder_id not in subtree:
-        raise HE(status_code=403, detail="folder_id not in api key scope")
-
-    # Rate limit AFTER auth so unauthenticated hammering shows as 401,
-    # not 429 (giving less info to attackers). Legitimate hooks that
-    # somehow fire too fast get a friendly 429 with Retry-After.
-    allowed, retry = _capture_rate_limit(user_id, body.folder_id)
-    if not allowed:
-        raise HE(
-            status_code=429,
-            detail=(
-                f"Capture rate limit exceeded — {_CAPTURE_RATE_LIMIT_MAX} "
-                f"per {_CAPTURE_RATE_LIMIT_WINDOW_S // 60}min per folder. "
-                f"Retry in {retry}s."
-            ),
-            headers={"Retry-After": str(retry)},
-        )
-
-    # Mem0 wired?
-    from services.mem0_sync import get_client_for_folder
-    from services.mem0_sync.client import MemoryScope
-
-    mem0 = get_client_for_folder(sb, body.folder_id, user_id)
-    if mem0 is None:
-        return {"ok": True, "skipped": True, "reason": "Mem0 not wired for this folder"}
-
-    # Distill via Haiku with a focused tool schema
-    from services.llm import Task, complete
-
-    transcript_text = "\n\n".join(
-        f"[{t.role}]{' ' + t.ts if t.ts else ''}\n{t.content[:2000]}" for t in body.transcript_delta
-    )
-    if len(transcript_text) > 30_000:
-        transcript_text = transcript_text[:30_000] + "\n\n… (truncated)"
-
-    DISTILL_TOOL = {
-        "name": "emit_memories",
-        "description": "Emit 0-3 memory entries worth persisting from this transcript slice.",
-        "input_schema": {
-            "type": "object",
-            "required": ["memories"],
-            "properties": {
-                "memories": {
-                    "type": "array",
-                    "maxItems": 3,
-                    "items": {
-                        "type": "object",
-                        "required": ["category", "content"],
-                        "properties": {
-                            "category": {
-                                "type": "string",
-                                "enum": ["preference", "finding", "decision", "issue", "session"],
-                                "description": (
-                                    "preference: an eternal rule the user stated. "
-                                    "finding: a concrete fact discovered during work. "
-                                    "decision: an architectural or design choice made. "
-                                    "issue: a bug or gotcha surfaced. "
-                                    "session: a compact summary of what was done."
-                                ),
-                            },
-                            "content": {
-                                "type": "string",
-                                "description": (
-                                    "Concise standalone statement. Third-person is fine. "
-                                    "Prefer specifics over generalities. Skip if nothing "
-                                    "worth saving — an empty array is a valid answer."
-                                ),
-                            },
-                        },
-                    },
-                },
-            },
-        },
-    }
-    DISTILL_SYSTEM = (
-        "You are watching a coding session in Claude Code and deciding what "
-        "is worth persisting to a long-term memory system.\n\n"
-        "Rules:\n"
-        "- Emit ONLY memories that will be useful in FUTURE sessions or on "
-        "different PCs. A one-off debugging step is NOT worth saving.\n"
-        '- If the user stated a preference ("always X", "never Y"), '
-        "emit category='preference'.\n"
-        "- If a concrete fact about the codebase was discovered or "
-        "confirmed, emit category='finding'.\n"
-        "- If an architectural decision was reached, emit category='decision'.\n"
-        "- If a bug/gotcha was surfaced, emit category='issue'.\n"
-        "- If the session did substantive shipped work, emit ONE "
-        "category='session' summary (\"date: what was built + outcome\").\n"
-        "- Emit 0 memories if there is nothing worth saving. Don't pad.\n"
-        "- Max 3 memories per capture. Pick the most valuable ones.\n"
-        "- Never emit code snippets — reference paths and describe the "
-        "change instead."
-    )
-    msg = complete(
-        task=Task.RAG_AGENT,
-        system=DISTILL_SYSTEM,
-        messages=[
-            {
-                "role": "user",
-                "content": (
-                    f"Session id: {body.session_id}\n"
-                    f"cwd: {body.cwd or '(unknown)'}\n"
-                    f"Turns since last capture: {len(body.transcript_delta)}\n\n"
-                    f"Transcript delta:\n\n{transcript_text}"
-                ),
-            }
-        ],
-        tools=[DISTILL_TOOL],
-        max_tokens=800,
-    )
-    memories: list[dict] = []
-    for block in msg.content:
-        if block.type == "tool_use" and block.name == "emit_memories":
-            memories = list(block.input.get("memories") or [])
-            break
-
-    if not memories:
-        return {"ok": True, "skipped": True, "reason": "Nothing worth saving in this delta."}
-
-    # Save each via existing Mem0 add path
-    saved: list[dict] = []
-    for m in memories:
-        cat = m.get("category")
-        content = (m.get("content") or "").strip()
-        if not content:
-            continue
-        try:
-            result = mem0.add(
-                content=content,
-                category=cat,
-                scope=(MemoryScope.ETERNAL if cat == "preference" else MemoryScope.EPISODIC),
-                tags=[f"session:{body.session_id[:8]}", "source:cli_capture"],
-            )
-            saved.append({"category": cat, "content": content, "raw": result})
-        except Exception as exc:  # noqa: BLE001
-            saved.append(
-                {
-                    "category": cat,
-                    "content": content,
-                    "error": str(exc)[:200],
-                }
-            )
-
-    return {"ok": True, "count": len(saved), "memories": saved}
-
-
 class SearchRequest(BaseModel):
     query: str = Field(min_length=1, max_length=2000)
     folder_id: str | None = None  # narrow to this subtree; default = key's scope
@@ -525,8 +292,8 @@ class SearchRequest(BaseModel):
 @router.post("/search")
 async def search(body: SearchRequest, request: Request):
     """Knowledge-base search from the CLI. Api-key auth. Uses the same
-    fanout_search backend that MCP knowledge_base_search uses — docs +
-    Mem0 in one call — so terminal results match what Claude Code
+    retrieval backend that MCP knowledge_base_search uses — documents and
+    indexed code — so terminal results match what Claude Code
     would see for the same query.
     """
     import hashlib
@@ -535,7 +302,7 @@ async def search(body: SearchRequest, request: Request):
 
     from mcp_server import _descendant_folder_ids
     from services.embeddings import embed_query
-    from services.mem0_sync.fanout import fanout_search
+    from services.retrieval import retrieve_knowledge
 
     auth = request.headers.get("Authorization") or ""
     if not auth.startswith("Bearer rag_"):
@@ -565,9 +332,9 @@ async def search(body: SearchRequest, request: Request):
             detail=f"folder_id {target!r} not in api-key scope",
         )
 
-    # Embed + fanout
+    # Embed + retrieve
     embedding = embed_query(body.query)
-    result = await fanout_search(
+    result = await retrieve_knowledge(
         sb,
         embedding=embedding,
         query_text=body.query,
@@ -801,7 +568,7 @@ async def folder_summary(request: Request, folder_id: str):
     if not owns:
         raise HTTPException(status_code=404, detail="Folder not found")
     # Scope enforcement: a scoped api key may only read within its scope
-    # subtree — consistent with session-capture and the MCP tools, and it
+    # subtree — consistent with search and the MCP tools, and it
     # limits the blast radius if a key leaks (a repo-scoped key can't read
     # sibling repos' briefings). Fast path: reading the scope folder itself
     # (the normal session-start case) skips the subtree walk. A root-scoped
@@ -907,7 +674,7 @@ class RepoGraphDelta(BaseModel):
 @router.post("/repo-graph")
 async def repo_graph_upload(body: RepoGraphDelta, request: Request):
     """Merge a per-file code-graph delta. Authenticated by scoped api key (same
-    as session-capture); the folder must be inside the key's scope subtree."""
+    as search); the folder must be inside the key's scope subtree."""
     auth = request.headers.get("Authorization") or ""
     if not auth.startswith("Bearer rag_"):
         raise HTTPException(status_code=401, detail="Bearer api key required")

@@ -115,12 +115,12 @@ class Component extends DCLogic {
       sections: [
         sec('01', '#00F0FF', 'Overview', 'One-line purpose and a short what/why.', 'AUTO', 'Kioku (記憶) is a second brain for your repos: it ingests documents, Notion pages and code, keeps a per-repo briefing fresh, and answers questions over all of it via chat, CLI and MCP.', auto),
         sec('02', '#FF2E93', 'Architecture', 'Subsystems, boundaries, data flow.', 'PINNED', 'FRONTEND  React 19 + MUI 7 SPA (Vite), served by nginx.\nBACKEND  FastAPI — auth, documents, chat streaming (SSE), briefing API.\nWORKER  arq on Redis — parse → chunk → embed → store.', 'Last edit: you (via UI) — felipe · 10/5/2026'),
-        sec('03', '#B026FF', 'Preferences', 'Auto-populated from Mem0 [preference] rules.', 'AUTO', 'Prefer small PRs with a test per fix.\nNever call the LLM inside the ingestion worker’s hot loop.', auto),
+        sec('03', '#B026FF', 'Preferences', 'Repository working conventions.', 'AUTO', 'Prefer small PRs with a test per fix.\nNever call the LLM inside the ingestion worker’s hot loop.', auto),
         sec('04', '#00F0FF', 'Important files', '3–8 files a fresh agent would open first.', 'AUTO', 'backend/main.py — API entry\nfrontend/src/theme.ts — brand tokens', auto),
         sec('05', '#FF2E93', 'How it runs', 'Local dev requirements + setup + run commands.', 'AUTO', 'docker compose -f docker-compose.dev.yml up\ncd frontend && npm run dev', auto),
         sec('06', '#B026FF', 'Deployment', 'Environments, deploy steps, CI/CD notes.', 'HYBRID', 'Self-hosted on the hive cluster; one compose file per service under deploy/hive/kioku.', 'Last edit: coding agent (via MCP) — felipe'),
         sec('07', '#00F0FF', 'Dependencies', 'Auto-parsed from manifests.', 'AUTO', 'FRONTEND  react 19 · @mui/material 7 · react-markdown 10\nBACKEND  fastapi · arq · voyageai · anthropic', auto),
-        sec('08', '#FF2E93', 'Activity', 'GitHub sync + Mem0 findings/decisions/sessions.', 'AUTO', '#76 fix(chat): preserve user line breaks\n#75 feat(briefing): index status cards', 'Last edit: auto-populator · 10/5/2026, 2:42 PM')
+        sec('08', '#FF2E93', 'Activity', 'Git activity from repository sync.', 'AUTO', '#76 fix(chat): preserve user line breaks\n#75 feat(briefing): index status cards', 'Last edit: auto-populator · 10/5/2026, 2:42 PM')
       ]
     };
   }

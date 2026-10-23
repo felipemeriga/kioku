@@ -11,8 +11,6 @@ services:
       - SUPABASE_URL=${KIOKU_SUPABASE_URL}
       - SUPABASE_SERVICE_KEY=${KIOKU_SUPABASE_SERVICE_KEY}
       - MCP_API_KEY=${KIOKU_MCP_API_KEY}
-      - MEM0_SERVICE_URL=http://kioku-mem0:8010
-      - MEM0_SERVICE_TOKEN=${KIOKU_MEM0_SERVICE_TOKEN}
     networks:
       - kioku
       - proxy

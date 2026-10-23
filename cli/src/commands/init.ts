@@ -22,17 +22,17 @@ import {
 } from "./graph-index.js";
 import {
   installSessionStartHook,
-  installStopHook,
+  removeLegacyCaptureHooks,
   removeLegacyPushHooks,
   readRepoState,
   updateClaudeMd,
   updateGitignore,
-  writeCaptureState,
+  writeRepoState,
   writeMcpConfig,
 } from "../lib/claude.js";
 import {
   installCodexSessionStartHook,
-  installCodexStopHook,
+  removeCodexCaptureHooks,
   updateAgentsMd,
   writeCodexMcpConfig,
 } from "../lib/codex.js";
@@ -372,12 +372,12 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
   });
 
   if (agent === "codex") {
-    // Codex surface: global ~/.codex/config.toml (MCP + SessionStart/Stop) +
+    // Codex surface: global ~/.codex/config.toml (MCP + SessionStart) +
     // AGENTS.md. The url is rewritten to the streamable-HTTP path (/mcp) inside
     // writeCodexMcpConfig, since Codex speaks streamable HTTP, not SSE.
     //
     // ALSO upsert the repo-local .mcp.json: every repo-scoped consumer (graph
-    // upload, session-start, capture, key reuse on re-init) resolves the key
+    // upload, session-start, key reuse on re-init) resolves the key
     // from .mcp.json first. Leaving a stale copy there strands them on a key
     // this mint just rotated dead (401 "Invalid or unscoped api key").
     const mcp = writeMcpConfig(repoRoot, mcpEntry);
@@ -393,13 +393,6 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
         ? "Codex SessionStart hook installed"
         : "Codex SessionStart hook already present"
     );
-    const cxStop = installCodexStopHook();
-    ok(
-      cxStop.addedHook
-        ? "Codex Stop hook installed  " +
-            kleur.dim("(captures learnings to Mem0)")
-        : "Codex Stop hook already present"
-    );
   } else {
     const mcp = writeMcpConfig(repoRoot, mcpEntry);
     ok(`.mcp.json ${mcp.existed ? "updated" : "written"}`);
@@ -411,16 +404,11 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
         ? "SessionStart hook installed"
         : "SessionStart hook already present"
     );
-
-    // Stop hook — captures session learnings to Mem0 every 10 min
-    //          or every 5 assistant turns.
-    const stop = installStopHook(repoRoot);
-    ok(
-      stop.addedHook
-        ? "Stop hook installed  " + kleur.dim("(captures learnings to Mem0)")
-        : "Stop hook already present"
-    );
   }
+
+  // Remove retired capture hooks on both agent surfaces, including when switching agents.
+  removeLegacyCaptureHooks(repoRoot);
+  removeCodexCaptureHooks();
 
   // Step 6b.5: remove legacy push hooks (pre-v0.3.0 installed a Claude
   //             PostToolUse hook + a native git pre-push hook; the watcher
@@ -446,10 +434,8 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
     remoteUrl: git.remoteUrl,
   });
 
-  // Step 6d: state file the Stop/Push hooks read — which folder to save to,
-  //          how much transcript is captured, and the HEAD the activity was
-  //          last generated from (so the first push only covers newer work).
-  writeCaptureState(repoRoot, {
+  // Step 6d: persist the repository binding and activity watermark.
+  writeRepoState(repoRoot, {
     folder_id: repoFolder.id,
     folder_name: repoFolder.name,
     scope_root_name: rootName,

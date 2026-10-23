@@ -3,7 +3,6 @@
 Every MCP tool called at least once with valid + invalid args:
 
   A. knowledge_base_search — happy path + empty query
-  B. save_memory / search_memory / delete_memory (via Mem0 flow)
   C. save_note / list_notes / delete_note — full CRUD
   D. set_context / get_context / list_context / clear_context — CRUD
   E. list_folders_in_scope — respects api key scope
@@ -91,23 +90,6 @@ async def main():
         folder_id = r.json()["id"]
         # Make it a repo so briefing tools work
         await c.patch(f"{BACKEND}/api/folders/{folder_id}", json={"kind": "repo"})
-        # Wire Mem0 so memory tools work
-        r = await c.get(f"{BACKEND}/api/mem0/configs")
-        cfgs = r.json() if r.status_code == 200 else []
-        if not cfgs:
-            print("SKIP: no Mem0 config wired — skipping memory tool tests")
-            return
-        # Reuse the user's existing Mem0 config against this folder
-        r = await c.post(
-            f"{BACKEND}/api/mem0/configs",
-            json={
-                "api_key": cfgs[0].get("api_key_encrypted", ""),  # backend re-uses
-                "root_folder_id": folder_id,
-            },
-        )
-        # If direct Mem0 wire fails, we'll still test tools that don't
-        # need Mem0. Continue.
-
         r = await c.post(
             f"{BACKEND}/api/api-keys",
             json={"name": f"e2e-mcp-{tid}", "scope_folder_id": folder_id},

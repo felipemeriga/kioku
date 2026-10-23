@@ -2,7 +2,6 @@
 import { Command } from "commander";
 import kleur from "kleur";
 import { briefing } from "./commands/briefing.js";
-import { capture } from "./commands/capture.js";
 import { doctor } from "./commands/doctor.js";
 import { init } from "./commands/init.js";
 import { login } from "./commands/login.js";
@@ -165,20 +164,6 @@ program
   });
 
 program
-  .command("capture")
-  .description(
-    "Distill session learnings and save to Mem0 (used by the Stop hook)"
-  )
-  .action(async () => {
-    try {
-      await capture();
-    } catch (err) {
-      // never fail a hook
-      if (process.env.KIOKU_DEBUG) console.error(err);
-    }
-  });
-
-program
   .command("index")
   .description(
     "Extract this repo's code graph and upload it so agents query it instead of grepping"
@@ -333,7 +318,7 @@ program
     `
 Examples:
   $ kioku search how does deploy work
-  $ kioku search --limit 10 mem0 filter grammar
+  $ kioku search --limit 10 retrieval filter grammar
   $ kioku search --json 'ruff format' | jq '.hits[0]'
 `
   )

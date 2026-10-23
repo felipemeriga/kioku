@@ -1,10 +1,10 @@
 # Kioku (記憶)
 
-**Second brain for your repos.** A persistent memory system that pairs with Claude Code — captures preferences, findings, decisions, and architecture briefings per-repo, and streams them back at the start of every session via MCP.
+**Second brain for your repos.** A repository knowledge system that pairs with coding agents — maintains architecture briefings, documents, and code indexes per repo, and exposes them through MCP.
 
-Upload PDFs, DOCX, Markdown, or plain text; connect GitHub repos + Notion pages; wire Claude Code hooks with a single CLI command. Every session starts with your repo's briefing pre-loaded; every session ends with what you learned auto-captured to memory.
+Upload PDFs, DOCX, Markdown, or plain text; connect GitHub repos + Notion pages; wire Claude Code hooks with a single CLI command. Every session starts with your repo's briefing pre-loaded.
 
-Built as a self-hosted, folder-scoped second brain. Unlike per-project agents, Kioku unifies your workspace across repos while keeping strict per-repo scope for retrieval and memory.
+Built as a self-hosted, folder-scoped second brain. Unlike per-project agents, Kioku unifies your workspace across repos while keeping strict per-repo scope for retrieval.
 
 ![Dark themed UI with glassmorphism](https://img.shields.io/badge/theme-glassmorphism-6366f1)
 

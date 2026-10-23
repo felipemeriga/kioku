@@ -107,10 +107,7 @@ async def briefing_schema():
             },
             "preferences": {
                 "shape": {"rules": ["str"]},
-                "notes": (
-                    "Auto-populated from Mem0 [preference]. Don't manually "
-                    "edit unless you want to override."
-                ),
+                "notes": ("Repository conventions maintained through briefing section updates."),
             },
             "important_files": {
                 "shape": [{"path": "str", "role": "str", "why": "str"}],

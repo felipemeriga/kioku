@@ -87,7 +87,6 @@ interface ClaudeSettings {
 // neither of which loads the user's interactive PATH. A bare `kioku` fails there
 // whenever kioku is installed under nvm.
 export const SUB_SESSION_START = "session-start";
-export const SUB_STOP = "capture";
 export const SUB_POST_PUSH = "on-push";
 const SUB_INDEX = "index";
 
@@ -123,6 +122,14 @@ function hookCommand(subcommand: string): string {
  *  dedupe/migrate on re-init. */
 function isSubcommand(cmd: string | undefined, subcommand: string): boolean {
   return !!cmd && cmd.trim().endsWith(` ${subcommand}`);
+}
+
+export function isRetiredCaptureCommand(command: string | undefined): boolean {
+  if (!isSubcommand(command, "capture")) return false;
+  return (
+    /(?:^|\s)kioku\s+capture$/.test(command!) ||
+    /(?:@felipemeriga\/kioku|\/kioku\/dist\/index\.js)/.test(command!)
+  );
 }
 
 function loadSettings(path: string): ClaudeSettings {
@@ -206,9 +213,20 @@ function removeHookFromFile(
       if (!g || typeof g !== "object") return g;
       const o = g as { type?: string; command?: string; hooks?: HookEntry[] };
       if (o.type === "command")
-        return isSubcommand(o.command, subcommand) ? null : g; // legacy malformed
+        return (
+          subcommand === "capture"
+            ? isRetiredCaptureCommand(o.command)
+            : isSubcommand(o.command, subcommand)
+        )
+          ? null
+          : g; // legacy malformed
       if (Array.isArray(o.hooks)) {
-        o.hooks = o.hooks.filter((h) => !isSubcommand(h.command, subcommand));
+        o.hooks = o.hooks.filter(
+          (h) =>
+            !(subcommand === "capture"
+              ? isRetiredCaptureCommand(h.command)
+              : isSubcommand(h.command, subcommand))
+        );
         return o.hooks.length > 0 ? g : null;
       }
       return g; // unknown shape — leave it
@@ -253,11 +271,20 @@ export function installSessionStartHook(repoRoot: string): {
   return installHook(repoRoot, "SessionStart", SUB_SESSION_START);
 }
 
-export function installStopHook(repoRoot: string): {
-  path: string;
-  addedHook: boolean;
-} {
-  return installHook(repoRoot, "Stop", SUB_STOP);
+/** Remove retired transcript-capture hooks without touching other handlers. */
+export function removeLegacyCaptureHooks(repoRoot: string): boolean {
+  const dir = join(repoRoot, ".claude");
+  const local = removeHookFromFile(
+    join(dir, "settings.local.json"),
+    "Stop",
+    "capture"
+  );
+  const shared = removeHookFromFile(
+    join(dir, "settings.json"),
+    "Stop",
+    "capture"
+  );
+  return local || shared;
 }
 
 /** PostToolUse hook scoped to the Bash tool. `kioku on-push` filters for a
@@ -345,9 +372,9 @@ export function installPrePushGitHook(repoRoot: string): {
 }
 
 /** Write the per-repo state file. Contains the folder_id the CLI bound
- *  this repo to plus capture watermarks. Not a secret — the api key is
+ *  this repo to and activity watermarks. Not a secret — the api key is
  *  in .mcp.json — but still gitignored to avoid state churn in git. */
-export function writeCaptureState(
+export function writeRepoState(
   repoRoot: string,
   state: {
     folder_id: string;
@@ -375,7 +402,10 @@ export function writeCaptureState(
       existing = {};
     }
   }
-  const merged = { ...existing, ...state };
+  const merged: Record<string, unknown> = { ...existing, ...state };
+  delete merged.last_capture_at;
+  delete merged.last_capture_transcript_length;
+  delete merged.last_session_id;
   writeFileSync(path, JSON.stringify(merged, null, 2) + "\n");
   return { path };
 }
@@ -469,14 +499,11 @@ export function secondBrainSnippet(): string {
 ## Kioku second-brain
 
 You have an \`kioku\` MCP server wired to this repo. It gives you
-persistent memory across sessions and PC switches.
+repository knowledge across sessions and PC switches.
 
 ### At session start
 
-The SessionStart hook fetches your briefing automatically. Every 10
-minutes or every 5 assistant turns (whichever comes first), the Stop
-hook automatically distills recent turns into Mem0 — preferences,
-findings, decisions, issues, and session summaries.
+The SessionStart hook fetches your briefing automatically.
 
 If you want to reload the briefing manually:
 
@@ -492,21 +519,14 @@ If you want to reload the briefing manually:
 
 Persist it. It'll survive the session, the PC, the team:
 
-- \`save_memory(content, category='preference')\` — eternal rules of thumb
-  (\"never use Co-Authored-By\", \"backend uses uv\"). Prepended to
-  every future briefing.
-- \`save_memory(content, category='finding' | 'decision' | 'issue' | 'session')\`
-  — episodic learnings. Show up in \`recent_activity\`.
 - \`update_folder_briefing_section(section, content, pin=True)\` — for
   structured facts about the repo (deploy steps, important files,
   architecture). Pinned sections survive auto-regen.
 
 ### When you need info you don't have in this window
 
-- \`knowledge_base_search(query)\` — searches docs + Mem0 across the
+- \`knowledge_base_search(query)\` — searches documents across the
   scope subtree. Grounded, cited.
-- \`search_memory(query)\` — Mem0 only, faster for preference-style
-  lookups.
 - \`query_documents_metadata(question)\` — structured questions about
   what documents exist ("show me all PDFs added this week").
 - \`read_folder_documents()\` — full text of every doc already uploaded to
@@ -533,9 +553,8 @@ If a lookup returns nothing, fall back to a normal search.
 
 ### Convention
 
-Prefer \`update_folder_briefing_section\` for repo facts, \`save_memory\`
-for preferences and one-off learnings. If uncertain, save both — briefings
-are pinned by default and won't be overwritten.
+Use \`update_folder_briefing_section\` for durable repository facts. Pinned
+sections survive automatic regeneration.
 
 If a briefing feels thin, this repo's kioku folder may have no uploaded docs.
 Suggest the user add documents or connect Notion in the web UI, then re-run
@@ -592,7 +611,6 @@ export function updateGitignore(repoRoot: string): {
     ".mcp.json",
     ".claude/settings.local.json",
     ".claude/kioku-state.json",
-    ".claude/kioku-capture.log",
     ".claude/kioku-onpush.log",
     ".claude/kioku-autogen.lock",
     ".claude/kioku-autogen.log",
