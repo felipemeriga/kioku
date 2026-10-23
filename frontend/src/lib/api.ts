@@ -928,6 +928,10 @@ export interface FolderStatus {
   detailed_doc_at: string | null;
   index_refresh_started_at: string | null;
   sections_refresh_started_at: string | null;
+  index_refresh_finished_at?: string | null;
+  index_refresh_error?: string | null;
+  sections_refresh_finished_at?: string | null;
+  sections_refresh_error?: string | null;
 }
 
 export async function getFolderStatus(folderId: string): Promise<FolderStatus> {

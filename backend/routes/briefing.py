@@ -226,6 +226,10 @@ def _index_status(
         "detailed_doc_at": doc[0]["generated_at"] if doc else None,
         "index_refresh_started_at": (fresh or {}).get("index_refresh_started_at"),
         "sections_refresh_started_at": (fresh or {}).get("sections_refresh_started_at"),
+        "index_refresh_finished_at": (fresh or {}).get("index_refresh_finished_at"),
+        "index_refresh_error": (fresh or {}).get("index_refresh_error"),
+        "sections_refresh_finished_at": (fresh or {}).get("sections_refresh_finished_at"),
+        "sections_refresh_error": (fresh or {}).get("sections_refresh_error"),
     }
 
 
@@ -297,20 +301,8 @@ async def trigger_refresh(
         raise HTTPException(status_code=409, detail="A refresh is already running.")
     if resp.status_code != 202:
         raise HTTPException(status_code=503, detail="Watcher could not start the refresh.")
-    # Persist the start so the Status tab shows "refreshing" across page reloads.
-    # The watcher's repo_freshness upsert never touches these columns.
-    col = "index_refresh_started_at" if body.target == "index" else "sections_refresh_started_at"
-    try:
-        sb.table("repo_freshness").upsert(
-            {
-                "folder_id": folder_id,
-                "user_id": user_id,
-                col: datetime.now(timezone.utc).isoformat(),
-            },
-            on_conflict="folder_id",
-        ).execute()
-    except Exception:  # noqa: BLE001 — best-effort; the refresh still runs
-        logger.warning("failed to record refresh start for folder %s", folder_id, exc_info=True)
+    # The watcher owns the entire lifecycle, recording start BEFORE launching
+    # the job. Writing here races with fast/no-op refreshes finishing first.
     return JSONResponse(status_code=202, content=resp.json())
 
 

@@ -117,13 +117,13 @@ def _kms():
 def decrypt(ciphertext: str) -> str:
     if ciphertext.startswith(_KMS_PREFIX):
         blob = base64.b64decode(ciphertext[len(_KMS_PREFIX) :])
-        return _kms().decrypt(CiphertextBlob=blob, EncryptionContext=_KMS_ENC_CONTEXT)[
-            "Plaintext"
-        ].decode()
-    if FERNET is None:
-        raise RuntimeError(
-            "Got legacy Fernet ciphertext but SECRETS_ENCRYPTION_KEY is not set."
+        return (
+            _kms()
+            .decrypt(CiphertextBlob=blob, EncryptionContext=_KMS_ENC_CONTEXT)["Plaintext"]
+            .decode()
         )
+    if FERNET is None:
+        raise RuntimeError("Got legacy Fernet ciphertext but SECRETS_ENCRYPTION_KEY is not set.")
     return FERNET.decrypt(ciphertext.encode()).decode()
 
 
@@ -320,7 +320,7 @@ def refresh_activity(clone: Path, repo: dict, old_sha: str | None, new_sha: str,
         log(f"{repo['remote_url']}: activity refresh failed — {exc}")
 
 
-def refresh_sections(clone: Path, repo: dict, env: dict) -> None:
+def refresh_sections(clone: Path, repo: dict, env: dict, strict: bool = False) -> None:
     """Fold changed path-driven files into their concrete briefing sections
     (dependencies/deployment/how_it_runs) via the backend (cheap Haiku) — the
     same treatment activity gets. Holistic sections (architecture/overview) are
@@ -377,10 +377,13 @@ def refresh_sections(clone: Path, repo: dict, env: dict) -> None:
                 json={"folder_id": repo["folder_id"], "section": section, "files": files},
                 timeout=120,
             )
+            r.raise_for_status()
             if r.ok and (r.json() or {}).get("updated"):
                 log(f"{repo['remote_url']}: {section} section refreshed ({len(files)} file(s))")
         except Exception as exc:  # noqa: BLE001 — best-effort
             log(f"{repo['remote_url']}: {section} refresh failed — {exc}")
+            if strict:
+                raise RuntimeError("Detail section refresh failed") from exc
 
 
 # Holistic sections (architecture/overview) are RE-GROUNDED periodically from
@@ -460,14 +463,17 @@ def maybe_reground_holistic(clone: Path, repo: dict, env: dict, force: bool = Fa
             json={"folder_id": repo["folder_id"], "files": files, "structure": structure},
             timeout=180,
         )
+        r.raise_for_status()
         body = r.json() if r.ok else {}
         if (body or {}).get("updated"):
             log(
                 f"{repo['remote_url']}: re-grounded "
-                f"{', '.join((body or {}).get('sections', []))} (Sonnet, {int(n)} commits)"
+                f"{', '.join((body or {}).get('sections', []))} (Sonnet, {int(n or 0)} commits)"
             )
     except Exception as exc:  # noqa: BLE001 — best-effort
         log(f"{repo['remote_url']}: reground failed — {exc}")
+        if force:
+            raise RuntimeError("Architecture refresh failed") from exc
 
 
 def process_repo(repo: dict, key_row: dict) -> None:
@@ -578,7 +584,7 @@ def force_refresh(repo: dict, key_row: dict, target: str) -> None:
         )
         if code != 0 or not out:
             log(f"ERROR force {target} {name}: ls-remote failed — {(err or '')[:200]}")
-            return
+            raise RuntimeError("Could not read the remote branch")
         remote_sha = out.split()[0]
         clone = DATA / repo["user_id"] / repo["folder_id"]
         if not (clone / ".git").exists():
@@ -594,10 +600,10 @@ def force_refresh(repo: dict, key_row: dict, target: str) -> None:
                 )
         if code != 0:
             log(f"ERROR force {target} {name}: sync failed — {(err or '')[:200]}")
-            return
+            raise RuntimeError("Could not sync the repository")
     if not repo.get("api_key_encrypted"):
         log(f"ERROR force {target} {name}: no api key registered")
-        return
+        raise RuntimeError("No repository API key registered")
     folder = rest_get("folders", {"id": f"eq.{repo['folder_id']}", "select": "name", "limit": "1"})
     folder_name = folder[0]["name"] if folder else "repo"
     seed_bindings(clone, repo["folder_id"], folder_name, decrypt(repo["api_key_encrypted"]))
@@ -617,9 +623,10 @@ def force_refresh(repo: dict, key_row: dict, target: str) -> None:
             refresh_activity(clone, repo, repo.get("last_sha"), remote_sha, plain_env)
         else:
             log(f"ERROR force index {name}: {tail[-200:]}")
+            raise RuntimeError("Code indexing failed; check watcher logs")
     elif target == "sections":
         log(f"{name}: force sections")
-        refresh_sections(clone, repo, plain_env)
+        refresh_sections(clone, repo, plain_env, strict=True)
         maybe_reground_holistic(clone, repo, plain_env, force=True)
     compute_freshness(clone, repo, plain_env)
 
@@ -662,15 +669,58 @@ def handle_run(headers, raw_body: str) -> tuple[int, dict]:
     if not _pass_lock.acquire(blocking=False):
         return 409, {"error": "already running"}
 
+    prefix = f"{target}_refresh"
+    started_at = datetime.now(timezone.utc).isoformat()
+    try:
+        rest_post(
+            "repo_freshness",
+            [
+                {
+                    "folder_id": folder_id,
+                    "user_id": repo["user_id"],
+                    f"{prefix}_started_at": started_at,
+                    f"{prefix}_finished_at": None,
+                    f"{prefix}_error": None,
+                }
+            ],
+            {"Prefer": "resolution=merge-duplicates"},
+        )
+    except Exception as exc:
+        _pass_lock.release()
+        log(f"ERROR recording refresh start: {exc}")
+        return 503, {"error": "could not record refresh start"}
+
     def job() -> None:
+        error = None
         try:
             force_refresh(repo, key_row, target)
         except Exception as exc:  # noqa: BLE001 — a trigger must never crash the watcher
             log(f"ERROR force {target} {repo.get('remote_url')}: {exc}")
+            # Never expose raw subprocess/HTTP exception text (may contain secrets).
+            error = "Refresh failed. Check watcher logs and retry."
         finally:
-            _pass_lock.release()
+            try:
+                rest_patch(
+                    "repo_freshness",
+                    {
+                        "folder_id": f"eq.{folder_id}",
+                        f"{prefix}_started_at": f"eq.{started_at}",
+                    },
+                    {
+                        f"{prefix}_finished_at": datetime.now(timezone.utc).isoformat(),
+                        f"{prefix}_error": error,
+                    },
+                )
+            except Exception as exc:
+                log(f"ERROR recording refresh completion: {exc}")
+            finally:
+                _pass_lock.release()
 
-    threading.Thread(target=job, daemon=True).start()
+    try:
+        threading.Thread(target=job, daemon=True).start()
+    except Exception:
+        _pass_lock.release()
+        return 503, {"error": "could not launch refresh"}
     return 202, {"started": True}
 
 

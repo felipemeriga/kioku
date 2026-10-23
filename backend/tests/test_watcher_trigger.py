@@ -1,7 +1,10 @@
 import os
 import sys
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+import pytest
 
 # watcher.py reads SUPABASE_URL at import — set dummy env before importing it.
 os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
@@ -39,6 +42,9 @@ def _setup_reground(monkeypatch, posted):
 
     class _R:
         ok = True
+
+        def raise_for_status(self):
+            pass
 
         def json(self):
             return {"updated": True, "sections": ["architecture"]}
@@ -155,7 +161,11 @@ def test_handle_run_unknown_folder(monkeypatch):
 
 
 def test_handle_run_started_and_overlap(monkeypatch):
-    monkeypatch.setattr(watcher, "find_repo", lambda fid: ({"remote_url": "r"}, {"k": 1}))
+    monkeypatch.setattr(
+        watcher, "find_repo", lambda fid: ({"remote_url": "r", "user_id": "u"}, {"k": 1})
+    )
+    monkeypatch.setattr(watcher, "rest_post", lambda *a: None)
+    monkeypatch.setattr(watcher, "rest_patch", lambda *a: None)
     started = {"n": 0}
 
     def fake_force(repo, key_row, target):
@@ -174,6 +184,52 @@ def test_handle_run_started_and_overlap(monkeypatch):
     assert status == 202 and body == {"started": True}
     assert started["n"] == 1
     assert watcher._pass_lock.locked() is False  # released in finally
+
+
+@pytest.mark.parametrize("target", ["index", "sections"])
+@pytest.mark.parametrize("fails", [False, True])
+def test_refresh_records_terminal_state_even_without_content_changes(monkeypatch, target, fails):
+    writes = []
+    monkeypatch.setattr(watcher, "_pass_lock", threading.Lock())
+    monkeypatch.setattr(watcher, "find_repo", lambda fid: ({"remote_url": "r", "user_id": "u"}, {}))
+    monkeypatch.setattr(watcher, "rest_post", lambda path, rows, headers: writes.append(rows[0]))
+    monkeypatch.setattr(watcher, "rest_patch", lambda path, params, row: writes.append(row))
+
+    def run(*args):
+        assert writes[0][f"{target}_refresh_started_at"]
+        if fails:
+            raise RuntimeError("sensitive internal error")
+
+    monkeypatch.setattr(watcher, "force_refresh", run)
+    monkeypatch.setattr(
+        watcher.threading,
+        "Thread",
+        lambda target, daemon: type("T", (), {"start": staticmethod(target)})(),
+    )
+    status, _ = watcher.handle_run(
+        {"X-Watcher-Token": "test-token"}, '{"folder_id":"f1","target":"' + target + '"}'
+    )
+    assert status == 202
+    assert writes[0][f"{target}_refresh_finished_at"] is None
+    assert writes[1][f"{target}_refresh_finished_at"] >= writes[0][f"{target}_refresh_started_at"]
+    assert bool(writes[1][f"{target}_refresh_error"]) == fails
+    assert "sensitive" not in str(writes)
+    assert not watcher._pass_lock.locked()
+
+
+def test_refresh_refuses_untracked_job_when_start_write_fails(monkeypatch):
+    monkeypatch.setattr(watcher, "_pass_lock", threading.Lock())
+    monkeypatch.setattr(watcher, "find_repo", lambda fid: ({"user_id": "u"}, {}))
+
+    def fail(*args):
+        raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(watcher, "rest_post", fail)
+    status, _ = watcher.handle_run(
+        {"X-Watcher-Token": "test-token"}, '{"folder_id":"f1","target":"index"}'
+    )
+    assert status == 503
+    assert not watcher._pass_lock.locked()
 
 
 def test_health_endpoint_smoke(monkeypatch):
