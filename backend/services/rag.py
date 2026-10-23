@@ -56,7 +56,9 @@ recently / what's new" questions, use recent_changes (git-derived) — the code 
 not the delta.
 
 ## Temporal awareness
-Retrieved results carry a date in the header. For documents it is the source/edit date. For code \
+Document headers distinguish ingestion/creation date from "last updated", the last known content \
+change (source edit time for Notion; accepted update time for uploads). Prefer last updated when \
+comparing freshness; neither date proves when a fact first became true. For code \
 and code_graph_lookup results the "updated <date>" is when that file's content was last indexed \
 after a change (file-level) — a recency hint, not the authoring date. Use it: when two results \
 conflict, prefer the more recently updated one and note the older differs; be wary of notably old \

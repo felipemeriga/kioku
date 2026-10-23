@@ -8,6 +8,7 @@ task rely on.
 
 import hashlib
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 
 from storage3.exceptions import StorageApiError
@@ -186,6 +187,7 @@ def ingest_document(
 
     embeddings = embed_batch(embed_inputs)
     sb = get_supabase()
+    timestamp = datetime.now(timezone.utc).isoformat()
     ids: list[str] = []
     for i, (chunk, embedding) in enumerate(zip(chunks, embeddings, strict=True)):
         row = {
@@ -198,6 +200,8 @@ def ingest_document(
             "content_hash": content_hash,
             "chunk_index": i,
             "status": "completed",
+            "created_at": timestamp,
+            "last_updated": timestamp,
         }
         if folder_id:
             row["folder_id"] = folder_id
@@ -220,8 +224,8 @@ def replace_document(
     stale document).
 
     Embeds the new content BEFORE deleting the old chunks, so an embedding
-    failure leaves the existing document intact. No dedup check — a replace is
-    intentional, and the caller has already confirmed the document exists.
+    failure leaves the existing document intact. Identical content is a no-op,
+    preserving the original dates and avoiding unnecessary embedding calls.
     """
     from services.chunker import chunk_text, contextualized_text
     from services.contextual import contextualize_chunks
@@ -233,6 +237,33 @@ def replace_document(
     chunks = chunk_text(text)
     if not chunks:
         return {"chunks": 0, "document_ids": []}
+
+    sb = get_supabase()
+    content_hash = hashlib.sha256(text.encode()).hexdigest()
+
+    def scoped(query):
+        query = query.eq("user_id", user_id).eq("source_filename", filename)
+        return query.eq("folder_id", folder_id) if folder_id else query.is_("folder_id", "null")
+
+    existing = (
+        scoped(sb.table("documents").select("id, content, content_hash, created_at"))
+        .order("metadata->chunk_index")
+        .execute()
+        .data
+    ) or []
+    if existing and (
+        all(row.get("content_hash") == content_hash for row in existing)
+        or [row.get("content") for row in existing] == chunks
+    ):
+        return {
+            "chunks": len(existing),
+            "document_ids": [row["id"] for row in existing],
+            "unchanged": True,
+        }
+    timestamp = datetime.now(timezone.utc).isoformat()
+    created_at = min(
+        (row["created_at"] for row in existing if row.get("created_at")), default=timestamp
+    )
 
     # Contextual retrieval: embed header + situating blurb + chunk (content stays
     # raw). Embed BEFORE deleting old rows — an embed failure leaves old intact.
@@ -251,17 +282,12 @@ def replace_document(
         embed_inputs.append(contextualized_text(meta, contexts[i], chunk))
 
     embeddings = embed_batch(embed_inputs)
-    sb = get_supabase()
     root_folder_id = resolve_root_folder_id(folder_id, user_id) if folder_id else None
-    content_hash = hashlib.sha256(text.encode()).hexdigest()
     ext = Path(filename).suffix.lower()
     source_type = EXTENSION_TO_TYPE.get(ext, "markdown")
 
     # Remove the old chunks (scoped to this file + folder + user), then insert new.
-    del_q = sb.table("documents").delete().eq("user_id", user_id).eq("source_filename", filename)
-    if folder_id:
-        del_q = del_q.eq("folder_id", folder_id)
-    del_q.execute()
+    scoped(sb.table("documents").delete()).execute()
 
     ids: list[str] = []
     for i, (chunk, embedding) in enumerate(zip(chunks, embeddings, strict=True)):
@@ -275,6 +301,8 @@ def replace_document(
             "content_hash": content_hash,
             "chunk_index": i,
             "status": "completed",
+            "created_at": created_at,
+            "last_updated": timestamp,
         }
         if folder_id:
             row["folder_id"] = folder_id

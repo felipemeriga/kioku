@@ -528,12 +528,14 @@ def search_documents(
             return _expand_with_neighbors(reranked)
 
 
-# Recency half-life (days) per source_type. Episodic content (meetings, voice
-# recordings) loses relevance over time and decays; reference material (docs,
-# notion pages, code) ranks purely on relevance and is absent from this map.
+# Slowly changing reference documents use a gentle one-year half-life. Code
+# remains neutral: its history belongs to Git, not document freshness.
 RECENCY_HALF_LIFE_DAYS: dict[str, float] = {
     "meeting": 90.0,
     "audio": 180.0,
+    "pdf": 365.0,
+    "markdown": 365.0,
+    "notion": 365.0,
 }
 
 # Cap on how much freshness can move the final ranking. Relevance keeps 80%
@@ -543,27 +545,29 @@ RECENCY_WEIGHT = 0.2
 
 def _recency_factor(doc: dict, now: datetime | None = None) -> float:
     """0..1 decay multiplier: 1.0 for undated or non-decaying content, halving
-    every RECENCY_HALF_LIFE_DAYS for episodic source types."""
+    every RECENCY_HALF_LIFE_DAYS for configured source types."""
     half_life = RECENCY_HALF_LIFE_DAYS.get(doc.get("source_type") or "")
-    ts = doc.get("created_at")
+    ts = doc.get("last_updated") or doc.get("created_at")
     if not half_life or not ts:
         return 1.0
     try:
         created = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
-    except ValueError:
+    except (ValueError, TypeError):
         return 1.0
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
     now = now or datetime.now(timezone.utc)
     age_days = max((now - created).total_seconds() / 86400.0, 0.0)
     return 0.5 ** (age_days / half_life)
 
 
 def _apply_recency_decay(docs: list[dict]) -> list[dict]:
-    """Downrank stale episodic chunks: multiply the rerank score by a per-type
+    """Downrank stale chunks: blend the rerank score with a per-type
     time decay and re-sort. Decay is COHORT-RELATIVE — factors are normalized
     by the best factor in this result set — so freshness only matters when the
     results actually differ in age. A corpus (or folder) whose only relevant
     material is old keeps its pure relevance order; nothing is ever dropped,
-    only reordered. Reference docs (no half-life entry) are untouched."""
+    only reordered. Types without a half-life entry remain neutral."""
     if not docs:
         return docs
     out = []

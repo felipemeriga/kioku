@@ -300,6 +300,9 @@ def execute_tool(
                 # as-of dates — retrieval alone can't resolve conflicting facts.
                 date = str(r.get("created_at") or "")[:10]
                 body = f"Source: {source} — {date}" if date else f"Source: {source}"
+                updated = str(r.get("last_updated") or "")[:10]
+                if updated:
+                    body += f" — last updated {updated}"
             # Prefix with the stable citation number [N] so the model can cite it
             # inline; without a registry, keep the original bracketed header.
             if citations is not None:
@@ -318,6 +321,7 @@ def execute_tool(
                         "rerank_score": r.get("rerank_score"),
                         "similarity": r.get("similarity"),
                         "date": str(r.get("created_at") or "")[:10] or None,
+                        "last_updated": str(r.get("last_updated") or "")[:10] or None,
                         "content": (r.get("content") or "")[:1200],
                     }
                 )

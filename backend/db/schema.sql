@@ -51,12 +51,12 @@ ALTER FUNCTION "public"."execute_readonly_query"("query_text" "text") OWNER TO "
 REVOKE ALL ON FUNCTION "public"."execute_readonly_query"("query_text" "text") FROM PUBLIC;
 
 
-CREATE OR REPLACE FUNCTION "public"."keyword_search"("search_query" "text", "match_count" integer DEFAULT 20, "filter_user_id" "uuid" DEFAULT NULL::"uuid", "filter_topic" "text" DEFAULT NULL::"text", "filter_keyword" "text" DEFAULT NULL::"text", "filter_root_folder_id" "uuid" DEFAULT NULL::"uuid", "filter_folder_ids" "uuid"[] DEFAULT NULL::"uuid"[], "filter_source_filename" "text" DEFAULT NULL::"text", "filter_created_after" timestamp with time zone DEFAULT NULL, "filter_created_before" timestamp with time zone DEFAULT NULL) RETURNS TABLE("id" "uuid", "content" "text", "metadata" "jsonb", "rank" real, "created_at" timestamp with time zone, "source_type" "text")
+CREATE OR REPLACE FUNCTION "public"."keyword_search"("search_query" "text", "match_count" integer DEFAULT 20, "filter_user_id" "uuid" DEFAULT NULL::"uuid", "filter_topic" "text" DEFAULT NULL::"text", "filter_keyword" "text" DEFAULT NULL::"text", "filter_root_folder_id" "uuid" DEFAULT NULL::"uuid", "filter_folder_ids" "uuid"[] DEFAULT NULL::"uuid"[], "filter_source_filename" "text" DEFAULT NULL::"text", "filter_created_after" timestamp with time zone DEFAULT NULL, "filter_created_before" timestamp with time zone DEFAULT NULL) RETURNS TABLE("id" "uuid", "content" "text", "metadata" "jsonb", "rank" real, "created_at" timestamp with time zone, "source_type" "text", "last_updated" timestamp with time zone)
     LANGUAGE "sql" STABLE
     AS $$
     SELECT id, content, metadata,
       ts_rank(fts, websearch_to_tsquery('english', search_query)) AS rank,
-      created_at, source_type
+      created_at, source_type, last_updated
     FROM documents
     WHERE fts @@ websearch_to_tsquery('english', search_query)
       AND (user_id = filter_user_id OR user_id IS NULL)
@@ -92,12 +92,12 @@ CREATE OR REPLACE FUNCTION "public"."match_documents"("query_embedding" "public"
 ALTER FUNCTION "public"."match_documents"("query_embedding" "public"."vector", "match_count" integer) OWNER TO "postgres";
 
 
-CREATE OR REPLACE FUNCTION "public"."match_documents"("query_embedding" "public"."vector", "match_count" integer DEFAULT 5, "filter_user_id" "uuid" DEFAULT NULL::"uuid", "filter_topic" "text" DEFAULT NULL::"text", "filter_keyword" "text" DEFAULT NULL::"text", "filter_root_folder_id" "uuid" DEFAULT NULL::"uuid", "filter_folder_ids" "uuid"[] DEFAULT NULL::"uuid"[], "filter_source_filename" "text" DEFAULT NULL::"text", "filter_created_after" timestamp with time zone DEFAULT NULL, "filter_created_before" timestamp with time zone DEFAULT NULL) RETURNS TABLE("id" "uuid", "content" "text", "metadata" "jsonb", "similarity" double precision, "created_at" timestamp with time zone, "source_type" "text")
+CREATE OR REPLACE FUNCTION "public"."match_documents"("query_embedding" "public"."vector", "match_count" integer DEFAULT 5, "filter_user_id" "uuid" DEFAULT NULL::"uuid", "filter_topic" "text" DEFAULT NULL::"text", "filter_keyword" "text" DEFAULT NULL::"text", "filter_root_folder_id" "uuid" DEFAULT NULL::"uuid", "filter_folder_ids" "uuid"[] DEFAULT NULL::"uuid"[], "filter_source_filename" "text" DEFAULT NULL::"text", "filter_created_after" timestamp with time zone DEFAULT NULL, "filter_created_before" timestamp with time zone DEFAULT NULL) RETURNS TABLE("id" "uuid", "content" "text", "metadata" "jsonb", "similarity" double precision, "created_at" timestamp with time zone, "source_type" "text", "last_updated" timestamp with time zone)
     LANGUAGE "sql" STABLE
     AS $$
     SELECT id, content, metadata,
       1 - (embedding <=> query_embedding) AS similarity,
-      created_at, source_type
+      created_at, source_type, last_updated
     FROM documents
     WHERE (user_id = filter_user_id OR user_id IS NULL)
       AND (filter_topic IS NULL OR metadata->>'topic' = filter_topic)
@@ -336,6 +336,7 @@ CREATE TABLE IF NOT EXISTS "public"."documents" (
     "embedding" "public"."vector"(1024),
     "metadata" "jsonb",
     "created_at" timestamp with time zone DEFAULT "now"(),
+    "last_updated" timestamp with time zone DEFAULT "now"() NOT NULL,
     "user_id" "uuid",
     "source_filename" "text",
     "content_hash" "text",
@@ -355,6 +356,22 @@ CREATE TABLE IF NOT EXISTS "public"."documents" (
 
 
 ALTER TABLE "public"."documents" OWNER TO "postgres";
+
+CREATE OR REPLACE FUNCTION public.track_document_content_update()
+RETURNS trigger LANGUAGE plpgsql SET search_path = public AS $$
+BEGIN
+  NEW.created_at := OLD.created_at;
+  IF NEW.content IS DISTINCT FROM OLD.content OR NEW.content_hash IS DISTINCT FROM OLD.content_hash THEN
+    NEW.last_updated := statement_timestamp();
+  ELSE
+    NEW.last_updated := OLD.last_updated;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS documents_content_updated ON public.documents;
+CREATE TRIGGER documents_content_updated BEFORE UPDATE ON public.documents
+FOR EACH ROW EXECUTE FUNCTION public.track_document_content_update();
 
 
 CREATE TABLE IF NOT EXISTS "public"."folder_summaries" (

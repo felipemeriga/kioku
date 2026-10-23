@@ -4,12 +4,42 @@ from unittest.mock import MagicMock, patch
 
 
 class TestRecencyFactor(unittest.TestCase):
-    def test_reference_content_never_decays(self):
+    def test_reference_content_uses_gentle_yearly_decay(self):
         from services.search import _recency_factor
 
-        old = (datetime.now(timezone.utc) - timedelta(days=400)).isoformat()
-        doc = {"source_type": "notion", "created_at": old}
-        self.assertEqual(_recency_factor(doc), 1.0)
+        now = datetime.now(timezone.utc)
+        old = (now - timedelta(days=365)).isoformat()
+        for source_type in ("pdf", "markdown", "notion"):
+            with self.subTest(source_type=source_type):
+                doc = {"source_type": source_type, "created_at": old}
+                self.assertAlmostEqual(_recency_factor(doc, now=now), 0.5)
+
+    def test_last_updated_takes_precedence_and_code_stays_neutral(self):
+        from services.search import _recency_factor
+
+        now = datetime.now(timezone.utc)
+        for source_type in ("pdf", "markdown", "notion", "code"):
+            doc = {
+                "source_type": source_type,
+                "created_at": (now - timedelta(days=365)).isoformat(),
+                "last_updated": now.isoformat(),
+            }
+            self.assertEqual(_recency_factor(doc, now=now), 1.0)
+        self.assertEqual(_recency_factor({"source_type": "code", "created_at": "2020-01-01"}), 1.0)
+
+    def test_invalid_naive_and_future_timestamps_are_safe(self):
+        from services.search import _recency_factor
+
+        now = datetime.now(timezone.utc)
+        self.assertEqual(_recency_factor({"source_type": "pdf", "last_updated": "bad"}), 1.0)
+        self.assertAlmostEqual(
+            _recency_factor({"source_type": "pdf", "last_updated": now.replace(tzinfo=None)}, now),
+            1.0,
+        )
+        self.assertEqual(
+            _recency_factor({"source_type": "pdf", "last_updated": (now + timedelta(days=2))}, now),
+            1.0,
+        )
 
     def test_meeting_halves_per_half_life(self):
         from services.search import _recency_factor
@@ -103,7 +133,7 @@ class TestApplyRecencyDecay(unittest.TestCase):
         # The most-recent chunk in the cohort anchors at factor 1.0.
         self.assertEqual(max(d["recency_factor"] for d in out), 1.0)
 
-    def test_reference_docs_keep_relevance_order(self):
+    def test_reference_docs_no_longer_receive_neutral_factor(self):
         from services.search import _apply_recency_decay
 
         old = {
@@ -119,7 +149,53 @@ class TestApplyRecencyDecay(unittest.TestCase):
             "rerank_score": 0.7,
         }
         out = _apply_recency_decay([old, new])
-        self.assertEqual([d["id"] for d in out], ["old-doc", "new-doc"])
+        self.assertEqual([d["id"] for d in out], ["new-doc", "old-doc"])
+        self.assertLess(out[1]["recency_factor"], 1.0)
+
+    def test_all_reference_types_break_close_ties_by_last_updated(self):
+        from services.search import _apply_recency_decay
+
+        now = datetime.now(timezone.utc)
+        for source_type in ("pdf", "markdown", "notion"):
+            with self.subTest(source_type=source_type):
+                old = {
+                    "id": "old",
+                    "source_type": source_type,
+                    "rerank_score": 0.8,
+                    "created_at": now.isoformat(),
+                    "last_updated": (now - timedelta(days=365)).isoformat(),
+                }
+                fresh = {
+                    **old,
+                    "id": "fresh",
+                    "rerank_score": 0.79,
+                    "last_updated": now.isoformat(),
+                }
+                results = _apply_recency_decay([old, fresh])
+                self.assertEqual([d["id"] for d in results], ["fresh", "old"])
+                self.assertAlmostEqual(results[1]["recency_factor"], 0.5, places=3)
+                # Ranking metadata never mutates the stored chunks or the
+                # cross-encoder's relevance scores.
+                self.assertNotIn("recency_factor", old)
+                self.assertEqual(results[1]["rerank_score"], 0.8)
+
+    def test_fresh_reference_mention_does_not_bury_relevant_old_doc(self):
+        from services.search import _apply_recency_decay
+
+        for source_type in ("pdf", "markdown", "notion"):
+            old = {
+                "id": "answer",
+                "source_type": source_type,
+                "last_updated": "2020-01-01",
+                "rerank_score": 0.9,
+            }
+            fresh = {
+                **old,
+                "id": "mention",
+                "last_updated": datetime.now(timezone.utc).isoformat(),
+                "rerank_score": 0.3,
+            }
+            self.assertEqual(_apply_recency_decay([old, fresh])[0]["id"], "answer")
 
 
 class TestTemporalFiltersReachRpc(unittest.TestCase):
@@ -144,6 +220,33 @@ class TestTemporalFiltersReachRpc(unittest.TestCase):
 
 
 class TestToolTemporalParams(unittest.TestCase):
+    def test_both_dates_reach_agent_and_citation(self):
+        from services.citations import CitationRegistry
+        from services.retrieval import _hits_from_docs
+        from services.tools import execute_tool
+
+        rows = [
+            {
+                "id": "d1",
+                "content": "API uses X",
+                "source_type": "pdf",
+                "created_at": "2025-01-01T00:00:00Z",
+                "last_updated": "2026-10-23T00:00:00Z",
+                "metadata": {"source_filename": "api.pdf"},
+            }
+        ]
+        citations = CitationRegistry()
+        with (
+            patch("services.tools.embed_query", return_value=[]),
+            patch("services.tools.search_documents", return_value=rows),
+        ):
+            out = execute_tool("knowledge_base_search", {"query": "API"}, "u1", citations=citations)
+        self.assertIn("2025-01-01 — last updated 2026-10-23", out)
+        self.assertEqual(citations.entries()[0]["last_updated"], rows[0]["last_updated"])
+        hit = _hits_from_docs(rows)[0]
+        self.assertEqual(hit.metadata["created_at"], rows[0]["created_at"])
+        self.assertEqual(hit.metadata["last_updated"], rows[0]["last_updated"])
+
     def test_agent_dates_reach_search_and_headers_are_dated(self):
         from services.tools import execute_tool
 
