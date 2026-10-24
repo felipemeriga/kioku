@@ -46,13 +46,41 @@ export function readRegistry(path: string): Entry[] {
       typeof row.api_base !== "string" ||
       typeof row.user_id !== "string" ||
       typeof row.name !== "string" ||
+      row.name.length > 120 ||
+      row.path.length > 1024 ||
+      typeof row.id !== "string" ||
+      !/^[a-f0-9]{64}$/.test(row.id) ||
+      typeof row.initialized_at !== "string" ||
+      !Number.isFinite(Date.parse(row.initialized_at)) ||
       !uuid.test(row.folder_id) ||
       !Array.isArray(row.agents) ||
       row.agents.some((x: unknown) => x !== "claude" && x !== "codex")
     )
       throw new Error("Invalid Manabi repository registry");
   }
-  return value as Entry[];
+  // Project the transport schema; unrelated local fields must never be uploaded.
+  return (value as Entry[]).map(
+    ({
+      id,
+      folder_id,
+      name,
+      path,
+      agents,
+      initialized_at,
+      api_base,
+      user_id,
+    }) => ({
+      id,
+      folder_id,
+      name,
+      path,
+      agents,
+      initialized_at,
+      api_base,
+      user_id,
+      available: true,
+    })
+  );
 }
 export function recordInitializedRepo(
   registry: string,

@@ -4,6 +4,7 @@ import {
   mkdtempSync,
   mkdirSync,
   writeFileSync,
+  readFileSync,
   rmSync,
   symlinkSync,
   realpathSync,
@@ -41,7 +42,11 @@ test("inventory keeps both providers, canonicalizes aliases and isolates account
       path: join(root, "alias"),
       agents: ["codex"],
     });
+    const raw = JSON.parse(readFileSync(registry, "utf8"));
+    raw[0].private_note = "MUST_NOT_UPLOAD";
+    writeFileSync(registry, JSON.stringify(raw));
     const snapshot = readInventory(registry, identity);
+    assert.equal(JSON.stringify(snapshot).includes("MUST_NOT_UPLOAD"), false);
     assert.equal(snapshot.repositories.length, 1);
     assert.deepEqual(snapshot.repositories[0].agents, ["claude", "codex"]);
     assert.equal(snapshot.repositories[0].path, realpathSync(path));
