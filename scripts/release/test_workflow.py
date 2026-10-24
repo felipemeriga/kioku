@@ -30,6 +30,21 @@ class WorkflowTests(unittest.TestCase):
         prepare = workflow.split("  prepare:\n", 1)[1].split("  validate:\n", 1)[0]
         self.assertNotIn("persist-credentials: false", prepare)
 
+    def test_repo_rehearsal_requires_owner_manual_dispatch_and_dedicated_branch(self):
+        ci = Path(".github/workflows/ci.yml").read_text()
+        handler = ci.split("  release-e2e:\n", 1)[1]
+        self.assertIn("github.event_name == 'workflow_dispatch'", handler)
+        self.assertIn("inputs.release_e2e == true", handler)
+        self.assertIn("github.actor == github.repository_owner", handler)
+        self.assertIn("refs/heads/test/release-cd-e2e", handler)
+        release = Path(".github/workflows/release.yml").read_text()
+        self.assertIn("inputs.source_sha == github.sha", release)
+        self.assertIn('git push origin "HEAD:$RELEASE_BRANCH"', release)
+        self.assertIn("RELEASE_PRERELEASE:", release)
+        self.assertNotIn("uses: ./.github/workflows/ci.yml", release)
+        checks = Path(".github/workflows/checks.yml").read_text()
+        self.assertNotIn("uses: ./.github/workflows/release.yml", checks)
+
     def test_native_matrix_and_cloud_only_images(self):
         workflow = Path(".github/workflows/release.yml").read_text()
         native = Path(".github/workflows/cli-native.yml").read_text()

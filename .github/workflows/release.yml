@@ -1,6 +1,17 @@
 name: Release
 
 on:
+  workflow_call:
+    inputs:
+      rehearsal_branch:
+        type: string
+        default: ""
+      rehearsal_id:
+        type: string
+        default: ""
+      source_sha:
+        type: string
+        default: ""
   workflow_run:
     workflows: [CI]
     types: [completed]
@@ -16,9 +27,15 @@ concurrency:
 jobs:
   prepare:
     if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_repository.full_name == github.repository
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository) ||
+      (github.event_name == 'workflow_dispatch' &&
+       github.actor == github.repository_owner && inputs.rehearsal_id != '' &&
+       startsWith(inputs.rehearsal_branch, 'test/release-cd-e2e') &&
+       github.ref == format('refs/heads/{0}', inputs.rehearsal_branch) &&
+       inputs.source_sha == github.sha)
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -30,12 +47,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ inputs.rehearsal_branch || 'main' }}
           fetch-depth: 0
       - name: Plan versions and record release commit
         id: plan
         env:
-          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_SHA: ${{ inputs.source_sha || github.event.workflow_run.head_sha }}
+          RELEASE_BRANCH: ${{ inputs.rehearsal_branch || 'main' }}
+          REHEARSAL_ID: ${{ inputs.rehearsal_id }}
+          RELEASE_PRERELEASE: ${{ inputs.rehearsal_branch != '' && 'true' || 'false' }}
           DOKPLOY_URL: ${{ vars.DOKPLOY_URL }}
           DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
           DOKPLOY_COMPOSE_IDS: ${{ vars.DOKPLOY_COMPOSE_IDS }}
@@ -46,7 +66,9 @@ jobs:
           SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
         run: |
-          python3 scripts/release/release.py prepare --source "$SOURCE_SHA" --output /tmp/plan.json
+          args=(--source "$SOURCE_SHA" --output /tmp/plan.json)
+          if [ "$RELEASE_BRANCH" != main ]; then args+=(--branch "$RELEASE_BRANCH" --rehearsal-id "$REHEARSAL_ID"); fi
+          python3 scripts/release/release.py prepare "${args[@]}"
           if [ "$(cat /tmp/plan.json)" = null ]; then
             echo 'ready=false' >> "$GITHUB_OUTPUT"
             exit 0
@@ -55,10 +77,20 @@ jobs:
             if [ -z "${!name}" ]; then echo "::error::Missing release configuration: $name (see RELEASE.md)"; exit 1; fi
           done
           python3 - <<'PY'
-          import json, sys
+          import json, os, subprocess, sys
           sys.path.insert(0, 'scripts/release')
-          from deployment import configuration
-          configuration(json.load(open('/tmp/plan.json')))
+          from deployment import affected_services, configuration, fetch_deployments
+          plan = json.load(open('/tmp/plan.json'))
+          config = configuration(plan)
+          if config:
+              for service in affected_services(plan):
+                  fetch_deployments(config, config['ids'][service])
+          permissions = json.loads(subprocess.check_output(
+              ['gh', 'api', 'repos/felipemeriga/hive'],
+              env={**os.environ, 'GH_TOKEN': os.environ['HIVE_TOKEN']}, text=True))
+          if not permissions.get('permissions', {}).get('push'):
+              raise RuntimeError('Hive credential has no repository push permission')
+          print('Verified private Hive access and Dokploy deployment-history reads')
           PY
           git config user.name 'felipemeriga'
           git config user.email 'felipemeriga@users.noreply.github.com'
@@ -67,7 +99,7 @@ jobs:
             git commit -m 'chore(release): bump affected package versions'
             # A normal fast-forward push fails safely if main advanced or branch
             # protection disallows automation. Never force or bypass protection.
-            git push origin HEAD:main
+            git push origin "HEAD:$RELEASE_BRANCH"
           fi
           python3 - <<'PY'
           import json, os, subprocess
@@ -82,7 +114,7 @@ jobs:
   validate:
     needs: prepare
     if: needs.prepare.outputs.ready == 'true'
-    uses: ./.github/workflows/ci.yml
+    uses: ./.github/workflows/checks.yml
     with:
       ref: ${{ needs.prepare.outputs.sha }}
     secrets: inherit
@@ -205,6 +237,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
+          RELEASE_BRANCH: ${{ inputs.rehearsal_branch || 'main' }}
+          RELEASE_PRERELEASE: ${{ inputs.rehearsal_branch != '' && 'true' || 'false' }}
           HIVE_REPOSITORY: felipemeriga/hive
           DOKPLOY_URL: ${{ vars.DOKPLOY_URL }}
           DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}

@@ -143,10 +143,28 @@ the native executable smoke does not install a service or change agent settings.
 
 ## Explicit premerge rehearsal
 
-The production workflow remains main-only and does not accept branch overrides.
-A workflow newly introduced in a PR cannot be dispatched before it exists on the
-default branch. For an authorized premerge E2E, run the same scripts locally from
-a separate integration branch, with explicit opt-in:
+Automatic production release remains main-only. An owner-triggered repository
+rehearsal uses the already-registered CI workflow on a dedicated integration
+branch that contains the complete tested release tree:
+
+```sh
+gh workflow run ci.yml --ref test/release-cd-e2e-20261024 \
+  -f release_e2e=true -f rehearsal_id=gha-20261024
+```
+
+The manual handler requires the repository owner, an explicit opt-in, a nonempty
+run ID, and a `test/release-cd-e2e*` branch. Pull requests and ordinary pushes
+cannot enter it. It runs CI first, then calls the same release workflow in
+prerelease-only mode; the exact version commit is checked again before builds.
+Shared checks live in `checks.yml` to avoid recursive CI/release workflow calls.
+The prepare step validates real private Hive access and read access to every
+Dokploy deployment-history endpoint before recording a version commit. No SSH
+fallback is used by the repository workflow.
+
+A brand-new workflow filename cannot be dispatched before GitHub knows it on the
+default branch. The existing CI workflow's registered ID permits selecting this
+branch's dispatch definition, verified with a real CI-only run before activation.
+For explicitly authorized local diagnosis, the same scripts remain available:
 
 ```sh
 export RELEASE_PRERELEASE=true
