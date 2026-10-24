@@ -1,7 +1,7 @@
 # kioku redis — internal only (arq broker). No domain.
 services:
   redis:
-    image: redis:7
+    image: redis:7-alpine
     pull_policy: always
     container_name: kioku-redis
     restart: unless-stopped

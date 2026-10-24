@@ -1170,8 +1170,8 @@ CREATE OR REPLACE FUNCTION "public"."code_search"(
 ALTER TABLE "public"."code_chunks" OWNER TO "postgres";
 ALTER FUNCTION "public"."code_search"(
     "public"."vector", integer, "uuid", "uuid"[], "text") OWNER TO "postgres";
--- Multi-user repo watcher: per-user git deploy identity + registry of
--- watched repos. Private keys and minted watcher api keys are stored
+-- Multi-user repo mihari: per-user git deploy identity + registry of
+-- watched repos. Private keys and minted mihari api keys are stored
 -- encrypted (Fernet, same master key mechanism as Notion tokens).
 
 CREATE TABLE IF NOT EXISTS "public"."user_git_keys" (
@@ -1211,7 +1211,7 @@ CREATE INDEX IF NOT EXISTS "watched_repos_user_idx"
 
 ALTER TABLE "public"."user_git_keys" OWNER TO "postgres";
 ALTER TABLE "public"."watched_repos" OWNER TO "postgres";
--- Freshness tracking for generated repo knowledge: the watcher compares the
+-- Freshness tracking for generated repo knowledge: the mihari compares the
 -- clone's git history against briefing section timestamps and records which
 -- prose sections are likely stale. Prose is NEVER auto-regenerated — the
 -- warning surfaces in the UI and MCP, and regeneration stays an explicit

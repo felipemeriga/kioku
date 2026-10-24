@@ -20,12 +20,12 @@ from routes.drop import router as drop_router
 from routes.evaluation import router as evaluation_router
 from routes.folders import router as folders_router
 from routes.ingestion_jobs import router as ingestion_jobs_router
+from routes.mihari import router as mihari_router
 from routes.notes import router as notes_router
 from routes.notion import router as notion_router
 from routes.remotes import router as remotes_router
 from routes.retrieval_log import router as retrieval_log_router
 from routes.usage import router as usage_router
-from routes.watcher import router as watcher_router
 from services.notion_sync.sync_engine import sync_loop
 
 load_dotenv()
@@ -70,7 +70,9 @@ app.include_router(cli_router)
 app.include_router(retrieval_log_router)
 app.include_router(usage_router)
 app.include_router(remotes_router)
-app.include_router(watcher_router)
+app.include_router(mihari_router, prefix="/api/mihari")
+# Compatibility for installed CLI clients; new clients use /api/mihari.
+app.include_router(mihari_router, prefix="/api/watcher", include_in_schema=False)
 
 
 log = logging.getLogger("kioku")

@@ -1,5 +1,15 @@
 .venv
+venv
 __pycache__
-*.pyc
+*.py[cod]
 .env
+.env.*
 .ruff_cache
+.pytest_cache
+.coverage
+htmlcov
+.git
+tests
+eval
+Dockerfile*
+*.log
