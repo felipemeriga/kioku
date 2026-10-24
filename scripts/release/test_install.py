@@ -72,7 +72,13 @@ class InstallerTests(unittest.TestCase):
         self.install(True, "")
 
     def test_pin_rejects_url_and_path_injection_before_network(self):
-        for version in ("1.2.3/../../other", "1.2.3?token=x", "1.2.3;touch injected"):
+        for version in (
+            "1.2.3/../../other",
+            "1.2.3?token=x",
+            "1.2.3;touch injected",
+            "1.2.3\ninvalid",
+            "1.2.3\r\n",
+        ):
             self.install(False, version)
 
     def test_checksum_mismatch_never_executes_or_installs(self):
