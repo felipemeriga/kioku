@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -9,6 +9,7 @@ import { spawn } from "node:child_process";
 import { WebSocketServer } from "ws";
 import {
   stageManabiRuntime,
+  stageManabiBinary,
   loadOrCreateIdentity,
   withManabiLock,
   writeManabiConfig,
@@ -297,6 +298,23 @@ test("staged daemon runs independently from CLI package and exits on signal", as
     child.kill("SIGKILL");
     for (const client of wsServer.clients) client.terminate();
     wsServer.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("standalone runtime snapshot is reused and changes when executable content changes", () => {
+  const root = mkdtempSync(join(tmpdir(), "manabi-binary-"));
+  const source = join(root, "source");
+  try {
+    writeFileSync(source, "binary-one");
+    const first = stageManabiBinary(root, source);
+    assert.equal(stageManabiBinary(root, source), first);
+    assert.equal(readFileSync(first, "utf8"), "binary-one");
+    writeFileSync(source, "binary-two");
+    const next = stageManabiBinary(root, source);
+    assert.notEqual(first, next);
+    assert.equal(readFileSync(next, "utf8"), "binary-two");
+  } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });

@@ -94,8 +94,9 @@ not stop Manabi, but sleep, shutdown, or logout can. It reconnects on return.
 
 Manabi keeps its credential and a small runtime snapshot under
 `~/.config/kioku/manabi` (or `$XDG_CONFIG_HOME/kioku/manabi`). It uses the current
-Node executable by absolute path; keep Node installed, and re-run init after
-moving/removing that installation. `kioku logout` clears the connection
+Node executable by absolute path when installed through npm; keep Node installed,
+and re-run init after moving/removing that installation. Standalone release builds
+snapshot the Kioku executable instead and require no separate Node runtime. `kioku logout` clears the connection
 credential; the supervised process idles until the next init. Machine credentials
 only authorize connection presence, not document or memory access.
 

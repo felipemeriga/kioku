@@ -151,6 +151,14 @@ Examples:
   });
 
 program
+  .command("internal-manabi-run <config>", { hidden: true })
+  .description("Internal supervised Manabi process")
+  .action(async (config: string) => {
+    const { runManabiDaemon } = await import("./lib/manabi-client.js");
+    await runManabiDaemon(config);
+  });
+
+program
   .command("session-start")
   .description("Fetch a compact briefing (used by the SessionStart hook)")
   .action(async () => {
@@ -361,6 +369,6 @@ if (process.argv.length <= 2) {
   program.parseAsync(process.argv).then(() => {
     // Fire-and-forget update check AFTER the main command finishes so
     // we don't add latency to hot-path commands.
-    void checkForUpdate(VERSION);
+    if (!process.argv.includes("internal-manabi-run")) void checkForUpdate(VERSION);
   });
 }

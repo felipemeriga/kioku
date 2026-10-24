@@ -9,6 +9,7 @@ import {
   rmSync,
   realpathSync,
   statSync,
+  chmodSync,
 } from "node:fs";
 import { hostname, homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -21,6 +22,11 @@ import { VERSION } from "./version.js";
 import { registerManabi } from "./api.js";
 import { installManabiService } from "./manabi-service.js";
 import { websocketUrl, type ManabiConnection } from "./manabi-client.js";
+
+// Bun release builds define this constant; normal Node/npm execution leaves it absent.
+declare const KIOKU_STANDALONE: boolean;
+export const standaloneManabi =
+  typeof KIOKU_STANDALONE !== "undefined" && KIOKU_STANDALONE;
 
 interface State extends ManabiConnection {
   user_id: string;
@@ -119,6 +125,27 @@ export function stageManabiRuntime(root: string): string {
   return join(target, "manabi-entry.js");
 }
 
+export function stageManabiBinary(
+  root: string,
+  source = process.execPath
+): string {
+  const digest = createHash("sha256")
+    .update(readFileSync(source))
+    .digest("hex")
+    .slice(0, 16);
+  const target = join(root, "runtime", `bin-${digest}`);
+  const name = process.platform === "win32" ? "kioku.exe" : "kioku";
+  const executable = join(target, name);
+  if (!existsSync(executable)) {
+    const temp = `${target}.${randomUUID()}.tmp`;
+    mkdirSync(temp, { recursive: true, mode: 0o700 });
+    cpSync(source, join(temp, name));
+    chmodSync(join(temp, name), 0o700);
+    renameSync(temp, target);
+  }
+  return executable;
+}
+
 export async function withManabiLock<T>(
   root: string,
   action: () => Promise<T>
@@ -172,13 +199,18 @@ async function installManabi(): Promise<void> {
     platform: `${process.platform}-${process.arch}`,
     version: VERSION,
   });
-  const entry = stageManabiRuntime(dirname(path));
+  const entry = standaloneManabi
+    ? "internal-manabi-run"
+    : stageManabiRuntime(dirname(path));
+  const executable = standaloneManabi
+    ? stageManabiBinary(dirname(path))
+    : realpathSync(process.execPath);
   // No shell interpolation: executable and argument paths remain separate values.
   installManabiService({
     platform: process.platform,
     home: homedir(),
     root: dirname(path),
-    executable: realpathSync(process.execPath),
+    executable,
     entry,
     config: path,
     uid: process.getuid?.(),

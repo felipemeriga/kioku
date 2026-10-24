@@ -1,4 +1,5 @@
 import WebSocket from "ws";
+import { readFileSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
 
 export interface ManabiConnection {
@@ -141,4 +142,30 @@ function connectOnce(
       );
     });
   });
+}
+
+export async function runManabiDaemon(configPath: string): Promise<void> {
+  if (!configPath) throw new Error("Missing Manabi configuration path");
+  const controller = new AbortController();
+  const stop = () => controller.abort();
+  process.once("SIGTERM", stop);
+  process.once("SIGINT", stop);
+  try {
+    await runManabi({
+      signal: controller.signal,
+      readConnection: () => {
+        try {
+          return JSON.parse(
+            readFileSync(configPath, "utf8")
+          ) as ManabiConnection;
+        } catch {
+          return null;
+        }
+      },
+      log: (message) => console.log(`${new Date().toISOString()} ${message}`),
+    });
+  } finally {
+    process.removeListener("SIGTERM", stop);
+    process.removeListener("SIGINT", stop);
+  }
 }

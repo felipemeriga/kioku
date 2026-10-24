@@ -1,5 +1,6 @@
 """Connection protocol/ownership tests without production credentials or services."""
 
+import time
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -124,6 +125,10 @@ def test_socket_authentication_heartbeat_and_disconnect_presence(setup):
         assert listing(client)[0]["online"] is True
         socket.send_json({"type": "heartbeat"})
         assert socket.receive_json() == {"type": "ack"}
+    # Closing the socket and persisting disconnect run asynchronously.
+    deadline = time.monotonic() + 2
+    while listing(client)[0]["online"] and time.monotonic() < deadline:
+        time.sleep(0.01)
     assert listing(client)[0]["online"] is False
     assert listing(client)[0]["last_seen"] is not None
 
