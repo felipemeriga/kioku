@@ -1,98 +1,99 @@
-import { describe, expect, it } from "vitest";
-import { screen, within } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as ReactQuery from "@tanstack/react-query";
+import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "../test/renderWithProviders";
+import { getRemoteMachines } from "../lib/api";
 import RemotesPage from "./RemotesPage";
-
-describe("Remotes preview", () => {
-  it("discloses sample data and distinguishes collection from agent activity", () => {
+vi.mock("@tanstack/react-query", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@tanstack/react-query")>();
+  return { ...actual, useQuery: vi.fn(actual.useQuery) };
+});
+vi.mock("../lib/supabase", () => ({
+  supabase: { auth: { getSession: vi.fn() } },
+}));
+vi.mock("../lib/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../lib/api")>()),
+  getRemoteMachines: vi.fn(),
+}));
+const machine = {
+  id: "one",
+  name: "My Mac",
+  platform: "darwin-arm64",
+  version: "0.4.0",
+  created_at: "2026-10-24T10:00:00Z",
+  connected_at: "2026-10-24T11:00:00Z",
+  last_seen: "2026-10-24T11:00:00Z",
+  online: true,
+};
+beforeEach(() =>
+  vi.mocked(getRemoteMachines).mockResolvedValue([
+    machine,
+    {
+      ...machine,
+      id: "two",
+      name: "Linux box",
+      platform: "linux-x64",
+      online: false,
+    },
+  ])
+);
+describe("Remotes connection", () => {
+  it("renders real machine presence without invented memory stats", async () => {
     renderWithProviders(<RemotesPage />);
-    expect(screen.getByRole("note")).toHaveTextContent(
-      "Sample machines and activity"
-    );
     expect(
-      screen.getByText("Codex memories haven’t synced yet")
+      await screen.findByRole("heading", { name: "My Mac" })
     ).toBeInTheDocument();
-    expect(screen.getByText("Recently active")).toBeInTheDocument();
-    expect(screen.getByText("Running")).toBeInTheDocument();
-    expect(screen.getByText(/Session activity unknown/)).toBeInTheDocument();
+    expect(screen.getByText("1 online")).toBeInTheDocument();
+    expect(screen.getByText("1 offline")).toBeInTheDocument();
     expect(
       screen.getByText(
-        /Imported counts are memories received, not accepted findings/
+        /Memory collection and agent session activity are coming later/
       )
     ).toBeInTheDocument();
+    expect(screen.queryByText(/imported/)).not.toBeInTheDocument();
   });
-  it("switches machines without retaining another machine’s sessions or issue", async () => {
+  it("switches machines and shows offline reconnection guidance", async () => {
     const user = userEvent.setup();
     renderWithProviders(<RemotesPage />);
-    await user.click(screen.getByRole("button", { name: /Felipe’s MacBook/ }));
-    expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent(
-      "Felipe’s MacBook"
-    );
-    expect(screen.getByText("~/personal_projects/hive")).toBeInTheDocument();
-    expect(
-      screen.queryByText("Codex memories haven’t synced yet")
-    ).not.toBeInTheDocument();
-    expect(screen.queryByText(/aea55265/)).not.toBeInTheDocument();
-    expect(screen.getAllByText("Unknown")).toHaveLength(2);
-    await user.click(screen.getByRole("button", { name: /home-workstation/ }));
+    await user.click(await screen.findByRole("button", { name: /Linux box/ }));
     expect(
       screen.getByRole("heading", { name: "This machine is offline" })
     ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("heading", { name: "Agents & sessions" })
-    ).not.toBeInTheDocument();
   });
-  it("filters by machine or platform and recovers from an empty search", async () => {
+  it("filters and recovers an empty search", async () => {
     const user = userEvent.setup();
     renderWithProviders(<RemotesPage />);
+    await screen.findByRole("heading", { name: "My Mac" });
     const search = screen.getByRole("textbox", { name: "Find a machine" });
-    await user.type(search, "macOS");
-    expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent(
-      "Felipe’s MacBook"
-    );
-    expect(
-      screen.queryByRole("button", { name: /meriga-dev/ })
-    ).not.toBeInTheDocument();
-    await user.clear(search);
     await user.type(search, "unmatched");
     expect(screen.getByText(/No machines match/)).toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "Manage machine" })
-    ).not.toBeInTheDocument();
     await user.clear(search);
-    expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent(
-      "meriga-dev"
-    );
+    expect(screen.getByRole("heading", { name: "My Mac" })).toBeInTheDocument();
   });
-  it("explains unavailable setup and management instead of claiming success", async () => {
+  it("shows empty-state automatic init instructions", async () => {
+    vi.mocked(getRemoteMachines).mockResolvedValue([]);
     const user = userEvent.setup();
     renderWithProviders(<RemotesPage />);
+    expect(
+      await screen.findByRole("heading", { name: "Connect your first machine" })
+    ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Connect machine" }));
-    expect(
-      within(screen.getByRole("dialog")).getByText(
-        /does not register your computer/
-      )
-    ).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Close" }));
-    await user.click(
-      await screen.findByRole("button", { name: "Manage machine" })
+    expect(screen.getByRole("dialog")).toHaveTextContent(
+      "automatically installs and starts one Manabi"
     );
-    expect(
-      within(screen.getByRole("dialog")).getByText(
-        /cannot change any machine settings/
-      )
-    ).toBeInTheDocument();
   });
-  it("opens a clearly illustrative collection diagnostic", async () => {
-    const user = userEvent.setup();
+  it("surfaces load failures without claiming a successful connection", async () => {
+    vi.mocked(ReactQuery.useQuery).mockReturnValueOnce({
+      data: undefined,
+      isError: true,
+      error: new Error("Backend unavailable"),
+      isPending: false,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof ReactQuery.useQuery>);
     renderWithProviders(<RemotesPage />);
-    await user.click(screen.getByRole("button", { name: "View issue" }));
-    expect(screen.getByRole("dialog")).toHaveAccessibleName(
-      "Codex memory collection"
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Backend unavailable"
     );
-    expect(
-      within(screen.getByRole("dialog")).getByText(/example collection issue/)
-    ).toBeInTheDocument();
   });
 });

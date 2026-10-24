@@ -1134,3 +1134,19 @@ export async function fetchUsageByMonth(): Promise<MonthlyUsage[]> {
   const res = await apiFetch("/api/usage/monthly");
   return res.json();
 }
+
+export interface RemoteMachine {
+  id: string;
+  name: string;
+  platform: string;
+  version: string;
+  created_at: string;
+  connected_at: string | null;
+  last_seen: string | null;
+  online: boolean;
+}
+
+export async function getRemoteMachines(): Promise<RemoteMachine[]> {
+  const response = await apiFetch("/api/remotes");
+  return response.json();
+}

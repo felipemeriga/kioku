@@ -22,6 +22,7 @@ from routes.folders import router as folders_router
 from routes.ingestion_jobs import router as ingestion_jobs_router
 from routes.notes import router as notes_router
 from routes.notion import router as notion_router
+from routes.remotes import router as remotes_router
 from routes.retrieval_log import router as retrieval_log_router
 from routes.usage import router as usage_router
 from routes.watcher import router as watcher_router
@@ -68,6 +69,7 @@ app.include_router(briefing_router)
 app.include_router(cli_router)
 app.include_router(retrieval_log_router)
 app.include_router(usage_router)
+app.include_router(remotes_router)
 app.include_router(watcher_router)
 
 
