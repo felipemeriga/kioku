@@ -1,4 +1,5 @@
 import { useState, type CSSProperties } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
@@ -12,7 +13,7 @@ import {
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import DesktopWindowsOutlinedIcon from "@mui/icons-material/DesktopWindowsOutlined";
-import { brand } from "../theme";
+import { brand, fonts } from "../theme";
 import appleLogo from "../assets/os/apple.svg";
 import linuxLogo from "../assets/os/linux.svg";
 import windowsLogo from "../assets/os/windows.svg";
@@ -32,6 +33,7 @@ const colors = {
   "--remote-cyan": brand.cyan,
   "--remote-amber": brand.amber,
   "--remote-green": brand.green,
+  "--remote-mono": fonts.mono,
 } as CSSProperties;
 function date(value: string | null) {
   return value ? new Date(value).toLocaleString() : "Not connected yet";
@@ -269,10 +271,18 @@ export default function RemotesPage() {
               <h3>Connection</h3>
               <span>Authenticated outbound WebSocket</span>
             </div>
-            <p>Registered {date(selected.created_at)}</p>
-            <p>Last connected {date(selected.connected_at)}</p>
+            <dl className="remote-connection">
+              <div>
+                <dt>Registered</dt>
+                <dd>{date(selected.created_at)}</dd>
+              </div>
+              <div>
+                <dt>Last connected</dt>
+                <dd>{date(selected.connected_at)}</dd>
+              </div>
+            </dl>
             {!selected.online && !machines.isError && (
-              <div className="remotes-empty">
+              <div className="remote-offline">
                 <h3>This machine is offline</h3>
                 <p>
                   Manabi reconnects automatically when the machine is awake, its
@@ -324,14 +334,14 @@ export default function RemotesPage() {
               <div className="remote-repos">
                 {selected.inventory.map((repo) => (
                   <div className="remote-repo" key={repo.id}>
-                    <div>
-                      <a
-                        href={`/documents?folder=${encodeURIComponent(
+                    <div className="remote-repo-identity">
+                      <Link
+                        to={`/documents?folder=${encodeURIComponent(
                           repo.folder_id
                         )}`}
                       >
                         {repo.name}
-                      </a>
+                      </Link>
                       <div className="remote-repo-path">{repo.path}</div>
                     </div>
                     <div className="remote-agent-tags">
@@ -342,7 +352,11 @@ export default function RemotesPage() {
                         </span>
                       ))}
                     </div>
-                    <span className="remote-repo-status">
+                    <span
+                      className={`remote-repo-status${
+                        repo.available ? "" : " unavailable"
+                      }`}
+                    >
                       {repo.available ? "Initialized" : "Path unavailable"}
                     </span>
                   </div>
@@ -427,10 +441,11 @@ export default function RemotesPage() {
         maxWidth="xs"
         fullWidth
         aria-labelledby="rename-machine-title"
+        aria-describedby="rename-machine-description"
       >
         <DialogTitle id="rename-machine-title">Rename machine</DialogTitle>
         <DialogContent>
-          <DialogContentText>
+          <DialogContentText id="rename-machine-description">
             Your name is kept when Manabi reconnects. Leave blank to use its
             computer name.
           </DialogContentText>
