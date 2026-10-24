@@ -20,6 +20,16 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("ready=true\n", constants)
         self.assertNotIn("ready=true\\n", constants)
 
+    def test_read_only_build_jobs_do_not_persist_checkout_tokens(self):
+        workflow = Path(".github/workflows/release.yml").read_text()
+        images = workflow.split("  images:\n", 1)[1].split("  cli:\n", 1)[0]
+        self.assertIn("persist-credentials: false", images)
+        native = Path(".github/workflows/cli-native.yml").read_text()
+        self.assertIn("persist-credentials: false", native)
+        # Version and promotion jobs intentionally retain their scoped tokens.
+        prepare = workflow.split("  prepare:\n", 1)[1].split("  validate:\n", 1)[0]
+        self.assertNotIn("persist-credentials: false", prepare)
+
     def test_native_matrix_and_cloud_only_images(self):
         workflow = Path(".github/workflows/release.yml").read_text()
         native = Path(".github/workflows/cli-native.yml").read_text()
