@@ -1,4 +1,5 @@
 import { useState, type CSSProperties } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
@@ -334,13 +335,13 @@ export default function RemotesPage() {
                 {selected.inventory.map((repo) => (
                   <div className="remote-repo" key={repo.id}>
                     <div className="remote-repo-identity">
-                      <a
-                        href={`/documents?folder=${encodeURIComponent(
+                      <Link
+                        to={`/documents?folder=${encodeURIComponent(
                           repo.folder_id
                         )}`}
                       >
                         {repo.name}
-                      </a>
+                      </Link>
                       <div className="remote-repo-path">{repo.path}</div>
                     </div>
                     <div className="remote-agent-tags">
