@@ -11,11 +11,7 @@ import {
   Snackbar,
   alpha,
 } from "@mui/material";
-import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
-import DescriptionIcon from "@mui/icons-material/Description";
-import CodeIcon from "@mui/icons-material/Code";
-import TextSnippetIcon from "@mui/icons-material/TextSnippet";
-import ArticleIcon from "@mui/icons-material/Article";
+import MoreVertIcon from "@mui/icons-material/MoreVert";
 import DownloadIcon from "@mui/icons-material/Download";
 import DeleteIcon from "@mui/icons-material/Delete";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
@@ -41,14 +37,6 @@ interface DocumentCardProps {
   /** "grid" (default) renders the tile; "list" renders a compact single row. */
   variant?: "grid" | "list";
 }
-
-const FILE_ICONS: Record<string, { icon: React.ReactNode; color: string }> = {
-  pdf: { icon: <PictureAsPdfIcon />, color: "#ef4444" },
-  docx: { icon: <DescriptionIcon />, color: "#3b82f6" },
-  md: { icon: <ArticleIcon />, color: "#10b981" },
-  html: { icon: <CodeIcon />, color: "#f59e0b" },
-  txt: { icon: <TextSnippetIcon />, color: alpha("#ffffff", 0.5) },
-};
 
 // Spine color by extension — matches mockup
 const SPINE_COLORS: Record<string, string> = {
@@ -94,10 +82,29 @@ export default function DocumentCard({
   variant = "grid",
 }: DocumentCardProps) {
   const ext = doc.source_filename.split(".").pop()?.toLowerCase() || "txt";
-  const fileStyle = FILE_ICONS[ext] || FILE_ICONS.txt;
   const spineColor = getSpineColor(ext);
   const statusColor = STATUS_COLORS[doc.status] ?? brand.muted;
 
+  const sourceLabel =
+    doc.source_type === "notion"
+      ? "Notion"
+      : {
+          md: "Markdown",
+          markdown: "Markdown",
+          pdf: "PDF",
+          docx: "Word",
+          txt: "Text",
+          html: "HTML",
+        }[ext] ??
+        doc.source_type ??
+        ext.toUpperCase();
+  const updatedAt = doc.last_updated ?? doc.created_at;
+  const dateLabel = new Date(updatedAt).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -158,6 +165,7 @@ export default function DocumentCard({
   return (
     <>
       <Box
+        role={variant === "list" ? "row" : undefined}
         draggable={movable}
         onDragStart={
           movable
@@ -172,17 +180,32 @@ export default function DocumentCard({
         }
         onContextMenu={handleContextMenu}
         onClick={handleClick}
+        tabIndex={0}
+        onKeyDown={(event) => {
+          if (
+            event.currentTarget === event.target &&
+            (event.key === "Enter" || event.key === " ")
+          ) {
+            event.preventDefault();
+            handleClick();
+          }
+        }}
         sx={{
-          borderRadius: "4px",
-          border: `1px solid ${
-            doc.status === "processing"
-              ? alpha(brand.magenta, 0.5)
-              : doc.status === "failed"
-              ? alpha(brand.red, 0.4)
-              : selected
-              ? alpha(brand.magenta, 0.5)
-              : brand.line
-          }`,
+          borderRadius: variant === "list" ? 0 : "4px",
+          border:
+            variant === "list"
+              ? "none"
+              : `1px solid ${
+                  doc.status === "processing"
+                    ? alpha(brand.magenta, 0.5)
+                    : doc.status === "failed"
+                    ? alpha(brand.red, 0.4)
+                    : selected
+                    ? alpha(brand.magenta, 0.5)
+                    : brand.line
+                }`,
+          borderBottom:
+            variant === "list" ? `1px solid ${brand.line}` : undefined,
           bgcolor: brand.surface,
           overflow: "hidden",
           transition: "all 0.2s ease",
@@ -211,134 +234,126 @@ export default function DocumentCard({
         {variant === "list" ? (
           <Box
             sx={{
-              display: "flex",
-              alignItems: "center",
-              gap: 1.25,
-              px: 1.5,
-              py: 0.75,
+              display: "grid",
+              gridTemplateColumns: {
+                xs: "minmax(0,1fr) 36px",
+                md: "minmax(0,1fr) 160px 180px 44px",
+              },
+              gap: 0,
+              px: 2.5,
+              py: 2,
               width: "100%",
+              alignItems: "center",
+              minHeight: 86,
             }}
           >
-            {onSelect && (
-              <Checkbox
-                className="doc-checkbox"
-                checked={selected}
-                size="small"
-                onClick={(e) => e.stopPropagation()}
-                onChange={() => onSelect(doc.source_filename)}
-                sx={{
-                  opacity: selected ? 1 : 0,
-                  transition: "opacity 0.15s",
-                  p: 0,
-                  color: alpha(brand.magenta, 0.5),
-                  "&.Mui-checked": { color: brand.magenta },
-                }}
-              />
-            )}
-            {/* Colored type indicator for list mode */}
             <Box
+              role="cell"
               sx={{
-                width: 4,
-                alignSelf: "stretch",
-                borderRadius: "2px",
-                bgcolor: spineColor,
-                flexShrink: 0,
-              }}
-            />
-            <Box
-              sx={{
-                width: 26,
-                height: 26,
-                borderRadius: 1.5,
-                bgcolor: alpha(fileStyle.color, 0.1),
                 display: "flex",
                 alignItems: "center",
-                justifyContent: "center",
-                color: fileStyle.color,
-                flexShrink: 0,
-                "& .MuiSvgIcon-root": { fontSize: 15 },
+                gap: 1.5,
+                minWidth: 0,
               }}
             >
-              {fileStyle.icon}
-            </Box>
-            <Typography
-              variant="body2"
-              noWrap
-              sx={{ fontWeight: 500, flex: 1, minWidth: 0 }}
-            >
-              {doc.source_filename}
-            </Typography>
-            <Typography
-              variant="caption"
-              noWrap
-              sx={{
-                color: brand.muted,
-                flexShrink: 0,
-                fontFamily: fonts.mono,
-                fontSize: "0.8125rem",
-              }}
-            >
-              {doc.chunks} chunks · {timeAgo(doc.created_at)}
-            </Typography>
-            <Box
-              sx={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "4px",
-                px: "7px",
-                py: "1px",
-                border: `1px solid ${statusColor}`,
-                borderRadius: "3px",
-                color: statusColor,
-                fontFamily: fonts.mono,
-                fontSize: "0.8125rem",
-                fontWeight: 500,
-                flexShrink: 0,
-                ...(doc.status === "processing" && {
-                  animation: "pulse 1.5s infinite",
-                  "@keyframes pulse": {
-                    "0%, 100%": { opacity: 1 },
-                    "50%": { opacity: 0.5 },
-                  },
-                }),
-              }}
-            >
-              <span aria-hidden>●</span>
-              <span>{doc.status}</span>
-            </Box>
-            <Box
-              className="doc-actions"
-              sx={{
-                display: "flex",
-                gap: 0.25,
-                opacity: 0,
-                transition: "opacity 0.15s",
-                flexShrink: 0,
-              }}
-            >
-              {doc.has_file && (
-                <IconButton
+              {onSelect && (
+                <Checkbox
                   size="small"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDownload(doc.source_filename);
-                  }}
-                  sx={{ p: 0.5 }}
-                >
-                  <DownloadIcon sx={{ fontSize: 15 }} />
-                </IconButton>
+                  checked={selected}
+                  inputProps={{ "aria-label": `Select ${doc.source_filename}` }}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={() => onSelect(doc.source_filename)}
+                  sx={{ p: 0, color: brand.muted }}
+                />
               )}
-              <IconButton
-                size="small"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDelete(doc.source_filename);
+              <Box
+                aria-hidden="true"
+                sx={{
+                  border: `1px solid ${brand.lineGlow}`,
+                  color: brand.cyan,
+                  borderRadius: 1,
+                  width: 34,
+                  height: 38,
+                  flexShrink: 0,
+                  display: "grid",
+                  placeItems: "center",
+                  fontFamily: fonts.mono,
+                  fontSize: 11,
                 }}
-                sx={{ p: 0.5 }}
               >
-                <DeleteIcon sx={{ fontSize: 15 }} />
-              </IconButton>
+                {doc.source_type === "notion"
+                  ? "N"
+                  : ext.toUpperCase().slice(0, 4)}
+              </Box>
+              <Box sx={{ minWidth: 0 }}>
+                <Typography
+                  sx={{
+                    color: brand.text,
+                    fontSize: 16,
+                    fontWeight: 500,
+                    overflowWrap: "anywhere",
+                  }}
+                >
+                  {doc.source_filename}
+                </Typography>
+                <Typography
+                  sx={{
+                    mt: 0.5,
+                    color: doc.status === "failed" ? brand.red : brand.muted,
+                    fontSize: 13,
+                  }}
+                >
+                  {doc.chunks} {doc.chunks === 1 ? "chunk" : "chunks"}
+                  {doc.status !== "completed" ? ` · ${doc.status}` : ""}
+                </Typography>
+                <Typography
+                  sx={{
+                    display: { xs: "block", md: "none" },
+                    mt: 0.5,
+                    color: brand.muted,
+                    fontSize: 13,
+                  }}
+                >
+                  {sourceLabel} · {doc.last_updated ? "" : "Created "}
+                  {dateLabel}
+                </Typography>
+              </Box>
             </Box>
+            <Typography
+              role="cell"
+              sx={{
+                display: { xs: "none", md: "block" },
+                color: brand.muted,
+                fontSize: 14,
+              }}
+            >
+              {sourceLabel}
+            </Typography>
+            <Typography
+              role="cell"
+              component="time"
+              dateTime={updatedAt}
+              sx={{
+                display: { xs: "none", md: "block" },
+                color: brand.muted,
+                fontSize: 14,
+              }}
+            >
+              {doc.last_updated ? "" : "Created "}
+              {dateLabel}
+            </Typography>
+            <IconButton
+              aria-label={`Options for ${doc.source_filename}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                const rect = e.currentTarget.getBoundingClientRect();
+                setContextMenu({ x: rect.right, y: rect.bottom });
+              }}
+              size="small"
+              sx={{ color: brand.muted }}
+            >
+              <MoreVertIcon fontSize="small" />
+            </IconButton>
           </Box>
         ) : (
           <>

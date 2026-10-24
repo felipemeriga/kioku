@@ -1,3 +1,4 @@
+import { useSearchParams } from "react-router-dom";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { qk } from "../lib/queryKeys";
@@ -171,7 +172,16 @@ export default function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedScope, setSelectedScope] = useState<string>("");
   const [keyName, setKeyName] = useState("Default");
-  const [activeTab, setActiveTab] = useState<SettingsTab>("api-keys");
+  const [tabParams, setTabParams] = useSearchParams();
+  const requestedTab = tabParams.get("tab");
+  const activeTab: SettingsTab = [
+    "api-keys",
+    "integrations",
+    "mcp-client",
+    "usage",
+  ].includes(requestedTab ?? "")
+    ? (requestedTab as SettingsTab)
+    : "api-keys";
 
   const handleGenerate = async () => {
     if (!selectedScope) {
@@ -281,7 +291,7 @@ export default function SettingsPage() {
         {/* Tab navigation */}
         <Tabs
           value={activeTab}
-          onChange={(_, v: SettingsTab) => setActiveTab(v)}
+          onChange={(_, v: SettingsTab) => setTabParams({ tab: v })}
           sx={{
             borderBottom: `1px solid ${brand.line}`,
             "& .MuiTab-root": {

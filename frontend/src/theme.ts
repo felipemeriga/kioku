@@ -2,11 +2,11 @@ import { createTheme } from "@mui/material/styles";
 
 /** Quiet signal: readable knowledge surfaces with Kioku's magenta/cyan identity. */
 export const brand = {
-  magenta: "#FF69B4",
-  magentaDeep: "#EB53A1",
+  magenta: "#FF3E9D",
+  magentaDeep: "#D91C7E",
   magentaGlow: "#FF98CB",
-  cyan: "#7BDFEA",
-  cyanDeep: "#4CC5D3",
+  cyan: "#00E5F2",
+  cyanDeep: "#00BDCF",
   purple: "#BEA0EF",
   amber: "#F3CA82",
   amberLight: "#FFDEA5",
@@ -14,18 +14,18 @@ export const brand = {
   red: "#FF9BAF",
   ink: "#0C0914",
   inkDeep: "#09060F",
-  surface: "#151020",
+  surface: "#171024",
   surface2: "#110D1B",
   raised: "#1C162A",
-  line: "#332A45",
-  lineGlow: "#726383",
+  line: "#504060",
+  lineGlow: "#8A739E",
   text: "#F4F0FA",
-  muted: "#B9AFCB",
-  dim: "#978BA9",
+  muted: "#D0C5E4",
+  dim: "#AC9BC4",
   chrome: "#E4DEED",
-  violet: "#FF69B4",
+  violet: "#FF3E9D",
   violet2: "#BEA0EF",
-  violetDeep: "#EB53A1",
+  violetDeep: "#D91C7E",
 };
 const FONT_BODY =
   "'IBM Plex Sans', 'Noto Sans JP', -apple-system, BlinkMacSystemFont, sans-serif";
