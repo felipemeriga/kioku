@@ -14,7 +14,15 @@ export function knownProjectPaths(home = homedir()): string[] {
   }
   try {
     const cfg = parse(
-      readFileSync(join(home, ".codex", "config.toml"), "utf8")
+      readFileSync(
+        join(
+          home === homedir()
+            ? process.env.CODEX_HOME || join(home, ".codex")
+            : join(home, ".codex"),
+          "config.toml"
+        ),
+        "utf8"
+      )
     );
     for (const path of Object.keys(cfg.projects ?? {}).slice(0, 200))
       paths.add(path);
