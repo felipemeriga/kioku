@@ -67,10 +67,10 @@ function SectionDiff({ sectionKey, oldText, newText }: SectionDiffProps) {
       <Typography
         sx={{
           fontFamily: fonts.mono,
-          fontSize: 11,
+          fontSize: 13,
           fontWeight: 600,
-          letterSpacing: "0.1em",
-          textTransform: "uppercase",
+          letterSpacing: 0,
+          textTransform: "none",
           color: hasChanges ? brand.cyan : brand.muted,
           mb: 0.5,
         }}
@@ -273,7 +273,7 @@ export default function BriefingHistoryPanel({ folderId }: Props) {
           onClick={() => void refetch()}
           sx={{
             fontFamily: fonts.mono,
-            fontSize: 11,
+            fontSize: 13,
             letterSpacing: "0.08em",
             borderColor: brand.magenta,
             color: brand.magenta,
@@ -342,10 +342,10 @@ export default function BriefingHistoryPanel({ folderId }: Props) {
         <Typography
           sx={{
             fontFamily: fonts.mono,
-            fontSize: 10,
+            fontSize: 13,
             fontWeight: 600,
-            letterSpacing: "0.28em",
-            textTransform: "uppercase",
+            letterSpacing: 0,
+            textTransform: "none",
             color: brand.muted,
             mb: 1.5,
           }}
@@ -395,7 +395,7 @@ export default function BriefingHistoryPanel({ folderId }: Props) {
                     size="small"
                     sx={{
                       fontFamily: fonts.mono,
-                      fontSize: 10,
+                      fontSize: 13,
                       height: 18,
                       letterSpacing: "0.06em",
                       backgroundColor: `${brand.violet2}22`,
@@ -406,7 +406,7 @@ export default function BriefingHistoryPanel({ folderId }: Props) {
                   <Typography
                     sx={{
                       fontFamily: fonts.mono,
-                      fontSize: 11,
+                      fontSize: 13,
                       color: brand.muted,
                       flexGrow: 1,
                     }}
@@ -418,9 +418,9 @@ export default function BriefingHistoryPanel({ folderId }: Props) {
                       component="span"
                       sx={{
                         fontFamily: fonts.mono,
-                        fontSize: 10,
+                        fontSize: 13,
                         color: brand.cyan,
-                        textShadow: `0 0 6px ${brand.cyan}`,
+                        textShadow: "none",
                       }}
                     >
                       ●
@@ -442,7 +442,7 @@ export default function BriefingHistoryPanel({ folderId }: Props) {
                         size="small"
                         sx={{
                           fontFamily: fonts.mono,
-                          fontSize: 9,
+                          fontSize: 13,
                           height: 16,
                           letterSpacing: "0.04em",
                           backgroundColor: `${brand.amber}18`,
@@ -459,7 +459,7 @@ export default function BriefingHistoryPanel({ folderId }: Props) {
                   <Typography
                     sx={{
                       fontFamily: fonts.mono,
-                      fontSize: 10,
+                      fontSize: 13,
                       color: brand.muted,
                       mb: 1,
                       overflowWrap: "anywhere",
@@ -486,7 +486,7 @@ export default function BriefingHistoryPanel({ folderId }: Props) {
                   }}
                   sx={{
                     fontFamily: fonts.mono,
-                    fontSize: 10,
+                    fontSize: 13,
                     letterSpacing: "0.06em",
                     borderColor: `${brand.magenta}66`,
                     color: brand.magenta,
@@ -523,7 +523,7 @@ export default function BriefingHistoryPanel({ folderId }: Props) {
           <Typography
             sx={{
               fontFamily: fonts.mono,
-              fontSize: 11,
+              fontSize: 13,
               color: brand.muted,
               mt: 1.5,
             }}
@@ -539,10 +539,10 @@ export default function BriefingHistoryPanel({ folderId }: Props) {
           <Typography
             sx={{
               fontFamily: fonts.mono,
-              fontSize: 10,
+              fontSize: 13,
               fontWeight: 600,
-              letterSpacing: "0.28em",
-              textTransform: "uppercase",
+              letterSpacing: 0,
+              textTransform: "none",
               color: brand.muted,
               mb: 1.5,
             }}

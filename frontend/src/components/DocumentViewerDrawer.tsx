@@ -110,7 +110,7 @@ function TypeBadge({
         alignItems: "center",
         justifyContent: "center",
         fontFamily: fonts.mono,
-        fontSize: "0.625rem",
+        fontSize: "0.8125rem",
         fontWeight: 600,
         color: badge.color,
         flexShrink: 0,
@@ -361,7 +361,7 @@ function DrawerBody({
           alignItems: "center",
           flexWrap: "wrap",
           fontFamily: fonts.mono,
-          fontSize: "0.69rem",
+          fontSize: "0.8125rem",
         }}
       >
         {doc.viewable_as && (
@@ -562,10 +562,10 @@ function DocumentRenderer({
             onClick={onToggleExtracted}
             sx={{
               fontFamily: fonts.mono,
-              fontSize: "0.69rem",
-              letterSpacing: "0.14em",
+              fontSize: "0.8125rem",
+              letterSpacing: 0,
               color: brand.muted,
-              textTransform: "uppercase",
+              textTransform: "none",
               borderRadius: 0,
               py: 0.75,
               "&:hover": {
@@ -928,7 +928,7 @@ function MarkdownRender({
           fontWeight: 700,
           mb: 1,
           mt: 2,
-          textShadow: `0 0 14px ${brand.magenta}44`,
+          textShadow: "none",
         },
         "& h2": {
           fontFamily: fonts.display,

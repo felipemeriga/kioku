@@ -90,6 +90,7 @@ function FolderTreeNode({
   return (
     <>
       <ListItemButton
+        data-folder-navigation
         selected={isSelected}
         onClick={handleSelect}
         onContextMenu={handleContextMenu}
@@ -273,6 +274,7 @@ export default function FolderTree({
     <Box sx={{ py: 1 }}>
       <ListItemButton
         selected={selectedFolderId === null}
+        data-folder-navigation
         onClick={() => onSelectFolder(null)}
         onDragOver={(e) => {
           e.preventDefault();
@@ -330,17 +332,17 @@ export default function FolderTree({
         <Typography
           variant="overline"
           sx={{
-            fontFamily: fonts.mono,
+            fontFamily: fonts.body,
             px: 2,
             pt: 1.5,
             pb: 0.5,
             display: "block",
             color: brand.muted,
-            letterSpacing: "0.24em",
-            fontSize: "0.6rem",
+            letterSpacing: 0,
+            fontSize: "0.8125rem",
           }}
         >
-          FOLDERS
+          Folders
         </Typography>
       )}
 

@@ -75,7 +75,9 @@ export default function ChatArea({
         flex: 1,
         display: "flex",
         flexDirection: "column",
-        height: "100vh",
+        height: "100%",
+        minHeight: 0,
+        width: "100%",
       }}
     >
       <Box
@@ -83,12 +85,16 @@ export default function ChatArea({
         onScroll={handleScroll}
         sx={{ flex: 1, overflow: "auto" }}
       >
-        <Box sx={{ py: 3, px: 3 }}>
+        <Box sx={{ py: { xs: 3, md: 5 }, px: { xs: 2, md: 5 }, width: "100%" }}>
           {messages.length === 0 && !isStreaming && (
             <Stack
               alignItems="center"
               spacing={2.5}
-              sx={{ height: "70vh", justifyContent: "center", px: 3 }}
+              sx={{
+                minHeight: "calc(100dvh - 260px)",
+                justifyContent: "center",
+                px: { xs: 0, sm: 3 },
+              }}
             >
               {/* Brand glyph */}
               <Box
@@ -104,7 +110,7 @@ export default function ChatArea({
                   fontWeight: 900,
                   fontSize: "1.8rem",
                   color: brand.magentaGlow,
-                  boxShadow: `0 0 4px ${brand.magenta}88, 0 0 16px ${brand.magenta}44`,
+                  boxShadow: "none",
                 }}
               >
                 記
@@ -114,13 +120,13 @@ export default function ChatArea({
                 <Typography
                   variant="overline"
                   sx={{
-                    fontFamily: fonts.mono,
-                    fontSize: "0.62rem",
-                    letterSpacing: "0.32em",
+                    fontFamily: fonts.body,
+                    fontSize: "0.875rem",
+                    letterSpacing: 0,
                     color: brand.cyan,
                   }}
                 >
-                  ● READY TO ANSWER
+                  Ready when you are
                 </Typography>
                 <Typography
                   sx={{
@@ -163,8 +169,8 @@ export default function ChatArea({
                     variant="outlined"
                     onClick={() => onSend(text)}
                     sx={{
-                      fontFamily: fonts.mono,
-                      fontSize: "0.75rem",
+                      fontFamily: fonts.body,
+                      fontSize: "0.875rem",
                       borderRadius: "3px",
                       borderColor: `${brand.magenta}55`,
                       color: brand.muted,
@@ -173,7 +179,7 @@ export default function ChatArea({
                         bgcolor: `${brand.magenta}18`,
                         borderColor: brand.magenta,
                         color: brand.text,
-                        boxShadow: `0 0 10px ${brand.magenta}33`,
+                        boxShadow: "none",
                       },
                     }}
                   />

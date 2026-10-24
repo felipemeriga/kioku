@@ -207,7 +207,7 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
           onClick={() => void refetch()}
           sx={{
             fontFamily: fonts.mono,
-            fontSize: 11,
+            fontSize: 13,
             letterSpacing: "0.08em",
             borderColor: brand.magenta,
             color: brand.magenta,
@@ -250,10 +250,10 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
                 <Typography
                   sx={{
                     fontFamily: fonts.mono,
-                    fontSize: 10,
+                    fontSize: 13,
                     fontWeight: 600,
-                    letterSpacing: "0.1em",
-                    textTransform: "uppercase",
+                    letterSpacing: 0,
+                    textTransform: "none",
                     color: brand.muted,
                   }}
                 >
@@ -265,7 +265,7 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
                   component="span"
                   sx={{
                     fontFamily: fonts.mono,
-                    fontSize: 11,
+                    fontSize: 13,
                     color: glyph.color,
                     textShadow:
                       glyph.color !== brand.muted
@@ -299,7 +299,7 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
                 <Typography
                   sx={{
                     fontFamily: fonts.mono,
-                    fontSize: 10,
+                    fontSize: 13,
                     color: brand.dim,
                     mt: 0.25,
                   }}
@@ -328,7 +328,7 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
           onClick={() => start("index")}
           sx={{
             fontFamily: fonts.mono,
-            fontSize: 11,
+            fontSize: 13,
             letterSpacing: "0.08em",
             borderColor: brand.cyan,
             color: brand.cyan,
@@ -355,7 +355,7 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
           onClick={() => start("sections")}
           sx={{
             fontFamily: fonts.mono,
-            fontSize: 11,
+            fontSize: 13,
             letterSpacing: "0.08em",
             borderColor: brand.magenta,
             color: brand.magenta,
@@ -374,7 +374,7 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
         </Button>
         {message && (
           <Typography
-            sx={{ fontFamily: fonts.mono, fontSize: 11, color: brand.muted }}
+            sx={{ fontFamily: fonts.mono, fontSize: 13, color: brand.muted }}
           >
             {message}
           </Typography>
