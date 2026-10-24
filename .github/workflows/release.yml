@@ -1,0 +1,212 @@
+name: Release
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kioku-production-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      ready: ${{ steps.plan.outputs.ready }}
+      sha: ${{ steps.plan.outputs.sha }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+      cli: ${{ steps.plan.outputs.cli }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Plan versions and record release commit
+        id: plan
+        env:
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+          DOKPLOY_URL: ${{ vars.DOKPLOY_URL }}
+          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+          DOKPLOY_COMPOSE_IDS: ${{ vars.DOKPLOY_COMPOSE_IDS }}
+          DOKPLOY_DEPLOY_TIMEOUT_SECONDS: ${{ vars.DOKPLOY_DEPLOY_TIMEOUT_SECONDS || '900' }}
+          HIVE_TOKEN: ${{ secrets.HIVE_RELEASE_TOKEN }}
+          DOCKER_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKER_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          python3 scripts/release/release.py prepare --source "$SOURCE_SHA" --output /tmp/plan.json
+          if [ "$(cat /tmp/plan.json)" = null ]; then
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          for name in HIVE_TOKEN DOCKER_USER DOCKER_TOKEN SUPABASE_URL SUPABASE_ANON_KEY; do
+            if [ -z "${!name}" ]; then echo "::error::Missing release configuration: $name (see RELEASE.md)"; exit 1; fi
+          done
+          python3 - <<'PY'
+          import json, sys
+          sys.path.insert(0, 'scripts/release')
+          from deployment import configuration
+          configuration(json.load(open('/tmp/plan.json')))
+          PY
+          git config user.name 'felipemeriga'
+          git config user.email 'felipemeriga@users.noreply.github.com'
+          git add .release backend/pyproject.toml backend/uv.lock cli/package.json cli/package-lock.json cli/src frontend/package.json frontend/package-lock.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'chore(release): bump affected package versions'
+            # A normal fast-forward push fails safely if main advanced or branch
+            # protection disallows automation. Never force or bypass protection.
+            git push origin HEAD:main
+          fi
+          python3 - <<'PY'
+          import json, os, subprocess
+          plan=json.load(open('/tmp/plan.json'))
+          with open(os.environ['GITHUB_OUTPUT'],'a') as out:
+              out.write('ready=true\n')
+              out.write('sha='+subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()+'\n')
+              out.write('matrix='+json.dumps({'include':plan['images']},separators=(',',':'))+'\n')
+              out.write('cli='+str(plan['cli']).lower()+'\n')
+          PY
+
+  validate:
+    needs: prepare
+    if: needs.prepare.outputs.ready == 'true'
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.prepare.outputs.sha }}
+    secrets: inherit
+
+  retrieval-eval:
+    needs: [prepare, validate]
+    if: contains(needs.prepare.outputs.matrix, '"package":"backend"')
+    permissions:
+      contents: read
+      pull-requests: write
+    uses: ./.github/workflows/eval.yml
+    with:
+      ref: ${{ needs.prepare.outputs.sha }}
+    secrets: inherit
+
+  images:
+    needs: [prepare, validate]
+    if: needs.prepare.outputs.matrix != '{"include":[]}'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v3
+        with:
+          version: v0.38.1
+          driver: cloud
+          endpoint: ${{ vars.DOCKER_CLOUD_BUILDER || 'felipemeriga1/builder' }}
+      - name: Reuse an existing immutable release image on retry
+        id: existing
+        env:
+          IMAGE: ${{ matrix.image }}
+          TAG: ${{ matrix.tag }}
+          RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
+        run: |
+          python3 scripts/release/image.py "$IMAGE:$TAG" "$RELEASE_SHA" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        if: steps.existing.outputs.digest == ''
+        id: build
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64
+          push: true
+          tags: ${{ matrix.image }}:${{ matrix.tag }}
+          labels: |
+            org.opencontainers.image.revision=${{ needs.prepare.outputs.sha }}
+            org.opencontainers.image.version=${{ matrix.version }}
+          build-args: |
+            VITE_SUPABASE_URL=${{ vars.VITE_SUPABASE_URL }}
+            VITE_SUPABASE_ANON_KEY=${{ vars.VITE_SUPABASE_ANON_KEY }}
+      - name: Record image digest
+        env:
+          PACKAGE: ${{ matrix.package }}
+          IMAGE: ${{ matrix.image }}
+          DIGEST: ${{ steps.existing.outputs.digest || steps.build.outputs.digest }}
+        run: |
+          mkdir -p release-results
+          python3 - <<'PY'
+          import json,os
+          json.dump({k:os.environ[k.upper()] for k in ('package','image','digest')},open('release-results/'+os.environ['PACKAGE']+'.json','w'))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: image-${{ matrix.package }}
+          path: release-results/*.json
+
+  cli:
+    needs: [prepare, validate]
+    if: needs.prepare.outputs.cli == 'true'
+    uses: ./.github/workflows/cli-native.yml
+    with:
+      ref: ${{ needs.prepare.outputs.sha }}
+
+  promote:
+    needs: [prepare, validate, retrieval-eval, images, cli]
+    if: >-
+      always() && needs.prepare.outputs.ready == 'true' &&
+      needs.validate.result == 'success' &&
+      (needs.retrieval-eval.result == 'success' || needs.retrieval-eval.result == 'skipped') &&
+      (needs.images.result == 'success' || needs.images.result == 'skipped') &&
+      (needs.cli.result == 'success' || needs.cli.result == 'skipped')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        if: needs.images.result == 'success'
+        with:
+          pattern: image-*
+          merge-multiple: true
+          path: release-results
+      - uses: actions/download-artifact@v4
+        if: needs.cli.result == 'success'
+        with:
+          pattern: cli-*
+          merge-multiple: true
+          path: release-cli
+      - uses: actions/checkout@v4
+        with:
+          repository: felipemeriga/hive
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.HIVE_RELEASE_TOKEN }}
+          path: hive
+      - name: Publish release artifacts and promote Hive
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
+          HIVE_REPOSITORY: felipemeriga/hive
+          DOKPLOY_URL: ${{ vars.DOKPLOY_URL }}
+          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+          DOKPLOY_COMPOSE_IDS: ${{ vars.DOKPLOY_COMPOSE_IDS }}
+          DOKPLOY_DEPLOY_TIMEOUT_SECONDS: ${{ vars.DOKPLOY_DEPLOY_TIMEOUT_SECONDS || '900' }}
+        run: python3 scripts/release/promote.py
