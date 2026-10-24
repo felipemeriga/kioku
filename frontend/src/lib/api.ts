@@ -200,7 +200,7 @@ export interface BriefingResponse {
   schema_version: number;
   sections: Record<BriefingSectionKey, BriefingSection>;
   last_generated_at: string | null;
-  /** Watcher-computed staleness vs the repo's git history. */
+  /** Mihari-computed staleness vs the repo's git history. */
   freshness?: {
     head_sha: string | null;
     commits_behind: number;
@@ -208,7 +208,7 @@ export interface BriefingResponse {
     changed_files: number;
     checked_at: string;
   } | null;
-  /** When each subsystem was last refreshed by the watcher + the main HEAD. */
+  /** When each subsystem was last refreshed by Mihari + the main HEAD. */
   index_status?: {
     git_updates_at: string | null;
     head_sha: string | null;
@@ -911,7 +911,7 @@ export async function listNotionPages(
   return res.json();
 }
 
-// ── Watcher status + refresh ─────────────────────────────────────────────────
+// ── Mihari status + refresh ─────────────────────────────────────────────────
 
 export interface FolderStatus {
   git_updates_at: string | null;

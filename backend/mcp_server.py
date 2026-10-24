@@ -1021,7 +1021,7 @@ def get_folder_briefing(folder: str | None = None) -> str:
     if latest:
         sections = latest.get("sections") or ((latest.get("content") or {}).get("sections"))
 
-    # Freshness: the watcher compares git history against section timestamps.
+    # Freshness: Mihari compares git history against section timestamps.
     # Prose is never auto-regenerated — but consumers must know when it lags.
     freshness_warning = None
     fresh_rows = (
@@ -1443,17 +1443,17 @@ def update_folder_briefing_section(
 
     if section not in SECTION_KEYS:
         return f"Error: Unknown section '{section}'. Valid: {SECTION_KEYS}"
-    # 'activity' is owned by the kioku watcher — it folds new commits per repo,
+    # 'activity' is owned by Kioku Mihari — it folds new commits per repo,
     # keyed off watched_repos.folder_id, twice daily. Agents must NOT write it:
     # this tool resolves the target from the api key's scope folder, and a
     # single global MCP key (e.g. the Codex surface) spanning several repos
     # would misattribute one repo's activity onto another's briefing. Reject
-    # the write so the watcher stays the single source of truth for activity.
+    # the write so Mihari stays the single source of truth for activity.
     if section == "activity":
         return (
-            "The 'activity' section is auto-maintained by the kioku watcher "
+            "The 'activity' section is auto-maintained by Kioku Mihari "
             "(it folds new commits per repo, twice daily). Agents should not "
-            "write it — leave activity to the watcher."
+            "write it — leave activity to Mihari."
         )
     sb = get_supabase()
     user_id = _current_user_id.get()

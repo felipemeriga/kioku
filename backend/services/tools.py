@@ -211,7 +211,7 @@ def _code_graph_lookup(tool_input: dict, scope_folder_ids: list[str] | None) -> 
 def _recent_changes(user_id: str, scope_folder_ids: list[str] | None) -> str:
     """Recent-work digest (commit themes + highlights) per repo in scope.
 
-    Reads the watcher-maintained `activity` briefing section — the only source
+    Reads Mihari-maintained `activity` briefing section — the only source
     that captures the CHANGE DELTA (git history), which semantic search over the
     current code cannot. Fans out over the scope folders and labels by repo."""
     folders = scope_folder_ids or []

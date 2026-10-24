@@ -8,7 +8,7 @@ const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 function sseChat(): Response {
   const enc = new TextEncoder();
   const answer =
-    "Kioku keeps a **briefing** per repo folder — overview, architecture, important files and more — refreshed by the watcher after each push.\n\nAsk it anything about the repo and it cites the files it used.";
+    "Kioku keeps a **briefing** per repo folder — overview, architecture, important files and more — refreshed by Mihari after each push.\n\nAsk it anything about the repo and it cites the files it used.";
   const tokens = answer.match(/.{1,6}/gs) || [];
   const stream = new ReadableStream({
     async start(ctrl) {

@@ -14,7 +14,7 @@ import {
 import { isLoggedIn } from "../lib/config.js";
 import { detectGit, headSha } from "../lib/git.js";
 import { mcpUrlToRestBase } from "../lib/urls.js";
-import { registerWithWatcher } from "../lib/watcher.js";
+import { registerWithMihari } from "../lib/mihari.js";
 import {
   graphIndex,
   graphifyAvailable,
@@ -411,22 +411,21 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
   removeCodexCaptureHooks();
 
   // Step 6b.5: remove legacy push hooks (pre-v0.3.0 installed a Claude
-  //             PostToolUse hook + a native git pre-push hook; the watcher
+  //             PostToolUse hook + a native git pre-push hook; Mihari
   //             replaces both).
   const legacy = removeLegacyPushHooks(repoRoot);
   if (legacy.removedSettingsHook || legacy.removedGitHook) {
     ok(
-      "Legacy push hooks removed  " +
-        kleur.dim("(watcher handles indexing now)")
+      "Legacy push hooks removed  " + kleur.dim("(Mihari handles indexing now)")
     );
   }
 
-  // Step 6c: server-side watcher registration — replaces the old push hooks.
+  // Step 6c: server-side Mihari registration — replaces the old push hooks.
   //          The backend polls the principal branch twice a day and re-indexes
   //          graph + code chunks when it moves, so agents never burn turns on
   //          indexing and teammate merges are picked up too. Idempotent: the
   //          same repo can be linked from any number of computers.
-  await registerWithWatcher({
+  await registerWithMihari({
     repoRoot,
     base: mcpUrlToRestBase(mcpEntry.url),
     apiKey: key.key,
