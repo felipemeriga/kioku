@@ -111,11 +111,12 @@ export default function IngestionDrawer({
       onMouseEnter={onInteract}
       PaperProps={{
         sx: {
-          width: DRAWER_WIDTH,
+          width: { xs: "100vw", sm: DRAWER_WIDTH },
+          maxWidth: "100vw",
           bgcolor: brand.surface2,
           backgroundImage: scanlines,
-          borderLeft: `1px solid ${brand.magenta}`,
-          boxShadow: `-8px 0 32px rgba(0,0,0,0.6), 0 0 24px ${brand.magenta}33`,
+          borderLeft: `1px solid ${brand.line}`,
+          boxShadow: "none",
         },
       }}
     >
@@ -134,7 +135,7 @@ export default function IngestionDrawer({
           component="span"
           sx={{
             color: brand.magenta,
-            textShadow: `0 0 8px ${brand.magenta}`,
+            textShadow: "none",
             fontSize: 14,
             lineHeight: 1,
           }}
@@ -161,7 +162,7 @@ export default function IngestionDrawer({
               bgcolor: brand.magenta,
               color: brand.ink,
               fontFamily: fonts.mono,
-              fontSize: 11,
+              fontSize: 13,
               fontWeight: 600,
               lineHeight: "18px",
             }}

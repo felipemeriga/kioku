@@ -23,15 +23,18 @@ export default function SectionRail({
       component="aside"
       aria-label="Briefing sections"
       sx={{
-        width: 210,
+        width: { xs: "100%", lg: 180 },
         flexShrink: 0,
         display: "flex",
-        flexDirection: "column",
+        flexDirection: { xs: "row", lg: "column" },
+        flexWrap: "wrap",
         gap: 0.5,
       }}
     >
-      <Typography sx={{ ...hudLabel, px: 1.25, pb: 1.25, fontSize: 10 }}>
-        SECTIONS
+      <Typography
+        sx={{ ...hudLabel, px: 1.25, pb: 1.25, fontSize: 13, width: "100%" }}
+      >
+        Sections
       </Typography>
       {items.map((s, i) => (
         <Box
@@ -63,7 +66,7 @@ export default function SectionRail({
             sx={{
               width: 18,
               fontFamily: fonts.mono,
-              fontSize: 11,
+              fontSize: 13,
               color: brand.muted,
             }}
           >
@@ -77,13 +80,14 @@ export default function SectionRail({
       ))}
       <Stack
         sx={{
+          display: { xs: "none", lg: "flex" },
           gap: 0.75,
           mt: 2,
           pt: 1.5,
           px: 1.25,
           borderTop: `1px solid ${brand.line}`,
           fontFamily: fonts.mono,
-          fontSize: 11,
+          fontSize: 13,
           color: brand.muted,
         }}
       >

@@ -240,14 +240,14 @@ export default function InspectDialog({
                     <Chip label="error" size="small" color="error" />
                   )}
                 </Box>
-                <Typography sx={{ color: brand.muted, fontSize: 11, mb: 0.5 }}>
+                <Typography sx={{ color: brand.muted, fontSize: 13, mb: 0.5 }}>
                   input
                 </Typography>
                 <Pre>{JSON.stringify(t.input, null, 2)}</Pre>
                 <Typography
                   sx={{
                     color: brand.muted,
-                    fontSize: 11,
+                    fontSize: 13,
                     mt: 1,
                     mb: 0.5,
                   }}
@@ -287,7 +287,7 @@ export default function InspectDialog({
                     kind={c.source_type}
                   />
                   {c.date && (
-                    <Typography sx={{ color: brand.muted, fontSize: 11 }}>
+                    <Typography sx={{ color: brand.muted, fontSize: 13 }}>
                       {c.date}
                     </Typography>
                   )}

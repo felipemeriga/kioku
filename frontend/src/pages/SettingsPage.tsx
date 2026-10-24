@@ -58,7 +58,7 @@ function UsageTable({
           fontFamily: fonts.mono,
           fontSize: 12,
           color: brand.muted,
-          letterSpacing: "0.1em",
+          letterSpacing: 0,
           mb: "8px",
         }}
       >
@@ -224,22 +224,22 @@ export default function SettingsPage() {
         display: "flex",
         flexDirection: "column",
         flex: 1,
-        p: "32px 40px",
-        alignItems: "center",
+        p: { xs: "24px 20px", md: "40px 48px" },
+        alignItems: "flex-start",
       }}
     >
       {/* Page header */}
-      <Box sx={{ width: 720, mb: "22px" }}>
+      <Box sx={{ width: "100%", maxWidth: 960, mb: "22px" }}>
         <Typography
           sx={{
             fontFamily: fonts.mono,
-            fontSize: 11,
-            letterSpacing: "0.3em",
+            fontSize: 13,
+            letterSpacing: 0,
             color: brand.muted,
-            textTransform: "uppercase",
+            textTransform: "none",
           }}
         >
-          WORKSPACE
+          Workspace
         </Typography>
         <Typography
           sx={{
@@ -247,7 +247,7 @@ export default function SettingsPage() {
             fontSize: 34,
             lineHeight: 1.15,
             mt: "4px",
-            textShadow: `0 0 18px ${brand.magenta}55`,
+            letterSpacing: "-0.03em",
           }}
         >
           Settings
@@ -265,7 +265,8 @@ export default function SettingsPage() {
 
       <Box
         sx={{
-          width: 720,
+          width: "100%",
+          maxWidth: 960,
           display: "flex",
           flexDirection: "column",
           gap: "22px",
@@ -379,7 +380,7 @@ export default function SettingsPage() {
                     fontFamily: fonts.mono,
                     fontSize: 14,
                     color: brand.magenta,
-                    textShadow: `0 0 6px ${brand.magenta}`,
+                    textShadow: "none",
                     lineHeight: 1,
                   }}
                 >
@@ -397,7 +398,7 @@ export default function SettingsPage() {
                     bgcolor: brand.magenta,
                     color: brand.ink,
                     fontFamily: fonts.mono,
-                    fontSize: 11,
+                    fontSize: 13,
                     fontWeight: 600,
                   }}
                 >
@@ -432,7 +433,14 @@ export default function SettingsPage() {
             ))}
 
             {/* Generate form row */}
-            <Box sx={{ display: "flex", gap: "10px", alignItems: "flex-end" }}>
+            <Box
+              sx={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "12px",
+                alignItems: "flex-end",
+              }}
+            >
               <Box
                 sx={{
                   flexGrow: 1,
@@ -446,10 +454,10 @@ export default function SettingsPage() {
                   htmlFor="kn"
                   sx={{
                     fontFamily: fonts.mono,
-                    fontSize: 11,
-                    letterSpacing: "0.2em",
+                    fontSize: 13,
+                    letterSpacing: 0,
                     color: brand.muted,
-                    textTransform: "uppercase",
+                    textTransform: "none",
                   }}
                 >
                   KEY NAME
@@ -484,10 +492,10 @@ export default function SettingsPage() {
                   htmlFor="sc"
                   sx={{
                     fontFamily: fonts.mono,
-                    fontSize: 11,
-                    letterSpacing: "0.2em",
+                    fontSize: 13,
+                    letterSpacing: 0,
                     color: brand.muted,
-                    textTransform: "uppercase",
+                    textTransform: "none",
                   }}
                 >
                   SCOPE
@@ -526,8 +534,8 @@ export default function SettingsPage() {
                   px: "16px",
                   border: 0,
                   borderRadius: "4px",
-                  backgroundImage: `linear-gradient(90deg, ${brand.magentaDeep} 0%, ${brand.purple} 100%)`,
-                  color: "#ffffff",
+                  backgroundColor: brand.magenta,
+                  color: brand.ink,
                   fontWeight: 600,
                   fontSize: 14,
                   boxShadow: `0 4px 12px ${brand.magenta}44`,

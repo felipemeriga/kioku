@@ -137,7 +137,7 @@ export default function FolderIntegrationsDialog({
             component="span"
             sx={{
               color: brand.magentaGlow,
-              textShadow: `0 0 10px ${brand.magenta}88`,
+              textShadow: "none",
             }}
           >
             {folder?.name ?? ""}

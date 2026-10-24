@@ -1,6 +1,6 @@
 .remotes-page {
-  padding: 40px 44px;
-  max-width: 1750px;
+  padding: 40px 48px;
+  max-width: none;
   margin: 0 auto;
   color: var(--remote-text);
 }
@@ -22,7 +22,7 @@
 .remotes-heading p {
   margin: 0;
   color: var(--remote-muted);
-  font-size: 14px;
+  font-size: 15px;
 }
 .remotes-heading button {
   white-space: nowrap;
@@ -30,7 +30,7 @@
 .remotes-preview-note {
   margin-top: 22px;
   color: var(--remote-muted);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.7;
 }
 .remotes-preview-note strong {
@@ -43,7 +43,7 @@
   gap: 18px;
   padding: 19px 0;
   border-bottom: 1px solid var(--remote-line);
-  font-size: 12px;
+  font-size: 14px;
   color: var(--remote-muted);
 }
 .remotes-fleet > :last-child {
@@ -70,7 +70,7 @@
   margin-top: 24px;
   min-height: 620px;
   border: 1px solid var(--remote-line);
-  border-radius: 4px;
+  border-radius: 8px;
   background: var(--remote-sunken);
 }
 .remotes-machines {
@@ -79,7 +79,7 @@
   min-width: 0;
 }
 .remotes-machines input {
-  font-size: 12px;
+  font-size: 14px;
 }
 .remotes-machine-list {
   margin-top: 17px;
@@ -92,17 +92,17 @@
   color: inherit;
   font: inherit;
   border: 1px solid transparent;
-  border-radius: 4px;
+  border-radius: 8px;
   padding: 15px 12px;
   margin-bottom: 7px;
   cursor: pointer;
 }
 .remote-machine:hover {
-  background: #00f0ff06;
+  background: #7bdfea08;
 }
 .remote-machine[aria-pressed="true"] {
-  border-color: #00f0ff50;
-  background: #00f0ff08;
+  border-color: #7bdfea50;
+  background: #7bdfea08;
   box-shadow: inset 2px 0 var(--remote-cyan);
 }
 .remote-machine:focus-visible {
@@ -114,7 +114,7 @@
   align-items: center;
   gap: 10px;
   font-weight: 500;
-  font-size: 14px;
+  font-size: 15px;
   overflow-wrap: anywhere;
 }
 .remote-machine-name svg {
@@ -124,7 +124,7 @@
 .remote-machine-meta {
   display: block;
   color: var(--remote-muted);
-  font-size: 11px;
+  font-size: 13px;
   margin: 8px 0 13px 30px;
   overflow-wrap: anywhere;
 }
@@ -134,14 +134,14 @@
   gap: 8px;
   margin-left: 30px;
   color: var(--remote-muted);
-  font-size: 11px;
+  font-size: 13px;
 }
 .remotes-machine-help {
   padding: 20px 12px;
   border-top: 1px solid var(--remote-line);
   margin-top: 24px;
   color: var(--remote-muted);
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.8;
 }
 .remote-detail {
@@ -172,7 +172,7 @@
 }
 .remote-detail-heading p {
   margin: 0;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--remote-muted);
 }
 .remote-machine-icon {
@@ -182,7 +182,7 @@
   height: 43px;
   flex-shrink: 0;
   border: 1px solid var(--remote-line);
-  border-radius: 4px;
+  border-radius: 8px;
   color: var(--remote-cyan);
   background: var(--remote-surface);
 }
@@ -194,7 +194,7 @@
   padding: 13px 0;
   border-block: 1px solid var(--remote-line);
   color: var(--remote-muted);
-  font-size: 11px;
+  font-size: 13px;
 }
 .remote-statusbar strong {
   color: var(--remote-text);
@@ -218,13 +218,13 @@
 }
 .remote-issue strong {
   color: var(--remote-amber);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 500;
 }
 .remote-issue p {
   margin: 5px 0 0;
   color: var(--remote-muted);
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.7;
 }
 .remote-section-title {
@@ -237,11 +237,11 @@
 }
 .remote-section-title h3 {
   margin: 0;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 550;
 }
 .remote-section-title span {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--remote-muted);
   font-weight: 400;
 }
@@ -250,7 +250,7 @@
 }
 .remote-repos {
   border: 1px solid var(--remote-line);
-  border-radius: 4px;
+  border-radius: 8px;
   overflow: hidden;
 }
 .remote-repo {
@@ -271,7 +271,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 450;
   overflow-wrap: anywhere;
 }
@@ -283,12 +283,12 @@
   display: block;
   margin-top: 6px;
   color: var(--remote-muted);
-  font-size: 10px;
+  font-size: 12px;
   overflow-wrap: anywhere;
 }
 .remote-repo-count {
   text-align: right;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.8;
 }
 .remote-repo-count strong {
@@ -301,7 +301,7 @@
 .remote-repo-status {
   color: var(--remote-green);
   text-align: right;
-  font-size: 11px;
+  font-size: 13px;
 }
 .remote-warning {
   color: var(--remote-amber);
@@ -317,7 +317,7 @@
 .remote-agent {
   border: 1px solid var(--remote-line);
   padding: 15px;
-  border-radius: 4px;
+  border-radius: 8px;
   min-width: 0;
 }
 .remote-agent-heading {
@@ -331,7 +331,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 500;
 }
 .remote-provider-mark {
@@ -347,7 +347,7 @@
   color: var(--remote-muted);
   border: 1px solid var(--remote-line);
   border-radius: 3px;
-  font-size: 10px;
+  font-size: 12px;
   padding: 4px 7px;
   white-space: nowrap;
 }
@@ -358,17 +358,17 @@
 }
 .remote-agent p {
   color: var(--remote-muted);
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.8;
   margin: 12px 0 0;
   overflow-wrap: anywhere;
 }
 .remote-agent p.remote-agent-project {
   color: var(--remote-text);
-  font-size: 12px;
+  font-size: 14px;
 }
 .remote-footnote {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--remote-muted);
   margin: 12px 0 0;
   line-height: 1.7;
@@ -379,7 +379,7 @@
   gap: 12px;
   padding: 13px 0;
   border-top: 1px solid var(--remote-line);
-  font-size: 11px;
+  font-size: 13px;
   color: var(--remote-muted);
 }
 .remote-activity > :first-child {
@@ -392,12 +392,12 @@
 .remote-activity time {
   margin-left: auto;
   white-space: nowrap;
-  font-size: 10px;
+  font-size: 12px;
 }
 .remotes-empty {
   padding-block: 32px;
   color: var(--remote-muted);
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1.8;
 }
 .remotes-empty h3 {
@@ -407,7 +407,7 @@
 }
 .remotes-footer {
   color: var(--remote-muted);
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.8;
   margin-top: 18px;
 }
@@ -443,7 +443,7 @@
     font-size: 25px;
   }
   .remotes-heading p {
-    font-size: 12px;
+    font-size: 14px;
   }
   .remotes-workspace {
     grid-template-columns: minmax(0, 1fr);
@@ -487,13 +487,13 @@
 }
 .remote-architecture {
   color: var(--remote-muted);
-  font-size: 11px;
+  font-size: 13px;
 }
 .remote-repo-path {
   color: var(--remote-muted);
   margin-top: 7px;
   overflow-wrap: anywhere;
-  font-size: 11px;
+  font-size: 13px;
 }
 .remote-agent-tags {
   display: flex;
@@ -502,7 +502,7 @@
 }
 .remote-agent-tags > span {
   border: 1px solid var(--remote-line);
-  border-radius: 4px;
+  border-radius: 8px;
   padding: 6px 9px;
   color: var(--remote-cyan);
   white-space: nowrap;
@@ -529,16 +529,16 @@
   display: block;
   margin-top: 6px;
   opacity: 0.8;
-  font-size: 11px;
+  font-size: 13px;
 }
 .remote-agent h4 {
   color: var(--remote-text);
   margin: 0 0 12px;
-  font-size: 14px;
+  font-size: 15px;
 }
 .remote-agent > p {
   color: var(--remote-muted);
-  font-size: 12px;
+  font-size: 14px;
 }
 .remote-repo {
   grid-template-columns: minmax(0, 1fr) minmax(120px, 190px) 112px;
