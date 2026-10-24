@@ -1,6 +1,6 @@
 {
   "name": "@felipemeriga/kioku",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Kioku (記憶) — second brain for your repos. Wires a local repo to your Kioku instance: MCP server, SessionStart hook, CLAUDE.md snippet.",
   "type": "module",
   "license": "MIT",
