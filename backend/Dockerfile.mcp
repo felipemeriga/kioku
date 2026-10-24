@@ -1,24 +1,18 @@
-FROM --platform=linux/amd64 ghcr.io/astral-sh/uv:0.9-python3.10-bookworm-slim AS builder
-
+# syntax=docker/dockerfile:1
+FROM ghcr.io/astral-sh/uv:0.9-python3.10-bookworm-slim AS dependencies
 WORKDIR /app
-
+ENV UV_LINK_MODE=copy
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --no-cache --no-install-project
+# MCP queues ingestion; it does not parse documents or run local vision models.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-default-groups --no-install-project
 
-COPY . .
-
-FROM --platform=linux/amd64 python:3.10-slim-bookworm
-
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
-
+FROM python:3.10-slim-bookworm
 WORKDIR /app
-
-COPY --from=builder /app/.venv .venv
-COPY --from=builder /app .
-
-ENV PATH="/app/.venv/bin:$PATH"
-ENV MCP_PORT=8001
-
+COPY --from=dependencies /app/.venv .venv
+COPY . .
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    MCP_PORT=8001
 EXPOSE 8001
-
 CMD ["python", "mcp_server.py"]
