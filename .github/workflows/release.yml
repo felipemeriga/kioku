@@ -36,6 +36,10 @@ jobs:
         id: plan
         env:
           SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+          DOKPLOY_URL: ${{ vars.DOKPLOY_URL }}
+          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+          DOKPLOY_COMPOSE_IDS: ${{ vars.DOKPLOY_COMPOSE_IDS }}
+          DOKPLOY_DEPLOY_TIMEOUT_SECONDS: ${{ vars.DOKPLOY_DEPLOY_TIMEOUT_SECONDS || '900' }}
           HIVE_TOKEN: ${{ secrets.HIVE_RELEASE_TOKEN }}
           DOCKER_USER: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKER_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -50,9 +54,15 @@ jobs:
           for name in HIVE_TOKEN DOCKER_USER DOCKER_TOKEN SUPABASE_URL SUPABASE_ANON_KEY; do
             if [ -z "${!name}" ]; then echo "::error::Missing release configuration: $name (see RELEASE.md)"; exit 1; fi
           done
+          python3 - <<'PY'
+          import json, sys
+          sys.path.insert(0, 'scripts/release')
+          from deployment import configuration
+          configuration(json.load(open('/tmp/plan.json')))
+          PY
           git config user.name 'felipemeriga'
           git config user.email 'felipemeriga@users.noreply.github.com'
-          git add .release backend/pyproject.toml backend/uv.lock cli/package.json cli/package-lock.json cli/src/index.ts frontend/package.json frontend/package-lock.json
+          git add .release backend/pyproject.toml backend/uv.lock cli/package.json cli/package-lock.json cli/src frontend/package.json frontend/package-lock.json
           if ! git diff --cached --quiet; then
             git commit -m 'chore(release): bump affected package versions'
             # A normal fast-forward push fails safely if main advanced or branch
@@ -114,10 +124,9 @@ jobs:
         env:
           IMAGE: ${{ matrix.image }}
           TAG: ${{ matrix.tag }}
+          RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
         run: |
-          if docker buildx imagetools inspect "$IMAGE:$TAG" --format '{{json .Manifest}}' > /tmp/manifest.json; then
-            echo "digest=$(python3 -c 'import json; print(json.load(open("/tmp/manifest.json"))["digest"])')" >> "$GITHUB_OUTPUT"
-          fi
+          python3 scripts/release/image.py "$IMAGE:$TAG" "$RELEASE_SHA" >> "$GITHUB_OUTPUT"
       - uses: docker/build-push-action@v6
         if: steps.existing.outputs.digest == ''
         id: build
@@ -188,6 +197,7 @@ jobs:
         with:
           repository: felipemeriga/hive
           ref: main
+          fetch-depth: 0
           token: ${{ secrets.HIVE_RELEASE_TOKEN }}
           path: hive
       - name: Publish release artifacts and promote Hive
@@ -195,4 +205,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
           HIVE_REPOSITORY: felipemeriga/hive
+          DOKPLOY_URL: ${{ vars.DOKPLOY_URL }}
+          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+          DOKPLOY_COMPOSE_IDS: ${{ vars.DOKPLOY_COMPOSE_IDS }}
+          DOKPLOY_DEPLOY_TIMEOUT_SECONDS: ${{ vars.DOKPLOY_DEPLOY_TIMEOUT_SECONDS || '900' }}
         run: python3 scripts/release/promote.py
