@@ -53,6 +53,24 @@ jobs:
           python3 scripts/release/smoke_cli.py "release-cli/kioku-$TARGET$suffix"
           bun build scripts/release/smoke_hooks.ts --compile --target="bun-$TARGET" --define KIOKU_STANDALONE=true --outfile "hook-smoke$suffix"
           "./hook-smoke$suffix"
+      - name: Verify Windows installer without network
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $fixture = Join-Path $env:RUNNER_TEMP 'kioku-installer-fixture'
+          New-Item -ItemType Directory -Force $fixture | Out-Null
+          $global:KiokuFixtureBinary = Join-Path $env:GITHUB_WORKSPACE 'release-cli/kioku-windows-x64.exe'
+          $global:KiokuFixtureSums = (Get-FileHash $global:KiokuFixtureBinary -Algorithm SHA256).Hash.ToLowerInvariant() + '  kioku-windows-x64.exe'
+          function Invoke-WebRequest {
+            param([string]$Uri, [string]$OutFile)
+            if ($OutFile) { Copy-Item $global:KiokuFixtureBinary $OutFile }
+            else { return [pscustomobject]@{ Content = $global:KiokuFixtureSums } }
+          }
+          $env:KIOKU_VERSION = '1.2.3'
+          $env:KIOKU_INSTALL_DIR = Join-Path $fixture 'install dir'
+          & ./scripts/release/install.ps1
+          if (-not (Test-Path (Join-Path $env:KIOKU_INSTALL_DIR 'kioku.exe'))) { throw 'Installer did not create executable' }
+          Remove-Item $fixture -Recurse -Force
       - uses: actions/upload-artifact@v4
         with:
           name: cli-${{ matrix.target }}
