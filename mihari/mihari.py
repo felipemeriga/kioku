@@ -52,13 +52,9 @@ FERNET = Fernet(_FERNET_KEY.encode()) if _FERNET_KEY else None
 MCP_URL = os.environ["KIOKU_MCP_URL"]
 API_URL = os.environ.get("KIOKU_API_URL", "").rstrip("/")
 DATA = Path(os.environ.get("MIHARI_DATA", os.environ.get("WATCHER_DATA", "/data")))
-TRIGGER_TOKEN = os.environ.get(
-    "MIHARI_TRIGGER_TOKEN", os.environ.get("WATCHER_TRIGGER_TOKEN", "")
-)
+TRIGGER_TOKEN = os.environ.get("MIHARI_TRIGGER_TOKEN", os.environ.get("WATCHER_TRIGGER_TOKEN", ""))
 TRIGGER_PORT = int(
-    os.environ.get(
-        "MIHARI_TRIGGER_PORT", os.environ.get("WATCHER_TRIGGER_PORT", "8787")
-    )
+    os.environ.get("MIHARI_TRIGGER_PORT", os.environ.get("WATCHER_TRIGGER_PORT", "8787"))
 )
 _pass_lock = threading.Lock()
 
@@ -100,9 +96,7 @@ def rest_get(path: str, params: dict) -> list[dict]:
 
 
 def rest_patch(path: str, params: dict, body: dict) -> None:
-    r = requests.patch(
-        f"{REST}/{path}", headers=HEADERS, params=params, json=body, timeout=30
-    )
+    r = requests.patch(f"{REST}/{path}", headers=HEADERS, params=params, json=body, timeout=30)
     r.raise_for_status()
 
 
@@ -127,15 +121,11 @@ def decrypt(ciphertext: str) -> str:
         blob = base64.b64decode(ciphertext[len(_KMS_PREFIX) :])
         return (
             _kms()
-            .decrypt(CiphertextBlob=blob, EncryptionContext=_KMS_ENC_CONTEXT)[
-                "Plaintext"
-            ]
+            .decrypt(CiphertextBlob=blob, EncryptionContext=_KMS_ENC_CONTEXT)["Plaintext"]
             .decode()
         )
     if FERNET is None:
-        raise RuntimeError(
-            "Got legacy Fernet ciphertext but SECRETS_ENCRYPTION_KEY is not set."
-        )
+        raise RuntimeError("Got legacy Fernet ciphertext but SECRETS_ENCRYPTION_KEY is not set.")
     return FERNET.decrypt(ciphertext.encode()).decode()
 
 
@@ -226,11 +216,7 @@ def compute_freshness(clone: Path, repo: dict, env: dict) -> None:
         return  # no briefing yet — nothing to be stale
     generated_at = rows[0]["generated_at"]
     content = rows[0].get("content") or {}
-    sections = (
-        content.get("sections")
-        if isinstance(content.get("sections"), dict)
-        else content
-    )
+    sections = content.get("sections") if isinstance(content.get("sections"), dict) else content
 
     code, head, _ = run_git(["rev-parse", "HEAD"], env, cwd=str(clone))
     if code != 0:
@@ -259,10 +245,7 @@ def compute_freshness(clone: Path, repo: dict, env: dict) -> None:
         source_changed = {
             f
             for f in (line.strip() for line in out.split("\n"))
-            if f
-            and not f.lower().endswith(
-                (".md", ".txt", ".json", ".lock", ".yml", ".yaml")
-            )
+            if f and not f.lower().endswith((".md", ".txt", ".json", ".lock", ".yml", ".yaml"))
         }
         changed_total = max(changed_total, len(source_changed))
         if len(source_changed) >= ARCH_CHURN_THRESHOLD:
@@ -290,9 +273,7 @@ def compute_freshness(clone: Path, repo: dict, env: dict) -> None:
         )
 
 
-def refresh_activity(
-    clone: Path, repo: dict, old_sha: str | None, new_sha: str, env: dict
-) -> None:
+def refresh_activity(clone: Path, repo: dict, old_sha: str | None, new_sha: str, env: dict) -> None:
     """Fold the new commit range into the briefing's activity section via the
     backend (Haiku) — the one auto-maintained section."""
     if not API_URL or not repo.get("api_key_encrypted"):
@@ -334,9 +315,7 @@ def refresh_activity(
             timeout=120,
         )
         if r.ok and (r.json() or {}).get("updated"):
-            log(
-                f"{repo['remote_url']}: activity section refreshed ({len(commits)} commits)"
-            )
+            log(f"{repo['remote_url']}: activity section refreshed ({len(commits)} commits)")
         else:
             log(f"{repo['remote_url']}: activity refresh skipped — {r.text[:150]}")
     except Exception as exc:  # noqa: BLE001 — activity is best-effort
@@ -363,11 +342,7 @@ def refresh_sections(clone: Path, repo: dict, env: dict, strict: bool = False) -
         return
     generated_at = rows[0]["generated_at"]
     content = rows[0].get("content") or {}
-    sections = (
-        content.get("sections")
-        if isinstance(content.get("sections"), dict)
-        else content
-    )
+    sections = content.get("sections") if isinstance(content.get("sections"), dict) else content
     sections = sections or {}
     key = decrypt(repo["api_key_encrypted"])
 
@@ -392,9 +367,7 @@ def refresh_sections(clone: Path, repo: dict, env: dict, strict: bool = False) -
             p = clone / f
             try:
                 if p.is_file() and p.stat().st_size < 60_000:
-                    files.append(
-                        {"path": f, "content": p.read_text(errors="replace")[:10000]}
-                    )
+                    files.append({"path": f, "content": p.read_text(errors="replace")[:10000]})
             except OSError:
                 continue
         if not files:
@@ -415,9 +388,7 @@ def refresh_sections(clone: Path, repo: dict, env: dict, strict: bool = False) -
             )
             r.raise_for_status()
             if r.ok and (r.json() or {}).get("updated"):
-                log(
-                    f"{repo['remote_url']}: {section} section refreshed ({len(files)} file(s))"
-                )
+                log(f"{repo['remote_url']}: {section} section refreshed ({len(files)} file(s))")
         except Exception as exc:  # noqa: BLE001 — best-effort
             log(f"{repo['remote_url']}: {section} refresh failed — {exc}")
             if strict:
@@ -431,9 +402,7 @@ HOLISTIC_REGROUND_DAYS = 14
 HOLISTIC_COMMITS_FLOOR = 3
 
 
-def maybe_reground_holistic(
-    clone: Path, repo: dict, env: dict, force: bool = False
-) -> None:
+def maybe_reground_holistic(clone: Path, repo: dict, env: dict, force: bool = False) -> None:
     """Re-ground architecture/overview from the current key files (~twice a
     month) via the backend (Sonnet) so these holistic sections stay fresh
     without a full re-init. Gated on days-since-last-write + a commits floor.
@@ -453,11 +422,7 @@ def maybe_reground_holistic(
         return
     generated_at = rows[0]["generated_at"]
     content = rows[0].get("content") or {}
-    sections = (
-        content.get("sections")
-        if isinstance(content.get("sections"), dict)
-        else content
-    )
+    sections = content.get("sections") if isinstance(content.get("sections"), dict) else content
     sections = sections or {}
 
     # Watermark: when architecture was last (re)written.
@@ -466,14 +431,9 @@ def maybe_reground_holistic(
         last_dt = datetime.fromisoformat(str(last).replace("Z", "+00:00"))
     except ValueError:
         return
-    if (
-        not force
-        and (datetime.now(timezone.utc) - last_dt).days < HOLISTIC_REGROUND_DAYS
-    ):
+    if not force and (datetime.now(timezone.utc) - last_dt).days < HOLISTIC_REGROUND_DAYS:
         return  # not due yet
-    code, n, _ = run_git(
-        ["rev-list", "--count", f"--since={last}", "HEAD"], env, cwd=str(clone)
-    )
+    code, n, _ = run_git(["rev-list", "--count", f"--since={last}", "HEAD"], env, cwd=str(clone))
     if not force and (code != 0 or int(n or 0) < HOLISTIC_COMMITS_FLOOR):
         return  # not enough churn to bother
 
@@ -497,9 +457,7 @@ def maybe_reground_holistic(
         p = clone / f
         try:
             if p.is_file() and p.stat().st_size < 80_000:
-                files.append(
-                    {"path": f, "content": p.read_text(errors="replace")[:12000]}
-                )
+                files.append({"path": f, "content": p.read_text(errors="replace")[:12000]})
         except OSError:
             continue
     if not files:
@@ -509,9 +467,7 @@ def maybe_reground_holistic(
     code, tree, _ = run_git(["ls-files"], env, cwd=str(clone))
     structure = ""
     if code == 0:
-        tops = sorted(
-            {"/".join(line.split("/")[:2]) for line in tree.split("\n") if line.strip()}
-        )
+        tops = sorted({"/".join(line.split("/")[:2]) for line in tree.split("\n") if line.strip()})
         structure = "\n".join(tops[:200])
 
     key = decrypt(repo["api_key_encrypted"])
@@ -596,9 +552,7 @@ def process_repo(repo: dict, key_row: dict) -> None:
                 record({"last_error": f"clone: {err[:300]}"})
                 return
         else:
-            code, _, err = run_git(
-                ["fetch", "origin", repo["branch"]], env, cwd=str(clone)
-            )
+            code, _, err = run_git(["fetch", "origin", repo["branch"]], env, cwd=str(clone))
             if code == 0:
                 code, _, err = run_git(
                     ["reset", "--hard", f"origin/{repo['branch']}"], env, cwd=str(clone)
@@ -608,17 +562,13 @@ def process_repo(repo: dict, key_row: dict) -> None:
                 record({"last_error": f"fetch: {err[:300]}"})
                 return
 
-    folder = rest_get(
-        "folders", {"id": f"eq.{repo['folder_id']}", "select": "name", "limit": "1"}
-    )
+    folder = rest_get("folders", {"id": f"eq.{repo['folder_id']}", "select": "name", "limit": "1"})
     folder_name = folder[0]["name"] if folder else "repo"
     if not repo.get("api_key_encrypted"):
         log(f"ERROR {name}: no api key registered — re-run kioku init in the repo")
         record({"last_error": "no api key registered"})
         return
-    seed_bindings(
-        clone, repo["folder_id"], folder_name, decrypt(repo["api_key_encrypted"])
-    )
+    seed_bindings(clone, repo["folder_id"], folder_name, decrypt(repo["api_key_encrypted"]))
 
     ok, tail = kioku_index(clone)
     plain_env = {
@@ -666,9 +616,7 @@ def force_refresh(repo: dict, key_row: dict, target: str) -> None:
                 env,
             )
         else:
-            code, _, err = run_git(
-                ["fetch", "origin", repo["branch"]], env, cwd=str(clone)
-            )
+            code, _, err = run_git(["fetch", "origin", repo["branch"]], env, cwd=str(clone))
             if code == 0:
                 code, _, err = run_git(
                     ["reset", "--hard", f"origin/{repo['branch']}"], env, cwd=str(clone)
@@ -679,13 +627,9 @@ def force_refresh(repo: dict, key_row: dict, target: str) -> None:
     if not repo.get("api_key_encrypted"):
         log(f"ERROR force {target} {name}: no api key registered")
         raise RuntimeError("No repository API key registered")
-    folder = rest_get(
-        "folders", {"id": f"eq.{repo['folder_id']}", "select": "name", "limit": "1"}
-    )
+    folder = rest_get("folders", {"id": f"eq.{repo['folder_id']}", "select": "name", "limit": "1"})
     folder_name = folder[0]["name"] if folder else "repo"
-    seed_bindings(
-        clone, repo["folder_id"], folder_name, decrypt(repo["api_key_encrypted"])
-    )
+    seed_bindings(clone, repo["folder_id"], folder_name, decrypt(repo["api_key_encrypted"]))
     plain_env = {
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
         "HOME": os.environ.get("HOME", "/root"),
@@ -711,9 +655,7 @@ def force_refresh(repo: dict, key_row: dict, target: str) -> None:
 
 
 def find_repo(folder_id: str) -> tuple[dict, dict] | None:
-    repos = rest_get(
-        "watched_repos", {"folder_id": f"eq.{folder_id}", "select": "*", "limit": "1"}
-    )
+    repos = rest_get("watched_repos", {"folder_id": f"eq.{folder_id}", "select": "*", "limit": "1"})
     if not repos:
         return None
     repo = repos[0]
@@ -733,8 +675,7 @@ def find_repo(folder_id: str) -> tuple[dict, dict] | None:
 def handle_run(headers, raw_body: str) -> tuple[int, dict]:
     if (
         not TRIGGER_TOKEN
-        or (headers.get("X-Mihari-Token") or headers.get("X-Watcher-Token"))
-        != TRIGGER_TOKEN
+        or (headers.get("X-Mihari-Token") or headers.get("X-Watcher-Token")) != TRIGGER_TOKEN
     ):
         return 401, {"error": "unauthorized"}
     try:
@@ -855,9 +796,7 @@ def main() -> int:
         k["user_id"]: k
         for k in rest_get("user_git_keys", {"select": "user_id,private_key_encrypted"})
     }
-    log(
-        f"watching {len(repos)} repo(s) across {len({r['user_id'] for r in repos})} user(s)"
-    )
+    log(f"watching {len(repos)} repo(s) across {len({r['user_id'] for r in repos})} user(s)")
     failures = 0
     for repo in repos:
         key_row = keys.get(repo["user_id"])
@@ -879,12 +818,9 @@ def run_service(schedule_raw: str) -> None:
     restart policy only matters for crashes outside a pass (e.g. bad env).
     """
     times = sorted(
-        (int(h), int(m))
-        for h, m in (t.strip().split(":") for t in schedule_raw.split(","))
+        (int(h), int(m)) for h, m in (t.strip().split(":") for t in schedule_raw.split(","))
     )
-    log(
-        f"service mode — schedule (UTC): {', '.join(f'{h:02d}:{m:02d}' for h, m in times)}"
-    )
+    log(f"service mode — schedule (UTC): {', '.join(f'{h:02d}:{m:02d}' for h, m in times)}")
     while True:
         try:
             with _pass_lock:
@@ -903,9 +839,7 @@ def run_service(schedule_raw: str) -> None:
 
 
 if __name__ == "__main__":
-    schedule = os.environ.get(
-        "MIHARI_SCHEDULE", os.environ.get("WATCH_SCHEDULE", "")
-    ).strip()
+    schedule = os.environ.get("MIHARI_SCHEDULE", os.environ.get("WATCH_SCHEDULE", "")).strip()
     if schedule:
         start_trigger_server()
         run_service(schedule)
