@@ -7,6 +7,7 @@ import logging
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
+import anyio
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
@@ -166,7 +167,11 @@ async def connect(socket: WebSocket):
     finally:
         if row:
             try:
-                await asyncio.to_thread(update, {"connected": False})
+                # ASGI servers cancel the connection scope during teardown.
+                with anyio.move_on_after(5, shield=True):
+                    await anyio.to_thread.run_sync(
+                        lambda: update({"connected": False}), abandon_on_cancel=True
+                    )
             except Exception:
                 # Last-seen expiry still marks this machine offline after process/DB failures.
                 log.warning("Could not clear Manabi presence", exc_info=True)

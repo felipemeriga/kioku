@@ -199,3 +199,56 @@ def test_unresponsive_initial_handshake_is_closed(setup, monkeypatch):
 def test_postgres_timestamp_precision_is_supported_on_python310(fraction):
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S") + fraction + "+00:00"
     assert remotes.public_machine({"last_seen": timestamp, "connected": True})["online"] is True
+
+
+def test_disconnect_persists_inside_cancelled_asgi_scope(setup):
+    import asyncio
+    import json
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    import anyio
+
+    client, rows = setup
+    machine = register(client)
+    release_worker = threading.Event()
+    worker_started = threading.Event()
+
+    def occupied_worker():
+        worker_started.set()
+        release_worker.wait(5)
+
+    async def cancelled_connection():
+        try:
+            with anyio.CancelScope() as scope:
+
+                class Socket:
+                    received = False
+
+                    async def accept(self):
+                        pass
+
+                    async def receive_text(self):
+                        if not self.received:
+                            self.received = True
+                            return json.dumps({"type": "hello", **machine})
+                        scope.cancel()
+                        raise WebSocketDisconnect(1000)
+
+                    async def send_json(self, _):
+                        loop = asyncio.get_running_loop()
+                        loop.set_default_executor(ThreadPoolExecutor(max_workers=1))
+                        loop.run_in_executor(None, occupied_worker)
+                        assert worker_started.wait(1)
+
+                    async def close(self, **_):
+                        await anyio.sleep(0)
+
+                await remotes.connect(Socket())
+        finally:
+            release_worker.set()
+
+    anyio.run(cancelled_connection)
+    row = rows[("alice", machine["id"])]
+    assert row["connection_id"] is not None
+    assert row["connected"] is False
