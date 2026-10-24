@@ -379,8 +379,11 @@ Before switching the Dokploy/Hive service, publish the new image, copy the
 existing trigger token to `MIHARI_TRIGGER_TOKEN`, and set `MIHARI_DATA_PATH` to
 the existing data bind mount (currently `/root/kioku-watcher-v2/data` in the
 production deployment). Keep all existing KMS credentials. Replace the old
-service rather than running two schedulers, then deploy the backend with
-`MIHARI_URL=http://kioku-mihari:8787`. The compose definition lives under
+service rather than running two schedulers. Deploy the backend first with
+`MIHARI_URL=http://kioku-watcher:8787` so the new API exists while the old
+container still runs. Replace the scheduler, then change the backend to
+`MIHARI_URL=http://kioku-mihari:8787`. Release new CLI clients after the backend.
+The compose definition lives under
 `deploy/hive/kioku/mihari/`. Updating this repository does not rename an existing
 Dokploy application or update the separate Hive repository automatically.
 
