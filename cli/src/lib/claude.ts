@@ -100,7 +100,12 @@ export function shQuote(s: string): string {
  *  to bare `kioku` only if the entry script can't be resolved (very unusual).
  *  Note: pinned to the current node install path; re-run `kioku init` after
  *  switching node versions (e.g. `nvm install`) to refresh it. */
+declare const KIOKU_STANDALONE: boolean;
+
 export function cliInvocation(): string {
+  if (typeof KIOKU_STANDALONE !== "undefined" && KIOKU_STANDALONE) {
+    return shQuote(process.execPath);
+  }
   const argv1 = process.argv[1];
   if (!argv1) return "kioku"; // no entry script (unusual) — best-effort bare
   let entry = argv1;
