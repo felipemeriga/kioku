@@ -304,3 +304,17 @@ export async function mintScopedApiKey(args: {
     body: JSON.stringify(args),
   });
 }
+
+export async function registerManabi(body: {
+  id: string;
+  secret: string;
+  name: string;
+  platform: string;
+  version: string;
+}): Promise<{ id: string }> {
+  return apiFetch("/api/remotes/register", {
+    method: "POST",
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(15_000),
+  });
+}

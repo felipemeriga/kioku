@@ -17,13 +17,12 @@ describe("IconRail", () => {
     renderWithProviders(<IconRail {...defaultProps} />);
     expect(screen.getByTestId("nav-chat")).toBeInTheDocument();
     expect(screen.getByTestId("nav-documents")).toBeInTheDocument();
+    expect(screen.getByTestId("nav-remotes")).toBeInTheDocument();
     expect(screen.getByTestId("nav-settings")).toBeInTheDocument();
   });
 
   it("highlights active page", () => {
-    renderWithProviders(
-      <IconRail {...defaultProps} activePage="/documents" />
-    );
+    renderWithProviders(<IconRail {...defaultProps} activePage="/documents" />);
     const docsButton = screen.getByTestId("nav-documents");
     expect(docsButton).toHaveAttribute("data-active", "true");
   });
@@ -31,9 +30,7 @@ describe("IconRail", () => {
   it("fires onNavigate when clicking a nav icon", async () => {
     const user = userEvent.setup();
     const onNavigate = vi.fn();
-    renderWithProviders(
-      <IconRail {...defaultProps} onNavigate={onNavigate} />
-    );
+    renderWithProviders(<IconRail {...defaultProps} onNavigate={onNavigate} />);
     await user.click(screen.getByTestId("nav-documents"));
     expect(onNavigate).toHaveBeenCalledWith("/documents");
   });
@@ -50,6 +47,21 @@ describe("IconRail", () => {
     );
     await user.click(screen.getByTestId("nav-documents"));
     expect(onTogglePanel).toHaveBeenCalled();
+  });
+
+  it("navigates to Remotes and highlights its active state", async () => {
+    const user = userEvent.setup();
+    const onNavigate = vi.fn();
+    const { rerender } = renderWithProviders(
+      <IconRail {...defaultProps} onNavigate={onNavigate} />
+    );
+    await user.click(screen.getByTestId("nav-remotes"));
+    expect(onNavigate).toHaveBeenCalledWith("/remotes");
+    rerender(<IconRail {...defaultProps} activePage="/remotes" />);
+    expect(screen.getByTestId("nav-remotes")).toHaveAttribute(
+      "data-active",
+      "true"
+    );
   });
 
   it("renders user avatar with first letter of email", () => {
