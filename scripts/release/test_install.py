@@ -59,7 +59,7 @@ class InstallerTests(unittest.TestCase):
             if valid:
                 expected_version = version or "1.2.3"
                 self.assertIn("/cli-v" + expected_version + "/", requests.read_text())
-            if "/" in version or "?" in version or ";" in version:
+            if any(char in version for char in ("/", "?", ";", "\n", "\r")):
                 self.assertFalse(requests.exists())
 
     def test_verified_download_installs_to_path_with_spaces(self):

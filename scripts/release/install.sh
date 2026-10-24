@@ -8,6 +8,7 @@ version=${KIOKU_VERSION:-}
 if [ -z "$version" ]; then
   version=$(curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 'https://api.github.com/repos/felipemeriga/kioku/releases?per_page=100' | sed -n 's/.*"tag_name": "cli-v\([0-9][0-9.]*\)".*/\1/p' | head -n 1)
 fi
+case "$version" in *[!0-9A-Za-z.-]*) echo 'Invalid release version' >&2; exit 1 ;; esac
 printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$' || { echo 'No CLI release found; set KIOKU_VERSION to a published version' >&2; exit 1; }
 asset=kioku-$os-$arch
 base=https://github.com/$repo/releases/download/cli-v$version
