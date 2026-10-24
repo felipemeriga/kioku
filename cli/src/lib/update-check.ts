@@ -6,8 +6,11 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import kleur from "kleur";
+
+declare const KIOKU_STANDALONE: boolean;
+const standalone = typeof KIOKU_STANDALONE !== "undefined" && KIOKU_STANDALONE;
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const PKG_NAME = "@felipemeriga/kioku";
@@ -19,10 +22,11 @@ interface Cache {
 
 function cachePath(): string {
   const xdg = process.env.XDG_CACHE_HOME;
-  const dir = xdg
-    ? join(xdg, "kioku")
-    : join(homedir(), ".cache", "kioku");
-  return join(dir, "update-check.json");
+  const dir = xdg ? join(xdg, "kioku") : join(homedir(), ".cache", "kioku");
+  return join(
+    dir,
+    standalone ? "update-check-binary.json" : "update-check.json",
+  );
 }
 
 function readCache(): Cache | null {
@@ -37,7 +41,7 @@ function readCache(): Cache | null {
 
 function writeCache(c: Cache): void {
   const p = cachePath();
-  const dir = p.slice(0, p.lastIndexOf("/"));
+  const dir = dirname(p);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   writeFileSync(p, JSON.stringify(c));
 }
@@ -58,14 +62,29 @@ export async function checkForUpdate(currentVersion: string): Promise<void> {
   try {
     const ctrl = new AbortController();
     const timeout = setTimeout(() => ctrl.abort(), 2000);
-    const res = await fetch(`https://registry.npmjs.org/${encodeURIComponent(PKG_NAME)}/latest`, {
-      signal: ctrl.signal,
-      headers: { Accept: "application/json" },
-    });
+    const res = await fetch(
+      standalone
+        ? "https://api.github.com/repos/felipemeriga/kioku/releases?per_page=100"
+        : `https://registry.npmjs.org/${encodeURIComponent(PKG_NAME)}/latest`,
+      {
+        signal: ctrl.signal,
+        headers: { Accept: "application/json" },
+      },
+    );
     clearTimeout(timeout);
     if (!res.ok) return;
-    const body = (await res.json()) as { version?: string };
-    const latest = body.version ?? null;
+    const body = await res.json();
+    const latest = standalone
+      ? ((body as { tag_name: string; draft: boolean; prerelease: boolean }[])
+          .filter(
+            (r) =>
+              !r.draft &&
+              !r.prerelease &&
+              /^cli-v\d+\.\d+\.\d+$/.test(r.tag_name),
+          )
+          .map((r) => r.tag_name.slice(5))
+          .sort((a, b) => compareSemver(b, a))[0] ?? null)
+      : ((body as { version?: string }).version ?? null);
     writeCache({ checked_at: now, latest_version: latest });
     maybeNotify(currentVersion, latest);
   } catch {
@@ -85,7 +104,9 @@ function maybeNotify(current: string, latest: string | null): void {
   console.log();
   console.log(
     `  ${kleur.yellow("⇧")} ${kleur.dim(
-      `Update available: ${current} → ${latest}. Run: npm install -g ${PKG_NAME}`,
+      standalone
+        ? `Update available: ${current} → ${latest}. Installer: https://github.com/felipemeriga/kioku/releases/tag/cli-v${latest}`
+        : `Update available: ${current} → ${latest}. Run: npm install -g ${PKG_NAME}`,
     )}`,
   );
 }
