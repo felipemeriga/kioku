@@ -1,6 +1,6 @@
 // frontend/src/components/DocumentCard.test.tsx
 import { describe, it, expect, vi } from "vitest";
-import { screen } from "@testing-library/react";
+import { screen, fireEvent } from "@testing-library/react";
 import { renderWithProviders } from "../test/renderWithProviders";
 import DocumentCard from "./DocumentCard";
 
@@ -15,6 +15,25 @@ const mockDoc = {
 };
 
 describe("DocumentCard", () => {
+  it("shows the real updated timestamp and supports keyboard file opening in a list", () => {
+    const open = vi.fn();
+    renderWithProviders(
+      <DocumentCard
+        variant="list"
+        doc={{ ...mockDoc, last_updated: "2026-10-23T12:00:00Z" }}
+        onDelete={vi.fn()}
+        onDownload={vi.fn()}
+        onOpen={open}
+      />
+    );
+    expect(screen.getAllByText("PDF").length).toBeGreaterThan(0);
+    expect(document.querySelector("time")?.dateTime).toBe(
+      "2026-10-23T12:00:00Z"
+    );
+    fireEvent.keyDown(screen.getByRole("row"), { key: "Enter" });
+    expect(open).toHaveBeenCalledWith("report.pdf");
+  });
+
   it("renders filename", () => {
     renderWithProviders(
       <DocumentCard doc={mockDoc} onDelete={vi.fn()} onDownload={vi.fn()} />

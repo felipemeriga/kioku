@@ -1,16 +1,11 @@
 import { useCallback } from "react";
-import {
-  useQuery,
-  useMutation,
-  useQueryClient,
-  keepPreviousData,
-} from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { DocumentInfo } from "../lib/api";
 import {
-  fetchDocuments,
   deleteDocument as apiDelete,
   moveDocument as apiMove,
 } from "../lib/api";
+import { documentOptions } from "../lib/folderQueries";
 import { qk } from "../lib/queryKeys";
 import { messageFromError } from "../components/ToastProvider";
 
@@ -18,17 +13,10 @@ export function useDocuments(folderId?: string | null) {
   const queryClient = useQueryClient();
   const normId = folderId ?? null;
 
-  const query = useQuery({
-    queryKey: qk.documents(normId),
-    queryFn: () => fetchDocuments(folderId),
-    // Keep the previous folder's documents on screen while the new folder
-    // loads, so switching folders never flashes an empty grid.
-    placeholderData: keepPreviousData,
-  });
+  const query = useQuery(documentOptions(normId));
 
   const documents: DocumentInfo[] = query.data ?? [];
-  // Only the very first (cold) load has no data — folder switches show the
-  // previous folder's list via placeholderData, so no skeleton flashes.
+  // An uncached folder must never display another folder's actionable files.
   const loading = query.isPending;
   const error = query.isError
     ? `Couldn't load documents: ${messageFromError(query.error)}`
