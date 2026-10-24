@@ -80,21 +80,28 @@ export default function RemotesPage() {
         </Alert>
       )}
       <div className="remotes-fleet">
+        {machines.isError ? (
+          <span>
+            <i className="remote-dot offline" />
+            Status unavailable
+          </span>
+        ) : (
+          <>
+            <span>
+              <i className="remote-dot" />
+              {all.filter((machine) => machine.online).length} online
+            </span>
+            <span>
+              <i className="remote-dot offline" />
+              {all.filter((machine) => !machine.online).length} offline
+            </span>
+          </>
+        )}
         <span>
-          <i className="remote-dot" />
-          {machines.isError
-            ? "Unknown"
-            : all.filter((machine) => machine.online).length}{" "}
-          online
+          {machines.isError && all.length === 0
+            ? "Machine list unavailable"
+            : `${all.length} ${all.length === 1 ? "machine" : "machines"}`}
         </span>
-        <span>
-          <i className="remote-dot offline" />
-          {machines.isError
-            ? "Unknown"
-            : all.filter((machine) => !machine.online).length}{" "}
-          offline
-        </span>
-        <span>{all.length} machines</span>
       </div>
       <div className="remotes-workspace">
         <aside className="remotes-machines" aria-label="Machines">
@@ -135,7 +142,9 @@ export default function RemotesPage() {
           </div>
           {!machines.isPending && matches.length === 0 && (
             <p className="remotes-empty">
-              {query
+              {machines.isError
+                ? "Machine list unavailable."
+                : query
                 ? `No machines match “${query}”.`
                 : "No machines connected yet."}
             </p>
@@ -203,13 +212,23 @@ export default function RemotesPage() {
             <h2>
               {machines.isPending
                 ? "Loading machines…"
+                : machines.isError
+                ? "Machines unavailable"
                 : query
                 ? "No matching machines"
                 : "Connect your first machine"}
             </h2>
             <p>
-              Run <code>kioku init</code> on that computer. No separate Manabi
-              command is needed.
+              {machines.isError ? (
+                "Retry when Kioku is reachable. Manabi keeps reconnecting automatically."
+              ) : query ? (
+                "Clear your search to see connected machines."
+              ) : (
+                <>
+                  Run <code>kioku init</code> on that computer. No separate
+                  Manabi command is needed.
+                </>
+              )}
             </p>
           </div>
         )}

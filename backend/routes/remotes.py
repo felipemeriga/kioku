@@ -45,7 +45,12 @@ def public_machine(row):
     last_seen = row.get("last_seen")
     recent = False
     if last_seen:
-        seen = datetime.fromisoformat(last_seen.replace("Z", "+00:00"))
+        # PostgreSQL trims fractional zeros; Python 3.10 fromisoformat rejects 1/2/4/5 digits.
+        value = last_seen.replace("Z", "+00:00")
+        try:
+            seen = datetime.strptime(value, "%Y-%m-%dT%H:%M:%S.%f%z")
+        except ValueError:
+            seen = datetime.strptime(value, "%Y-%m-%dT%H:%M:%S%z")
         recent = (datetime.now(timezone.utc) - seen).total_seconds() < STALE_SECONDS
     result["online"] = bool(row.get("connected") and recent)
     return result

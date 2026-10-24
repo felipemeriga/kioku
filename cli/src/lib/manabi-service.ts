@@ -76,8 +76,18 @@ export function installManabiService(options: ServiceOptions): void {
     if (loaded && changed)
       checked("launchctl", ["bootout", `${domain}/${label}`]);
     checked("launchctl", ["enable", `${domain}/${label}`]);
-    if (!loaded || changed) checked("launchctl", ["bootstrap", domain, path]);
-    else checked("launchctl", ["kickstart", `${domain}/${label}`]);
+    if (!loaded || changed) {
+      // launchd can briefly retain an unloaded label; retry its transient I/O error.
+      for (let attempt = 0; ; attempt++) {
+        const result = run("launchctl", ["bootstrap", domain, path]);
+        if (result.status === 0) break;
+        if (result.status !== 5 || attempt === 4)
+          throw new Error(
+            "Manabi startup failed (launchctl). Re-run kioku init in a macOS login session."
+          );
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
+      }
+    } else checked("launchctl", ["kickstart", `${domain}/${label}`]);
   } else if (platform === "linux") {
     checked("systemctl", ["--user", "show-environment"]);
     const dir = join(home, ".config", "systemd", "user");

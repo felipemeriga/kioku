@@ -95,5 +95,27 @@ describe("Remotes connection", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Backend unavailable"
     );
+    expect(
+      screen.getByRole("heading", { name: "Machines unavailable" })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("No machines connected yet.")
+    ).not.toBeInTheDocument();
   });
+});
+
+it("marks previously loaded machine status unknown when refresh fails", () => {
+  vi.mocked(ReactQuery.useQuery).mockReturnValueOnce({
+    data: [machine],
+    isError: true,
+    error: new Error("Backend unavailable"),
+    isPending: false,
+    refetch: vi.fn(),
+  } as unknown as ReturnType<typeof ReactQuery.useQuery>);
+  renderWithProviders(<RemotesPage />);
+  expect(
+    screen.getByRole("button", { name: /My Mac.*Unknown/ })
+  ).toBeInTheDocument();
+  expect(screen.getByText("Status unavailable")).toBeInTheDocument();
+  expect(screen.queryByText("1 online")).not.toBeInTheDocument();
 });

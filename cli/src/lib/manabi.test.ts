@@ -318,3 +318,28 @@ test("standalone runtime snapshot is reused and changes when executable content 
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("macOS runtime upgrades tolerate transient launchd unload/bootstrap races", () => {
+  const root = mkdtempSync(join(tmpdir(), "manabi-launchd-race-"));
+  let attempts = 0;
+  try {
+    installManabiService({
+      platform: "darwin",
+      home: root,
+      root,
+      uid: 501,
+      executable: "/binary",
+      entry: "internal-manabi-run",
+      config: "/config",
+      run: (_command, args) => ({
+        status: args[0] === "bootstrap" && ++attempts === 1 ? 5 : 0,
+        stdout: "",
+        stderr: "",
+      }),
+      beforeStart: () => {},
+    });
+    assert.equal(attempts, 2);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

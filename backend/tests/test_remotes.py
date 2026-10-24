@@ -193,3 +193,9 @@ def test_unresponsive_initial_handshake_is_closed(setup, monkeypatch):
         with pytest.raises(WebSocketDisconnect) as error:
             socket.receive_json()
         assert error.value.code == 4400
+
+
+@pytest.mark.parametrize("fraction", ["", ".1", ".12", ".123", ".1234", ".12345", ".123456"])
+def test_postgres_timestamp_precision_is_supported_on_python310(fraction):
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S") + fraction + "+00:00"
+    assert remotes.public_machine({"last_seen": timestamp, "connected": True})["online"] is True
