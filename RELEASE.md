@@ -164,8 +164,10 @@ run ID, and a `test/release-cd-e2e*` branch. Pull requests and ordinary pushes
 cannot enter it. It runs CI first, then calls the same release workflow in
 prerelease-only mode; the exact version commit is checked again before builds.
 Shared checks live in `checks.yml` to avoid recursive CI/release workflow calls.
-The prepare step validates real private Hive access and read access to every
-Dokploy deployment-history endpoint before recording a version commit. No SSH
+The prepare step validates private Hive file-content access, an isolated Git
+read with the supplied token, and read access to every Dokploy deployment-history
+endpoint before recording a version commit. Repository metadata or its user-level
+`permissions.push` field alone do not establish a token's Contents grant. No SSH
 fallback is used by the repository workflow.
 
 A brand-new workflow filename cannot be dispatched before GitHub knows it on the
@@ -193,3 +195,16 @@ tags, and write `release/rehearsed-*` tags. They never write production completi
 tags or affect main's successful-release baseline. Package manifests in the
 integration branch carry the bumped base version; GitHub release channel/tag and
 image tag identify the rehearsal. Do not merge rehearsal version commits to main.
+
+For credential diagnosis without deployment, the owner can run:
+
+```sh
+gh workflow run ci.yml --ref feat/release-cd -f credential_probe=true
+```
+
+This checks metadata, actual Contents API access, isolated Git transport, and
+Dokploy read access. After successful read checks it creates and deletes only a
+unique non-main `kioku-cd-permission-probe-*` branch to verify write capability.
+A Hive fine-grained PAT must select `felipemeriga/hive` and grant **Contents: read
+and write**; granting only Metadata or Actions is insufficient. No credential
+value is printed or written to a file. The probe never invokes deployment.

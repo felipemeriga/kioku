@@ -46,7 +46,15 @@ def probe_hive(token, write=False):
     env = {
         k: v
         for k, v in os.environ.items()
-        if k not in ("GIT_TRACE", "GIT_TRACE_CURL", "GIT_CURL_VERBOSE")
+        if k
+        not in (
+            "GIT_TRACE",
+            "GIT_TRACE_CURL",
+            "GIT_CURL_VERBOSE",
+            "GIT_ASKPASS",
+            "SSH_ASKPASS",
+        )
+        and not k.startswith("GIT_CONFIG_")
     }
     env.update(
         {
@@ -96,6 +104,15 @@ def probe_hive(token, write=False):
                 result["delete_probe_ref_status"], _ = github_request(
                     token, "repos/felipemeriga/hive/git/refs/heads/" + name, "DELETE"
                 )
+    return result
+
+
+def require_hive_read(token):
+    result = probe_hive(token)
+    if result.get("contents_status") != 200 or not result.get("isolated_git_read"):
+        raise RuntimeError(
+            "Hive credential needs repository Contents access; metadata visibility is insufficient"
+        )
     return result
 
 

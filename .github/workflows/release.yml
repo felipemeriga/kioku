@@ -85,11 +85,8 @@ jobs:
           if config:
               for service in affected_services(plan):
                   fetch_deployments(config, config['ids'][service])
-          permissions = json.loads(subprocess.check_output(
-              ['gh', 'api', 'repos/felipemeriga/hive'],
-              env={**os.environ, 'GH_TOKEN': os.environ['HIVE_TOKEN']}, text=True))
-          if not permissions.get('permissions', {}).get('push'):
-              raise RuntimeError('Hive credential has no repository push permission')
+          from probe_credentials import require_hive_read
+          require_hive_read(os.environ['HIVE_TOKEN'])
           print('Verified private Hive access and Dokploy deployment-history reads')
           PY
           git config user.name 'felipemeriga'
