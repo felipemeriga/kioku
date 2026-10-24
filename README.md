@@ -357,3 +357,35 @@ All endpoints except `/api/health` and `/api/drop` require a valid Supabase JWT 
 ## License
 
 MIT
+
+### Mihari cloud repository service
+
+Mihari indexes registered repositories and refreshes their briefings. Its source
+is in `mihari/`, its image is `felipemeriga1/kioku-mihari`, and its container is
+`kioku-mihari`. Build from the repository root:
+
+```bash
+docker buildx build --platform linux/amd64 -f mihari/Dockerfile -t kioku-mihari .
+```
+
+The backend and CLI use `/api/mihari`. Installed older clients can continue
+using `/api/watcher` during migration. `MIHARI_DATA`, `MIHARI_TRIGGER_TOKEN`,
+`MIHARI_TRIGGER_PORT`, `MIHARI_SCHEDULE`, and backend `MIHARI_URL` replace the
+former watcher settings; legacy environment variables and trigger headers remain
+accepted for rolling upgrades. New briefing provenance is `mihari`; stored
+history, SSH keys, and `watched_repos` registrations are preserved.
+
+Before switching the Dokploy/Hive service, publish the new image, copy the
+existing trigger token to `MIHARI_TRIGGER_TOKEN`, and set `MIHARI_DATA_PATH` to
+the existing data bind mount (currently `/root/kioku-watcher-v2/data` in the
+production deployment). Keep all existing KMS credentials. Replace the old
+service rather than running two schedulers, then deploy the backend with
+`MIHARI_URL=http://kioku-mihari:8787`. The compose definition lives under
+`deploy/hive/kioku/mihari/`. Updating this repository does not rename an existing
+Dokploy application or update the separate Hive repository automatically.
+
+The backend/worker image retains document parsing and CPU vision dependencies.
+The MCP image omits the ingestion dependency group because it queues parsing
+work on the worker. Local `uv sync` still installs ingestion dependencies by
+default. Build contexts exclude tests, eval fixtures, caches and environment
+files; runtime functionality and evaluation endpoints remain available.

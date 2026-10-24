@@ -70,7 +70,7 @@ def _current_briefing(sb, folder_id: str, user_id: str) -> dict:
         return empty_briefing()
     # Two stores exist: the top-level `sections` column (canonical) and
     # content.sections (compat / full snapshot). The top-level column can end up
-    # PARTIAL — e.g. a watcher activity write leaves only {activity} on a row
+    # PARTIAL — e.g. a Mihari activity write leaves only {activity} on a row
     # whose content.sections still holds the full briefing. Merge them:
     # content.sections as the base, top-level overriding per key. This surfaces
     # the complete briefing and prefers the canonical column where present.
@@ -276,29 +276,38 @@ async def trigger_refresh(
     body: RefreshRequest,
     user_id: str = Depends(get_current_user),
 ):
-    """Ask the watcher to refresh this repo now. target: 'index' | 'sections'."""
+    """Ask Mihari to refresh this repo now. target: 'index' | 'sections'."""
     if body.target not in ("index", "sections"):
         raise HTTPException(status_code=422, detail="target must be 'index' or 'sections'")
     sb = get_supabase()
     _folder_must_be_repo(sb, folder_id, user_id)
-    token = os.environ.get("WATCHER_TRIGGER_TOKEN", "")
+    token = os.environ.get("MIHARI_TRIGGER_TOKEN", os.environ.get("WATCHER_TRIGGER_TOKEN", ""))
     if not token:
         raise HTTPException(status_code=503, detail="Refresh is not configured.")
-    url = os.environ.get("WATCHER_URL", "http://kioku-watcher:8787").rstrip("/") + "/run"
+    url = (
+        os.environ.get(
+            "MIHARI_URL", os.environ.get("WATCHER_URL", "http://kioku-mihari:8787")
+        ).rstrip("/")
+        + "/run"
+    )
     try:
         resp = httpx.post(
             url,
-            headers={"X-Watcher-Token": token, "Content-Type": "application/json"},
+            headers={
+                "X-Mihari-Token": token,
+                "X-Watcher-Token": token,  # Older containers during a rolling upgrade.
+                "Content-Type": "application/json",
+            },
             json={"folder_id": folder_id, "target": body.target},
             timeout=10.0,
         )
     except httpx.HTTPError:
-        raise HTTPException(status_code=503, detail="Watcher is unavailable.")
+        raise HTTPException(status_code=503, detail="Mihari is unavailable.")
     if resp.status_code == 409:
         raise HTTPException(status_code=409, detail="A refresh is already running.")
     if resp.status_code != 202:
-        raise HTTPException(status_code=503, detail="Watcher could not start the refresh.")
-    # The watcher owns the entire lifecycle, recording start BEFORE launching
+        raise HTTPException(status_code=503, detail="Mihari could not start the refresh.")
+    # Mihari owns the entire lifecycle, recording start BEFORE launching
     # the job. Writing here races with fast/no-op refreshes finishing first.
     return JSONResponse(status_code=202, content=resp.json())
 
