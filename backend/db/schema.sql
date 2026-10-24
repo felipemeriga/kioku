@@ -1265,3 +1265,32 @@ CREATE POLICY "Users manage own chat usage" ON "public"."chat_usage" USING (("us
 -- 20260930010000_messages_debug.sql and 20261015010000_messages_citations.sql.
 ALTER TABLE "public"."messages" ADD COLUMN IF NOT EXISTS "debug" "jsonb";
 ALTER TABLE "public"."messages" ADD COLUMN IF NOT EXISTS "citations" "jsonb";
+
+-- Manabi credentials are scoped only to machine connection presence.
+CREATE TABLE IF NOT EXISTS public.remote_machines (
+    user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    id uuid NOT NULL,
+    token_hash text NOT NULL,
+    name text NOT NULL,
+    platform text NOT NULL,
+    version text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    connected_at timestamptz,
+    last_seen timestamptz,
+    connected boolean NOT NULL DEFAULT false,
+    connection_id uuid,
+    PRIMARY KEY (user_id, id)
+);
+ALTER TABLE public.remote_machines ENABLE ROW LEVEL SECURITY;
+-- All access is through authenticated backend routes; no direct client grants.
+REVOKE ALL ON public.remote_machines FROM anon, authenticated;
+GRANT ALL ON public.remote_machines TO service_role;
+-- Current configured-repository inventory only; no agent sessions or memories.
+ALTER TABLE public.remote_machines
+    ADD COLUMN IF NOT EXISTS custom_name text,
+    ADD COLUMN IF NOT EXISTS os_name text,
+    ADD COLUMN IF NOT EXISTS os_id text,
+    ADD COLUMN IF NOT EXISTS architecture text,
+    ADD COLUMN IF NOT EXISTS inventory jsonb,
+    ADD COLUMN IF NOT EXISTS inventory_updated_at timestamptz,
+    ADD COLUMN IF NOT EXISTS warnings jsonb NOT NULL DEFAULT '[]'::jsonb;
