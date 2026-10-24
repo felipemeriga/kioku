@@ -78,7 +78,7 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
     clicking === "sections" || sectionsState === "running";
   const anyRunning = indexRunning || sectionsRunning;
 
-  // Poll until the watcher records completion (or the job times out).
+  // Poll until Mihari records completion (or the job times out).
   useEffect(() => {
     if (!anyRunning) return;
     const id = setInterval(() => {
@@ -99,7 +99,7 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
     (anyRunning
       ? note
       : latestState === "failed"
-      ? "Refresh failed. Check watcher logs and retry."
+      ? "Refresh failed. Check mihari logs and retry."
       : latestState === "timed-out"
       ? "Refresh timed out or was interrupted. Please retry."
       : latestState === "completed"
@@ -118,7 +118,7 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
       setNote("");
     } catch (e) {
       const is409 = (e as { status?: number })?.status === 409;
-      setNote(is409 ? "A refresh is already running." : "Watcher unavailable.");
+      setNote(is409 ? "A refresh is already running." : "Mihari unavailable.");
     } finally {
       setClicking(null); // server-derived running() takes over from here
     }

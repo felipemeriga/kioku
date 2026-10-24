@@ -1,8 +1,8 @@
-"""Repo-watcher endpoints: per-user git deploy identity + watched-repo registry.
+"""Repo-mihari endpoints: per-user git deploy identity + watched-repo registry.
 
 Auth mirrors the CLI surface: a scoped api key (Bearer rag_...). The private
 SSH key is generated server-side and never leaves the backend — clients only
-ever see the public half. The watcher container (a separate deployable) reads
+ever see the public half. Mihari container (a separate deployable) reads
 watched_repos/user_git_keys directly with the service role and decrypts with
 the same master key.
 """
@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 from db.client import get_supabase
 from services.crypto import decrypt_secret, encrypt_secret
 
-router = APIRouter(prefix="/api/watcher")
+router = APIRouter()
 
 
 def _api_key_auth(request: Request) -> tuple[str, str, str]:
@@ -68,13 +68,13 @@ def _generate_ed25519() -> tuple[str, str, str]:
     )
     blob = base64.b64decode(public.split()[1])
     digest = base64.b64encode(hashlib.sha256(blob).digest()).decode().rstrip("=")
-    comment = "kioku-watcher"
+    comment = "kioku-mihari"
     return private_pem, f"{public} {comment}", f"SHA256:{digest}"
 
 
 @router.post("/key")
 async def get_or_create_key(request: Request):
-    """Idempotent: returns the user's watcher public key, creating the pair on
+    """Idempotent: returns the user's mihari public key, creating the pair on
     first call. The same key serves every repo and every computer the user
     links from."""
     user_id, _scope, _raw = _api_key_auth(request)
@@ -149,7 +149,7 @@ def _ls_remote_with_key(private_pem: str, remote_url: str, branch: str) -> tuple
 
 @router.post("/test-access")
 async def test_access(body: TestAccessRequest, request: Request):
-    """Can the user's watcher key read this remote? Runs a real ls-remote."""
+    """Can the user's mihari key read this remote? Runs a real ls-remote."""
     user_id, _scope, _raw = _api_key_auth(request)
     sb = get_supabase()
     row = (
@@ -161,7 +161,7 @@ async def test_access(body: TestAccessRequest, request: Request):
         .data
     )
     if not row:
-        raise HTTPException(status_code=404, detail="No watcher key yet — call /key first")
+        raise HTTPException(status_code=404, detail="No mihari key yet — call /key first")
 
     sha, error = _ls_remote_with_key(
         decrypt_secret(row[0]["private_key_encrypted"]), body.remote_url, body.branch
@@ -250,7 +250,7 @@ async def refresh_activity(body: ActivityRefreshRequest, request: Request):
     from services.folder_summary.briefing_schema import new_section
 
     # Atomic single-section write (jsonb_set under the row lock) so a concurrent
-    # section refresh in the same watcher pass can't clobber this one.
+    # section refresh in the same mihari pass can't clobber this one.
     sb.rpc(
         "set_briefing_section",
         {
@@ -258,18 +258,18 @@ async def refresh_activity(body: ActivityRefreshRequest, request: Request):
             "p_user_id": user_id,
             "p_section": "activity",
             "p_value": new_section(
-                new_activity, status="auto", provenance="auto", updated_by="watcher"
+                new_activity, status="auto", provenance="auto", updated_by="mihari"
             ),
         },
     ).execute()
     return {"ok": True, "updated": True, "commits": len(body.commits)}
 
 
-# Sections the watcher may auto-maintain from the changed files themselves —
+# Sections Mihari may auto-maintain from the changed files themselves —
 # concrete, path-driven sections that a diff updates accurately. The holistic
 # sections (architecture/overview) still need a full regen and are only warned
 # about, never auto-written here.
-WATCHER_MAINTAINED_SECTIONS = {"dependencies", "deployment", "how_it_runs", "important_files"}
+MIHARI_MAINTAINED_SECTIONS = {"dependencies", "deployment", "how_it_runs", "important_files"}
 
 
 class SectionFile(BaseModel):
@@ -291,7 +291,7 @@ async def refresh_section(body: SectionRefreshRequest, request: Request):
     Haiku call — the same treatment activity gets, extended to the path-driven
     prose sections. Holistic sections (architecture/overview) are rejected;
     they need a full regen. Preserves the section's existing JSON shape."""
-    if body.section not in WATCHER_MAINTAINED_SECTIONS:
+    if body.section not in MIHARI_MAINTAINED_SECTIONS:
         return {"ok": True, "updated": False, "reason": f"'{body.section}' not auto-maintained"}
     if not body.files:
         return {"ok": True, "updated": False, "reason": "no files"}
@@ -357,7 +357,7 @@ async def refresh_section(body: SectionRefreshRequest, request: Request):
             "p_user_id": user_id,
             "p_section": body.section,
             "p_value": new_section(
-                new_content, status="auto", provenance="auto", updated_by="watcher"
+                new_content, status="auto", provenance="auto", updated_by="mihari"
             ),
         },
     ).execute()
@@ -379,7 +379,7 @@ class RegroundRequest(BaseModel):
 @router.post("/reground")
 async def reground_holistic(body: RegroundRequest, request: Request):
     """Re-ground the HOLISTIC sections (architecture + overview) from the repo's
-    current key files + structure. The watcher runs this periodically (~twice a
+    current key files + structure. Mihari runs this periodically (~twice a
     month) so a repo stays fresh without a manual `kioku init --force`. Unlike
     the concrete-section folds (Haiku, diff-driven), this re-reads the actual key
     files and regenerates the prose with Sonnet, so it never drifts."""
@@ -452,7 +452,7 @@ async def reground_holistic(body: RegroundRequest, request: Request):
                     "p_user_id": user_id,
                     "p_section": sec,
                     "p_value": new_section(
-                        data[sec], status="auto", provenance="auto", updated_by="watcher"
+                        data[sec], status="auto", provenance="auto", updated_by="mihari"
                     ),
                 },
             ).execute()
@@ -470,7 +470,7 @@ class RegisterRepoRequest(BaseModel):
 async def register_repo(body: RegisterRepoRequest, request: Request):
     """Register (or refresh) a repo for watching. Idempotent on
     (user, remote_url) so linking the same repo from a second computer just
-    re-binds. Stores the CLI's own api key (encrypted) so the watcher indexes
+    re-binds. Stores the CLI's own api key (encrypted) so Mihari indexes
     under the same identity — no key rotation surprises for the laptop."""
     user_id, scope_id, raw_key = _api_key_auth(request)
     sb = get_supabase()

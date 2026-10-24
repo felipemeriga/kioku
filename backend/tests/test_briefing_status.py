@@ -56,13 +56,13 @@ def test_index_status_includes_generation_timestamps():
     )
     latest = {
         "sections": {
-            "architecture": {"updated_at": "2026-10-06T02:24:03+00:00", "updated_by": "watcher"},
-            "overview": {"updated_at": "2026-10-06T02:24:04+00:00", "updated_by": "watcher"},
+            "architecture": {"updated_at": "2026-10-06T02:24:03+00:00", "updated_by": "mihari"},
+            "overview": {"updated_at": "2026-10-06T02:24:04+00:00", "updated_by": "mihari"},
         }
     }
     out = briefing._index_status(sb, "f1", "u1", {"checked_at": "t", "head_sha": "h"}, latest)
     assert out["architecture_at"] == "2026-10-06T02:24:03+00:00"
-    assert out["architecture_by"] == "watcher"
+    assert out["architecture_by"] == "mihari"
     assert out["overview_at"] == "2026-10-06T02:24:04+00:00"
     assert out["detailed_doc_at"] == "2026-10-05T00:00:00+00:00"
 
@@ -79,7 +79,7 @@ def test_index_status_reads_architecture_from_content_sections_only():
     latest = {
         # top-level sections only has activity — no architecture key
         "sections": {
-            "activity": {"updated_at": "2026-10-06T00:00:00+00:00", "updated_by": "watcher"},
+            "activity": {"updated_at": "2026-10-06T00:00:00+00:00", "updated_by": "mihari"},
         },
         "content": {
             "sections": {
@@ -190,7 +190,7 @@ def test_refresh_bad_target(monkeypatch):
 
 def test_refresh_proxies_202(monkeypatch):
     _refresh_setup(monkeypatch)
-    monkeypatch.setenv("WATCHER_TRIGGER_TOKEN", "secret")
+    monkeypatch.setenv("MIHARI_TRIGGER_TOKEN", "secret")
 
     class _R:
         status_code = 202
@@ -207,9 +207,9 @@ def test_refresh_proxies_202(monkeypatch):
         app.dependency_overrides.clear()
 
 
-def test_refresh_watcher_unreachable_503(monkeypatch):
+def test_refresh_mihari_unreachable_503(monkeypatch):
     _refresh_setup(monkeypatch)
-    monkeypatch.setenv("WATCHER_TRIGGER_TOKEN", "secret")
+    monkeypatch.setenv("MIHARI_TRIGGER_TOKEN", "secret")
 
     def _boom(*a, **k):
         raise httpx.ConnectError("no route")
@@ -224,9 +224,71 @@ def test_refresh_watcher_unreachable_503(monkeypatch):
 
 def test_refresh_no_token_503(monkeypatch):
     _refresh_setup(monkeypatch)
-    monkeypatch.delenv("WATCHER_TRIGGER_TOKEN", raising=False)
+    monkeypatch.delenv("MIHARI_TRIGGER_TOKEN", raising=False)
     try:
         r = TestClient(app).post("/api/folders/f1/refresh", json={"target": "index"})
         assert r.status_code == 503
     finally:
         app.dependency_overrides.clear()
+
+
+def test_refresh_uses_mihari_address_and_token(monkeypatch):
+    _refresh_setup(monkeypatch)
+    monkeypatch.setenv("MIHARI_TRIGGER_TOKEN", "new-secret")
+    monkeypatch.setenv("MIHARI_URL", "http://kioku-mihari:8787/")
+    calls = []
+
+    class Response:
+        status_code = 202
+
+        def json(self):
+            return {"started": True}
+
+    def post(url, **kwargs):
+        calls.append((url, kwargs))
+        return Response()
+
+    monkeypatch.setattr(briefing.httpx, "post", post)
+    try:
+        response = TestClient(app).post("/api/folders/f1/refresh", json={"target": "index"})
+        assert response.status_code == 202
+        assert calls[0][0] == "http://kioku-mihari:8787/run"
+        assert calls[0][1]["headers"]["X-Mihari-Token"] == "new-secret"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_refresh_legacy_environment_is_supported(monkeypatch):
+    _refresh_setup(monkeypatch)
+    monkeypatch.delenv("MIHARI_TRIGGER_TOKEN", raising=False)
+    monkeypatch.delenv("MIHARI_URL", raising=False)
+    monkeypatch.setenv("WATCHER_TRIGGER_TOKEN", "old-secret")
+    monkeypatch.setenv("WATCHER_URL", "http://old-service:8787")
+    calls = []
+
+    class Response:
+        status_code = 202
+
+        def json(self):
+            return {"started": True}
+
+    def post(url, **kwargs):
+        calls.append((url, kwargs))
+        return Response()
+
+    monkeypatch.setattr(briefing.httpx, "post", post)
+    try:
+        response = TestClient(app).post("/api/folders/f1/refresh", json={"target": "index"})
+        assert response.status_code == 202
+        assert calls[0][0] == "http://old-service:8787/run"
+        assert calls[0][1]["headers"]["X-Watcher-Token"] == "old-secret"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_mihari_and_legacy_registration_routes_require_same_auth():
+    client = TestClient(app)
+    for prefix in ("/api/mihari", "/api/watcher"):
+        response = client.post(f"{prefix}/key")
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Bearer api key required"

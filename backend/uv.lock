@@ -299,7 +299,6 @@ dependencies = [
     { name = "arq" },
     { name = "boto3" },
     { name = "cryptography" },
-    { name = "docling" },
     { name = "fastapi", extra = ["standard"] },
     { name = "langsmith" },
     { name = "mcp", extra = ["cli"] },
@@ -311,10 +310,6 @@ dependencies = [
     { name = "ragas" },
     { name = "supabase" },
     { name = "tavily-python" },
-    { name = "torch", version = "2.10.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'darwin'" },
-    { name = "torch", version = "2.10.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform != 'darwin'" },
-    { name = "torchvision", version = "0.25.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'darwin'" },
-    { name = "torchvision", version = "0.25.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform != 'darwin'" },
     { name = "uvicorn", extra = ["standard"] },
     { name = "voyageai" },
 ]
@@ -329,6 +324,13 @@ dev = [
     { name = "requests" },
     { name = "ruff" },
 ]
+ingestion = [
+    { name = "docling" },
+    { name = "torch", version = "2.10.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'darwin'" },
+    { name = "torch", version = "2.10.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform != 'darwin'" },
+    { name = "torchvision", version = "0.25.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'darwin'" },
+    { name = "torchvision", version = "0.25.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform != 'darwin'" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -336,7 +338,6 @@ requires-dist = [
     { name = "arq", specifier = ">=0.26.0" },
     { name = "boto3", specifier = ">=1.35.0" },
     { name = "cryptography", specifier = ">=43.0.0" },
-    { name = "docling", specifier = ">=2.78.0" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.135.1" },
     { name = "langsmith", specifier = ">=0.3.0" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.0.0" },
@@ -348,8 +349,6 @@ requires-dist = [
     { name = "ragas", specifier = ">=0.2.0" },
     { name = "supabase", specifier = ">=2.28.0" },
     { name = "tavily-python", specifier = ">=0.5.0" },
-    { name = "torch", specifier = ">=2.0.0", index = "https://download.pytorch.org/whl/cpu" },
-    { name = "torchvision", specifier = ">=0.15.0", index = "https://download.pytorch.org/whl/cpu" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.41.0" },
     { name = "voyageai", specifier = ">=0.3.7" },
 ]
@@ -363,6 +362,11 @@ dev = [
     { name = "reportlab", specifier = ">=5.0.0" },
     { name = "requests", specifier = ">=2.32.5" },
     { name = "ruff", specifier = ">=0.15.5" },
+]
+ingestion = [
+    { name = "docling", specifier = ">=2.78.0" },
+    { name = "torch", specifier = ">=2.0.0", index = "https://download.pytorch.org/whl/cpu" },
+    { name = "torchvision", specifier = ">=0.15.0", index = "https://download.pytorch.org/whl/cpu" },
 ]
 
 [[package]]

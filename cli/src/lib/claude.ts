@@ -490,7 +490,7 @@ export function stampLastSessionAt(repoRoot: string, iso: string): void {
 // CLAUDE.md and AGENTS.md share one source of truth.
 
 /** Build the fenced second-brain instructions block. Shared verbatim by the
- *  Claude Code (CLAUDE.md) and Codex (AGENTS.md) surfaces — since the watcher
+ *  Claude Code (CLAUDE.md) and Codex (AGENTS.md) surfaces — since Mihari
  *  took over indexing, neither installs push hooks, so there is nothing
  *  surface-specific left in the text. */
 export function secondBrainSnippet(): string {
@@ -548,7 +548,7 @@ these over \`grep\`/\`glob\` to locate and trace code — they return exact
   indexed repo in scope, so it can also cross-reference sibling repos.
 
 The index refreshes automatically after merges to the principal branch
-(a server-side watcher polls twice daily) or on demand via \`kioku index\`.
+(a server-side Mihari polls twice daily) or on demand via \`kioku index\`.
 If a lookup returns nothing, fall back to a normal search.
 
 ### Convention
@@ -628,7 +628,7 @@ export function updateGitignore(repoRoot: string): {
 }
 
 // ── Legacy push-hook removal ──────────────────────────────────────
-// v0.3.0 replaced push hooks with the server-side watcher. Existing repos
+// v0.3.0 replaced push hooks with the server-side Mihari. Existing repos
 // (other machines, older inits) still carry them — init now cleans up.
 
 export function removeLegacyPushHooks(repoRoot: string): {
