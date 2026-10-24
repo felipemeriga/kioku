@@ -7,6 +7,10 @@ on:
         description: Run an explicitly authorized prerelease rehearsal after CI
         type: boolean
         default: false
+      credential_probe:
+        description: Diagnose Hive/Dokploy access without deploying
+        type: boolean
+        default: false
       rehearsal_id:
         description: Unique safe identifier for the prerelease
         type: string
@@ -46,3 +50,22 @@ jobs:
       rehearsal_id: ${{ inputs.rehearsal_id }}
       source_sha: ${{ github.sha }}
     secrets: inherit
+
+  credential-probe:
+    if: >-
+      github.event_name == 'workflow_dispatch' && inputs.credential_probe == true &&
+      github.actor == github.repository_owner
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Probe supplied credentials without deployment
+        env:
+          HIVE_TOKEN: ${{ secrets.HIVE_RELEASE_TOKEN }}
+          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+          DOKPLOY_URL: ${{ vars.DOKPLOY_URL }}
+          DOKPLOY_COMPOSE_IDS: ${{ vars.DOKPLOY_COMPOSE_IDS }}
+        run: python3 scripts/release/probe_credentials.py
