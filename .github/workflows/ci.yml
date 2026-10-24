@@ -1,6 +1,12 @@
 name: CI
 
 on:
+  workflow_dispatch:
+    inputs:
+      release_e2e:
+        description: Run the explicitly authorized prerelease rehearsal after CI
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       ref:
