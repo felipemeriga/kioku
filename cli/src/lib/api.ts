@@ -31,7 +31,10 @@ export class ApiError extends Error {
   readonly kind: "unreachable" | "unauthorized" | "http";
   readonly hint: string | undefined;
 
-  constructor(msg: string, opts: { status?: number; kind?: ApiError["kind"]; hint?: string } = {}) {
+  constructor(
+    msg: string,
+    opts: { status?: number; kind?: ApiError["kind"]; hint?: string } = {}
+  ) {
     super(msg);
     this.name = "ApiError";
     this.status = opts.status ?? 0;
@@ -42,7 +45,7 @@ export class ApiError extends Error {
 
 async function apiFetch<T>(
   path: string,
-  init: RequestInit & { auth?: boolean; _retry?: boolean } = {},
+  init: RequestInit & { auth?: boolean; _retry?: boolean } = {}
 ): Promise<T> {
   const cfg = readConfig();
   const url = `${cfg.api_base}${path}`;
@@ -108,7 +111,6 @@ async function apiFetch<T>(
   return (await res.json()) as T;
 }
 
-
 /**
  * Exchange refresh_token for a new access_token via Supabase's /auth/v1/token.
  * On success, persists the new tokens to config and returns true. On
@@ -131,10 +133,11 @@ async function tryRefreshToken(): Promise<boolean> {
       // is safe to expose by design.
       const authConfigRes = await fetch(`${cfg.api_base}/api/cli/auth-config`);
       if (!authConfigRes.ok) return false;
-      const { supabase_url, supabase_anon_key } = (await authConfigRes.json()) as {
-        supabase_url: string;
-        supabase_anon_key: string;
-      };
+      const { supabase_url, supabase_anon_key } =
+        (await authConfigRes.json()) as {
+          supabase_url: string;
+          supabase_anon_key: string;
+        };
 
       const res = await fetch(
         `${supabase_url}/auth/v1/token?grant_type=refresh_token`,
@@ -145,7 +148,7 @@ async function tryRefreshToken(): Promise<boolean> {
             apikey: supabase_anon_key,
           },
           body: JSON.stringify({ refresh_token: cfg.refresh_token }),
-        },
+        }
       );
       if (!res.ok) return false;
       const body = (await res.json()) as {
@@ -175,7 +178,7 @@ async function tryRefreshToken(): Promise<boolean> {
 
 export async function deviceStart(
   hostname: string,
-  os: string,
+  os: string
 ): Promise<{
   request_id: string;
   device_code: string;
@@ -204,7 +207,9 @@ export interface DevicePollResult {
  *  Uses a raw fetch so 428/403/410 aren't thrown as errors.
  *  429 and 5xx are treated as transient (keep waiting); the outer
  *  login loop is bounded by expires_in so this won't spin forever. */
-export async function devicePoll(deviceCode: string): Promise<DevicePollResult> {
+export async function devicePoll(
+  deviceCode: string
+): Promise<DevicePollResult> {
   const cfg = readConfig();
   let res: Response;
   try {
@@ -217,7 +222,8 @@ export async function devicePoll(deviceCode: string): Promise<DevicePollResult> 
     // Network/fetch error — keep waiting, don't abort
     return { status: "pending" };
   }
-  if (res.status === 200) return { status: "authorized", tokens: await res.json() };
+  if (res.status === 200)
+    return { status: "authorized", tokens: await res.json() };
   if (res.status === 428) return { status: "pending" };
   if (res.status === 403) return { status: "denied" };
   if (res.status === 410) return { status: "expired" };
@@ -246,7 +252,7 @@ export async function listChildren(parentId: string): Promise<Folder[]> {
 
 export async function createFolder(
   name: string,
-  parent_id: string | null,
+  parent_id: string | null
 ): Promise<Folder> {
   return apiFetch("/api/folders", {
     method: "POST",
@@ -274,15 +280,16 @@ export interface BriefingResponse {
   last_generated_at: string | null;
 }
 
-export async function fetchBriefing(folderId: string): Promise<BriefingResponse> {
+export async function fetchBriefing(
+  folderId: string
+): Promise<BriefingResponse> {
   return apiFetch(`/api/folders/${folderId}/briefing`);
 }
-
 
 /** Turn a folder into a repo (or rename it, or both). */
 export async function updateFolder(
   id: string,
-  updates: { name?: string; kind?: "folder" | "repo" },
+  updates: { name?: string; kind?: "folder" | "repo" }
 ): Promise<Folder> {
   return apiFetch(`/api/folders/${id}`, {
     method: "PATCH",
@@ -317,4 +324,11 @@ export async function registerManabi(body: {
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(15_000),
   });
+}
+
+export async function ownsRepoBinding(folderId: string): Promise<boolean> {
+  const rows = await apiFetch<{ id: string; kind: string }[]>(
+    `/api/folders/${encodeURIComponent(folderId)}/breadcrumbs`
+  );
+  return rows.some((row) => row.id === folderId && row.kind === "repo");
 }
