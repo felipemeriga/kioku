@@ -1,0 +1,27 @@
+# Mihari — cloud repository indexing and briefing refresh.
+services:
+  mihari:
+    image: felipemeriga1/kioku-mihari:latest
+    pull_policy: always
+    container_name: kioku-mihari
+    restart: unless-stopped
+    environment:
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - KIOKU_KMS_KEY_ID=${KIOKU_KMS_KEY_ID}
+      - MIHARI_TRIGGER_TOKEN=${MIHARI_TRIGGER_TOKEN:-${WATCHER_TRIGGER_TOKEN:-}}
+      - SUPABASE_URL=${KIOKU_SUPABASE_URL}
+      - SUPABASE_SERVICE_KEY=${KIOKU_SUPABASE_SERVICE_KEY}
+      - SECRETS_ENCRYPTION_KEY=${KIOKU_NOTION_TOKEN_ENCRYPTION_KEY}
+      - KIOKU_MCP_URL=https://kioku.mcp.${DOMAIN}/sse
+      - KIOKU_API_URL=https://kioku.api.${DOMAIN}
+      - MIHARI_SCHEDULE=06:00,18:00
+    volumes:
+      - ${MIHARI_DATA_PATH:-/root/kioku-mihari/data}:/data
+    networks:
+      - kioku
+networks:
+  kioku:
+    external: true
+    name: kioku

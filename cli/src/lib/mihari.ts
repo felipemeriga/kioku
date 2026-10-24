@@ -1,8 +1,8 @@
 /**
- * Server-side watcher registration — replaces the old push hooks.
+ * Server-side Mihari registration — replaces the old push hooks.
  *
  * `kioku init` (any computer, same repo — registration is idempotent on the
- * server) wires the repo into the watcher: the backend keeps ONE ssh keypair
+ * server) wires the repo into Mihari: the backend keeps ONE ssh keypair
  * per user (generated server-side; the private key never leaves the backend)
  * and polls the principal branch twice a day, re-indexing graph + code
  * chunks when it moves. If the key can't read the repo yet, we print the
@@ -13,7 +13,7 @@ import { execFileSync } from "node:child_process";
 
 import { ok, info, warn } from "./banner.js";
 
-/** Normalize any GitHub-ish remote to the SSH form the watcher key uses. */
+/** Normalize any GitHub-ish remote to the SSH form Mihari's key uses. */
 export function toSshRemote(remoteUrl: string): string {
   const https = /^https?:\/\/([^/]+)\/(.+?)(\.git)?$/.exec(remoteUrl);
   if (https) return `git@${https[1]}:${https[2]}.git`;
@@ -55,9 +55,9 @@ interface RegisterArgs {
   remoteUrl: string | null | undefined;
 }
 
-export async function registerWithWatcher(args: RegisterArgs): Promise<void> {
+export async function registerWithMihari(args: RegisterArgs): Promise<void> {
   if (!args.remoteUrl) {
-    info("No git remote — skipping watcher registration (local-only repo).");
+    info("No git remote — skipping Mihari registration (local-only repo).");
     return;
   }
   const remote = toSshRemote(args.remoteUrl);
@@ -71,7 +71,7 @@ export async function registerWithWatcher(args: RegisterArgs): Promise<void> {
   let fingerprint = "";
   let created = false;
   try {
-    const res = await fetch(`${args.base}/api/watcher/key`, {
+    const res = await fetch(`${args.base}/api/mihari/key`, {
       method: "POST",
       headers,
     });
@@ -86,14 +86,14 @@ export async function registerWithWatcher(args: RegisterArgs): Promise<void> {
     created = body.created;
   } catch (err) {
     warn(
-      "Couldn't reach the watcher service — repo not registered.",
+      "Couldn't reach Mihari — repo not registered.",
       err instanceof Error ? err.message : String(err)
     );
     return;
   }
 
   try {
-    const res = await fetch(`${args.base}/api/watcher/repos`, {
+    const res = await fetch(`${args.base}/api/mihari/repos`, {
       method: "POST",
       headers,
       body: JSON.stringify({
@@ -105,7 +105,7 @@ export async function registerWithWatcher(args: RegisterArgs): Promise<void> {
     if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
   } catch (err) {
     warn(
-      "Watcher registration failed.",
+      "Mihari registration failed.",
       err instanceof Error ? err.message : String(err)
     );
     return;
@@ -113,7 +113,7 @@ export async function registerWithWatcher(args: RegisterArgs): Promise<void> {
 
   // Can the key actually read the repo? Real ls-remote, server-side.
   try {
-    const res = await fetch(`${args.base}/api/watcher/test-access`, {
+    const res = await fetch(`${args.base}/api/mihari/test-access`, {
       method: "POST",
       headers,
       body: JSON.stringify({ remote_url: remote, branch }),
@@ -121,7 +121,7 @@ export async function registerWithWatcher(args: RegisterArgs): Promise<void> {
     const body = (await res.json()) as { ok: boolean; error?: string };
     if (body.ok) {
       ok(
-        `Watcher active — ${remote} (${branch}) re-indexes automatically ` +
+        `Mihari active — ${remote} (${branch}) re-indexes automatically ` +
           "when it changes."
       );
       return;
@@ -132,13 +132,13 @@ export async function registerWithWatcher(args: RegisterArgs): Promise<void> {
 
   warn(
     created
-      ? "Watcher key created, but it can't read this repo yet."
-      : "The watcher key can't read this repo yet."
+      ? "Mihari key created, but it can't read this repo yet."
+      : "Mihari key can't read this repo yet."
   );
   console.log(
     [
       "",
-      "  Give kioku's watcher read access (one-time, ~30s):",
+      "  Give Mihari read access (one-time, ~30s):",
       "  1. Copy this public key:",
       "",
       `     ${publicKey}`,
