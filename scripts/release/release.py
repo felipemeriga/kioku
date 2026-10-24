@@ -108,7 +108,18 @@ def prepare(root, source):
     if git("tag", "--points-at", head, "release/deployed-*", cwd=root):
         return None
     if head != source:
-        return pending if pending.get("source_sha") == source else None
+        # A later source commit inherits pending.json too. Resume only the
+        # exact bot version commit directly above this triggering source.
+        if pending.get("source_sha") != source:
+            return None
+        if git("rev-parse", "HEAD^", cwd=root) != source:
+            return None
+        if (
+            git("log", "-1", "--format=%s", cwd=root)
+            != "chore(release): bump affected package versions"
+        ):
+            return None
+        return pending
     # Only successful Hive promotions establish a baseline. Failed releases do
     # not hide changes from the next main merge.
     tags = git(

@@ -120,9 +120,29 @@ class ReleaseTests(unittest.TestCase):
             plan = {"source_sha": "old", "versions": {"cli": "1.0.1"}}
             (root / ".release/pending.json").write_text(json.dumps(plan))
             with patch(
-                "release.git", side_effect=["", "releasecommit", "releasecommit", ""]
+                "release.git",
+                side_effect=[
+                    "",
+                    "releasecommit",
+                    "releasecommit",
+                    "",
+                    "old",
+                    "chore(release): bump affected package versions",
+                ],
             ):
                 self.assertEqual(prepare(root, "old"), plan)
+
+    def test_newer_commit_inheriting_pending_plan_cannot_resume_old_release(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".release").mkdir()
+            (root / ".release/pending.json").write_text(
+                json.dumps({"source_sha": "old"})
+            )
+            with patch(
+                "release.git", side_effect=["", "newer", "newer", "", "releasecommit"]
+            ):
+                self.assertIsNone(prepare(root, "old"))
 
     def test_completed_release_skips(self):
         with (
