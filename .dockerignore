@@ -10,8 +10,10 @@
 **/coverage
 **/.pytest_cache
 **/.ruff_cache
-.claude
-.codex
+**/.claude
+**/.codex
+**/.mcp.json
+**/.kioku
 AGENTS.md
 CLAUDE.md
 claude-history.md
