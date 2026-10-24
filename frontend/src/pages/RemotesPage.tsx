@@ -1,5 +1,5 @@
 import { useState, type CSSProperties } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
   Button,
@@ -13,7 +13,14 @@ import {
 import AddIcon from "@mui/icons-material/Add";
 import DesktopWindowsOutlinedIcon from "@mui/icons-material/DesktopWindowsOutlined";
 import { brand } from "../theme";
-import { getRemoteMachines, type RemoteMachine } from "../lib/api";
+import appleLogo from "../assets/os/apple.svg";
+import linuxLogo from "../assets/os/linux.svg";
+import windowsLogo from "../assets/os/windows.svg";
+import {
+  getRemoteMachines,
+  renameRemoteMachine,
+  type RemoteMachine,
+} from "../lib/api";
 import "./RemotesPage.css";
 
 const colors = {
@@ -30,7 +37,67 @@ function date(value: string | null) {
   return value ? new Date(value).toLocaleString() : "Not connected yet";
 }
 
+function OperatingSystem({ machine }: { machine: RemoteMachine }) {
+  const id =
+    machine.os_id ??
+    (machine.platform.startsWith("darwin")
+      ? "macos"
+      : machine.platform.startsWith("win32")
+      ? "windows"
+      : machine.platform.startsWith("linux")
+      ? "linux"
+      : "unknown");
+  const label =
+    machine.os_name ??
+    (id === "macos"
+      ? "macOS"
+      : id === "windows"
+      ? "Windows"
+      : id === "linux"
+      ? "Linux"
+      : machine.platform);
+  const logo =
+    id === "macos"
+      ? appleLogo
+      : id === "windows"
+      ? windowsLogo
+      : ["linux", "ubuntu"].includes(id)
+      ? linuxLogo
+      : undefined;
+  return (
+    <span className="remote-os">
+      {logo && <img src={logo} alt="" aria-hidden="true" />}
+      <span>{label}</span>
+      <span className="remote-architecture">
+        {machine.architecture ?? machine.platform.split("-").slice(1).join("-")}
+      </span>
+    </span>
+  );
+}
+const warningText: Record<string, string> = {
+  repo_unavailable:
+    "A registered repository path is unavailable. Reconnect its disk or run kioku init from its new location.",
+  registry_unreadable:
+    "Manabi cannot read its local repository registry. The last successful inventory is retained; check kioku status on this machine.",
+  folder_unavailable:
+    "A repository binding is no longer accessible to this account. Run kioku init in that repository to reconnect it.",
+  inventory_rejected:
+    "The inventory report was rejected. Update Kioku CLI and run kioku init again.",
+};
+
 export default function RemotesPage() {
+  const cache = useQueryClient();
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameId, setRenameId] = useState<string>();
+  const [newName, setNewName] = useState("");
+  const rename = useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string | null }) =>
+      renameRemoteMachine(id, name),
+    onSuccess: () => {
+      setRenameOpen(false);
+      void cache.invalidateQueries({ queryKey: ["remote-machines"] });
+    },
+  });
   const [selectedId, setSelectedId] = useState<string>();
   const [query, setQuery] = useState("");
   const [connectOpen, setConnectOpen] = useState(false);
@@ -66,8 +133,9 @@ export default function RemotesPage() {
         </Button>
       </header>
       <div className="remotes-preview-note" role="note">
-        <strong>Manabi</strong> Machine connection is available. Memory
-        collection and agent session activity are coming later.
+        <strong>Manabi</strong> Configured repositories and agents are
+        available. Memory collection and agent session activity are coming
+        later.
       </div>
       {machines.isError && (
         <Alert
@@ -125,7 +193,9 @@ export default function RemotesPage() {
                   <DesktopWindowsOutlinedIcon fontSize="small" />
                   {machine.name}
                 </span>
-                <span className="remote-machine-meta">{machine.platform}</span>
+                <span className="remote-machine-meta">
+                  <OperatingSystem machine={machine} />
+                </span>
                 <span className="remote-machine-footer">
                   <span>
                     <i
@@ -167,10 +237,22 @@ export default function RemotesPage() {
                 <div>
                   <h2 id="remote-machine-title">{selected.name}</h2>
                   <p>
-                    {selected.platform} · Manabi {selected.version}
+                    <OperatingSystem machine={selected} /> · Manabi{" "}
+                    {selected.version}
                   </p>
                 </div>
               </div>
+              <Button
+                size="small"
+                onClick={() => {
+                  setRenameId(selected.id);
+                  setNewName(selected.custom_name ?? selected.name);
+                  rename.reset();
+                  setRenameOpen(true);
+                }}
+              >
+                Rename
+              </Button>
             </header>
             <div className="remote-statusbar">
               <span>
@@ -198,13 +280,115 @@ export default function RemotesPage() {
                 </p>
               </div>
             )}
+            {(selected.warnings ?? []).length > 0 && (
+              <div
+                className="remote-warnings"
+                aria-label="Last reported warnings"
+              >
+                {selected.warnings!.map((warning) => (
+                  <Alert severity="warning" key={warning.code}>
+                    {warningText[warning.code] ??
+                      "Manabi reported a sync warning. Check kioku status on this machine."}
+                    <span className="remote-warning-date">
+                      Observed {date(warning.observed_at)}
+                      {!selected.online
+                        ? " · Last known report; machine is offline"
+                        : ""}
+                    </span>
+                  </Alert>
+                ))}
+              </div>
+            )}
+            <div className="remote-section-title">
+              <h3>
+                Repositories <span>{selected.inventory?.length ?? 0}</span>
+              </h3>
+              <span>
+                {selected.inventory_updated_at
+                  ? `Inventory received ${date(selected.inventory_updated_at)}`
+                  : "Not reported yet"}
+              </span>
+            </div>
+            {selected.inventory == null ? (
+              <p className="remote-footnote">
+                Update Kioku CLI and run kioku init on this machine to report
+                its configured repositories. Existing projects are discovered
+                only from known provider project indexes with Kioku binding
+                markers.
+              </p>
+            ) : selected.inventory.length === 0 ? (
+              <p className="remote-footnote">
+                No initialized repositories reported.
+              </p>
+            ) : (
+              <div className="remote-repos">
+                {selected.inventory.map((repo) => (
+                  <div className="remote-repo" key={repo.id}>
+                    <div>
+                      <a
+                        href={`/documents?folder=${encodeURIComponent(
+                          repo.folder_id
+                        )}`}
+                      >
+                        {repo.name}
+                      </a>
+                      <div className="remote-repo-path">{repo.path}</div>
+                    </div>
+                    <div className="remote-agent-tags">
+                      {repo.agents.map((agent) => (
+                        <span key={agent}>
+                          {agent === "claude" ? "✳ Claude Code" : "›_ Codex"}
+                          <small>Configured</small>
+                        </span>
+                      ))}
+                    </div>
+                    <span className="remote-repo-status">
+                      {repo.available ? "Initialized" : "Path unavailable"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="remote-footnote">
+              Configured means this repository was initialized with Kioku. It
+              does not mean an agent is installed, running, or has an open
+              session.
+            </p>
+            {selected.inventory != null && selected.inventory.length > 0 && (
+              <>
+                <div className="remote-section-title">
+                  <h3>Configured agents</h3>
+                  <span>Repository configuration · no process detection</span>
+                </div>
+                <div className="remote-agents">
+                  {(["claude", "codex"] as const).map((agent) => {
+                    const repos = selected.inventory!.filter((repo) =>
+                      repo.agents.includes(agent)
+                    );
+                    return repos.length ? (
+                      <section className="remote-agent" key={agent}>
+                        <h4>{agent === "claude" ? "Claude Code" : "Codex"}</h4>
+                        <p>
+                          {repos.length} initialized{" "}
+                          {repos.length === 1 ? "repository" : "repositories"}
+                        </p>
+                        <p className="remote-footnote">
+                          {repos.map((repo) => repo.name).join(" · ")}
+                        </p>
+                      </section>
+                    ) : null;
+                  })}
+                </div>
+              </>
+            )}
             <div className="remote-section-title">
               <h3>Memory collection</h3>
               <span>Not enabled yet</span>
             </div>
             <p className="remote-footnote">
-              This version maintains the connection only. It does not read
-              memories, inspect agent sessions, or run remote commands.
+              This version reports connection and configured repositories. It
+              does not read memories, inspect agent sessions, or run remote
+              commands.
             </p>
           </section>
         ) : (
@@ -237,6 +421,52 @@ export default function RemotesPage() {
         Presence refreshes every 15 seconds. Machines are marked offline when
         their connection closes or heartbeats expire.
       </footer>
+      <Dialog
+        open={renameOpen}
+        onClose={() => !rename.isPending && setRenameOpen(false)}
+        maxWidth="xs"
+        fullWidth
+        aria-labelledby="rename-machine-title"
+      >
+        <DialogTitle id="rename-machine-title">Rename machine</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Your name is kept when Manabi reconnects. Leave blank to use its
+            computer name.
+          </DialogContentText>
+          <TextField
+            autoFocus
+            fullWidth
+            margin="normal"
+            label="Machine name"
+            value={newName}
+            onChange={(event) => setNewName(event.target.value)}
+            slotProps={{ htmlInput: { maxLength: 120 } }}
+          />
+          {rename.isError && (
+            <Alert severity="error">
+              Could not rename this machine. {rename.error.message}
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button
+            disabled={rename.isPending}
+            onClick={() => setRenameOpen(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            disabled={rename.isPending || !renameId}
+            onClick={() =>
+              renameId &&
+              rename.mutate({ id: renameId, name: newName.trim() || null })
+            }
+          >
+            Save
+          </Button>
+        </DialogActions>
+      </Dialog>
       <Dialog
         open={connectOpen}
         onClose={() => setConnectOpen(false)}

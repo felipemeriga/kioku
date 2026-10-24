@@ -1,4 +1,9 @@
 import WebSocket from "ws";
+import { readInventory, inventoryPath } from "./manabi-inventory.js";
+import { machineInfo } from "./manabi-machine.js";
+import { createHash } from "node:crypto";
+import { dirname, join } from "node:path";
+import { writeFileSync, renameSync } from "node:fs";
 import { readFileSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
 
@@ -6,6 +11,7 @@ export interface ManabiConnection {
   id: string;
   secret: string;
   api_base: string;
+  user_id?: string;
 }
 
 export function websocketUrl(base: string): string {
@@ -32,6 +38,8 @@ export function reconnectDelay(attempt: number, random = Math.random): number {
 
 interface Options {
   signal: AbortSignal;
+  snapshot?: () => unknown;
+  status?: (code: string) => void;
   readConnection: () => ManabiConnection | null;
   log?: (message: string) => void;
   heartbeatMs?: number;
@@ -50,6 +58,7 @@ export async function runManabi(options: Options): Promise<void> {
       const config = readConnection();
       if (config) stable = await connectOnce(config, options);
     } catch {
+      options.status?.("connection_unavailable");
       log("Manabi connection unavailable; retrying.");
     }
     if (signal.aborted) break;
@@ -76,6 +85,23 @@ function connectOnce(
       maxPayload: 1024,
       perMessageDeflate: false,
     });
+    let acknowledgedSnapshot = "";
+    const sendSnapshot = () => {
+      if (!options.snapshot || socket.readyState !== WebSocket.OPEN) return;
+      try {
+        const data = options.snapshot();
+        const encoded = JSON.stringify(data);
+        if (Buffer.byteLength(encoded) > 250_000) {
+          options.status?.("inventory_too_large");
+          return;
+        }
+        const revision = createHash("sha256").update(encoded).digest("hex");
+        if (revision !== acknowledgedSnapshot)
+          socket.send(JSON.stringify({ type: "inventory", revision, data }));
+      } catch {
+        options.status?.("inventory_unavailable");
+      }
+    };
     let readyAt = 0;
     let lastAck = Date.now();
     let authenticated = false;
@@ -97,8 +123,10 @@ function connectOnce(
         stop();
         return;
       }
-      if (authenticated && socket.readyState === WebSocket.OPEN)
+      if (authenticated && socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ type: "heartbeat" }));
+        sendSnapshot();
+      }
     }, heartbeatMs);
     socket.on("open", () => {
       if (options.signal.aborted) {
@@ -111,11 +139,25 @@ function connectOnce(
     });
     socket.on("message", (raw) => {
       try {
-        const message = JSON.parse(raw.toString()) as { type?: string };
+        const message = JSON.parse(raw.toString()) as {
+          type?: string;
+          revision?: string;
+        };
+        if (message.type === "inventory_ack" && authenticated) {
+          acknowledgedSnapshot = message.revision ?? "";
+          options.status?.("connected");
+          return;
+        }
+        if (message.type === "inventory_error" && authenticated) {
+          options.status?.("inventory_rejected");
+          return;
+        }
         if (message.type === "ready" && !authenticated) {
           authenticated = true;
           readyAt = Date.now();
           options.log?.("Manabi connected.");
+          options.status?.("connected");
+          sendSnapshot();
         } else if (message.type !== "ack" || !authenticated) {
           stop();
           return;
@@ -130,6 +172,9 @@ function connectOnce(
     socket.once("close", (code) => {
       clearInterval(check);
       options.signal.removeEventListener("abort", stop);
+      options.status?.(
+        code === 4401 ? "credential_rejected" : "connection_unavailable"
+      );
       if (code === 4401)
         options.log?.(
           "Manabi credential rejected. Re-run kioku init to register again."
@@ -146,6 +191,7 @@ function connectOnce(
 
 export async function runManabiDaemon(configPath: string): Promise<void> {
   if (!configPath) throw new Error("Missing Manabi configuration path");
+  let inventoryWarnings: { code: string; observed_at: string }[] = [];
   const controller = new AbortController();
   const stop = () => controller.abort();
   process.once("SIGTERM", stop);
@@ -153,6 +199,32 @@ export async function runManabiDaemon(configPath: string): Promise<void> {
   try {
     await runManabi({
       signal: controller.signal,
+      snapshot: () => {
+        const config = JSON.parse(
+          readFileSync(configPath, "utf8")
+        ) as ManabiConnection;
+        const inventory = readInventory(inventoryPath(configPath), config);
+        inventoryWarnings = inventory.warnings;
+        return { ...machineInfo(), ...inventory };
+      },
+      status: (code) => {
+        try {
+          const path = join(dirname(configPath), "status.json");
+          const temp = `${path}.${process.pid}.tmp`;
+          writeFileSync(
+            temp,
+            JSON.stringify({
+              code,
+              observed_at: new Date().toISOString(),
+              warnings: inventoryWarnings,
+            }),
+            { mode: 0o600 }
+          );
+          renameSync(temp, path);
+        } catch {
+          /* Presence still expires server-side if local storage is unavailable. */
+        }
+      },
       readConnection: () => {
         try {
           return JSON.parse(

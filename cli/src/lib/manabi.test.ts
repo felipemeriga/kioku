@@ -343,3 +343,54 @@ test("macOS runtime upgrades tolerate transient launchd unload/bootstrap races",
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("inventory snapshots deduplicate until changed and resend after reconnect", async () => {
+  const { server: wsServer, config } = await server();
+  const controller = new AbortController();
+  let revision = 1;
+  let received = 0;
+  let connections = 0;
+  wsServer.on("connection", (socket) => {
+    connections++;
+    socket.on("message", (raw) => {
+      const message = JSON.parse(raw.toString());
+      if (message.type === "hello") socket.send('{"type":"ready"}');
+      if (message.type === "heartbeat") socket.send('{"type":"ack"}');
+      if (message.type === "inventory") {
+        received++;
+        assert.equal(message.revision.length, 64);
+        assert.equal(
+          JSON.stringify(message.data).includes(config.secret),
+          false
+        );
+        socket.send(
+          JSON.stringify({ type: "inventory_ack", revision: message.revision })
+        );
+        if (received === 1)
+          setTimeout(() => {
+            assert.equal(received, 1);
+            revision = 2;
+          }, 30);
+        else if (received === 2) setTimeout(() => socket.terminate(), 5);
+        else if (received === 3) controller.abort();
+      }
+    });
+  });
+  const deadline = setTimeout(() => controller.abort(), 1500);
+  try {
+    await runManabi({
+      signal: controller.signal,
+      readConnection: () => config,
+      snapshot: () => ({ revision }),
+      heartbeatMs: 10,
+      timeoutMs: 100,
+      delay: () => 1,
+    });
+    assert.equal(received, 3);
+    assert.equal(connections, 2);
+  } finally {
+    clearTimeout(deadline);
+    for (const socket of wsServer.clients) socket.terminate();
+    wsServer.close();
+  }
+});
