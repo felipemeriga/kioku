@@ -42,6 +42,18 @@ def affected(paths):
     return sorted(result)
 
 
+def build_matrix(plan):
+    # Public Docker namespaces may also be stored as login secrets. GitHub
+    # suppresses any job output containing a secret value, even a public name.
+    return [
+        {
+            **{key: value for key, value in item.items() if key != "image"},
+            "repository": item["image"].rsplit("/", 1)[1],
+        }
+        for item in plan["images"]
+    ]
+
+
 def bump(version):
     if not re.fullmatch(r"\d+\.\d+\.\d+", version):
         raise ValueError(f"Expected stable major.minor.patch, got {version!r}")

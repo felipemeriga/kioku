@@ -97,6 +97,11 @@ so skipped/stale main runs do not lose unreleased changes. Redis is an upstream
 image, not a Kioku build/package: pin its upstream version/digest through a reviewed
 Hive change. The pipeline does not rebuild Redis or silently upgrade it.
 
+The cross-job image matrix omits the public registry namespace: it may equal
+`DOCKERHUB_USERNAME`, and GitHub suppresses outputs containing secret values even
+when those values are public account names. Build jobs reconstruct full image
+references without passing credential-shaped values through outputs.
+
 Release runs serialize. Stale runs cannot promote after main advances. Retries of
 the same release reuse the persisted package plan and existing uniquely tagged
 images after validating their OCI revision against the exact release commit;
@@ -112,8 +117,10 @@ CLI releases build Linux x64/ARM64, macOS Intel/Apple Silicon, and Windows x64.
 Bun's runtime is embedded; end users do not install Node, Bun, or npm. Executables
 are not yet platform-code-signed/notarized. Unsupported Windows ARM is reported
 explicitly. Native runner smoke checks execute version/help/session-start and
-standalone hook invocation. Once Manabi is merged, its invalid-config entry smoke
-also runs; full installed-service E2E remains a separate integration check.
+standalone hook invocation. When Manabi is present, each native executable also
+connects to a loopback WebSocket backend, sends its hello, reconnects after a
+forced close, and stops. No OS service is installed by this smoke; full installed
+service E2E remains a separate integration check.
 
 Download `install.sh` or `install.ps1` from a published **cli-vVERSION** release,
 review it, and run it. Installers discover the latest published CLI release among

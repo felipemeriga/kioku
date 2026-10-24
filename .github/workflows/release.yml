@@ -102,12 +102,14 @@ jobs:
             git push origin "HEAD:$RELEASE_BRANCH"
           fi
           python3 - <<'PY'
-          import json, os, subprocess
+          import json, os, subprocess, sys
+          sys.path.insert(0, 'scripts/release')
+          from release import build_matrix
           plan=json.load(open('/tmp/plan.json'))
           with open(os.environ['GITHUB_OUTPUT'],'a') as out:
               out.write('ready=true\n')
               out.write('sha='+subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()+'\n')
-              out.write('matrix='+json.dumps({'include':plan['images']},separators=(',',':'))+'\n')
+              out.write('matrix='+json.dumps({'include':build_matrix(plan)},separators=(',',':'))+'\n')
               out.write('cli='+str(plan['cli']).lower()+'\n')
           PY
 
@@ -155,7 +157,7 @@ jobs:
       - name: Reuse an existing immutable release image on retry
         id: existing
         env:
-          IMAGE: ${{ matrix.image }}
+          IMAGE: ${{ format('felipemeriga1/{0}', matrix.repository) }}
           TAG: ${{ matrix.tag }}
           RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
         run: |
@@ -168,7 +170,7 @@ jobs:
           file: ${{ matrix.dockerfile }}
           platforms: linux/amd64
           push: true
-          tags: ${{ matrix.image }}:${{ matrix.tag }}
+          tags: ${{ format('felipemeriga1/{0}:{1}', matrix.repository, matrix.tag) }}
           labels: |
             org.opencontainers.image.revision=${{ needs.prepare.outputs.sha }}
             org.opencontainers.image.version=${{ matrix.version }}
@@ -178,7 +180,7 @@ jobs:
       - name: Record image digest
         env:
           PACKAGE: ${{ matrix.package }}
-          IMAGE: ${{ matrix.image }}
+          IMAGE: ${{ format('felipemeriga1/{0}', matrix.repository) }}
           DIGEST: ${{ steps.existing.outputs.digest || steps.build.outputs.digest }}
         run: |
           mkdir -p release-results
