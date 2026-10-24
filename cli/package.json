@@ -1,6 +1,6 @@
 {
   "name": "@felipemeriga/kioku",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Kioku (記憶) — second brain for your repos. Wires a local repo to your Kioku instance: MCP server, SessionStart hook, CLAUDE.md snippet.",
   "type": "module",
   "license": "MIT",
@@ -42,10 +42,12 @@
     "cli-table3": "^0.6.5",
     "commander": "^12.1.0",
     "kleur": "^4.1.5",
-    "smol-toml": "^1.8.0"
+    "smol-toml": "^1.8.0",
+    "ws": "^8.22.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/ws": "^8.18.2",
     "typescript": "^5.6.0"
   },
   "engines": {

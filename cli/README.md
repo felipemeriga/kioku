@@ -76,6 +76,30 @@ kioku init --github-token ghp_...   # explicit token (bypasses gh CLI detection)
 kioku init --skip-github            # no GitHub sync (public-only briefing)
 ```
 
+**Manabi connection**: `kioku init` also installs and starts one background Manabi
+process for the current OS user. Subsequent repositories reuse it; no separate
+start command is required. It maintains an authenticated outbound WebSocket to
+the configured backend, sends heartbeats, and retries disconnected connections
+indefinitely with exponential backoff and jitter (up to 60 seconds). Check
+machine presence in **Remotes**. This release does not collect memories or inspect
+agent sessions.
+
+Startup uses a macOS LaunchAgent, a Linux systemd user service, or a Windows
+per-user login task with a periodic restart watchdog. These are **login services**,
+not privileged boot services. Linux needs a working systemd user session; running
+before login/after logout requires separately configured user lingering. macOS
+installation requires a GUI login domain. Installation failures fail init with
+an actionable error; re-running init repairs setup. Closing the terminal does
+not stop Manabi, but sleep, shutdown, or logout can. It reconnects on return.
+
+Manabi keeps its credential and a small runtime snapshot under
+`~/.config/kioku/manabi` (or `$XDG_CONFIG_HOME/kioku/manabi`). It uses the current
+Node executable by absolute path when installed through npm; keep Node installed,
+and re-run init after moving/removing that installation. Standalone release builds
+snapshot the Kioku executable instead and require no separate Node runtime. `kioku logout` clears the connection
+credential; the supervised process idles until the next init. Machine credentials
+only authorize connection presence, not document or memory access.
+
 **Smart defaults**: no prompt when there's an obvious answer.
 
 - Only 1 root folder → uses it silently
