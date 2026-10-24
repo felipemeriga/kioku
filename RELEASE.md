@@ -118,6 +118,8 @@ also runs; full installed-service E2E remains a separate integration check.
 Download `install.sh` or `install.ps1` from a published **cli-vVERSION** release,
 review it, and run it. Installers discover the latest published CLI release among
 the most recent 100 releases, or accept `KIOKU_VERSION=0.4.1` to pin explicitly.
+An explicit pin may also name a prerelease, for example
+`KIOKU_VERSION=0.4.1-e2e.20261024`; automatic discovery remains stable-only.
 They download over HTTPS and verify the executable against the release's SHA256SUMS
 before running/installing it. This detects corruption, not a compromised release
 publisher. macOS/Linux defaults to `~/.local/bin`; Windows uses the user's local
