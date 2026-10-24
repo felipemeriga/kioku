@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -64,7 +65,8 @@ def bump_packages(root, packages):
             lock["packages"][""]["version"] = version
             dump(lock_path, lock)
             if package == "cli":
-                entry = root / "cli/src/index.ts"
+                shared = root / "cli/src/lib/version.ts"
+                entry = shared if shared.exists() else root / "cli/src/index.ts"
                 updated, count = re.subn(
                     r'const VERSION = "[^"]+";',
                     f'const VERSION = "{version}";',
@@ -97,20 +99,46 @@ def bump_packages(root, packages):
     return result
 
 
-def prepare(root, source):
-    git("fetch", "origin", "main", "--tags", cwd=root)
+def channel(branch="main", rehearsal_id=None, environ=None):
+    env = os.environ if environ is None else environ
+    if branch == "main":
+        if rehearsal_id or env.get("RELEASE_PRERELEASE") == "true":
+            raise ValueError(
+                "Prerelease rehearsal requires an explicit non-main branch"
+            )
+        return "release/deployed-"
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]*", branch) or ".." in branch:
+        raise ValueError("Invalid release branch")
+    if (
+        env.get("RELEASE_PRERELEASE") != "true"
+        or not rehearsal_id
+        or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]{0,63}", rehearsal_id)
+    ):
+        raise ValueError(
+            "Non-main releases require RELEASE_PRERELEASE=true and a safe rehearsal ID"
+        )
+    return "release/rehearsed-"
+
+
+def prepare(root, source, branch="main", rehearsal_id=None):
+    ledger_prefix = channel(branch, rehearsal_id)
+    git("fetch", "origin", branch, "--tags", cwd=root)
     head = git("rev-parse", "HEAD", cwd=root)
-    remote = git("rev-parse", "origin/main", cwd=root)
+    remote = git("rev-parse", "origin/" + branch, cwd=root)
     if head != remote:
-        raise ValueError("Checkout must be current origin/main")
+        raise ValueError("Checkout must be current origin/" + branch)
     pending_path = root / ".release/pending.json"
     pending = json.loads(pending_path.read_text()) if pending_path.exists() else {}
-    if git("tag", "--points-at", head, "release/deployed-*", cwd=root):
+    if git("tag", "--points-at", head, ledger_prefix + "*", cwd=root):
         return None
     if head != source:
         # A later source commit inherits pending.json too. Resume only the
         # exact bot version commit directly above this triggering source.
-        if pending.get("source_sha") != source:
+        if (
+            pending.get("source_sha") != source
+            or pending.get("release_branch", "main") != branch
+            or pending.get("rehearsal_id") != rehearsal_id
+        ):
             return None
         if git("rev-parse", "HEAD^", cwd=root) != source:
             return None
@@ -159,11 +187,14 @@ def prepare(root, source):
                 "dockerfile": f"{cloud_dir}/Dockerfile"
                 if package == "mihari"
                 else f"{context}/Dockerfile" + (".mcp" if package == "mcp" else ""),
-                "tag": f"{versions[package]}-{source[:12]}",
+                "tag": f"{versions[package]}-{source[:12]}"
+                + (f"-e2e.{rehearsal_id}" if rehearsal_id else ""),
             }
         )
     plan = {
         "source_sha": source,
+        "release_branch": branch,
+        "rehearsal_id": rehearsal_id,
         "versions": versions,
         "images": images,
         "cli": "cli" in packages,
@@ -215,13 +246,15 @@ def main():
     p = sub.add_parser("prepare")
     p.add_argument("--source", required=True)
     p.add_argument("--output", required=True)
+    p.add_argument("--branch", default="main")
+    p.add_argument("--rehearsal-id")
     p = sub.add_parser("hive")
     p.add_argument("--root", required=True, type=Path)
     p.add_argument("--plan", required=True, type=Path)
     p.add_argument("--results", required=True, type=Path)
     args = parser.parse_args()
     if args.command == "prepare":
-        plan = prepare(Path.cwd(), args.source)
+        plan = prepare(Path.cwd(), args.source, args.branch, args.rehearsal_id)
         dump(args.output, plan)
     else:
         results = [json.loads(p.read_text()) for p in args.results.glob("*.json")]

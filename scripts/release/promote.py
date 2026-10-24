@@ -8,22 +8,46 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from release import dump, git, update_hive
+from deployment import configuration, wait_for_deployments
+from release import channel, dump, git, update_hive
 
 
 def run(*args, **kwargs):
     subprocess.run(args, check=True, **kwargs)
 
 
+def assert_source_current(root, sha, branch="main"):
+    git("fetch", "origin", branch, cwd=root)
+    if git("rev-parse", "origin/" + branch, cwd=root) != sha:
+        raise RuntimeError(
+            "Release branch advanced; skip stale promotion and release accumulated changes"
+        )
+
+
+def existing_hive_commit(hive, subject):
+    candidates = git(
+        "log", "HEAD", "--format=%H", "--fixed-strings", "--grep=" + subject, cwd=hive
+    ).splitlines()
+    for candidate in candidates:
+        if git("log", "-1", "--format=%s", candidate, cwd=hive) == subject:
+            return candidate
+    raise RuntimeError(
+        "No matching Hive promotion commit found; cannot verify an already-pinned release"
+    )
+
+
 def main():
     root = Path.cwd()
     plan = json.loads((root / ".release/pending.json").read_text())
     sha = os.environ["RELEASE_SHA"]
-    git("fetch", "origin", "main")
-    if git("rev-parse", "origin/main") != sha:
-        raise RuntimeError(
-            "Main advanced; skip stale promotion and let its CI release accumulated changes"
-        )
+    branch = os.environ.get("RELEASE_BRANCH", "main")
+    if plan.get("release_branch", "main") != branch:
+        raise ValueError("Release plan and nominated branch do not match")
+    rehearsal_id = plan.get("rehearsal_id")
+    ledger_prefix = channel(branch, rehearsal_id)
+    prerelease = branch != "main"
+    assert_source_current(root, sha, branch)
+    deploy_config = configuration(plan)
     results = [
         json.loads(p.read_text()) for p in (root / "release-results").glob("*.json")
     ]
@@ -57,11 +81,19 @@ def main():
         },
     )
     tags = []
+    draft_tags = []
     for package, version in plan["versions"].items():
-        tag = f"{package}-v{version}"
+        tag = f"{package}-v{version}" + (f"-e2e.{rehearsal_id}" if prerelease else "")
         tags.append(tag)
         existing = subprocess.run(
-            ["gh", "release", "view", tag, "--json", "targetCommitish,isDraft"],
+            [
+                "gh",
+                "release",
+                "view",
+                tag,
+                "--json",
+                "targetCommitish,isDraft,isPrerelease",
+            ],
             check=False,
             capture_output=True,
             text=True,
@@ -79,45 +111,85 @@ def main():
                 f"{package} {version}",
                 "--notes",
                 f"Source commit: {sha}\nAutomatically validated package release.",
+                *(["--prerelease", "--latest=false"] if prerelease else []),
             )
         else:
             data = json.loads(existing.stdout)
             if data["targetCommitish"] != sha:
                 raise RuntimeError(f"Release {tag} points to another commit")
+            if bool(data["isPrerelease"]) != prerelease:
+                raise RuntimeError("Existing release channel does not match this plan")
             if not data["isDraft"]:
                 continue
+        draft_tags.append(tag)
         assets = [str(root / "release-manifest.json")]
         if package == "cli":
             assets += [str(p) for p in cli_dir.iterdir()]
         run("gh", "release", "upload", tag, *assets, "--clobber")
-    # Push one normal Hive commit; on unrelated concurrent edits, retry from
-    # fresh main and reapply only the exact image lines. Never force-push.
+    # Recheck source immediately before every push, not just before potentially
+    # slow artifact uploads. Preserve the exact Hive commit for deployment proof.
     hive = root / "hive"
-    for attempt in range(3):
-        if attempt:
-            git("fetch", "origin", "main", cwd=hive)
-            git("reset", "--hard", "origin/main", cwd=hive)
-            update_hive(hive, plan, results)
-        git("config", "user.name", "felipemeriga", cwd=hive)
-        git("config", "user.email", "felipemeriga@users.noreply.github.com", cwd=hive)
-        git("add", "kioku", cwd=hive)
-        if not subprocess.run(
-            ["git", "diff", "--cached", "--quiet"], cwd=hive, check=False
-        ).returncode:
-            break
-        git("commit", "-m", f"chore(kioku): deploy release {sha[:12]}", cwd=hive)
-        if (
-            subprocess.run(
-                ["git", "push", "origin", "HEAD:main"], cwd=hive, check=False
-            ).returncode
-            == 0
-        ):
-            break
-    else:
-        raise RuntimeError("Hive push failed; release drafts retained for retry")
+    hive_sha = None
+    if plan["images"]:
+        subject = (
+            f"chore(kioku): deploy {'prerelease' if prerelease else 'release'} {sha}"
+        )
+        for attempt in range(3):
+            if attempt:
+                git("fetch", "origin", "main", cwd=hive)
+                git("reset", "--hard", "origin/main", cwd=hive)
+                update_hive(hive, plan, results)
+            git("config", "user.name", "felipemeriga", cwd=hive)
+            git(
+                "config",
+                "user.email",
+                "felipemeriga@users.noreply.github.com",
+                cwd=hive,
+            )
+            git("add", "kioku", cwd=hive)
+            if not subprocess.run(
+                ["git", "diff", "--cached", "--quiet"], cwd=hive, check=False
+            ).returncode:
+                assert_source_current(root, sha, branch)
+                hive_sha = existing_hive_commit(hive, subject)
+                break
+            git("commit", "-m", subject, cwd=hive)
+            assert_source_current(root, sha, branch)
+            if (
+                subprocess.run(
+                    ["git", "push", "origin", "HEAD:main"], cwd=hive, check=False
+                ).returncode
+                == 0
+            ):
+                hive_sha = git("rev-parse", "HEAD", cwd=hive)
+                break
+        else:
+            raise RuntimeError("Hive push failed; release drafts retained for retry")
+        proof = wait_for_deployments(plan, hive_sha, config=deploy_config)
+        manifest = json.loads((root / "release-manifest.json").read_text())
+        manifest.update({"hive_commit": hive_sha, "verified_deployments": proof})
+        dump(root / "release-manifest.json", manifest)
+        for tag in draft_tags:
+            run(
+                "gh",
+                "release",
+                "upload",
+                tag,
+                str(root / "release-manifest.json"),
+                "--clobber",
+            )
     for tag in tags:
-        run("gh", "release", "edit", tag, "--draft=false")
-    ledger = f"release/deployed-{sha}"
+        run(
+            "gh",
+            "release",
+            "edit",
+            tag,
+            "--draft=false",
+            *(["--prerelease", "--latest=false"] if prerelease else []),
+        )
+    git("config", "user.name", "felipemeriga", cwd=root)
+    git("config", "user.email", "felipemeriga@users.noreply.github.com", cwd=root)
+    ledger = ledger_prefix + sha
     if not git("tag", "--list", ledger):
         git(
             "tag",
@@ -125,7 +197,7 @@ def main():
             ledger,
             sha,
             "-m",
-            "All artifacts published and Hive promotion committed",
+            "All artifacts published and exact Hive deployments verified",
         )
     git("push", "origin", f"refs/tags/{ledger}")
 
