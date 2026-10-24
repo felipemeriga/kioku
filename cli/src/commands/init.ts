@@ -40,6 +40,7 @@ import { getRootKey, saveRootKey } from "../lib/root-keys.js";
 import { bad, info, ok, section, step, warn } from "../lib/banner.js";
 import { panel } from "../ui/panel.js";
 import { generateInstruction } from "./session-start.js";
+import { ensureManabi } from "../lib/manabi.js";
 import { openCmd } from "./open.js";
 
 type Agent = "claude" | "codex";
@@ -459,6 +460,12 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
   if (gi.changed) {
     ok(".gitignore updated (secrets excluded)");
   }
+
+  // One supervised Manabi connection per machine; every init repairs its setup.
+  await step("Starting Manabi", ensureManabi);
+  ok(
+    "Manabi installed for automatic startup. Connection status is in Remotes."
+  );
 
   // Step 9: initial code-graph index so agents query structure instead of
   //         grepping. Auto-installs the extractor if missing, seeds the
