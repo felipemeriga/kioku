@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Box,
+  Alert,
+  Button,
   InputBase,
   List,
   ListItemButton,
@@ -29,6 +31,9 @@ interface ContextPanelProps {
   activePage: AppPage;
   open: boolean;
   conversations: Conversation[];
+  conversationsLoading?: boolean;
+  conversationsError?: string | null;
+  onRetryConversations?: () => void;
   selectedConversationId: string | null;
   onSelectConversation: (id: string) => void;
   onNewConversation: () => void;
@@ -41,6 +46,9 @@ export default function ContextPanel({
   activePage,
   open,
   conversations,
+  conversationsLoading = false,
+  conversationsError = null,
+  onRetryConversations,
   selectedConversationId,
   onSelectConversation,
   onNewConversation,
@@ -102,6 +110,9 @@ export default function ContextPanel({
       {activePage === "/" && (
         <ChatPanel
           conversations={conversations}
+          loading={conversationsLoading}
+          error={conversationsError}
+          onRetry={onRetryConversations}
           selectedId={selectedConversationId}
           onSelect={onSelectConversation}
           onNew={onNewConversation}
@@ -162,11 +173,17 @@ export default function ContextPanel({
 
 function ChatPanel({
   conversations,
+  loading,
+  error,
+  onRetry,
   selectedId,
   onSelect,
   onNew,
   onDelete,
 }: {
+  loading?: boolean;
+  error?: string | null;
+  onRetry?: () => void;
   conversations: Conversation[];
   selectedId: string | null;
   onSelect: (id: string) => void;
@@ -205,6 +222,24 @@ function ChatPanel({
         </IconButton>
       </Box>
 
+      {loading && (
+        <Typography role="status" sx={{ px: 2, py: 1, color: brand.muted }}>
+          Loading conversations…
+        </Typography>
+      )}
+      {error && (
+        <Alert severity="error" sx={{ mx: 1, mb: 1 }}>
+          Couldn’t load conversations. {error}
+          <Button size="small" onClick={onRetry}>
+            Retry
+          </Button>
+        </Alert>
+      )}
+      {!loading && !error && conversations.length === 0 && (
+        <Typography sx={{ px: 2, py: 1, color: brand.muted }}>
+          No conversations yet.
+        </Typography>
+      )}
       <List sx={{ flex: 1, overflow: "auto", px: "8px" }}>
         {conversations.map((conv) => (
           <ConversationRow

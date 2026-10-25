@@ -5,6 +5,8 @@
  */
 export const qk = {
   conversations: () => ["conversations"] as const,
+  conversationsForUser: (userId: string | null) =>
+    ["conversations", userId] as const,
   conversation: (id: string) => ["conversation", id] as const,
 
   documents: (folderId: string | null) =>
