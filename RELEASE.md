@@ -1,6 +1,10 @@
 # Automated releases
 
-A successful **CI push run on main** starts Release. Pull requests cannot release.
+A successful **CI push run on main** starts Release when repository variable
+`KIOKU_RELEASE_ENABLED` is exactly `true`. Unset or `false` keeps production
+release preparation disabled, before any version commit, build, or Hive write.
+Pull requests cannot release. Explicit owner-only prerelease rehearsals retain
+their separate opt-in path.
 Release creates a patch version only for affected packages, commits their manifests
 and lockfiles, validates that exact commit through CI (and retrieval evaluation
 for backend changes), then builds container images on Docker Build Cloud. Native
@@ -44,6 +48,7 @@ Configure these in the Kioku GitHub repository before enabling production releas
 
 | Setting                                                            | Purpose                                                                                                              |
 | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| `KIOKU_RELEASE_ENABLED` repository variable                         | Production activation gate; keep `false` while merging the application stack, then set to `true` when the full main tree is ready |
 | Existing `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` secrets           | Docker Hub and Build Cloud authentication; account must access the builder and push Kioku images                     |
 | `HIVE_RELEASE_TOKEN` secret                                        | Fine-grained PAT for **felipemeriga/hive only**, Contents read/write; its commits trigger Dokploy's Hive integration |
 | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` repository variables | Public browser configuration baked into frontend builds; never use a service-role key                                |
@@ -60,6 +65,15 @@ commit. The workflow **never force-pushes or bypasses branch protection**; if th
 repository disallows this, it fails before builds. The version commit is made with
 `GITHUB_TOKEN`, whose pushes do not recursively trigger CI. The same release run
 explicitly executes CI against that new commit instead.
+
+To merge CD before the application stack safely, set the activation variable to
+`false` first. Merge CD and all application changes using merge commits, and wait
+for the final main push's CI to pass. Then set the variable to `true` and rerun
+that actual push CI run. Its completed `workflow_run` event uses the normal
+production release path against the exact merged features; no local replay,
+synthetic deployed ledger, or empty test commit is needed. Keep the variable
+enabled for subsequent automatic releases. Disabling it blocks new preparation;
+it does not cancel an already-running deployment.
 
 In Dokploy, enable Hive auto-deploy and set each Compose service's Watch Paths:
 `kioku/backend/**`, `kioku/worker/**`, `kioku/mcp/**`, `kioku/frontend/**`, and the

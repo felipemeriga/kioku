@@ -5,6 +5,52 @@ from pathlib import Path
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_production_activation_gate_prevents_all_work_before_prepare(self):
+        workflow = Path(".github/workflows/release.yml").read_text()
+        condition = workflow.split("  prepare:\n    if: >-\n", 1)[1].split(" ||", 1)[0]
+        condition = " ".join(condition.split()).replace("&&", "and")
+        defaults = {
+            "github.event_name": "workflow_run",
+            "github.event.workflow_run.conclusion": "success",
+            "github.event.workflow_run.event": "push",
+            "github.event.workflow_run.head_repository.full_name": "owner/repo",
+            "github.repository": "owner/repo",
+        }
+        cases = [
+            ({}, False),
+            ({"vars.KIOKU_RELEASE_ENABLED": "false"}, False),
+            ({"vars.KIOKU_RELEASE_ENABLED": "True"}, False),
+            ({"vars.KIOKU_RELEASE_ENABLED": "true"}, True),
+            (
+                {
+                    "vars.KIOKU_RELEASE_ENABLED": "true",
+                    "github.event.workflow_run.conclusion": "failure",
+                },
+                False,
+            ),
+            (
+                {
+                    "vars.KIOKU_RELEASE_ENABLED": "true",
+                    "github.event.workflow_run.event": "pull_request",
+                },
+                False,
+            ),
+            (
+                {
+                    "vars.KIOKU_RELEASE_ENABLED": "true",
+                    "github.event.workflow_run.head_repository.full_name": "fork/repo",
+                },
+                False,
+            ),
+        ]
+        for overrides, expected in cases:
+            with self.subTest(overrides=overrides):
+                values = {"vars.KIOKU_RELEASE_ENABLED": "", **defaults, **overrides}
+                expression = condition
+                for key in sorted(values, key=len, reverse=True):
+                    expression = expression.replace(key, repr(values[key]))
+                self.assertEqual(eval(expression, {"__builtins__": {}}), expected)
+
     def test_github_outputs_are_lines_not_literal_backslash_n(self):
         workflow = Path(".github/workflows/release.yml").read_text()
         constants = []
