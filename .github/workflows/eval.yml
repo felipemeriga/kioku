@@ -1,14 +1,19 @@
 name: eval
 
 on:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: true
   pull_request:
     paths:
-      - 'backend/**'
-      - '.github/workflows/eval.yml'
+      - "backend/**"
+      - ".github/workflows/eval.yml"
 
 permissions:
   contents: read
-  pull-requests: write
+  pull-requests: read
 
 concurrency:
   group: eval-${{ github.ref }}
@@ -16,9 +21,14 @@ concurrency:
 
 jobs:
   eval:
+    permissions:
+      contents: read
+      pull-requests: write
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
 
       # Authenticate Docker Hub before `supabase start` pulls its images, so the
       # job doesn't hit the anonymous pull rate limit on shared runners.
