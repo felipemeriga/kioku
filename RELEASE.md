@@ -20,6 +20,31 @@ The manifest records the Hive commit and verified deployment IDs. API errors,
 failed/superseded deployments, or timeout leave releases as drafts for retry.
 CLI releases additionally contain executables, installers, and SHA256SUMS.
 
+## Activating CD after the manually deployed feature stack
+
+Merge the application dependencies before activating the Release workflow: Manabi
+connection, inventory, full-app design, its follow-up layouts and theme, and the
+API concurrency fixes. The final application tree must include the current
+production UI before enabling the production gate; CD can merge first while
+that gate remains disabled. Otherwise a release could replace manually deployed
+features with older code.
+
+The first stable release deliberately builds all packages because production
+rehearsals use `release/rehearsed-*`, not `release/deployed-*`. Do not create a
+synthetic deployed ledger to hide this bootstrap. MCP and Mihari start at 0.1.1
+in the release manifest, matching the manually tested prerelease line, so their
+first stable automatic patch is 0.1.2. Backend, frontend, and CLI versions come
+from their own manifests and must retain the latest authored values when
+reconciling branches. CLI npm publication is independent of GitHub Releases.
+
+The pre-merge rehearsal PR #135 was reconciled against gated main before its
+merge. Its resulting tree contains only the release-review audit note; generated
+pending plans and rehearsal version changes were removed. Historical rehearsal
+records remain available as evidence, independently of production release state.
+Production migrations already applied manually remain recorded and are not
+reapplied or repaired by this integration. The normal migration-history drift
+must not be resolved by resetting the database.
+
 ## One-time configuration
 
 Configure these in the Kioku GitHub repository before enabling production releases:
