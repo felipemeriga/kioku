@@ -6,6 +6,19 @@ import { detectGit } from "../lib/git.js";
 import { bad, info, ok, section, warn } from "../lib/banner.js";
 import { panel } from "../ui/panel.js";
 
+export function manabiStatusCode(
+  report: { code: string; observed_at: string },
+  now = Date.now()
+): string {
+  const age = now - Date.parse(report.observed_at);
+  if (
+    report.code === "connected" &&
+    (!Number.isFinite(age) || age > 90_000 || age < -90_000)
+  )
+    return "connection_report_stale — check the OS user service or re-run kioku init";
+  return report.code;
+}
+
 export async function status(): Promise<void> {
   const cfg = readConfig();
 
@@ -17,7 +30,11 @@ export async function status(): Promise<void> {
     const status = JSON.parse(
       readFileSync(join(configDir(), "manabi", "status.json"), "utf8")
     );
-    lines.push(`Manabi   ${status.code} (last observed ${status.observed_at})`);
+    lines.push(
+      `Manabi   ${manabiStatusCode(status)} (last observed ${
+        status.observed_at
+      })`
+    );
     for (const warning of status.warnings ?? [])
       lines.push(`Warning  ${warning.code} (observed ${warning.observed_at})`);
   } catch {

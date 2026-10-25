@@ -107,11 +107,24 @@ not stop Manabi, but sleep, shutdown, or logout can. It reconnects on return.
 
 Manabi keeps its credential and a small runtime snapshot under
 `~/.config/kioku/manabi` (or `$XDG_CONFIG_HOME/kioku/manabi`). It uses the current
-Node executable by absolute path when installed through npm; keep Node installed,
-and re-run init after moving/removing that installation. Standalone release builds
+Node executable through a stable absolute PATH link when available (for example,
+Homebrew’s `bin/node` link), so replacing that Node version does not strand the
+service on a deleted Cellar path. Keep Node installed; re-run init after moving
+or removing the installation entirely. Standalone release builds
 snapshot the Kioku executable instead and require no separate Node runtime. `kioku logout` clears the connection
 credential; the supervised process idles until the next init. Machine credentials
 only authorize presence and owned-repository inventory updates, not document or memory access.
+
+Heartbeat timeouts use a monotonic clock. Suspension or a substantial wall-clock
+change discards the old connection and reconnects. `status.json` holds the latest
+local report; `diagnostics.json` keeps only the last 50 status transitions, with
+codes and timestamps, without secrets or unbounded log growth. Storage failures
+do not stop retries. Credential rejection retries at the capped interval, but
+requires `kioku init` to repair registration. No process can connect while the
+machine is asleep, shut down, or offline. An explicitly stopped/disabled OS service
+stays under user control; Manabi does not reinstall itself or bypass that choice.
+On Windows, disable or unregister the scheduled task to stop it deliberately;
+ending its process alone is treated as a crash by the periodic watchdog.
 
 **Smart defaults**: no prompt when there's an obvious answer.
 
