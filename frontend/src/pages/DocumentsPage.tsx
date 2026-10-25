@@ -51,7 +51,6 @@ import {
   folderOptions,
   prefetchFolder,
 } from "../lib/folderQueries";
-import { qk } from "../lib/queryKeys";
 import DocumentCard from "../components/DocumentCard";
 import DocumentViewerDrawer from "../components/DocumentViewerDrawer";
 import MoveDialog from "../components/MoveDialog";
@@ -61,7 +60,7 @@ import BriefingHistoryPanel from "../components/BriefingHistoryPanel";
 import DocumentationPanel from "../components/DocumentationPanel";
 import StatusPanel from "../components/StatusPanel";
 import FolderIntegrationsDialog from "../components/FolderIntegrationsDialog";
-import { NotionSyncBanner } from "../components/NotionSyncBanner";
+import NotionFolderIndicator from "../components/NotionFolderIndicator";
 import { useToast, messageFromError } from "../components/ToastProvider";
 import { brand, fonts } from "../theme";
 import CornerCard from "../components/neo/CornerCard";
@@ -337,18 +336,6 @@ export default function DocumentsPage() {
     [subFoldersQuery.data]
   );
 
-  // Imperative refresh used by the Notion sync-progress handler.
-  const loadSubFolders = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: qk.folders(currentFolderId) });
-  }, [queryClient, currentFolderId]);
-
-  // Refresh the file grid + subfolders as a Notion sync ingests new pages,
-  // so documents appear live without a manual reload.
-  const handleSyncProgress = useCallback(() => {
-    loadDocuments();
-    loadSubFolders();
-  }, [loadDocuments, loadSubFolders]);
-
   // Breadcrumbs for the current folder (empty at root). keepPreviousData so the
   // strip doesn't blank to "Home" while the next folder's path loads.
   const breadcrumbsQuery = useQuery({
@@ -548,6 +535,9 @@ export default function DocumentsPage() {
               {currentFolderId
                 ? breadcrumbs.at(-1)?.name ?? "Loading folder…"
                 : "All documents"}
+              {currentFolderId && (
+                <NotionFolderIndicator folderId={currentFolderId} />
+              )}
             </Typography>
             <Typography sx={{ mt: 1, color: brand.muted, fontSize: 16 }}>
               {currentFolderIsRepo
@@ -622,16 +612,6 @@ export default function DocumentsPage() {
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
       >
-        {/* Notion sync status for the current folder's root — live progress
-          while a sync runs, last-synced/error when idle, nothing otherwise. */}
-        {currentFolderId && (
-          <NotionSyncBanner
-            key={currentFolderId}
-            folderId={currentFolderId}
-            onPagesSynced={handleSyncProgress}
-          />
-        )}
-
         {/* Small recorder chip — full-page drop overlay handles file uploads */}
         <Stack
           className="upload-strip"
@@ -1000,6 +980,7 @@ export default function DocumentsPage() {
                           }}
                         >
                           {folder.name}
+                          <NotionFolderIndicator folderId={folder.id} />
                         </Typography>
                         <Typography
                           sx={{
