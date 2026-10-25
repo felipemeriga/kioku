@@ -3,7 +3,7 @@
  *
  * Layout: SectionRail (left 210px) + reading column (max 820px).
  * Sections 01–02 (overview, architecture) are always expanded.
- * Sections 03–08 collapse to a one-line row; click to expand.
+ * Remaining sections collapse to a one-line row; click to expand.
  *
  * All edit / pin / reset / regenerate handlers are preserved.
  */
@@ -55,10 +55,8 @@ const SECTION_TITLES: Record<BriefingSectionKey, string> = {
   overview: "Overview",
   architecture: "Architecture",
   preferences: "Preferences",
-  important_files: "Important files",
   how_it_runs: "How it runs",
   deployment: "Deployment",
-  dependencies: "Dependencies",
   activity: "Activity",
 };
 
@@ -67,23 +65,18 @@ const SECTION_DESCRIPTIONS: Record<BriefingSectionKey, string> = {
   architecture:
     "How the system fits together — subsystems, boundaries, data flow.",
   preferences: "Repository working conventions and preferences.",
-  important_files: "3–8 files a fresh agent would want to open first.",
-  how_it_runs: "Local dev requirements + setup + run commands.",
+  how_it_runs: "Prerequisites, setup, run modes, and checks.",
   deployment: "Environments, deploy steps, CI/CD notes.",
-  dependencies:
-    "Auto-parsed from manifests (package.json, pyproject.toml, etc).",
   activity: "Recent repository activity from git history.",
 };
 
-/** Colors cycling for sections 03–08 */
+/** Colors cycling for the remaining sections. */
 const SECTION_COLORS: Record<BriefingSectionKey, string> = {
   overview: brand.cyan,
   architecture: brand.magenta,
   preferences: brand.violet2,
-  important_files: brand.cyan,
   how_it_runs: brand.magenta,
   deployment: brand.violet2,
-  dependencies: brand.cyan,
   activity: brand.magenta,
 };
 
@@ -91,7 +84,6 @@ const SECTION_COLORS: Record<BriefingSectionKey, string> = {
 const EDITABLE_SECTIONS: BriefingSectionKey[] = [
   "overview",
   "architecture",
-  "important_files",
   "how_it_runs",
   "deployment",
 ];
@@ -134,13 +126,11 @@ export default function BriefingPanel({ folderId }: Props) {
   const [clearing, setClearing] = useState(false);
   const [activeRailIndex, setActiveRailIndex] = useState(0);
 
-  // collapsed state for sections 03–08 (keys: preferences..activity)
+  // Collapsed state for sections after the overview and architecture.
   const COLLAPSIBLE_KEYS: BriefingSectionKey[] = [
     "preferences",
-    "important_files",
     "how_it_runs",
     "deployment",
-    "dependencies",
     "activity",
   ];
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(
@@ -480,8 +470,8 @@ export default function BriefingPanel({ folderId }: Props) {
                           {section.status === "pinned"
                             ? "Pinned"
                             : section.status === "hybrid"
-                            ? "Mixed"
-                            : "Generated"}
+                              ? "Mixed"
+                              : "Generated"}
                         </Typography>
                         <Box
                           className="section-chevron"
@@ -675,8 +665,8 @@ function SectionHeading({
         {status === "pinned"
           ? "Pinned"
           : status === "hybrid"
-          ? "Mixed"
-          : "Generated"}
+            ? "Mixed"
+            : "Generated"}
       </Typography>
       <Tooltip title="Edit section">
         <IconButton size="small" onClick={onEdit}>
@@ -740,8 +730,8 @@ function OverviewContent({ section }: { section: BriefingSection }) {
       typeof obj.summary === "string"
         ? obj.summary
         : typeof obj.description === "string"
-        ? obj.description
-        : null;
+          ? obj.description
+          : null;
     if (lead) {
       return (
         <Typography
@@ -800,8 +790,8 @@ function ArchitectureContent({ section }: { section: BriefingSection }) {
           const steps = Array.isArray(it.steps)
             ? it.steps.map(String)
             : typeof it.steps === "string"
-            ? it.steps.split("->").map((s: string) => s.trim())
-            : [];
+              ? it.steps.split("->").map((s: string) => s.trim())
+              : [];
           return [{ label: it.label, steps }];
         }
         if (typeof item === "string" && item.includes("->")) {
@@ -954,8 +944,8 @@ function MetaLine({ section }: { section: BriefingSection }) {
     section.provenance === "agent_mcp"
       ? "Updated by an agent"
       : section.provenance === "user_ui"
-      ? "Edited in Kioku"
-      : "Generated";
+        ? "Edited in Kioku"
+        : "Generated";
   const when = section.updated_at
     ? new Date(section.updated_at).toLocaleDateString()
     : "";
@@ -1131,7 +1121,7 @@ function ObjectField({ label, value }: { label: string; value: unknown }) {
             mb: 0.4,
           }}
         >
-          {label}
+          {label === "requirements" ? "Before you start" : label}
         </Typography>
         <Stack spacing={0.4}>
           {value.map((v, i) => (
@@ -1167,7 +1157,7 @@ function ObjectField({ label, value }: { label: string; value: unknown }) {
             mb: 0.4,
           }}
         >
-          {label}
+          {label === "local_dev" ? "Run locally" : label}
         </Typography>
         <Typography
           sx={{

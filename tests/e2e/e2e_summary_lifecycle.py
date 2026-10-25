@@ -161,8 +161,8 @@ async def main():
         r = await c.get(f"{BACKEND}/api/folders/{repo_id}/briefing")
         check("repo: GET /briefing returns 200", r.status_code == 200, r.text[:200])
         body = r.json()
-        check("repo: /briefing has all 8 sections",
-              len(body.get("sections") or {}) == 8,
+        check("repo: /briefing has all 7 sections",
+              len(body.get("sections") or {}) == 7,
               f"got keys: {list((body.get('sections') or {}).keys())}")
 
         hr("═══ KIND 3: Container workspace (kind='workspace_rollup') ═══")

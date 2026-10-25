@@ -224,7 +224,9 @@ def _recent_changes(user_id: str, scope_folder_ids: list[str] | None) -> str:
         latest = get_latest_summary(sb, fid, user_id)
         if not latest:
             continue
-        sections = latest.get("sections") or (latest.get("content") or {}).get("sections") or {}
+        from services.folder_summary.briefing_schema import snapshot_sections
+
+        sections = snapshot_sections(latest)
         activity = sections.get("activity") or {}
         content = activity.get("content") or {}
         summary = content.get("summary")

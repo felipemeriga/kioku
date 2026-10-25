@@ -187,10 +187,8 @@ export const BRIEFING_SECTIONS = [
   "overview",
   "architecture",
   "preferences",
-  "important_files",
   "how_it_runs",
   "deployment",
-  "dependencies",
   "activity",
 ] as const;
 export type BriefingSectionKey = (typeof BRIEFING_SECTIONS)[number];
@@ -1005,66 +1003,6 @@ export async function listGitHubRepos(
     method: "POST",
     body: JSON.stringify({ token }),
   });
-  return res.json();
-}
-
-// ── Briefing version history ─────────────────────────────────────────────
-
-export interface BriefingVersionMeta {
-  id: string;
-  generated_at: string | null;
-  trigger: string | null;
-  updated_by: string | null;
-  content_hash: string | null;
-  changed_sections: string[];
-}
-
-export interface BriefingVersionDetail {
-  id: string;
-  generated_at: string | null;
-  trigger: string | null;
-  updated_by: string | null;
-  sections: Record<
-    string,
-    {
-      status: string;
-      content: unknown;
-      provenance: string;
-      updated_at: string;
-      updated_by: string | null;
-    }
-  >;
-}
-
-export async function fetchBriefingHistory(
-  folderId: string,
-  limit = 50,
-  offset = 0
-): Promise<BriefingVersionMeta[]> {
-  const res = await apiFetch(
-    `/api/folders/${folderId}/briefing/history?limit=${limit}&offset=${offset}`
-  );
-  return res.json();
-}
-
-export async function fetchBriefingVersion(
-  folderId: string,
-  versionId: string
-): Promise<BriefingVersionDetail> {
-  const res = await apiFetch(
-    `/api/folders/${folderId}/briefing/version/${versionId}`
-  );
-  return res.json();
-}
-
-export async function restoreBriefingVersion(
-  folderId: string,
-  versionId: string
-): Promise<{ ok: boolean; restored_from: string }> {
-  const res = await apiFetch(
-    `/api/folders/${folderId}/briefing/restore/${versionId}`,
-    { method: "POST" }
-  );
   return res.json();
 }
 

@@ -63,7 +63,6 @@ select = ["E", "F", "I", "W"]
 "db/seed.py" = ["E402"]
 "mcp_server.py" = ["E402"]
 "tests/test_briefing_history_repo.py" = ["E501"]
-"tests/test_briefing_history_route.py" = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

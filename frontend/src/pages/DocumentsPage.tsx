@@ -25,7 +25,6 @@ import {
   Skeleton,
 } from "@mui/material";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { keyframes } from "@mui/system";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import DeleteIcon from "@mui/icons-material/Delete";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
@@ -34,7 +33,6 @@ import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import DriveFileMoveIcon from "@mui/icons-material/DriveFileMove";
 import CloseIcon from "@mui/icons-material/Close";
-import StopIcon from "@mui/icons-material/Stop";
 import SearchIcon from "@mui/icons-material/Search";
 import GridViewIcon from "@mui/icons-material/GridView";
 import ViewListIcon from "@mui/icons-material/ViewList";
@@ -56,7 +54,6 @@ import DocumentViewerDrawer from "../components/DocumentViewerDrawer";
 import MoveDialog from "../components/MoveDialog";
 import IngestionDrawer from "../components/IngestionDrawer";
 import BriefingPanel from "../components/BriefingPanel";
-import BriefingHistoryPanel from "../components/BriefingHistoryPanel";
 import DocumentationPanel from "../components/DocumentationPanel";
 import StatusPanel from "../components/StatusPanel";
 import FolderIntegrationsDialog from "../components/FolderIntegrationsDialog";
@@ -67,12 +64,6 @@ import CornerCard from "../components/neo/CornerCard";
 
 const ACCEPTED_TYPES =
   ".txt,.text,.md,.markdown,.pdf,.docx,.html,.htm,.json,.yaml,.yml,.png,.jpg,.jpeg,.mp3,.webm,.m4a";
-
-const pulse = keyframes`
-  0% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(1.15); }
-  100% { opacity: 1; transform: scale(1); }
-`;
 
 export default function DocumentsPage() {
   const toast = useToast();
@@ -96,16 +87,10 @@ export default function DocumentsPage() {
     localStorage.setItem("kioku.documents.viewMode", viewMode);
   }, [viewMode]);
   const queryClient = useQueryClient();
-  const [folderTab, setFolderTab] = useState<
-    "files" | "briefing" | "status" | "history"
-  >("files");
+  const [folderTab, setFolderTab] = useState<"files" | "briefing" | "status">(
+    "files"
+  );
   const [viewerFile, setViewerFile] = useState<string | null>(null);
-
-  // Audio recording
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordingTime, setRecordingTime] = useState(0);
 
   // Folder navigation via URL search params (shared with ContextPanel)
   const [searchParams, setSearchParams] = useSearchParams();
@@ -210,72 +195,6 @@ export default function DocumentsPage() {
     return () => window.removeEventListener("new-folder", handler);
   }, []);
 
-  // Recording timer
-  useEffect(() => {
-    if (!isRecording) return;
-    const id = setInterval(() => setRecordingTime((t) => t + 1), 1000);
-    return () => clearInterval(id);
-  }, [isRecording]);
-
-  const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-
-      const mimeType = MediaRecorder.isTypeSupported("audio/webm")
-        ? "audio/webm"
-        : undefined;
-      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
-      mediaRecorderRef.current = recorder;
-
-      const chunks: BlobPart[] = [];
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunks.push(e.data);
-      };
-      recorder.onstop = () => {
-        const blob = new Blob(chunks, { type: recorder.mimeType });
-        const ext = recorder.mimeType.includes("webm") ? "webm" : "mp4";
-        const file = new File([blob], `recording-${Date.now()}.${ext}`, {
-          type: blob.type,
-        });
-        void uploadOne(file);
-        stream.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-        mediaRecorderRef.current = null;
-      };
-      recorder.start();
-      setRecordingTime(0);
-      setIsRecording(true);
-    } catch {
-      toast.show(
-        "Microphone access denied — please allow microphone permissions in your browser.",
-        "warning"
-      );
-    }
-  };
-
-  const stopRecording = () => {
-    mediaRecorderRef.current?.stop();
-    setIsRecording(false);
-  };
-
-  const handleMicClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (isRecording) {
-      stopRecording();
-    } else {
-      startRecording();
-    }
-  };
-
-  const formatTime = (seconds: number) => {
-    const m = Math.floor(seconds / 60)
-      .toString()
-      .padStart(2, "0");
-    const s = (seconds % 60).toString().padStart(2, "0");
-    return `${m}:${s}`;
-  };
-
   // Upload one file, toast on failure. Kept as a helper so the input picker
   // and drop handler both get identical error surfacing.
   const uploadOne = useCallback(
@@ -343,7 +262,7 @@ export default function DocumentsPage() {
     enabled: !!currentFolderId,
   });
   const breadcrumbs: Breadcrumb[] = currentFolderId
-    ? breadcrumbsQuery.data ?? []
+    ? (breadcrumbsQuery.data ?? [])
     : [];
 
   // Global drag-and-drop from OS: dim entire content area whenever the user
@@ -533,7 +452,7 @@ export default function DocumentsPage() {
               }}
             >
               {currentFolderId
-                ? breadcrumbs.at(-1)?.name ?? "Loading folder…"
+                ? (breadcrumbs.at(-1)?.name ?? "Loading folder…")
                 : "All documents"}
               {currentFolderId && (
                 <NotionFolderIndicator folderId={currentFolderId} />
@@ -612,7 +531,7 @@ export default function DocumentsPage() {
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
       >
-        {/* Small recorder chip — full-page drop overlay handles file uploads */}
+        {/* Full-page drop overlay handles file uploads. */}
         <Stack
           className="upload-strip"
           direction="row"
@@ -628,74 +547,16 @@ export default function DocumentsPage() {
             bgcolor: brand.surface2,
           }}
         >
-          <IconButton
-            aria-label={isRecording ? "Stop recording" : "Record audio"}
-            onClick={handleMicClick}
-            size="small"
+          <CloudUploadIcon aria-hidden="true" sx={{ color: brand.magenta }} />
+          <Typography
             sx={{
-              width: 32,
-              height: 32,
-              borderRadius: "3px",
-              bgcolor: isRecording
-                ? alpha(brand.red, 0.2)
-                : alpha(brand.purple, 0.14),
-              border: `1px solid ${
-                isRecording ? alpha(brand.red, 0.5) : alpha(brand.purple, 0.4)
-              }`,
-              color: isRecording ? brand.red : alpha(brand.purple, 1),
-              "&:hover": {
-                bgcolor: isRecording
-                  ? alpha(brand.red, 0.3)
-                  : alpha(brand.purple, 0.22),
-              },
+              fontFamily: fonts.body,
+              fontSize: "0.8rem",
+              color: brand.muted,
             }}
           >
-            {isRecording ? (
-              <StopIcon sx={{ fontSize: 16 }} />
-            ) : (
-              <Box
-                aria-hidden="true"
-                sx={{
-                  width: 10,
-                  height: 10,
-                  borderRadius: "50%",
-                  bgcolor: brand.magenta,
-                }}
-              />
-            )}
-          </IconButton>
-          {isRecording ? (
-            <Stack direction="row" spacing={0.75} alignItems="center">
-              <Box
-                sx={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: "50%",
-                  bgcolor: brand.red,
-                  animation: `${pulse} 1.2s ease-in-out infinite`,
-                }}
-              />
-              <Typography
-                sx={{
-                  color: brand.red,
-                  fontFamily: fonts.mono,
-                  fontSize: "0.82rem",
-                }}
-              >
-                {formatTime(recordingTime)}
-              </Typography>
-            </Stack>
-          ) : (
-            <Typography
-              sx={{
-                fontFamily: fonts.body,
-                fontSize: "0.8rem",
-                color: brand.muted,
-              }}
-            >
-              Record audio or drop files into this folder.
-            </Typography>
-          )}
+            Drop files into this folder, or use Upload.
+          </Typography>
         </Stack>
 
         {error && (
@@ -729,7 +590,6 @@ export default function DocumentsPage() {
             <Tab value="files" label="Files" />
             <Tab value="briefing" label="Briefing" />
             <Tab value="status" label="Status" />
-            <Tab value="history" label="History" />
           </Tabs>
         )}
 
@@ -1013,13 +873,6 @@ export default function DocumentsPage() {
 
         {currentFolderIsRepo && folderTab === "status" && currentFolderId && (
           <StatusPanel folderId={currentFolderId} />
-        )}
-
-        {currentFolderIsRepo && folderTab === "history" && currentFolderId && (
-          <BriefingHistoryPanel
-            key={currentFolderId}
-            folderId={currentFolderId}
-          />
         )}
 
         {/* Documents grid */}

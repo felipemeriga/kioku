@@ -9,16 +9,30 @@ from services.folder_summary.briefing_schema import (
 
 
 class TestDedupGate(unittest.TestCase):
-    def test_partial_canonical_sections_override_legacy_snapshot(self):
+    def test_atomic_mihari_content_update_overrides_stale_top_level_section(self):
         from services.folder_summary.briefing_schema import snapshot_sections
 
         row = {
-            "content": {"sections": self._sections("old")},
-            "sections": {"overview": new_section("current")},
+            "content": {"sections": self._sections("current")},
+            "sections": {"overview": new_section("stale")},
         }
         merged = snapshot_sections(row)
-        self.assertEqual(merged["overview"]["content"], "current")
+        self.assertEqual(merged["overview"]["content"]["purpose"], "current")
         self.assertIn("architecture", merged)
+
+    def test_retired_sections_in_old_snapshot_stay_archived_but_are_not_exposed(self):
+        from services.folder_summary.briefing_schema import snapshot_sections
+
+        old = self._sections("old")
+        old["important_files"] = new_section([{"path": "old.py"}])
+        old["dependencies"] = new_section({"runtime": ["Old"]})
+        row = {"content": {"sections": old}}
+
+        current = snapshot_sections(row)
+
+        self.assertNotIn("important_files", current)
+        self.assertNotIn("dependencies", current)
+        self.assertIn("important_files", row["content"]["sections"])
 
     def _sections(self, purpose):
         s = empty_briefing()

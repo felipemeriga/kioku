@@ -31,13 +31,6 @@ const staleBriefingFixture: BriefingResponse = {
       updated_at: "2026-01-01T00:00:00Z",
       updated_by: null,
     },
-    important_files: {
-      content: null,
-      status: "auto",
-      provenance: "auto",
-      updated_at: "2026-01-01T00:00:00Z",
-      updated_by: null,
-    },
     how_it_runs: {
       content: null,
       status: "auto",
@@ -46,13 +39,6 @@ const staleBriefingFixture: BriefingResponse = {
       updated_by: null,
     },
     deployment: {
-      content: null,
-      status: "auto",
-      provenance: "auto",
-      updated_at: "2026-01-01T00:00:00Z",
-      updated_by: null,
-    },
-    dependencies: {
       content: null,
       status: "auto",
       provenance: "auto",
