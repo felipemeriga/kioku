@@ -1,31 +1,31 @@
 import { createTheme } from "@mui/material/styles";
 
-/** Quiet signal: readable knowledge surfaces with Kioku's magenta/cyan identity. */
+/** Neon Tokyo: saturated signal colors over dark, readable knowledge surfaces. */
 export const brand = {
-  magenta: "#FF3E9D",
-  magentaDeep: "#D91C7E",
-  magentaGlow: "#FF98CB",
-  cyan: "#00E5F2",
-  cyanDeep: "#00BDCF",
-  purple: "#BEA0EF",
-  amber: "#F3CA82",
-  amberLight: "#FFDEA5",
-  green: "#97DBB0",
-  red: "#FF9BAF",
-  ink: "#0C0914",
-  inkDeep: "#09060F",
-  surface: "#171024",
-  surface2: "#110D1B",
-  raised: "#1C162A",
-  line: "#504060",
-  lineGlow: "#8A739E",
-  text: "#F4F0FA",
-  muted: "#D0C5E4",
-  dim: "#AC9BC4",
+  magenta: "#FF1493",
+  magentaDeep: "#CE0078",
+  magentaGlow: "#FF6DC5",
+  cyan: "#00F0FF",
+  cyanDeep: "#00BDDB",
+  purple: "#B347FF",
+  amber: "#FFC247",
+  amberLight: "#FFE095",
+  green: "#4FFF9A",
+  red: "#FF5D81",
+  ink: "#070510",
+  inkDeep: "#04020A",
+  surface: "#12091F",
+  surface2: "#0D0718",
+  raised: "#221035",
+  line: "#654B83",
+  lineGlow: "#B06AFF",
+  text: "#FAF7FF",
+  muted: "#E0D5F3",
+  dim: "#BEB0D7",
   chrome: "#E4DEED",
-  violet: "#FF3E9D",
-  violet2: "#BEA0EF",
-  violetDeep: "#D91C7E",
+  violet: "#FF1493",
+  violet2: "#B347FF",
+  violetDeep: "#CE0078",
 };
 const FONT_BODY =
   "'IBM Plex Sans', 'Noto Sans JP', -apple-system, BlinkMacSystemFont, sans-serif";
@@ -39,12 +39,9 @@ export const fonts = {
   jp: FONT_JP,
   dot: FONT_JP,
 };
-// Compatibility helpers keep existing semantic accents without decorative effects.
-export const neonGlow = (hex: string, intensity: 1 | 2 | 3 = 2): string => {
-  void hex;
-  void intensity;
-  return "none";
-};
+/** Restrained light on interactive edges; reading surfaces stay opaque. */
+export const neonGlow = (hex: string, intensity: 1 | 2 | 3 = 2): string =>
+  `0 0 ${6 * intensity}px ${hex}44, 0 0 ${14 * intensity}px ${hex}18`;
 export const scanlines = "none";
 export const STATUS_GLYPH = {
   pinned: { glyph: "●", color: brand.magenta, glow: "none" },
@@ -164,7 +161,11 @@ const theme = createTheme({
         contained: {
           background: brand.magenta,
           color: brand.ink,
-          "&:hover": { background: brand.magentaGlow, boxShadow: "none" },
+          boxShadow: neonGlow(brand.magenta, 1),
+          "&:hover": {
+            background: brand.magentaGlow,
+            boxShadow: neonGlow(brand.magenta, 2),
+          },
         },
         outlined: {
           borderColor: brand.lineGlow,
@@ -199,6 +200,7 @@ const theme = createTheme({
           "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
             borderColor: brand.cyan,
           },
+          "&.Mui-focused": { boxShadow: neonGlow(brand.cyan, 1) },
         },
       },
     },
@@ -228,8 +230,10 @@ const theme = createTheme({
           borderRadius: 4,
           margin: "2px 8px",
           "&.Mui-selected": {
-            background: `${brand.magenta}12`,
+            background: `${brand.magenta}20`,
             color: brand.text,
+            boxShadow: `inset 2px 0 ${brand.magenta}, 0 0 14px ${brand.magenta}16`,
+            outline: `1px solid ${brand.magenta}66`,
             "&:hover": { background: `${brand.magenta}20` },
           },
           "&:hover": { background: brand.raised },
@@ -248,10 +252,15 @@ const theme = createTheme({
           letterSpacing: 0,
           minHeight: 48,
           fontSize: "0.9375rem",
+          "&.Mui-selected": {
+            color: brand.cyan,
+            textShadow: `0 0 12px ${brand.cyan}44`,
+          },
         },
       },
     },
     MuiTabs: {
+      styleOverrides: { indicator: { boxShadow: neonGlow(brand.cyan, 1) } },
       defaultProps: {
         variant: "scrollable",
         scrollButtons: "auto",

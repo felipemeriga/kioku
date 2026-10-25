@@ -908,9 +908,12 @@ export default function DocumentsPage() {
                           dragOverFolderId === folder.id
                             ? alpha(brand.magenta, 0.1)
                             : brand.surface,
+                        border: `1px solid ${folderColor}88`,
                         transition: "all 0.15s ease",
                         "&:hover": {
-                          bgcolor: alpha(folderColor, 0.06),
+                          borderColor: folderColor,
+                          boxShadow: `0 0 16px ${folderColor}28`,
+                          bgcolor: brand.surface,
                           "& .folder-card-delete": { opacity: 1 },
                         },
                       }}

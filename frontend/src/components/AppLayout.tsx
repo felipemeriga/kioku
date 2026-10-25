@@ -17,6 +17,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import MenuOpenIcon from "@mui/icons-material/MenuOpen";
 import { brand } from "../theme";
+import NeoAtmosphere from "./neo/NeoAtmosphere";
 import IconRail, { type AppPage } from "./IconRail";
 import ContextPanel from "./ContextPanel";
 import { useAuth } from "../hooks/useAuth";
@@ -146,6 +147,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         id="main-content"
         sx={{
           flex: 1,
+          position: "relative",
+          isolation: "isolate",
           minWidth: 0,
           display: "flex",
           flexDirection: "column",
@@ -153,6 +156,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           overflowX: "hidden",
         }}
       >
+        <NeoAtmosphere />
         {mobile && showPanel && (
           <Box
             sx={{

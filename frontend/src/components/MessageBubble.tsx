@@ -282,7 +282,7 @@ export default function MessageBubble({
               px: { xs: 2, sm: 3 },
               py: 2.5,
               width: "100%",
-              border: `1px solid ${brand.lineGlow}`,
+              border: `1px solid ${brand.cyan}99`,
               bgcolor: brand.surface,
               borderRadius: 2,
             }}
