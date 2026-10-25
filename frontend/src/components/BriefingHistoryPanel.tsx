@@ -59,80 +59,63 @@ interface SectionDiffProps {
 
 function SectionDiff({ sectionKey, oldText, newText }: SectionDiffProps) {
   const parts = diffLines(oldText, newText);
-  const hasChanges = parts.some((p) => p.added || p.removed);
-
   return (
-    <Box data-testid={`diff-${sectionKey}`} sx={{ mb: 2 }}>
+    <Box
+      data-testid={`diff-${sectionKey}`}
+      sx={{ mb: 3, pb: 3, borderBottom: `1px solid ${brand.line}` }}
+    >
       <Typography
+        component="h3"
         sx={{
-          fontFamily: fonts.mono,
-          fontSize: 13,
+          fontSize: 17,
           fontWeight: 600,
-          letterSpacing: 0,
-          textTransform: "none",
-          color: hasChanges ? brand.cyan : brand.muted,
-          mb: 0.5,
+          textTransform: "capitalize",
+          mb: 1.5,
         }}
       >
-        {sectionKey}
-        {!hasChanges && (
-          <Box
-            component="span"
-            sx={{ ml: 1, color: brand.dim, fontWeight: 400 }}
-          >
-            — unchanged
-          </Box>
-        )}
+        {sectionKey.replaceAll("_", " ")}
       </Typography>
-      {hasChanges && (
-        <Box
-          sx={{
-            fontFamily: fonts.mono,
-            fontSize: 12,
-            lineHeight: 1.5,
-            border: `1px solid ${brand.line}`,
-            borderRadius: 1,
-            overflow: "hidden",
-          }}
-        >
-          {parts.map((part, i) => {
-            if (!part.added && !part.removed) return null;
-            const bg = part.added ? `${brand.green}18` : `${brand.magenta}18`;
-            const color = part.added ? brand.green : brand.magenta;
-            const prefix = part.added ? "+" : "-";
-            return (
-              <Box
-                key={i}
-                component="pre"
-                sx={{
-                  m: 0,
-                  px: 1.5,
-                  py: 0.25,
-                  backgroundColor: bg,
-                  color,
-                  fontFamily: "inherit",
-                  fontSize: "inherit",
-                  whiteSpace: "pre-wrap",
-                  wordBreak: "break-word",
-                }}
-              >
-                {part.value
-                  .replace(/\n$/, "")
-                  .split("\n")
-                  .map((line, li) => (
-                    <span key={li}>
-                      {`${prefix} `}
-                      {line}
-                      {li <
-                        part.value.replace(/\n$/, "").split("\n").length -
-                          1 && <br />}
-                    </span>
-                  ))}
-              </Box>
-            );
-          })}
-        </Box>
-      )}
+      {parts
+        .filter((part) => part.added || part.removed)
+        .map((part, index) => (
+          <Box
+            key={index}
+            sx={{
+              mt: 1.5,
+              p: "13px 16px",
+              borderLeft: `2px solid ${
+                part.added ? brand.green : brand.magenta
+              }`,
+              bgcolor: part.added ? `${brand.green}09` : `${brand.magenta}09`,
+            }}
+          >
+            <Typography sx={{ fontSize: 12, color: brand.muted, mb: 1 }}>
+              {part.added ? "Current" : "Previous"}
+            </Typography>
+            <Box
+              component="pre"
+              sx={{
+                m: 0,
+                fontFamily: fonts.body,
+                fontSize: 14,
+                lineHeight: 1.7,
+                whiteSpace: "pre-wrap",
+                overflowWrap: "anywhere",
+                color: brand.text,
+              }}
+            >
+              {part.value
+                .replace(/\n$/, "")
+                .split("\n")
+                .map((line, index, lines) => (
+                  <span key={index}>
+                    {`${part.added ? "+" : "-"} ${line}`}
+                    {index < lines.length - 1 && <br />}
+                  </span>
+                ))}
+            </Box>
+          </Box>
+        ))}
     </Box>
   );
 }
@@ -322,6 +305,13 @@ export default function BriefingHistoryPanel({ folderId }: Props) {
         )
       : [];
 
+  const changedKeys = allKeys.filter(
+    (key) =>
+      serializeSection(olderVersion?.sections[key]?.content ?? null) !==
+      serializeSection(newerVersion?.sections[key]?.content ?? null)
+  );
+  const unchangedKeys = allKeys.filter((key) => !changedKeys.includes(key));
+
   // The latest real pair is shown initially; clicking a row inspects it.
   return (
     <Box className="history-panel">
@@ -475,7 +465,7 @@ export default function BriefingHistoryPanel({ folderId }: Props) {
                     Compare versions
                   </Button>
                 )}
-                {v0Id && (
+                {v0Id && manualSelection.length > 0 && (
                   <Button
                     data-testid={`restore-${v0Id}`}
                     variant="outlined"
@@ -545,7 +535,7 @@ export default function BriefingHistoryPanel({ folderId }: Props) {
                 </Box>
               ) : (
                 <Box>
-                  {allKeys.map((key) => (
+                  {changedKeys.map((key) => (
                     <SectionDiff
                       key={key}
                       sectionKey={key}
@@ -557,6 +547,55 @@ export default function BriefingHistoryPanel({ folderId }: Props) {
                       )}
                     />
                   ))}
+                  {unchangedKeys.length > 0 && (
+                    <Box
+                      component="details"
+                      sx={{
+                        borderTop: `1px solid ${brand.line}`,
+                        pt: 2.5,
+                        mt: 2.5,
+                      }}
+                    >
+                      <Box
+                        component="summary"
+                        sx={{
+                          fontSize: 16,
+                          cursor: "pointer",
+                          color: brand.text,
+                        }}
+                      >
+                        {unchangedKeys.length} unchanged{" "}
+                        {unchangedKeys.length === 1 ? "section" : "sections"}
+                      </Box>
+                      {unchangedKeys.map((key) => (
+                        <Box key={key} sx={{ pt: 2 }}>
+                          <Typography
+                            component="h3"
+                            sx={{
+                              fontSize: 16,
+                              fontWeight: 600,
+                              textTransform: "capitalize",
+                            }}
+                          >
+                            {key.replaceAll("_", " ")}
+                          </Typography>
+                          <Box
+                            sx={{
+                              fontSize: 14,
+                              lineHeight: 1.7,
+                              color: brand.muted,
+                              whiteSpace: "pre-wrap",
+                              mt: 1,
+                            }}
+                          >
+                            {serializeSection(
+                              newerVersion?.sections[key]?.content ?? null
+                            )}
+                          </Box>
+                        </Box>
+                      ))}
+                    </Box>
+                  )}
                 </Box>
               )}
             </Box>
