@@ -18,11 +18,10 @@ from __future__ import annotations
 import logging
 import os
 import re as _re
-from datetime import datetime, timezone
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -31,14 +30,11 @@ from db.client import get_supabase
 from services.folder_summary.briefing_schema import (
     BRIEFING_SCHEMA_VERSION,
     SECTION_KEYS,
-    briefing_content_hash,
-    changed_sections,
     empty_briefing,
     new_section,
-    snapshot_sections,
 )
 from services.folder_summary.persistence import persist_sections as _persist_sections
-from services.folder_summary.repo import get_folder, get_latest_summary, list_summaries
+from services.folder_summary.repo import get_folder, get_latest_summary
 
 router = APIRouter(prefix="/api/folders")
 logger = logging.getLogger(__name__)
@@ -68,16 +64,12 @@ def _current_briefing(sb, folder_id: str, user_id: str) -> dict:
     latest = get_latest_summary(sb, folder_id, user_id)
     if not latest:
         return empty_briefing()
-    # Two stores exist: the top-level `sections` column (canonical) and
-    # content.sections (compat / full snapshot). The top-level column can end up
-    # PARTIAL — e.g. a Mihari activity write leaves only {activity} on a row
-    # whose content.sections still holds the full briefing. Merge them:
-    # content.sections as the base, top-level overriding per key. This surfaces
-    # the complete briefing and prefers the canonical column where present.
+    # Mihari atomically patches content.sections without updating the optional
+    # top-level column. Let content win while top-level fills legacy gaps.
     content_sections = (latest.get("content") or {}).get("sections") or {}
     top_sections = latest.get("sections") or {}
-    merged = {**content_sections, **top_sections}
-    return merged or empty_briefing()
+    merged = {**top_sections, **content_sections}
+    return {key: merged[key] for key in SECTION_KEYS if key in merged} or empty_briefing()
 
 
 @router.get("/{folder_id}/briefing/schema")
@@ -109,13 +101,13 @@ async def briefing_schema():
                 "shape": {"rules": ["str"]},
                 "notes": ("Repository conventions maintained through briefing section updates."),
             },
-            "important_files": {
-                "shape": [{"path": "str", "role": "str", "why": "str"}],
-                "notes": "3-8 files an agent would want to open first.",
-            },
             "how_it_runs": {
                 "shape": {"requirements": ["str"], "local_dev": "str (multi-line ok)"},
-                "notes": "Requirements list + local dev setup commands.",
+                "notes": (
+                    "A readable, grounded guide: prerequisites, setup, distinct run modes or "
+                    "services, and verification commands. Explain what each command does; "
+                    "use real repo paths and avoid a terse command dump."
+                ),
             },
             "deployment": {
                 "shape": {
@@ -124,10 +116,6 @@ async def briefing_schema():
                     "ci_cd_notes": "str",
                 },
                 "notes": "Where it runs in production + how deploys happen.",
-            },
-            "dependencies": {
-                "shape": {"runtime": ["str"], "services": ["str"]},
-                "notes": "Auto-populated from manifests. Runtime deps + external services.",
             },
             "activity": {
                 "shape": {"summary": "str", "highlights": ["str"]},
@@ -205,7 +193,7 @@ def _index_status(
     g = graph[0] if graph else {}
     content_sections = ((latest or {}).get("content") or {}).get("sections") or {}
     top_sections = (latest or {}).get("sections") or {}
-    sections = {**content_sections, **top_sections}
+    sections = {**top_sections, **content_sections}
     arch = sections.get("architecture") or {}
     over = sections.get("overview") or {}
     return {
@@ -428,100 +416,3 @@ async def update_briefing_section(
     )
     _persist_sections(sb, folder_id=folder_id, user_id=user_id, sections=sections)
     return {"ok": True, "section": sections[section_name]}
-
-
-@router.get("/{folder_id}/briefing/history")
-async def briefing_history(
-    folder_id: str,
-    limit: int = Query(default=50, ge=1, le=100),
-    offset: int = Query(default=0, ge=0),
-    user_id: str = Depends(get_current_user),
-):
-    sb = get_supabase()
-    _folder_must_be_repo(sb, folder_id, user_id)
-    rows = list_summaries(sb, folder_id, user_id, limit=limit + 1, offset=offset)
-    out = []
-    for i, row in enumerate(rows[:limit]):
-        cur = snapshot_sections(row)
-        nxt = rows[i + 1] if i + 1 < len(rows) else None
-        prev = snapshot_sections(nxt) if nxt else None
-        out.append(
-            {
-                "id": row["id"],
-                "generated_at": row.get("generated_at"),
-                "trigger": row.get("trigger"),
-                "updated_by": _snapshot_author(cur),
-                "content_hash": row.get("content_hash") or briefing_content_hash(cur),
-                "changed_sections": changed_sections(prev, cur),
-            }
-        )
-    return out
-
-
-@router.get("/{folder_id}/briefing/version/{version_id}")
-async def briefing_version(
-    folder_id: str,
-    version_id: str,
-    user_id: str = Depends(get_current_user),
-):
-    sb = get_supabase()
-    _folder_must_be_repo(sb, folder_id, user_id)
-    r = (
-        sb.table("folder_summaries")
-        .select("*")
-        .eq("id", version_id)
-        .eq("folder_id", folder_id)
-        .eq("user_id", user_id)
-        .limit(1)
-        .execute()
-    )
-    if not r.data:
-        raise HTTPException(status_code=404, detail="Version not found")
-    row = r.data[0]
-    sections = snapshot_sections(row)
-    return {
-        "id": row["id"],
-        "generated_at": row.get("generated_at"),
-        "trigger": row.get("trigger"),
-        "updated_by": _snapshot_author(sections),
-        "sections": sections,
-    }
-
-
-@router.post("/{folder_id}/briefing/restore/{version_id}")
-async def briefing_restore(
-    folder_id: str,
-    version_id: str,
-    user_id: str = Depends(get_current_user),
-):
-    sb = get_supabase()
-    _folder_must_be_repo(sb, folder_id, user_id)
-    r = (
-        sb.table("folder_summaries")
-        .select("*")
-        .eq("id", version_id)
-        .eq("folder_id", folder_id)
-        .eq("user_id", user_id)
-        .limit(1)
-        .execute()
-    )
-    if not r.data:
-        raise HTTPException(status_code=404, detail="Version not found")
-    sections = {
-        key: {
-            **value,
-            "provenance": "user_ui",
-            "updated_by": user_id,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }
-        for key, value in snapshot_sections(r.data[0]).items()
-    }
-    _persist_sections(
-        sb, folder_id=folder_id, user_id=user_id, sections=sections, trigger="restore"
-    )
-    return {"ok": True, "restored_from": version_id}
-
-
-def _snapshot_author(sections: dict) -> str | None:
-    latest = max(sections.values(), key=lambda section: section.get("updated_at") or "", default={})
-    return latest.get("updated_by")

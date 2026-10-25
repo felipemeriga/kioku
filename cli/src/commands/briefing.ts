@@ -23,10 +23,8 @@ const SECTION_ORDER = [
   "overview",
   "architecture",
   "preferences",
-  "important_files",
   "how_it_runs",
   "deployment",
-  "dependencies",
   "activity",
   "documentation",
 ] as const;
@@ -35,10 +33,8 @@ const SECTION_TITLES: Record<string, string> = {
   overview: "Overview",
   architecture: "Architecture",
   preferences: "Preferences",
-  important_files: "Important files",
   how_it_runs: "How it runs",
   deployment: "Deployment",
-  dependencies: "Dependencies",
   activity: "Activity",
   documentation: "Documentation",
 };
@@ -47,10 +43,7 @@ export async function briefing(opts: Opts): Promise<void> {
   const repoRoot = resolve(process.cwd());
   const statePath = join(repoRoot, ".claude", "kioku-state.json");
   if (!existsSync(statePath)) {
-    warn(
-      "This repo hasn't been initialized.",
-      "Run: kioku init",
-    );
+    warn("This repo hasn't been initialized.", "Run: kioku init");
     process.exitCode = 1;
     return;
   }
@@ -72,22 +65,27 @@ export async function briefing(opts: Opts): Promise<void> {
   }
 
   // Pretty text output
-  sectionHeading(`Briefing · ${b.folder.name}  ${kleur.dim(
-    "(" + b.folder.kind + " · " + (b.folder.id.slice(0, 8)) + "…)",
-  )}`);
+  sectionHeading(
+    `Briefing · ${b.folder.name}  ${kleur.dim(
+      "(" + b.folder.kind + " · " + b.folder.id.slice(0, 8) + "…)"
+    )}`
+  );
   info(
     b.last_generated_at
       ? `Last generated ${formatRelative(new Date(b.last_generated_at))}`
-      : "No prior generation",
+      : "No prior generation"
   );
   console.log();
 
   // If the user asked for a specific section, validate it BEFORE
   // rendering so a typo produces an actionable error instead of silent
   // success with no output.
-  if (opts.section && !SECTION_ORDER.includes(opts.section as (typeof SECTION_ORDER)[number])) {
+  if (
+    opts.section &&
+    !SECTION_ORDER.includes(opts.section as (typeof SECTION_ORDER)[number])
+  ) {
     throw new Error(
-      `Unknown section '${opts.section}'. Valid: ${SECTION_ORDER.join(", ")}`,
+      `Unknown section '${opts.section}'. Valid: ${SECTION_ORDER.join(", ")}`
     );
   }
   const keys = opts.section ? [opts.section] : SECTION_ORDER;
@@ -99,7 +97,7 @@ export async function briefing(opts: Opts): Promise<void> {
 
   console.log();
   info(
-    "Edit a section: kioku briefing --section <name> --json  |  or edit in the web UI.",
+    "Edit a section: kioku briefing --section <name> --json  |  or edit in the web UI."
   );
 }
 
@@ -107,7 +105,8 @@ function printSection(key: string, s: BriefingSection): void {
   const title = SECTION_TITLES[key] ?? key;
   const titleLine = `${title}  ${statusChip(s.status)} ${kleur.dim("· " + provenanceLabel(s.provenance))}`;
   const rendered = renderContent(s.content);
-  const body = rendered.trim() === "" ? kleur.dim("(not filled in yet)") : rendered;
+  const body =
+    rendered.trim() === "" ? kleur.dim("(not filled in yet)") : rendered;
   console.log(panel({ title: titleLine, body }));
 }
 
@@ -123,7 +122,11 @@ function statusChip(status: BriefingSection["status"]): string {
 }
 
 function provenanceLabel(p: BriefingSection["provenance"]): string {
-  return p === "user_ui" ? "you (UI)" : p === "agent_mcp" ? "agent (MCP)" : "auto";
+  return p === "user_ui"
+    ? "you (UI)"
+    : p === "agent_mcp"
+      ? "agent (MCP)"
+      : "auto";
 }
 
 function renderContent(content: unknown): string {

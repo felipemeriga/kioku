@@ -512,9 +512,9 @@ The SessionStart hook fetches your briefing automatically.
 
 If you want to reload the briefing manually:
 
-- \`get_folder_briefing()\` — 9-section briefing for this repo
-  (overview, architecture, preferences, important_files, how_it_runs,
-   deployment, dependencies, activity, documentation)
+- \`get_folder_briefing()\` — 7-section briefing for this repo
+  (overview, architecture, preferences, how_it_runs, deployment, activity,
+   documentation)
 - \`get_folder_orientation()\` — broader context for this repo's
   folder subtree
 - \`list_folders_in_scope()\` — see what folders exist under this

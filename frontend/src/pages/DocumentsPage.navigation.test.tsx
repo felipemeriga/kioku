@@ -132,4 +132,33 @@ describe("folder browser history", () => {
       "/documents?folder=child"
     );
   });
+
+  it("offers file drop and current repo tabs without recording or briefing history", async () => {
+    const repo = {
+      ...parent,
+      id: "repo",
+      name: "Repository",
+      kind: "repo" as const,
+    };
+    vi.spyOn(api, "fetchFolders").mockImplementation(async (id) =>
+      id ? [] : [repo]
+    );
+    vi.spyOn(api, "fetchBreadcrumbs").mockResolvedValue([repo]);
+    renderWithProviders(<Navigation surface="grid" />, {
+      initialEntries: ["/documents?folder=repo"],
+    });
+
+    expect(
+      await screen.findByText("Drop files into this folder, or use Upload.")
+    ).toBeInTheDocument();
+    expect(await screen.findByRole("tab", { name: "Files" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Briefing" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Status" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("tab", { name: "History" })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Record audio" })
+    ).not.toBeInTheDocument();
+  });
 });

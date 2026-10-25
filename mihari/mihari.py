@@ -58,21 +58,26 @@ TRIGGER_PORT = int(
 )
 _pass_lock = threading.Lock()
 
-# Which files drive which concrete briefing section. refresh_sections folds a
+# Which files drive each retained concrete briefing section. refresh_sections folds a
 # section's changed files back into it (auto-maintained, like activity); the
 # holistic sections (architecture/overview) are only warned about, never folded.
 SECTION_PATH_RULES: dict[str, list[str]] = {
-    "dependencies": [
+    "deployment": [".github/workflows/", "deploy/", "dockerfile"],
+    "how_it_runs": [
+        "readme",
+        "docker-compose",
+        "compose.y",
+        "makefile",
+        "scripts/",
+        "run_",
+        ".env.example",
         "package.json",
-        "package-lock.json",
         "pyproject.toml",
-        "uv.lock",
         "cargo.toml",
         "go.mod",
         "requirements",
+        ".github/workflows/",
     ],
-    "deployment": [".github/workflows/", "deploy/", "dockerfile"],
-    "how_it_runs": ["docker-compose", "makefile", "scripts/", "run_", ".env.example"],
 }
 # architecture/overview go stale on broad source churn, not specific paths.
 ARCH_CHURN_THRESHOLD = 10
@@ -228,7 +233,7 @@ def compute_freshness(clone: Path, repo: dict, env: dict) -> None:
 
     stale: list[str] = []
     changed_total = 0
-    # dependencies/deployment/how_it_runs are AUTO-MAINTAINED by refresh_sections
+    # deployment/how_it_runs are AUTO-MAINTAINED by refresh_sections
     # (the mihari folds their changed files in), so they are not warned about
     # here — only the holistic sections below, which need a full regen.
 
@@ -322,9 +327,11 @@ def refresh_activity(clone: Path, repo: dict, old_sha: str | None, new_sha: str,
         log(f"{repo['remote_url']}: activity refresh failed — {exc}")
 
 
-def refresh_sections(clone: Path, repo: dict, env: dict, strict: bool = False) -> None:
+def refresh_sections(
+    clone: Path, repo: dict, env: dict, strict: bool = False, force_guide: bool = False
+) -> None:
     """Fold changed path-driven files into their concrete briefing sections
-    (dependencies/deployment/how_it_runs) via the backend (cheap Haiku) — the
+    (deployment/how_it_runs) via the backend (cheap Haiku) — the
     same treatment activity gets. Holistic sections (architecture/overview) are
     left for a full regen; compute_freshness only warns about those."""
     if not API_URL or not repo.get("api_key_encrypted"):
@@ -348,6 +355,8 @@ def refresh_sections(clone: Path, repo: dict, env: dict, strict: bool = False) -
 
     for section, rules in SECTION_PATH_RULES.items():
         sec = sections.get(section) or {}
+        if sec.get("status") == "pinned":
+            continue
         if not sec.get("content"):
             continue  # never generated — needs a full regen, not a diff fold
         since = sec.get("updated_at") or generated_at
@@ -360,16 +369,64 @@ def refresh_sections(clone: Path, repo: dict, env: dict, strict: bool = False) -
             continue
         changed = {line.strip() for line in out.split("\n") if line.strip()}
         matched = sorted(f for f in changed if any(r in f.lower() for r in rules))
+        guide_upgrade = (
+            section == "how_it_runs" and force_guide and sec.get("updated_by") != "mihari:guide-v2"
+        )
+        if guide_upgrade and not matched:
+            matched = [
+                path
+                for path in ("README.md", "readme.md", "Makefile", "pyproject.toml", "package.json")
+                if (clone / path).is_file()
+            ]
         if not matched:
             continue
         files = []
-        for f in matched[:8]:
+        for f in matched[: 5 if section == "how_it_runs" else 8]:
             p = clone / f
             try:
                 if p.is_file() and p.stat().st_size < 60_000:
-                    files.append({"path": f, "content": p.read_text(errors="replace")[:10000]})
+                    files.append(
+                        {
+                            "path": f,
+                            "content": p.read_text(errors="replace")[:2500],
+                            "role": "changed" if f in changed else "context",
+                        }
+                    )
             except OSError:
                 continue
+        if section == "how_it_runs":
+            # A diff alone rarely explains how a large repo runs. Include a
+            # bounded amount of stable setup context from the same checkout.
+            context_paths = [
+                "README.md",
+                "Makefile",
+                "docker-compose.yml",
+                "pyproject.toml",
+                "package.json",
+            ]
+            for changed_path in matched[:4]:
+                parent = Path(changed_path).parent
+                if parent != Path("."):
+                    context_paths.extend([str(parent / "README.md"), str(parent / "package.json")])
+            seen = {entry["path"] for entry in files}
+            for context_path in context_paths:
+                if len(files) >= 12:
+                    break
+                if context_path in seen:
+                    continue
+                candidate = clone / context_path
+                try:
+                    if candidate.is_file() and candidate.stat().st_size < 100_000:
+                        files.append(
+                            {
+                                "path": context_path,
+                                "content": candidate.read_text(errors="replace")[:4000],
+                                "role": "context",
+                            }
+                        )
+                        seen.add(context_path)
+                except OSError:
+                    continue
         if not files:
             continue
         try:
@@ -437,21 +494,11 @@ def maybe_reground_holistic(clone: Path, repo: dict, env: dict, force: bool = Fa
     if not force and (code != 0 or int(n or 0) < HOLISTIC_COMMITS_FLOOR):
         return  # not enough churn to bother
 
-    # Key files: prefer the important_files the briefing already identified.
-    imp = (sections.get("important_files") or {}).get("content") or []
-    paths: list[str] = []
-    if isinstance(imp, list):
-        paths = [i["path"] for i in imp if isinstance(i, dict) and i.get("path")]
-    if not paths:
-        for cand in (
-            "README.md",
-            "readme.md",
-            "pyproject.toml",
-            "package.json",
-            "go.mod",
-        ):
-            if (clone / cand).is_file():
-                paths.append(cand)
+    # Ground holistic refresh from durable entry points and manifests.
+    paths = []
+    for cand in ("README.md", "readme.md", "pyproject.toml", "package.json", "go.mod"):
+        if (clone / cand).is_file():
+            paths.append(cand)
     files = []
     for f in paths[:14]:
         p = clone / f
@@ -535,6 +582,7 @@ def process_repo(repo: dict, key_row: dict) -> None:
             if (clone / ".git").exists():
                 # Prose staleness moves when briefings regenerate, not only
                 # when the branch does — keep the freshness row current.
+                refresh_sections(clone, repo, git_env(kf.name), force_guide=True)
                 compute_freshness(clone, repo, git_env(kf.name))
             record({"last_error": None})
             return
@@ -649,7 +697,7 @@ def force_refresh(repo: dict, key_row: dict, target: str) -> None:
             raise RuntimeError("Code indexing failed; check mihari logs")
     elif target == "sections":
         log(f"{name}: force sections")
-        refresh_sections(clone, repo, plain_env, strict=True)
+        refresh_sections(clone, repo, plain_env, strict=True, force_guide=True)
         maybe_reground_holistic(clone, repo, plain_env, force=True)
     compute_freshness(clone, repo, plain_env)
 

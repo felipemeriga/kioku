@@ -130,19 +130,17 @@ async def main():
                           "description": "Written by e2e_recent_features."},
             "architecture": {"summary": "test", "components": [], "data_flow": ""},
             "preferences": {"rules": ["rule 1"]},
-            "important_files": [{"path": "a.py", "role": "test", "why": "why"}],
             "how_it_runs": {"requirements": ["Python 3.10"], "local_dev": "make dev"},
             "deployment": {"environments": ["prod"], "how_to_deploy": "docker",
                             "ci_cd_notes": "gh actions"},
-            "dependencies": {"runtime": ["FastAPI"], "services": ["Redis"]},
             "activity": {"recent_commits": [], "recent_prs": [], "recent_learnings": []},
         }
         result = await mcp(api_key, "replace_folder_briefing",
                             {"sections": json.dumps(payload), "pin_all": True})
         try:
             resp = json.loads(result)
-            check("MCP replace all 8 sections: ok",
-                  resp.get("ok") and len(resp.get("replaced") or []) == 8, result[:300])
+            check("MCP replace current 6 sections: ok",
+                  resp.get("ok") and len(resp.get("replaced") or []) == 6, result[:300])
         except Exception:
             check("MCP replace returned JSON", False, result[:300])
 
@@ -153,8 +151,8 @@ async def main():
         check("REST GET sees the MCP replacement",
               overview["content"]["purpose"] == "Recent feature test.",
               f"got: {overview['content']}")
-        check("all 8 sections tagged agent_mcp",
-              all(s["provenance"] == "agent_mcp" for s in b["sections"].values()),
+        check("six supplied sections tagged agent_mcp",
+              sum(s["provenance"] == "agent_mcp" for s in b["sections"].values()) == 6,
               f"provenances: {[s['provenance'] for s in b['sections'].values()]}")
 
         hr("D. Partial replace preserves untouched sections")

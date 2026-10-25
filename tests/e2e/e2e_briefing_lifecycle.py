@@ -1,8 +1,8 @@
 """End-to-end briefing lifecycle:
 
   1. Init a fresh test folder as a repo
-  2. Baseline: read empty briefing (all 8 sections auto)
-  3. Agent (MCP) replaces ALL 8 sections in one call → persisted, pinned
+  2. Baseline: read empty briefing (all 7 current sections auto)
+  3. Agent (MCP) replaces six authored sections in one call → persisted, pinned
   4. REST GET /briefing sees the replacement
   5. Agent updates ONE section via update_folder_briefing_section
   6. UI PATCH one section via /briefing/section/{name}
@@ -77,17 +77,17 @@ async def main():
         api_key = r.json()["key"]
         print(f"  api_key: {api_key[:16]}…  folder: {folder_id}")
 
-        hr("Step 2: baseline — read empty briefing (8 sections, all auto)")
+        hr("Step 2: baseline — read empty briefing (7 sections, all auto)")
         r = await c.get(f"{BACKEND}/api/folders/{folder_id}/briefing")
         base = r.json()
-        check("baseline briefing has 8 sections",
-              len(base.get("sections") or {}) == 8,
+        check("baseline briefing has 7 sections",
+              len(base.get("sections") or {}) == 7,
               f"got: {list((base.get('sections') or {}).keys())}")
         check("baseline sections all default status='auto'",
               all(s.get("status") == "auto" for s in base["sections"].values()),
               f"statuses: {[s.get('status') for s in base['sections'].values()]}")
 
-        hr("Step 3: MCP replace_folder_briefing — all 8 sections at once")
+        hr("Step 3: MCP replace_folder_briefing — current sections at once")
         new_briefing = {
             "overview": {
                 "purpose": "E2E lifecycle target.",
@@ -101,9 +101,6 @@ async def main():
                 "data_flow": "User → frontend → REST → agent → tools → response.",
             },
             "preferences": {"rules": ["use uv", "never use --amend on shared branches"]},
-            "important_files": [
-                {"path": "backend/main.py", "role": "FastAPI entry", "why": "route wiring"},
-            ],
             "how_it_runs": {
                 "requirements": ["Python 3.10", "Node 20", "Redis"],
                 "local_dev": "cd backend && uv run uvicorn main:app --reload",
@@ -113,7 +110,6 @@ async def main():
                 "how_to_deploy": "docker compose up -d --build",
                 "ci_cd_notes": ".github/workflows/deploy.yml",
             },
-            "dependencies": {"runtime": ["FastAPI", "Anthropic"], "services": ["Redis", "Supabase"]},
             "activity": {"recent_commits": [], "recent_prs": [], "recent_learnings": []},
         }
         result = await mcp_call(api_key, "replace_folder_briefing", {
@@ -121,8 +117,8 @@ async def main():
         })
         try:
             resp = json.loads(result)
-            check("MCP replace returned ok + 8 replaced",
-                  resp.get("ok") and len(resp.get("replaced") or []) == 8,
+            check("MCP replace returned ok + 6 replaced",
+                  resp.get("ok") and len(resp.get("replaced") or []) == 6,
                   result[:300])
         except Exception:
             check("MCP replace returned JSON", False, result[:300])
@@ -136,28 +132,25 @@ async def main():
               f"prov={ov.get('provenance')} status={ov.get('status')}")
         check("overview content matches", ov["content"]["purpose"] == "E2E lifecycle target.",
               str(ov["content"]))
-        # All 8 sections should now be pinned + agent_mcp
+        # All supplied sections should now be pinned + agent_mcp.
         pinned = sum(1 for s in b["sections"].values() if s.get("status") == "pinned")
-        check("all 8 sections now pinned", pinned == 8, f"got: {pinned}/8")
+        check("all 6 supplied sections now pinned", pinned == 6, f"got: {pinned}/6")
 
-        hr("Step 5: MCP updates ONE section (important_files)")
+        hr("Step 5: MCP updates ONE section (how_it_runs)")
         r_txt = await mcp_call(api_key, "update_folder_briefing_section", {
-            "section": "important_files",
-            "content": json.dumps([
-                {"path": "backend/mcp_server.py", "role": "MCP surface", "why": "tool wiring"},
-                {"path": "backend/routes/briefing.py", "role": "REST briefing", "why": "editor endpoints"},
-            ]),
+            "section": "how_it_runs",
+            "content": json.dumps({"requirements": ["Python 3.10"], "local_dev": "Run the backend with uv."}),
             "pin": True,
         })
         check("MCP update_folder_briefing_section landed", "Updated" in r_txt, r_txt[:200])
 
         r = await c.get(f"{BACKEND}/api/folders/{folder_id}/briefing")
         b = r.json()
-        imp = b["sections"]["important_files"]
-        check("important_files updated by agent_mcp",
-              imp["provenance"] == "agent_mcp"
-              and isinstance(imp["content"], list) and len(imp["content"]) == 2,
-              f"content: {imp['content']}")
+        run = b["sections"]["how_it_runs"]
+        check("how_it_runs updated by agent_mcp",
+              run["provenance"] == "agent_mcp"
+              and run["content"]["requirements"] == ["Python 3.10"],
+              f"content: {run['content']}")
 
         hr("Step 6: UI PATCHes one section (deployment)")
         new_deployment = {
@@ -185,30 +178,30 @@ async def main():
                              "sections": {
                                  "overview": {"purpose": "PUT-P", "description": "PUT-D"},
                                  "preferences": {"rules": ["PUT rule 1", "PUT rule 2"]},
-                                 "dependencies": {"runtime": ["PUT-A"], "services": ["PUT-B"]},
+                                 "activity": {"summary": "PUT activity", "highlights": []},
                              },
                              "pin_all": True,
                          })
         check("UI PUT partial replace: 200",
               r.status_code == 200
-              and r.json().get("replaced_sections") == ["overview", "preferences", "dependencies"],
+              and r.json().get("replaced_sections") == ["overview", "preferences", "activity"],
               r.text[:300])
         r = await c.get(f"{BACKEND}/api/folders/{folder_id}/briefing")
         b = r.json()
         check("PUT replaced overview",
               b["sections"]["overview"]["content"]["purpose"] == "PUT-P")
-        check("PUT preserved important_files from MCP update",
-              b["sections"]["important_files"]["content"][0]["path"] == "backend/mcp_server.py")
+        check("PUT preserved how_it_runs from MCP update",
+              b["sections"]["how_it_runs"]["content"]["requirements"] == ["Python 3.10"])
 
         hr("Step 8: reset a section — clears pinning, re-runs populator")
         r = await c.post(
-            f"{BACKEND}/api/folders/{folder_id}/briefing/section/dependencies/reset"
+            f"{BACKEND}/api/folders/{folder_id}/briefing/section/how_it_runs/reset"
         )
         check("reset returns ok", r.status_code == 200)
         r = await c.get(f"{BACKEND}/api/folders/{folder_id}/briefing")
-        deps = r.json()["sections"]["dependencies"]
-        check("after reset: status=auto", deps["status"] == "auto",
-              f"status={deps['status']}")
+        run = r.json()["sections"]["how_it_runs"]
+        check("after reset: status=auto", run["status"] == "auto",
+              f"status={run['status']}")
 
         hr("Step 9: verify mixed provenance in same briefing")
         r = await c.get(f"{BACKEND}/api/folders/{folder_id}/briefing")

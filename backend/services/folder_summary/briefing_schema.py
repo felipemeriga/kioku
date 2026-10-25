@@ -14,7 +14,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-BRIEFING_SCHEMA_VERSION = 1
+BRIEFING_SCHEMA_VERSION = 2
 
 SectionStatus = Literal["auto", "pinned", "hybrid"]
 Provenance = Literal["auto", "user_ui", "agent_mcp"]
@@ -25,10 +25,8 @@ SECTION_KEYS: list[str] = [
     "overview",
     "architecture",
     "preferences",
-    "important_files",
     "how_it_runs",
     "deployment",
-    "dependencies",
     "activity",
     "documentation",
 ]
@@ -67,7 +65,6 @@ def empty_briefing() -> dict[str, dict]:
             }
         ),
         "preferences": new_section({"rules": []}),
-        "important_files": new_section([]),
         "how_it_runs": new_section(
             {
                 "requirements": [],
@@ -79,12 +76,6 @@ def empty_briefing() -> dict[str, dict]:
                 "environments": [],
                 "how_to_deploy": "",
                 "ci_cd_notes": "",
-            }
-        ),
-        "dependencies": new_section(
-            {
-                "runtime": [],
-                "services": [],
             }
         ),
         "activity": new_section(
@@ -122,9 +113,14 @@ def _canonical(value: Any) -> str:
 
 
 def snapshot_sections(row: dict | None) -> dict:
-    """Merge legacy snapshot content with canonical per-section overrides."""
+    """Read current content after Mihari's atomic jsonb section updates.
+
+    Top-level sections are a fallback for older rows; Mihari updates
+    content.sections in place without rewriting that top-level column.
+    """
     row = row or {}
-    return {**((row.get("content") or {}).get("sections") or {}), **(row.get("sections") or {})}
+    merged = {**(row.get("sections") or {}), **((row.get("content") or {}).get("sections") or {})}
+    return {key: merged[key] for key in SECTION_KEYS if key in merged}
 
 
 def briefing_content_hash(sections: dict) -> str:

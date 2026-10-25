@@ -213,7 +213,9 @@ async def refresh_activity(body: ActivityRefreshRequest, request: Request):
     if not latest:
         return {"ok": True, "updated": False, "reason": "no briefing yet"}
 
-    sections = latest.get("sections") or ((latest.get("content") or {}).get("sections")) or {}
+    from services.folder_summary.briefing_schema import snapshot_sections
+
+    sections = snapshot_sections(latest)
     current_activity = (sections.get("activity") or {}).get("content") or {}
 
     import json as _json
@@ -269,12 +271,13 @@ async def refresh_activity(body: ActivityRefreshRequest, request: Request):
 # concrete, path-driven sections that a diff updates accurately. The holistic
 # sections (architecture/overview) still need a full regen and are only warned
 # about, never auto-written here.
-MIHARI_MAINTAINED_SECTIONS = {"dependencies", "deployment", "how_it_runs", "important_files"}
+MIHARI_MAINTAINED_SECTIONS = {"deployment", "how_it_runs"}
 
 
 class SectionFile(BaseModel):
     path: str = Field(max_length=400)
     content: str = Field(max_length=12000)
+    role: str = Field(default="changed", pattern="^(changed|context)$")
 
 
 class SectionRefreshRequest(BaseModel):
@@ -287,7 +290,7 @@ class SectionRefreshRequest(BaseModel):
 @router.post("/section")
 async def refresh_section(body: SectionRefreshRequest, request: Request):
     """Fold the CURRENT content of changed files into one concrete briefing
-    section (dependencies/deployment/how_it_runs/important_files) via a cheap
+    section (deployment/how_it_runs) via a cheap
     Haiku call — the same treatment activity gets, extended to the path-driven
     prose sections. Holistic sections (architecture/overview) are rejected;
     they need a full regen. Preserves the section's existing JSON shape."""
@@ -310,31 +313,52 @@ async def refresh_section(body: SectionRefreshRequest, request: Request):
     if not latest:
         return {"ok": True, "updated": False, "reason": "no briefing yet"}
 
-    sections = latest.get("sections") or ((latest.get("content") or {}).get("sections")) or {}
+    from services.folder_summary.briefing_schema import snapshot_sections
+
+    sections = snapshot_sections(latest)
     current = (sections.get(body.section) or {}).get("content")
+    if (sections.get(body.section) or {}).get("status") == "pinned":
+        return {"ok": True, "updated": False, "reason": "section pinned"}
     if current is None:
         # Nothing to update in place — a section that was never generated needs
         # the full regen path, not a diff fold.
         return {"ok": True, "updated": False, "reason": "section not present"}
+    if body.section == "how_it_runs" and isinstance(current, str):
+        current = {"requirements": [], "local_dev": current}
 
     import json as _json
 
     from services.llm import Task, complete
 
-    file_blobs = "\n\n".join(f"--- {f.path} ---\n{f.content}" for f in body.files)
+    file_blobs = "\n\n".join(f"--- {f.role.upper()}: {f.path} ---\n{f.content}" for f in body.files)
+    writing_guide = (
+        "For how_it_runs, write a useful human-readable operating guide for this actual "
+        "repository, within the existing {requirements, local_dev} shape. Use requirements "
+        "for concrete prerequisites with a short reason for each. In local_dev, explain "
+        "setup, distinct services or applications, their run commands, and how to verify "
+        "or test them. Group related commands into short paragraphs with plain headings; "
+        "explain what each command starts. Aim for roughly 250-450 words when the files "
+        "support it. Preserve verified details in the current section when changed files "
+        "do not contradict them. Do not invent commands, environment values, or services. "
+        if body.section == "how_it_runs"
+        else "Explain changed deployment behavior clearly without inventing steps. "
+    )
     prompt = (
         f"You maintain the `{body.section}` section of a repository briefing. "
         "Update it to reflect the CURRENT state of the files below (they changed "
-        "since the section was last written). Keep it accurate and concise, and "
+        "since the section was last written). Files marked CONTEXT are stable "
+        "references, not necessarily changed. "
+        f"{writing_guide}"
+        "Keep it accurate and readable, and "
         "return it in EXACTLY the same JSON shape as the current section — same "
         "keys, same structure — just with updated values.\n\n"
         f"CURRENT SECTION (JSON):\n{_json.dumps(current)[:6000]}\n\n"
-        f"CHANGED FILES:\n{file_blobs[:9000]}\n\n"
+        f"SOURCE FILES:\n{file_blobs[:18000]}\n\n"
         "Reply with ONLY the updated section as valid JSON, same shape as CURRENT."
     )
     response = complete(
         task=Task.FOLDER_SUMMARY_ROLLUP,
-        max_tokens=1500,
+        max_tokens=2400 if body.section == "how_it_runs" else 1500,
         system="You update repo briefing sections from source files. Output only valid JSON.",
         messages=[{"role": "user", "content": prompt}],
     )
@@ -345,6 +369,15 @@ async def refresh_section(body: SectionRefreshRequest, request: Request):
         new_content = _json.loads(text)
     except _json.JSONDecodeError:
         raise HTTPException(status_code=502, detail="section model returned invalid JSON")
+    if body.section == "how_it_runs":
+        if not isinstance(new_content, dict) or set(new_content) != set(current):
+            raise HTTPException(status_code=502, detail="section model changed briefing shape")
+        local_dev = new_content.get("local_dev")
+        requirements = new_content.get("requirements")
+        if not isinstance(local_dev, str) or not isinstance(requirements, list):
+            raise HTTPException(status_code=502, detail="section model changed how_it_runs types")
+        if len(local_dev.strip()) < 180:
+            return {"ok": True, "updated": False, "reason": "generated guide too short"}
 
     from services.folder_summary.briefing_schema import new_section
 
@@ -357,7 +390,10 @@ async def refresh_section(body: SectionRefreshRequest, request: Request):
             "p_user_id": user_id,
             "p_section": body.section,
             "p_value": new_section(
-                new_content, status="auto", provenance="auto", updated_by="mihari"
+                new_content,
+                status="auto",
+                provenance="auto",
+                updated_by="mihari:guide-v2" if body.section == "how_it_runs" else "mihari",
             ),
         },
     ).execute()
@@ -399,7 +435,9 @@ async def reground_holistic(body: RegroundRequest, request: Request):
     latest = get_latest_summary(sb, body.folder_id, user_id)
     if not latest:
         return {"ok": True, "updated": False, "reason": "no briefing yet"}
-    sections = latest.get("sections") or ((latest.get("content") or {}).get("sections")) or {}
+    from services.folder_summary.briefing_schema import snapshot_sections
+
+    sections = snapshot_sections(latest)
     cur_arch = (sections.get("architecture") or {}).get("content")
     cur_over = (sections.get("overview") or {}).get("content")
 

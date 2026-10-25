@@ -95,8 +95,8 @@ def test_index_status_reads_architecture_from_content_sections_only():
     assert out["architecture_by"] == "agent_mcp"
 
 
-def test_index_status_top_level_overrides_content_sections():
-    """When both stores have architecture, top-level takes precedence."""
+def test_index_status_content_overrides_stale_top_level_section():
+    """Mihari's atomic content.sections patch is visible in Status."""
     sb = _SB(
         {
             "repo_graph_meta": [],
@@ -114,15 +114,15 @@ def test_index_status_top_level_overrides_content_sections():
         "content": {
             "sections": {
                 "architecture": {
-                    "updated_at": "2026-10-05T12:00:00+00:00",
-                    "updated_by": "agent_mcp",
+                    "updated_at": "2026-10-07T12:00:00+00:00",
+                    "updated_by": "mihari",
                 },
             }
         },
     }
     out = briefing._index_status(sb, "f1", "u1", None, latest)
-    assert out["architecture_at"] == "2026-10-06T10:00:00+00:00"
-    assert out["architecture_by"] == "user_ui"
+    assert out["architecture_at"] == "2026-10-07T12:00:00+00:00"
+    assert out["architecture_by"] == "mihari"
 
 
 def test_index_status_handles_missing(monkeypatch):

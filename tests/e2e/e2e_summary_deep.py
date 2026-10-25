@@ -8,7 +8,7 @@
   F. Container: child folder gets a new summary → workspace rollup follows.
   G. Repo briefing: pinned sections survive auto-regen.
   H. Reset a pinned section → re-runs populator.
-  I. PUT full replace → REST verifies all 8 sections.
+  I. PUT full replace → REST verifies the current sections.
   J. Concurrent regens on same folder → arq _job_id collapses them.
   K. Invalid modes rejected.
 """
@@ -286,31 +286,29 @@ async def main():
         check("H. after reset, provenance='auto'",
               overview["provenance"] == "auto", f"prov={overview['provenance']}")
 
-        hr("I. PUT full replace: verifies all 8 sections + provenance='user_ui'")
+        hr("I. PUT full replace: verifies current sections + provenance='user_ui'")
         replacement = {
             "sections": {
                 "overview": {"purpose": "PUT-purpose", "description": "PUT-desc"},
                 "architecture": {"summary": "PUT", "components": [], "data_flow": ""},
                 "preferences": {"rules": ["rule from PUT"]},
-                "important_files": [{"path": "a.py", "role": "test", "why": "why"}],
                 "how_it_runs": {"requirements": [], "local_dev": "make dev"},
                 "deployment": {"environments": ["prod"], "how_to_deploy": "docker", "ci_cd_notes": ""},
-                "dependencies": {"runtime": ["FastAPI"], "services": ["Redis"]},
                 "activity": {"recent_commits": [], "recent_prs": [], "recent_learnings": []},
             },
             "pin_all": True,
         }
         r = await c.put(f"{BACKEND}/api/folders/{repo_id}/briefing", json=replacement)
-        check("I. PUT returns 200 + 8 replaced",
-              r.status_code == 200 and r.json().get("total_sections") == 8,
+        check("I. PUT returns 200 + 7 current sections",
+              r.status_code == 200 and r.json().get("total_sections") == 7,
               r.text[:200])
         r = await c.get(f"{BACKEND}/api/folders/{repo_id}/briefing")
         b = r.json()
         prov_counts: dict[str, int] = {}
         for s in b["sections"].values():
             prov_counts[s["provenance"]] = prov_counts.get(s["provenance"], 0) + 1
-        check("I. all 8 sections stamped provenance='user_ui'",
-              prov_counts.get("user_ui", 0) == 8, f"got: {prov_counts}")
+        check("I. all six supplied sections stamped provenance='user_ui'",
+              prov_counts.get("user_ui", 0) == 6, f"got: {prov_counts}")
 
         # Cleanup repo
         await c.delete(f"{BACKEND}/api/folders/{repo_id}?delete_docs=true")

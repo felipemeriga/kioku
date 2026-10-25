@@ -29,7 +29,6 @@ def _setup_reground(monkeypatch, posted):
         "content": {
             "sections": {
                 "architecture": {"updated_at": _recent_iso()},
-                "important_files": {"content": [{"path": "README.md"}]},
             }
         },
     }
@@ -77,6 +76,55 @@ def test_reground_force_bypasses_gates(monkeypatch):
         force=True,
     )
     assert posted["n"] == 1  # force -> proceeds to POST /reground
+
+
+def test_guide_upgrade_uses_grounded_repo_context_without_new_commits(monkeypatch, tmp_path):
+    (tmp_path / "README.md").write_text("Start the API with make api.\n")
+    (tmp_path / "Makefile").write_text("api:\n\tuv run uvicorn main:app\n")
+    monkeypatch.setattr(mihari, "API_URL", "http://api")
+    monkeypatch.setattr(
+        mihari,
+        "rest_get",
+        lambda *_: [
+            {
+                "generated_at": _recent_iso(),
+                "content": {
+                    "sections": {
+                        "how_it_runs": {
+                            "content": {"requirements": [], "local_dev": "make api"},
+                            "updated_at": _recent_iso(),
+                            "updated_by": "agent_mcp",
+                        }
+                    }
+                },
+            }
+        ],
+    )
+    monkeypatch.setattr(mihari, "run_git", lambda *a, **k: (0, "", ""))
+    monkeypatch.setattr(mihari, "decrypt", lambda *_: "KEY")
+    posted = []
+
+    class Response:
+        ok = True
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"updated": True}
+
+    monkeypatch.setattr(
+        mihari.requests, "post", lambda *a, **k: posted.append(k["json"]) or Response()
+    )
+    mihari.refresh_sections(
+        tmp_path,
+        {"folder_id": "f1", "remote_url": "r", "api_key_encrypted": "x"},
+        {},
+        force_guide=True,
+    )
+    assert len(posted) == 1
+    assert posted[0]["section"] == "how_it_runs"
+    assert any(f["path"] == "README.md" and f["role"] == "context" for f in posted[0]["files"])
 
 
 def test_force_refresh_sections_calls_reground_forced(monkeypatch, tmp_path):

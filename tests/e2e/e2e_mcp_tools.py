@@ -188,10 +188,10 @@ async def main():
             out = await call_mcp(api_key, "get_folder_briefing_schema", {})
             check("E.1 returns 200 payload", bool(out), "empty")
             check(
-                "E.2 all 8 section names in schema",
+                "E.2 current section names in schema",
                 all(s in out for s in [
-                    "overview", "architecture", "preferences", "important_files",
-                    "how_it_runs", "deployment", "dependencies", "activity",
+                    "overview", "architecture", "preferences", "how_it_runs",
+                    "deployment", "activity", "documentation",
                 ]),
                 out[:400],
             )

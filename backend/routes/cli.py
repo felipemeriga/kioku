@@ -486,10 +486,8 @@ STABLE_SECTION_ORDER = [
     "overview",
     "architecture",
     "preferences",
-    "important_files",
     "how_it_runs",
     "deployment",
-    "dependencies",
 ]
 
 
@@ -594,7 +592,14 @@ def folder_summary(request: Request, folder_id: str):
         .data
     )
     generated_at = latest[0]["generated_at"] if latest else None
-    sections = (latest[0]["content"] or {}).get("sections") if latest else None
+    from services.folder_summary.briefing_schema import SECTION_KEYS
+
+    stored_sections = (latest[0]["content"] or {}).get("sections") if latest else None
+    sections = (
+        {key: stored_sections[key] for key in SECTION_KEYS if key in stored_sections}
+        if isinstance(stored_sections, dict)
+        else None
+    )
 
     # Detailed-doc staleness (30-day clock, independent of the concise 7-day).
     # Defensive: if the repo_documentation table isn't migrated yet, treat the

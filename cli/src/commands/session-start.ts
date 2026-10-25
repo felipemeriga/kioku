@@ -62,6 +62,13 @@ export function generateInstruction(
     `   actual code with REAL file paths, following the schema shapes: ${sectionOrder.join(
       ", "
     )}.`,
+    "   In `how_it_runs`, be useful to a developer opening this repo for the",
+    "   first time. Explain prerequisites and why they matter; give the real",
+    "   setup, start, and test commands for each distinct service/application",
+    "   and the order they run. Use short headed paragraphs, not a compressed",
+    "   semicolon-separated command dump. For a large repo, cover the important",
+    "   run modes and packages without repeating every script. Do not invent",
+    "   commands or secret values; state when the repo does not document a step.",
     "5. ALSO fill the `activity` section so the web UI shows it — make it",
     "   genuinely useful, not a one-liner. Read a good chunk of history",
     "   (`git log` for roughly the last ~30-50 commits or ~2-3 months) and write:",
@@ -152,9 +159,8 @@ export async function sessionStart(): Promise<void> {
   }
   if (!folderId) return;
 
-  const { readLastSessionAt, stampLastSessionAt } = await import(
-    "../lib/claude.js"
-  );
+  const { readLastSessionAt, stampLastSessionAt } =
+    await import("../lib/claude.js");
   const { composeActivity } = await import("../lib/git-activity.js");
 
   try {
