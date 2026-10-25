@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Box,
   List,
@@ -18,9 +18,8 @@ import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import DeleteIcon from "@mui/icons-material/Delete";
 import HubIcon from "@mui/icons-material/Hub";
-import { fetchFolders } from "../lib/api";
+import { folderOptions, prefetchFolder } from "../lib/folderQueries";
 import type { Folder } from "../lib/api";
-import { qk } from "../lib/queryKeys";
 import { brand, fonts } from "../theme";
 
 // Drop-onto-folder support in the tree — mirrors the card-grid drop behavior.
@@ -52,6 +51,7 @@ function FolderTreeNode({
   onFileDropped,
   onOsFilesDropped,
 }: FolderTreeNodeProps) {
+  const client = useQueryClient();
   const [open, setOpen] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const isSelected = selectedId === folder.id;
@@ -60,8 +60,7 @@ function FolderTreeNode({
   // Documents grid + dialogs and refetches whenever a folder mutation
   // invalidates that key (no more folders-changed event needed).
   const childrenQuery = useQuery({
-    queryKey: qk.folders(folder.id),
-    queryFn: () => fetchFolders(folder.id),
+    ...folderOptions(folder.id),
     enabled: open,
   });
   const children = childrenQuery.data ?? [];
@@ -90,6 +89,9 @@ function FolderTreeNode({
   return (
     <>
       <ListItemButton
+        data-folder-navigation
+        onMouseEnter={() => prefetchFolder(client, folder.id)}
+        onFocus={() => prefetchFolder(client, folder.id)}
         selected={isSelected}
         onClick={handleSelect}
         onContextMenu={handleContextMenu}
@@ -265,14 +267,14 @@ export default function FolderTree({
 
   // Root folders; refetched when a folder mutation invalidates ['folders'].
   const { data: rootFolders = [] } = useQuery({
-    queryKey: qk.folders(null),
-    queryFn: () => fetchFolders(null),
+    ...folderOptions(null),
   });
 
   return (
     <Box sx={{ py: 1 }}>
       <ListItemButton
         selected={selectedFolderId === null}
+        data-folder-navigation
         onClick={() => onSelectFolder(null)}
         onDragOver={(e) => {
           e.preventDefault();
@@ -330,17 +332,17 @@ export default function FolderTree({
         <Typography
           variant="overline"
           sx={{
-            fontFamily: fonts.mono,
+            fontFamily: fonts.body,
             px: 2,
             pt: 1.5,
             pb: 0.5,
             display: "block",
             color: brand.muted,
-            letterSpacing: "0.24em",
-            fontSize: "0.6rem",
+            letterSpacing: 0,
+            fontSize: "0.8125rem",
           }}
         >
-          FOLDERS
+          Folders
         </Typography>
       )}
 

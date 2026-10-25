@@ -17,6 +17,7 @@ export default function RetroSun({ sx }: { sx?: SxProps<Theme> }) {
   return (
     <Box
       aria-hidden="true"
+      data-testid="retro-sun"
       sx={{
         position: "absolute",
         width: 360,
@@ -27,26 +28,15 @@ export default function RetroSun({ sx }: { sx?: SxProps<Theme> }) {
         opacity: 0.55,
         boxShadow: `0 0 80px ${brand.magenta}55`,
         pointerEvents: "none",
-        // Slow glow/opacity pulse — breathe over 6s
+        // Animate opacity only; the gradient and glow are painted once.
         "@keyframes sunPulse": {
-          "0%": {
-            opacity: 0.45,
-            boxShadow: `0 0 60px ${brand.magenta}33`,
-          },
-          "50%": {
-            opacity: 0.65,
-            boxShadow: `0 0 100px ${brand.magenta}77`,
-          },
-          "100%": {
-            opacity: 0.45,
-            boxShadow: `0 0 60px ${brand.magenta}33`,
-          },
+          "0%, 100%": { opacity: 0.65 },
+          "50%": { opacity: 0.9 },
         },
-        animation: "sunPulse 6s ease-in-out infinite",
+        animation: "sunPulse 8s ease-in-out infinite",
         "@media (prefers-reduced-motion: reduce)": {
           animation: "none",
-          opacity: 0.55,
-          boxShadow: `0 0 80px ${brand.magenta}55`,
+          opacity: 0.8,
         },
         ...sx,
       }}
@@ -58,8 +48,8 @@ export default function RetroSun({ sx }: { sx?: SxProps<Theme> }) {
             position: "absolute",
             left: 0,
             right: 0,
-            top: bar.top,
-            height: bar.height,
+            top: `${(bar.top / 260) * 100}%`,
+            height: `${(bar.height / 260) * 100}%`,
             background: "#1A0630",
             pointerEvents: "none",
           }}

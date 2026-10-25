@@ -46,19 +46,14 @@ import InsightsIcon from "@mui/icons-material/Insights";
 import HistoryIcon from "@mui/icons-material/History";
 import { useDocuments } from "../hooks/useDocuments";
 import { useIngestionStatus } from "../hooks/useIngestionStatus";
-import {
-  createFolder,
-  fetchBreadcrumbs,
-  fetchFolders,
-  deleteFolder,
-  downloadDocument,
-} from "../lib/api";
+import { createFolder, deleteFolder, downloadDocument } from "../lib/api";
 import type { Breadcrumb } from "../lib/api";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  useQuery,
-  useQueryClient,
-  keepPreviousData,
-} from "@tanstack/react-query";
+  breadcrumbOptions,
+  folderOptions,
+  prefetchFolder,
+} from "../lib/folderQueries";
 import { qk } from "../lib/queryKeys";
 import DocumentCard from "../components/DocumentCard";
 import DocumentViewerDrawer from "../components/DocumentViewerDrawer";
@@ -97,9 +92,9 @@ export default function DocumentsPage() {
   // Persisted so the choice survives navigation and reloads — without this
   // the toggle silently reset to grid on every visit.
   const [viewMode, setViewMode] = useState<"grid" | "list">(() =>
-    localStorage.getItem("kioku.documents.viewMode") === "list"
-      ? "list"
-      : "grid"
+    localStorage.getItem("kioku.documents.viewMode") === "grid"
+      ? "grid"
+      : "list"
   );
   useEffect(() => {
     localStorage.setItem("kioku.documents.viewMode", viewMode);
@@ -332,11 +327,7 @@ export default function DocumentsPage() {
 
   // Subfolders of the current directory for the grid. keepPreviousData keeps
   // the previous folder's children on screen while the new folder loads.
-  const subFoldersQuery = useQuery({
-    queryKey: qk.folders(currentFolderId),
-    queryFn: () => fetchFolders(currentFolderId),
-    placeholderData: keepPreviousData,
-  });
+  const subFoldersQuery = useQuery(folderOptions(currentFolderId));
   const subFolders = useMemo(
     () =>
       (subFoldersQuery.data ?? []).map((f) => ({
@@ -362,10 +353,8 @@ export default function DocumentsPage() {
   // Breadcrumbs for the current folder (empty at root). keepPreviousData so the
   // strip doesn't blank to "Home" while the next folder's path loads.
   const breadcrumbsQuery = useQuery({
-    queryKey: qk.breadcrumbs(currentFolderId ?? "none"),
-    queryFn: () => fetchBreadcrumbs(currentFolderId!),
+    ...breadcrumbOptions(currentFolderId ?? "none"),
     enabled: !!currentFolderId,
-    placeholderData: keepPreviousData,
   });
   const breadcrumbs: Breadcrumb[] = currentFolderId
     ? breadcrumbsQuery.data ?? []
@@ -503,256 +492,146 @@ export default function DocumentsPage() {
         display: "flex",
         flexDirection: "column",
         height: "100%",
-        overflow: "hidden",
+        overflow: "auto",
       }}
     >
-      {/* Toolbar */}
-      <Box
-        sx={{
-          px: "28px",
-          pt: "18px",
-          pb: "14px",
-          display: "flex",
-          flexDirection: "column",
-          gap: "12px",
-          borderBottom: `1px solid ${brand.line}`,
-          bgcolor: alpha(brand.surface2, 0.4),
-        }}
-      >
-        {/* Breadcrumb / title row */}
+      <Box sx={{ px: { xs: 2, md: 4 }, pt: 3, pb: 3 }}>
         <Stack
           direction="row"
           alignItems="center"
-          spacing={0.75}
-          sx={{ flexWrap: "wrap" }}
+          gap={0.5}
+          sx={{ mb: 2, flexWrap: "wrap" }}
+          aria-label="Folder path"
         >
           <IconButton
             size="small"
-            onClick={() => setCurrentFolderId(null)}
-            sx={{
-              p: 0.5,
-              color: currentFolderId ? brand.muted : brand.purple,
-              "&:hover": {
-                color: brand.purple,
-                bgcolor: alpha(brand.purple, 0.1),
-              },
-            }}
             aria-label="Root"
+            onClick={() => setCurrentFolderId(null)}
           >
-            <HomeIcon fontSize="small" />
+            <HomeIcon sx={{ fontSize: 18 }} />
           </IconButton>
-          {breadcrumbs.map((bc, i) => {
-            const isLast = i === breadcrumbs.length - 1;
-            return (
-              <Stack
-                key={bc.id}
-                direction="row"
-                alignItems="center"
-                spacing={0.25}
+          {breadcrumbs.slice(0, -1).map((bc) => (
+            <Box key={bc.id} sx={{ display: "flex", alignItems: "center" }}>
+              <ChevronRightIcon sx={{ fontSize: 16, color: brand.muted }} />
+              <Button
+                size="small"
+                onMouseEnter={() => prefetchFolder(queryClient, bc.id)}
+                onClick={() => setCurrentFolderId(bc.id)}
+                sx={{ color: brand.muted }}
               >
-                <ChevronRightIcon sx={{ fontSize: 16, color: brand.muted }} />
-                {isLast ? (
-                  <Typography
-                    sx={{
-                      fontFamily: fonts.display,
-                      fontWeight: 600,
-                      fontSize: "1.25rem",
-                      color: brand.text,
-                      letterSpacing: "-0.01em",
-                    }}
-                  >
-                    {bc.name}
-                  </Typography>
-                ) : (
-                  <Button
-                    variant="text"
-                    size="small"
-                    onClick={() => setCurrentFolderId(bc.id)}
-                    sx={{
-                      minWidth: 0,
-                      px: 0.75,
-                      py: 0.25,
-                      color: brand.muted,
-                      fontFamily: fonts.display,
-                      fontSize: "0.9rem",
-                      "&:hover": { color: brand.violet2 },
-                    }}
-                  >
-                    {bc.name}
-                  </Button>
-                )}
-              </Stack>
-            );
-          })}
-          {breadcrumbs.length === 0 && (
+                {bc.name}
+              </Button>
+            </Box>
+          ))}
+        </Stack>
+        <Stack
+          direction={{ xs: "column", sm: "row" }}
+          justifyContent="space-between"
+          alignItems={{ xs: "flex-start", sm: "center" }}
+          gap={2}
+        >
+          <Box>
             <Typography
+              component="h1"
               sx={{
-                fontFamily: fonts.display,
+                fontSize: { xs: 28, md: 34 },
                 fontWeight: 600,
-                fontSize: "1.25rem",
-                color: brand.text,
-                ml: 0.25,
+                letterSpacing: "-0.03em",
+                lineHeight: 1.2,
               }}
             >
-              All Documents
+              {currentFolderId
+                ? breadcrumbs.at(-1)?.name ?? "Loading folder…"
+                : "All documents"}
             </Typography>
-          )}
-          {(filteredDocs.length > 0 || filteredFolders.length > 0) && (
-            <Chip
-              size="small"
-              label={`${filteredFolders.length + filteredDocs.length} items`}
-              sx={{
-                ml: 1.25,
-                height: 22,
-                fontFamily: fonts.mono,
-                fontSize: "0.68rem",
-                letterSpacing: "0.08em",
-                bgcolor: "transparent",
-                color: brand.cyan,
-                border: `1px solid ${alpha(brand.cyan, 0.4)}`,
-                borderRadius: "3px",
-              }}
+            <Typography sx={{ mt: 1, color: brand.muted, fontSize: 16 }}>
+              {currentFolderIsRepo
+                ? "Project documents, briefing, and repository context."
+                : "Your documents and repository knowledge."}
+            </Typography>
+          </Box>
+          <Stack direction="row" gap={1.25} alignItems="center" flexWrap="wrap">
+            {ingestionTasks.length > 0 && (
+              <Tooltip title="Processing status">
+                <IconButton size="small" onClick={openIngestionDrawer}>
+                  <Badge
+                    badgeContent={
+                      ingestionTasks.filter(
+                        (t) =>
+                          !["completed", "error", "duplicate"].includes(t.stage)
+                      ).length || undefined
+                    }
+                    color="primary"
+                  >
+                    <CloudUploadIcon fontSize="small" />
+                  </Badge>
+                </IconButton>
+              </Tooltip>
+            )}
+            <input
+              type="file"
+              ref={fileInputRef}
+              hidden
+              multiple
+              accept={ACCEPTED_TYPES}
+              onChange={handleFileSelect}
             />
-          )}
-        </Stack>
-
-        {/* Actions row */}
-        <Stack direction="row" alignItems="center" spacing={1.25}>
-          <TextField
-            size="small"
-            placeholder="Search in this folder…"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon sx={{ fontSize: 18, color: brand.muted }} />
-                </InputAdornment>
-              ),
-              endAdornment: searchQuery ? (
-                <InputAdornment position="end">
-                  <IconButton size="small" onClick={() => setSearchQuery("")}>
-                    <CloseIcon sx={{ fontSize: 16 }} />
-                  </IconButton>
-                </InputAdornment>
-              ) : null,
-            }}
-            sx={{
-              flex: 1,
-              maxWidth: 380,
-              "& .MuiOutlinedInput-root": {
-                fontFamily: fonts.body,
-                fontSize: "0.85rem",
-              },
-            }}
-          />
-
-          <ToggleButtonGroup
-            value={viewMode}
-            exclusive
-            size="small"
-            onChange={(_, v) => v && setViewMode(v)}
-            sx={{
-              border: `1px solid ${brand.lineGlow}`,
-              borderRadius: "3px",
-              overflow: "hidden",
-              "& .MuiToggleButton-root": {
-                border: 0,
-                borderRadius: 0,
-                color: brand.muted,
-                px: "10px",
-                py: "6px",
-                "&.Mui-selected": {
-                  color: brand.magenta,
-                  bgcolor: alpha(brand.magenta, 0.14),
-                },
-              },
-            }}
-          >
-            <ToggleButton value="grid" aria-label="Grid view">
-              <GridViewIcon fontSize="small" />
-            </ToggleButton>
-            <ToggleButton value="list" aria-label="List view">
-              <ViewListIcon fontSize="small" />
-            </ToggleButton>
-          </ToggleButtonGroup>
-
-          <Box sx={{ flex: 1 }} />
-
-          {ingestionTasks.length > 0 && (
-            <Tooltip title="Processing status">
-              <IconButton size="small" onClick={openIngestionDrawer}>
-                <Badge
-                  badgeContent={
-                    ingestionTasks.filter(
-                      (t) =>
-                        !["completed", "error", "duplicate"].includes(t.stage)
-                    ).length || undefined
-                  }
-                  color="primary"
-                >
-                  <CloudUploadIcon fontSize="small" />
-                </Badge>
-              </IconButton>
-            </Tooltip>
-          )}
-          <input
-            type="file"
-            ref={fileInputRef}
-            hidden
-            multiple
-            accept={ACCEPTED_TYPES}
-            onChange={handleFileSelect}
-          />
-          <Button
-            size="small"
-            variant="outlined"
-            startIcon={<CreateNewFolderIcon fontSize="small" />}
-            onClick={() => setNewFolderOpen(true)}
-            sx={{ borderColor: brand.line, color: brand.muted }}
-          >
-            New folder
-          </Button>
-          <Button
-            variant="contained"
-            size="small"
-            startIcon={<UploadFileIcon />}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            Upload
-          </Button>
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<CreateNewFolderIcon fontSize="small" />}
+              onClick={() => setNewFolderOpen(true)}
+              sx={{ borderColor: brand.line, color: brand.muted }}
+            >
+              New folder
+            </Button>
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<UploadFileIcon />}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              Upload
+            </Button>
+          </Stack>
         </Stack>
       </Box>
-
-      {/* Notion sync status for the current folder's root — live progress
-          while a sync runs, last-synced/error when idle, nothing otherwise. */}
-      {currentFolderId && (
-        <NotionSyncBanner
-          key={currentFolderId}
-          folderId={currentFolderId}
-          onPagesSynced={handleSyncProgress}
-        />
-      )}
-
       {/* Content area */}
       <Box
-        sx={{ flex: 1, overflow: "auto", p: 3, position: "relative" }}
+        sx={{
+          flex: 1,
+          minHeight: 0,
+          p: { xs: 2, md: 4 },
+          pt: { xs: 0, md: 0 },
+          position: "relative",
+        }}
         onDrop={handleDrop}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
       >
+        {/* Notion sync status for the current folder's root — live progress
+          while a sync runs, last-synced/error when idle, nothing otherwise. */}
+        {currentFolderId && (
+          <NotionSyncBanner
+            key={currentFolderId}
+            folderId={currentFolderId}
+            onPagesSynced={handleSyncProgress}
+          />
+        )}
+
         {/* Small recorder chip — full-page drop overlay handles file uploads */}
         <Stack
           direction="row"
           spacing={1}
           alignItems="center"
           sx={{
-            mb: 2.5,
-            px: "14px",
-            py: "10px",
-            border: `1px dashed ${alpha(brand.cyan, 0.33)}`,
+            mb: 3,
+            px: 2.5,
+            py: 2,
+            minHeight: 80,
+            border: `1px dashed ${brand.lineGlow}`,
             borderRadius: "4px",
-            bgcolor: alpha(brand.cyan, 0.03),
+            bgcolor: brand.surface2,
           }}
         >
           <IconButton
@@ -811,7 +690,7 @@ export default function DocumentsPage() {
                 color: brand.muted,
               }}
             >
-              Record audio · or drop files anywhere on this page
+              Record audio or drop files into this folder.
             </Typography>
           )}
         </Stack>
@@ -870,6 +749,79 @@ export default function DocumentsPage() {
           </Tabs>
         )}
 
+        {(!currentFolderIsRepo || folderTab === "files") && (
+          <Stack
+            direction="row"
+            alignItems="center"
+            gap={1.5}
+            sx={{ mb: 3, flexWrap: "wrap" }}
+          >
+            <TextField
+              size="small"
+              placeholder="Search in this folder…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon sx={{ fontSize: 18, color: brand.muted }} />
+                  </InputAdornment>
+                ),
+                endAdornment: searchQuery ? (
+                  <InputAdornment position="end">
+                    <IconButton
+                      aria-label="Clear search"
+                      size="small"
+                      onClick={() => setSearchQuery("")}
+                    >
+                      <CloseIcon sx={{ fontSize: 16 }} />
+                    </IconButton>
+                  </InputAdornment>
+                ) : null,
+              }}
+              sx={{
+                flex: 1,
+                maxWidth: { xs: "none", sm: 380 },
+                flexBasis: { xs: "100%", sm: "auto" },
+                minWidth: 0,
+                "& .MuiOutlinedInput-root": {
+                  fontFamily: fonts.body,
+                  fontSize: "0.85rem",
+                },
+              }}
+            />
+
+            <ToggleButtonGroup
+              value={viewMode}
+              exclusive
+              size="small"
+              onChange={(_, v) => v && setViewMode(v)}
+              sx={{
+                border: `1px solid ${brand.lineGlow}`,
+                borderRadius: "3px",
+                overflow: "hidden",
+                "& .MuiToggleButton-root": {
+                  border: 0,
+                  borderRadius: 0,
+                  color: brand.muted,
+                  px: "10px",
+                  py: "6px",
+                  "&.Mui-selected": {
+                    color: brand.magenta,
+                    bgcolor: alpha(brand.magenta, 0.14),
+                  },
+                },
+              }}
+            >
+              <ToggleButton value="grid" aria-label="Grid view">
+                <GridViewIcon fontSize="small" />
+              </ToggleButton>
+              <ToggleButton value="list" aria-label="List view">
+                <ViewListIcon fontSize="small" />
+              </ToggleButton>
+            </ToggleButtonGroup>
+          </Stack>
+        )}
         {/* Sub-folders grid */}
         {(!currentFolderIsRepo || folderTab === "files") &&
           filteredFolders.length > 0 && (
@@ -881,19 +833,17 @@ export default function DocumentsPage() {
                   color: brand.muted,
                   mb: 1.25,
                   display: "block",
-                  letterSpacing: "0.28em",
-                  fontSize: "0.62rem",
+                  letterSpacing: 0,
+                  fontSize: "0.8125rem",
                 }}
               >
-                FOLDERS · {filteredFolders.length}
+                Folders · {filteredFolders.length}
               </Typography>
               <Box
                 sx={{
                   display: "grid",
                   gridTemplateColumns:
-                    viewMode === "grid"
-                      ? "repeat(auto-fill, minmax(160px, 1fr))"
-                      : "1fr",
+                    "repeat(auto-fill, minmax(min(100%, 220px), 1fr))",
                   gap: viewMode === "grid" ? 1.5 : 0.5,
                 }}
               >
@@ -946,7 +896,7 @@ export default function DocumentsPage() {
                         }
                       }}
                       sx={{
-                        height: 80,
+                        height: 104,
                         px: viewMode === "grid" ? "16px" : "14px",
                         position: "relative",
                         cursor: "pointer",
@@ -958,23 +908,31 @@ export default function DocumentsPage() {
                           dragOverFolderId === folder.id
                             ? alpha(brand.magenta, 0.1)
                             : brand.surface,
+                        border: `1px solid ${folderColor}88`,
                         transition: "all 0.15s ease",
                         "&:hover": {
-                          bgcolor: alpha(folderColor, 0.06),
+                          borderColor: folderColor,
+                          boxShadow: `0 0 16px ${folderColor}28`,
+                          bgcolor: brand.surface,
                           "& .folder-card-delete": { opacity: 1 },
                         },
                       }}
+                      onMouseEnter={() =>
+                        prefetchFolder(queryClient, folder.id)
+                      }
+                      onFocus={() => prefetchFolder(queryClient, folder.id)}
                       onClick={() => setCurrentFolderId(folder.id)}
                     >
                       <IconButton
                         className="folder-card-delete"
                         size="small"
                         title="Chat with this folder"
+                        aria-label={`Chat with ${folder.name}`}
                         sx={{
                           position: "absolute",
                           top: 6,
                           right: 28,
-                          opacity: 0,
+                          opacity: 1,
                           transition: "opacity 0.15s",
                           p: 0.25,
                           bgcolor: alpha("#000000", 0.3),
@@ -993,11 +951,12 @@ export default function DocumentsPage() {
                       <IconButton
                         className="folder-card-delete"
                         size="small"
+                        aria-label={`Delete ${folder.name}`}
                         sx={{
                           position: "absolute",
                           top: 6,
                           right: 6,
-                          opacity: 0,
+                          opacity: 1,
                           transition: "opacity 0.15s",
                           p: 0.25,
                           bgcolor: alpha("#000000", 0.3),
@@ -1013,18 +972,18 @@ export default function DocumentsPage() {
                       {folder.kind === "repo" ? (
                         <AccountTreeIcon
                           sx={{
-                            fontSize: 22,
-                            color: folderColor,
-                            filter: `drop-shadow(0 0 6px ${folderColor})`,
+                            fontSize: 24,
+                            color: brand.cyan,
+                            filter: "none",
                             flexShrink: 0,
                           }}
                         />
                       ) : (
                         <FolderIcon
                           sx={{
-                            fontSize: 22,
-                            color: folderColor,
-                            filter: `drop-shadow(0 0 6px ${folderColor})`,
+                            fontSize: 24,
+                            color: brand.cyan,
+                            filter: "none",
                             flexShrink: 0,
                           }}
                         />
@@ -1050,10 +1009,10 @@ export default function DocumentsPage() {
                         <Typography
                           sx={{
                             fontFamily: fonts.mono,
-                            fontSize: "0.62rem",
-                            letterSpacing: "0.16em",
+                            fontSize: "0.8125rem",
+                            letterSpacing: 0,
                             color: brand.muted,
-                            textTransform: "uppercase",
+                            textTransform: "none",
                           }}
                         >
                           {folder.kind === "repo" ? "REPO" : "FOLDER"}
@@ -1098,52 +1057,91 @@ export default function DocumentsPage() {
                   color: brand.muted,
                   mb: 1.25,
                   display: "block",
-                  letterSpacing: "0.28em",
-                  fontSize: "0.62rem",
+                  letterSpacing: 0,
+                  fontSize: "0.8125rem",
                 }}
               >
-                FILES · {filteredDocs.length}
+                Files{" "}
+                <Chip
+                  size="small"
+                  label={filteredDocs.length}
+                  sx={{ ml: 0.5 }}
+                />
               </Typography>
               <Box
+                role={viewMode === "list" ? "table" : undefined}
+                aria-label="Files"
                 sx={{
-                  display: "grid",
-                  gridTemplateColumns:
-                    viewMode === "grid"
-                      ? "repeat(auto-fill, minmax(220px, 1fr))"
-                      : "1fr",
-                  gap: viewMode === "grid" ? 1.25 : 0.5,
+                  border:
+                    viewMode === "list" ? `1px solid ${brand.line}` : undefined,
+                  borderRadius: 2,
+                  overflow: "hidden",
                 }}
               >
-                {filteredDocs.map((doc) => (
-                  <DocumentCard
-                    key={doc.source_filename}
-                    doc={doc}
-                    selected={selectedFiles.has(doc.source_filename)}
-                    onSelect={toggleFileSelect}
-                    onDelete={(filename) => {
-                      setDeleteConfirm({
-                        type: "document",
-                        id: filename,
-                        name: filename,
-                      });
+                {viewMode === "list" && (
+                  <Box
+                    role="row"
+                    sx={{
+                      display: { xs: "none", md: "grid" },
+                      gridTemplateColumns: "minmax(0,1fr) 160px 180px 44px",
+                      px: 2.5,
+                      py: 1.5,
+                      bgcolor: brand.surface2,
+                      borderBottom: `1px solid ${brand.line}`,
+                      color: brand.muted,
+                      fontSize: 14,
                     }}
-                    onDownload={handleDownload}
-                    onMove={(filename, folderId) => {
-                      move(filename, folderId);
-                    }}
-                    onOpen={(filename) => setViewerFile(filename)}
-                    onChat={(filename) =>
-                      navigate(
-                        `/?scope_file=${encodeURIComponent(filename)}` +
-                          (currentFolderId
-                            ? `&scope_folder=${currentFolderId}`
-                            : "")
-                      )
-                    }
-                    variant={viewMode}
-                  />
-                ))}
+                  >
+                    <span role="columnheader">Name</span>
+                    <span role="columnheader">Source</span>
+                    <span role="columnheader">Last updated</span>
+                    <span />
+                  </Box>
+                )}
+                <Box
+                  role={viewMode === "list" ? "rowgroup" : undefined}
+                  sx={{
+                    display: viewMode === "grid" ? "grid" : "block",
+                    gridTemplateColumns:
+                      "repeat(auto-fill,minmax(min(100%,220px),1fr))",
+                    gap: 1.5,
+                  }}
+                >
+                  {filteredDocs.map((doc) => (
+                    <DocumentCard
+                      key={doc.source_filename}
+                      doc={doc}
+                      selected={selectedFiles.has(doc.source_filename)}
+                      onSelect={toggleFileSelect}
+                      onDelete={(filename) => {
+                        setDeleteConfirm({
+                          type: "document",
+                          id: filename,
+                          name: filename,
+                        });
+                      }}
+                      onDownload={handleDownload}
+                      onMove={(filename, folderId) => {
+                        move(filename, folderId);
+                      }}
+                      onOpen={(filename) => setViewerFile(filename)}
+                      onChat={(filename) =>
+                        navigate(
+                          `/?scope_file=${encodeURIComponent(filename)}` +
+                            (currentFolderId
+                              ? `&scope_folder=${currentFolderId}`
+                              : "")
+                        )
+                      }
+                      variant={viewMode}
+                    />
+                  ))}
+                </Box>
               </Box>
+              <Typography sx={{ mt: 2, color: brand.muted, fontSize: 13 }}>
+                {filteredDocs.length} documents · Original creation dates are
+                preserved when content is updated.
+              </Typography>
             </Box>
           )}
 
@@ -1216,7 +1214,9 @@ export default function DocumentsPage() {
                     fontFamily: fonts.body,
                     fontSize: "0.88rem",
                     color: brand.muted,
-                    maxWidth: 380,
+                    maxWidth: { xs: "none", sm: 380 },
+                    flexBasis: { xs: "100%", sm: "auto" },
+                    minWidth: 0,
                   }}
                 >
                   Drop files anywhere on this page, click Upload above, or
@@ -1312,7 +1312,7 @@ export default function DocumentsPage() {
             <Box
               sx={{
                 width: 80,
-                height: 80,
+                height: 104,
                 borderRadius: "50%",
                 display: "grid",
                 placeItems: "center",

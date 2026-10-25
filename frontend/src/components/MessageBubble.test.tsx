@@ -5,6 +5,20 @@ import MessageBubble from "./MessageBubble";
 import type { Citation } from "../lib/api";
 
 describe("MessageBubble", () => {
+  it("bounds both roles with visible message surfaces", () => {
+    renderWithProviders(
+      <>
+        <MessageBubble role="user" content="Question" />
+        <MessageBubble role="assistant" content="Answer" />
+      </>
+    );
+    for (const role of ["user", "assistant"]) {
+      const surface = screen.getByTestId(`${role}-message-surface`);
+      expect(getComputedStyle(surface).borderTopStyle).toBe("solid");
+      expect(getComputedStyle(surface).borderTopWidth).toBe("1px");
+    }
+  });
+
   it("renders user message content", () => {
     renderWithProviders(<MessageBubble role="user" content="Hello world" />);
     expect(screen.getByText("Hello world")).toBeInTheDocument();

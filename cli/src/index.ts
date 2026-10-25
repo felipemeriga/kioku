@@ -18,8 +18,7 @@ import { whoami } from "./commands/whoami.js";
 import { banner, printError } from "./lib/banner.js";
 import { readConfig } from "./lib/config.js";
 import { checkForUpdate } from "./lib/update-check.js";
-
-const VERSION = "0.4.0";
+import { VERSION } from "./lib/version.js";
 
 // Verbose --version — intercept before commander shows the plain number.
 if (process.argv.includes("-V") || process.argv.includes("--version")) {
@@ -149,6 +148,14 @@ Examples:
       printError(err);
       process.exitCode = 1;
     }
+  });
+
+program
+  .command("internal-manabi-run <config>", { hidden: true })
+  .description("Internal supervised Manabi process")
+  .action(async (config: string) => {
+    const { runManabiDaemon } = await import("./lib/manabi-client.js");
+    await runManabiDaemon(config);
   });
 
 program
@@ -362,6 +369,6 @@ if (process.argv.length <= 2) {
   program.parseAsync(process.argv).then(() => {
     // Fire-and-forget update check AFTER the main command finishes so
     // we don't add latency to hot-path commands.
-    void checkForUpdate(VERSION);
+    if (!process.argv.includes("internal-manabi-run")) void checkForUpdate(VERSION);
   });
 }

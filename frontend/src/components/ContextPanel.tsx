@@ -82,15 +82,19 @@ export default function ContextPanel({
 
   return (
     <Box
+      component="aside"
+      aria-label={
+        activePage === "/documents" ? "Folder navigator" : "Conversations"
+      }
       data-testid="context-panel"
       sx={{
-        width: 220,
-        height: "100vh",
+        width: 248,
+        maxWidth: "100%",
+        height: "100dvh",
         display: "flex",
         flexDirection: "column",
-        bgcolor: alpha(brand.surface2, 0.8),
-        backdropFilter: "blur(12px)",
-        WebkitBackdropFilter: "blur(12px)",
+        bgcolor: brand.surface2,
+
         borderRight: `1px solid ${brand.line}`,
         flexShrink: 0,
       }}
@@ -121,6 +125,7 @@ export default function ContextPanel({
             {onNewFolder && (
               <IconButton
                 size="small"
+                aria-label="New folder"
                 onClick={onNewFolder}
                 sx={{
                   width: 28,
@@ -183,6 +188,7 @@ function ChatPanel({
         <Typography sx={hudLabel}>Conversations</Typography>
         <IconButton
           data-testid="new-chat-button"
+          aria-label="New conversation"
           size="small"
           onClick={onNew}
           sx={{
@@ -368,7 +374,7 @@ function ConversationRow({
             sx={{
               display: "flex",
               alignItems: "center",
-              opacity: 0,
+              opacity: 1,
               transition: "opacity 0.15s",
               gap: 0.25,
             }}

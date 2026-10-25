@@ -1,36 +1,29 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <!-- Kioku 記憶 — cyberpunk hanko stamp -->
-  <defs>
-    <linearGradient id="frame" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#FF2E93"/>
-      <stop offset="100%" stop-color="#00F0FF"/>
-    </linearGradient>
-    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur stdDeviation="1.5" result="blur"/>
-      <feMerge>
-        <feMergeNode in="blur"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
-  </defs>
-  <!-- Background surface -->
-  <rect x="0" y="0" width="64" height="64" rx="8" fill="#08040F"/>
-  <!-- Inner glow frame -->
-  <rect x="4" y="4" width="56" height="56" rx="6" fill="none"
-        stroke="url(#frame)" stroke-width="1.5" opacity="0.9"/>
-  <rect x="7" y="7" width="50" height="50" rx="4" fill="none"
-        stroke="#FF2E93" stroke-width="0.5" opacity="0.6"/>
-  <!-- Kanji 記 -->
-  <text x="32" y="46"
-        font-family="'Noto Sans JP', 'Yu Gothic', system-ui, sans-serif"
-        font-weight="900"
-        font-size="36"
-        text-anchor="middle"
-        fill="#FF6DB1"
-        filter="url(#glow)">記</text>
-  <!-- Scan corner ticks -->
-  <path d="M 10 10 L 10 14 M 10 10 L 14 10" stroke="#00F0FF" stroke-width="1.2" opacity="0.7"/>
-  <path d="M 54 10 L 54 14 M 54 10 L 50 10" stroke="#00F0FF" stroke-width="1.2" opacity="0.7"/>
-  <path d="M 10 54 L 10 50 M 10 54 L 14 54" stroke="#00F0FF" stroke-width="1.2" opacity="0.7"/>
-  <path d="M 54 54 L 54 50 M 54 54 L 50 54" stroke="#00F0FF" stroke-width="1.2" opacity="0.7"/>
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 64 64"
+  width="64"
+  height="64"
+>
+  <title>Kioku</title>
+  <rect width="64" height="64" rx="8" fill="#0C0914" />
+  <rect
+    x="6"
+    y="5"
+    width="52"
+    height="54"
+    rx="5"
+    fill="none"
+    stroke="#FF69B4"
+    stroke-width="2"
+  />
+  <text
+    x="32"
+    y="46"
+    font-family="'Hiragino Kaku Gothic ProN', 'Yu Gothic', sans-serif"
+    font-size="38"
+    text-anchor="middle"
+    fill="#FF98CB"
+  >
+    記
+  </text>
 </svg>

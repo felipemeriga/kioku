@@ -552,6 +552,7 @@ export interface DocumentInfo {
   chunks: number;
   status: "processing" | "completed" | "failed";
   created_at: string;
+  last_updated?: string | null;
   folder_id: string | null;
 }
 
@@ -1133,4 +1134,51 @@ export async function fetchUsageByConversation(): Promise<ConversationUsage[]> {
 export async function fetchUsageByMonth(): Promise<MonthlyUsage[]> {
   const res = await apiFetch("/api/usage/monthly");
   return res.json();
+}
+
+export interface RemoteRepository {
+  id: string;
+  folder_id: string;
+  name: string;
+  path: string;
+  agents: ("claude" | "codex")[];
+  initialized_at: string;
+  available: boolean;
+}
+export interface RemoteWarning {
+  code: string;
+  observed_at: string;
+}
+export interface RemoteMachine {
+  id: string;
+  name: string;
+  platform: string;
+  version: string;
+  created_at: string;
+  connected_at: string | null;
+  last_seen: string | null;
+  online: boolean;
+  custom_name?: string | null;
+  os_name?: string | null;
+  os_id?: string | null;
+  architecture?: string | null;
+  inventory?: RemoteRepository[] | null;
+  inventory_updated_at?: string | null;
+  warnings?: RemoteWarning[];
+}
+
+export async function getRemoteMachines(): Promise<RemoteMachine[]> {
+  const response = await apiFetch("/api/remotes");
+  return response.json();
+}
+
+export async function renameRemoteMachine(
+  id: string,
+  name: string | null
+): Promise<RemoteMachine> {
+  const response = await apiFetch(`/api/remotes/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ name }),
+  });
+  return response.json();
 }

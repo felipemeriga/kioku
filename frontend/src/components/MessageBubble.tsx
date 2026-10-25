@@ -242,24 +242,26 @@ export default function MessageBubble({
           display: "flex",
           flexDirection: "column",
           alignItems: isUser ? "flex-end" : "flex-start",
-          maxWidth: "70%",
+          maxWidth: { xs: "100%", md: isUser ? "75%" : "100%" },
+          width: isUser ? "auto" : "100%",
           minWidth: 0,
         }}
       >
         {isUser ? (
           /* ── User bubble ── right-aligned, magenta tint */
           <Box
+            data-testid="user-message-surface"
             sx={{
               px: 2,
               py: 1.5,
-              background: `${brand.magenta}15`,
-              border: `1px solid ${brand.magenta}25`,
+              background: `${brand.magenta}18`,
+              border: `1px solid ${brand.magenta}88`,
               borderRadius: "12px 12px 3px 12px",
             }}
           >
             <Typography
               sx={{
-                fontSize: "0.925rem",
+                fontSize: "1rem",
                 // Preserve the user's own line breaks instead of collapsing
                 // them into one run, and break long unbreakable tokens (URLs,
                 // curl commands) so they wrap inside the bubble.
@@ -271,11 +273,19 @@ export default function MessageBubble({
             </Typography>
           </Box>
         ) : (
-          /* ── Assistant bubble ── CornerCard with cyan corners */
+          /* Assistant message surface. */
           <CornerCard
+            data-testid="assistant-message-surface"
             color={brand.cyan}
             corners={2}
-            sx={{ px: 2.25, py: 2, width: "100%" }}
+            sx={{
+              px: { xs: 2, sm: 3 },
+              py: 2.5,
+              width: "100%",
+              border: `1px solid ${brand.cyan}99`,
+              bgcolor: brand.surface,
+              borderRadius: 2,
+            }}
           >
             <Box
               sx={{
@@ -330,7 +340,8 @@ export default function MessageBubble({
                   borderLeft: `3px solid ${alpha(brand.magenta, 0.5)}`,
                   color: alpha("#ffffff", 0.75),
                 },
-                fontSize: "0.925rem",
+                fontSize: "1rem",
+                lineHeight: 1.75,
                 // Break long unbreakable tokens (bare URLs, inline code) so
                 // they wrap instead of overflowing the bubble. Code blocks
                 // keep their own horizontal scroll via the `& pre` rule above.

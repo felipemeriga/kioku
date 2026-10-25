@@ -17,7 +17,6 @@ import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import { brand, fonts } from "../theme";
 import { getFolderStatus, refreshFolder } from "../lib/api";
-import CornerCard from "./neo/CornerCard";
 import { refreshState } from "../lib/refreshState";
 
 function timeAgo(iso: string | null): string {
@@ -153,14 +152,26 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
       icon: InfoOutlinedIcon,
       label: "Architecture",
       at: status?.architecture_at ?? null,
-      sub: status?.architecture_by ? `by ${status.architecture_by}` : null,
+      sub: status?.architecture_by
+        ? status.architecture_by === "agent_mcp"
+          ? "Updated by an agent"
+          : /^[0-9a-f-]{36}$/i.test(status.architecture_by)
+          ? "Updated in Kioku"
+          : `by ${status.architecture_by}`
+        : null,
       color: brand.cyan,
     },
     {
       icon: InfoOutlinedIcon,
       label: "Overview",
       at: status?.overview_at ?? null,
-      sub: status?.overview_by ? `by ${status.overview_by}` : null,
+      sub: status?.overview_by
+        ? status.overview_by === "agent_mcp"
+          ? "Updated by an agent"
+          : /^[0-9a-f-]{36}$/i.test(status.overview_by)
+          ? "Updated in Kioku"
+          : `by ${status.overview_by}`
+        : null,
       color: brand.magenta,
     },
     {
@@ -192,7 +203,7 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
         <ErrorOutlineIcon sx={{ fontSize: 18, color: brand.magenta }} />
         <Typography
           sx={{
-            fontFamily: fonts.mono,
+            fontFamily: fonts.body,
             fontSize: 13,
             color: brand.text,
             flexGrow: 1,
@@ -206,8 +217,8 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
           startIcon={<RefreshIcon />}
           onClick={() => void refetch()}
           sx={{
-            fontFamily: fonts.mono,
-            fontSize: 11,
+            fontFamily: fonts.body,
+            fontSize: 13,
             letterSpacing: "0.08em",
             borderColor: brand.magenta,
             color: brand.magenta,
@@ -225,92 +236,86 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
 
   return (
     <Box>
-      <Stack direction="row" spacing={1.5} sx={{ flexWrap: "wrap", mb: 2 }}>
+      <Box
+        sx={{
+          border: `1px solid ${brand.line}`,
+          borderRadius: 2,
+          overflow: "hidden",
+          bgcolor: brand.surface,
+          mb: 3,
+        }}
+      >
+        <Box sx={{ px: 3, py: 2.5, borderBottom: `1px solid ${brand.line}` }}>
+          <Typography component="h2" sx={{ fontWeight: 600, fontSize: 18 }}>
+            {anyRunning
+              ? "Refreshing repository context"
+              : latestState === "failed" || latestState === "timed-out"
+              ? "Refresh needs attention"
+              : "Repository context"}
+          </Typography>
+          <Typography sx={{ mt: 0.5, color: brand.muted, fontSize: 14 }}>
+            Index and briefing timestamps reported by Mihari.
+          </Typography>
+        </Box>
         {cards.map((c) => {
           const Icon = c.icon;
           const glyph = indexGlyph(c.at);
           return (
-            <CornerCard
+            <Box
               key={c.label}
-              color={c.color}
               sx={{
-                flex: "1 1 180px",
-                minWidth: 160,
-                p: 1.5,
+                display: "flex",
+                alignItems: "center",
+                gap: 2,
+                px: 3,
+                py: 2.5,
+                borderBottom: `1px solid ${brand.line}`,
+                "&:last-child": { borderBottom: 0 },
               }}
             >
-              {/* Label row */}
-              <Stack
-                direction="row"
-                spacing={0.75}
-                alignItems="center"
-                sx={{ mb: 0.5 }}
-              >
-                <Icon sx={{ fontSize: 14, color: c.color }} />
-                <Typography
-                  sx={{
-                    fontFamily: fonts.mono,
-                    fontSize: 10,
-                    fontWeight: 600,
-                    letterSpacing: "0.1em",
-                    textTransform: "uppercase",
-                    color: brand.muted,
-                  }}
-                >
+              <Icon sx={{ color: brand.cyan, fontSize: 22, flexShrink: 0 }} />
+              <Box sx={{ minWidth: 0, flex: 1 }}>
+                <Typography sx={{ fontSize: 16, fontWeight: 500 }}>
                   {c.label}
                 </Typography>
-                <Box sx={{ flexGrow: 1 }} />
-                {/* Status glyph — derived from freshness */}
-                <Box
-                  component="span"
-                  sx={{
-                    fontFamily: fonts.mono,
-                    fontSize: 11,
-                    color: glyph.color,
-                    textShadow:
-                      glyph.color !== brand.muted
-                        ? `0 0 6px ${glyph.color}`
-                        : "none",
-                  }}
-                >
-                  {glyph.glyph}
-                </Box>
-              </Stack>
-              {/* Time ago — show a spinner until the first fetch lands, so the
-                  cards don't flash "never" before the values arrive. */}
-              {isPending ? (
-                <Box sx={{ height: 21, display: "flex", alignItems: "center" }}>
-                  <CircularProgress size={13} sx={{ color: brand.muted }} />
-                </Box>
-              ) : (
-                <Typography
-                  sx={{
-                    fontFamily: fonts.mono,
-                    fontSize: 14,
-                    color: brand.text,
-                    fontWeight: 500,
-                  }}
-                >
-                  {timeAgo(c.at)}
-                </Typography>
-              )}
-              {/* Sub-label */}
-              {c.sub && (
-                <Typography
-                  sx={{
-                    fontFamily: fonts.mono,
-                    fontSize: 10,
-                    color: brand.dim,
-                    mt: 0.25,
-                  }}
-                >
-                  {c.sub}
-                </Typography>
-              )}
-            </CornerCard>
+                {c.sub && (
+                  <Typography
+                    sx={{
+                      color: brand.muted,
+                      fontSize: 14,
+                      mt: 0.5,
+                      overflowWrap: "anywhere",
+                    }}
+                  >
+                    {c.sub}
+                  </Typography>
+                )}
+              </Box>
+              <Box sx={{ textAlign: "right", flexShrink: 0 }}>
+                {isPending ? (
+                  <CircularProgress size={16} />
+                ) : (
+                  <>
+                    <Typography
+                      sx={{
+                        color: c.at ? brand.green : brand.muted,
+                        fontSize: 13,
+                      }}
+                    >
+                      {glyph.glyph} {c.at ? "Recorded" : "Not available"}
+                    </Typography>
+                    <Typography
+                      sx={{ color: brand.muted, fontSize: 13, mt: 0.5 }}
+                    >
+                      {timeAgo(c.at)}
+                    </Typography>
+                  </>
+                )}
+              </Box>
+            </Box>
           );
         })}
-      </Stack>
+      </Box>
 
       <Stack
         direction="row"
@@ -327,15 +332,15 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
           disabled={anyRunning}
           onClick={() => start("index")}
           sx={{
-            fontFamily: fonts.mono,
-            fontSize: 11,
+            fontFamily: fonts.body,
+            fontSize: 13,
             letterSpacing: "0.08em",
-            borderColor: brand.cyan,
+            borderColor: brand.lineGlow,
             color: brand.cyan,
             "&:hover": {
-              borderColor: brand.cyan,
+              borderColor: brand.lineGlow,
               backgroundColor: `${brand.cyan}12`,
-              boxShadow: `0 0 12px ${brand.cyan}44`,
+              boxShadow: "none",
             },
             "&.Mui-disabled": {
               borderColor: brand.line,
@@ -354,8 +359,8 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
           disabled={anyRunning}
           onClick={() => start("sections")}
           sx={{
-            fontFamily: fonts.mono,
-            fontSize: 11,
+            fontFamily: fonts.body,
+            fontSize: 13,
             letterSpacing: "0.08em",
             borderColor: brand.magenta,
             color: brand.magenta,
@@ -374,7 +379,7 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
         </Button>
         {message && (
           <Typography
-            sx={{ fontFamily: fonts.mono, fontSize: 11, color: brand.muted }}
+            sx={{ fontFamily: fonts.body, fontSize: 13, color: brand.muted }}
           >
             {message}
           </Typography>

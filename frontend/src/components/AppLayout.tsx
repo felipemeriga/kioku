@@ -7,9 +7,17 @@ import {
   DialogContent,
   DialogContentText,
   DialogTitle,
+  Drawer,
+  IconButton,
+  Typography,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
+import MenuOpenIcon from "@mui/icons-material/MenuOpen";
+import { brand } from "../theme";
+import NeoAtmosphere from "./neo/NeoAtmosphere";
 import IconRail, { type AppPage } from "./IconRail";
 import ContextPanel from "./ContextPanel";
 import { useAuth } from "../hooks/useAuth";
@@ -34,6 +42,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     id: string;
     name: string;
   } | null>(null);
+  const mobile = useMediaQuery(useTheme().breakpoints.down("md"));
+  const [panelOpen, setPanelOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const activePage = (location.pathname as AppPage) || "/";
@@ -85,28 +95,95 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <Box sx={{ display: "flex", height: "100vh" }}>
+    <Box sx={{ display: "flex", height: "100dvh", overflow: "hidden" }}>
       <IconRail
         activePage={activePage}
         onNavigate={(page) => navigate(page)}
-        onTogglePanel={() => {}}
+        onTogglePanel={() => setPanelOpen((value) => !value)}
         userEmail={user?.email}
         onSignOut={signOut}
       />
-      <ContextPanel
-        activePage={activePage}
-        open={showPanel}
-        conversations={conversations}
-        selectedConversationId={selectedId}
-        onSelectConversation={selectConversation}
-        onNewConversation={createConversation}
-        onDeleteConversation={removeConversation}
-        onNewFolder={handleNewFolder}
-        onRequestDeleteFolder={handleRequestDeleteFolder}
-      />
-      <Box
-        sx={{ flex: 1, minWidth: 0, overflowY: "auto", overflowX: "hidden" }}
+      {!mobile && (
+        <ContextPanel
+          activePage={activePage}
+          open={showPanel}
+          conversations={conversations}
+          selectedConversationId={selectedId}
+          onSelectConversation={selectConversation}
+          onNewConversation={createConversation}
+          onDeleteConversation={removeConversation}
+          onNewFolder={handleNewFolder}
+          onRequestDeleteFolder={handleRequestDeleteFolder}
+        />
+      )}
+      <Drawer
+        open={mobile && panelOpen && showPanel}
+        onClose={() => setPanelOpen(false)}
       >
+        <Box
+          sx={{ width: 280 }}
+          onClick={(event) => {
+            if (
+              (event.target as HTMLElement).closest("[data-folder-navigation]")
+            )
+              setPanelOpen(false);
+          }}
+        >
+          <ContextPanel
+            activePage={activePage}
+            open={showPanel}
+            conversations={conversations}
+            selectedConversationId={selectedId}
+            onSelectConversation={selectConversation}
+            onNewConversation={createConversation}
+            onDeleteConversation={removeConversation}
+            onNewFolder={handleNewFolder}
+            onRequestDeleteFolder={handleRequestDeleteFolder}
+          />
+        </Box>
+      </Drawer>
+      <Box
+        component="main"
+        id="main-content"
+        sx={{
+          flex: 1,
+          position: "relative",
+          isolation: "isolate",
+          minWidth: 0,
+          display: "flex",
+          flexDirection: "column",
+          overflowY: "auto",
+          overflowX: "hidden",
+        }}
+      >
+        <NeoAtmosphere />
+        {mobile && showPanel && (
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 1,
+              px: 1.5,
+              minHeight: 48,
+              flexShrink: 0,
+              borderBottom: `1px solid ${brand.line}`,
+            }}
+          >
+            <IconButton
+              aria-label={
+                activePage === "/documents"
+                  ? "Open folder navigator"
+                  : "Open conversations"
+              }
+              onClick={() => setPanelOpen(true)}
+            >
+              <MenuOpenIcon />
+            </IconButton>
+            <Typography sx={{ fontSize: 14, color: brand.muted }}>
+              {activePage === "/documents" ? "Folders" : "Conversations"}
+            </Typography>
+          </Box>
+        )}
         {children}
       </Box>
 

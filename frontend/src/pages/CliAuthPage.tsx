@@ -94,11 +94,6 @@ export default function CliAuthPage() {
         justifyContent: "center",
         p: 2,
         background: brand.ink,
-        backgroundImage: `
-          radial-gradient(circle at 20% 0%, ${brand.magenta}26 0%, transparent 45%),
-          radial-gradient(circle at 90% 100%, ${brand.cyan}18 0%, transparent 45%),
-          repeating-linear-gradient(0deg, rgba(255,255,255,0.018) 0px, rgba(255,255,255,0.018) 1px, transparent 1px, transparent 3px)
-        `,
       }}
     >
       <CornerCard
@@ -110,7 +105,7 @@ export default function CliAuthPage() {
           display: "flex",
           flexDirection: "column",
           gap: "18px",
-          p: "32px",
+          p: { xs: 3, sm: 4 },
         }}
       >
         {state === "loading" && (
