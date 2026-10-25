@@ -32,22 +32,63 @@ interface MessageBubbleProps {
 
 const CITE_RE = /\[(\d+)\]/g;
 
-/** Labels keep real source identity; missing metadata is never treated as a filename. */
-function citationLabel(c: Citation): string {
-  const source = c.source?.trim() ?? "";
-  if (c.source_type === "code") {
-    const file = c.file?.trim() || source;
-    const loc = c.line ? `${file}:${c.line}` : file;
-    return (c.symbol ? `${loc} — ${c.symbol}` : loc) || "Retrieved code source";
+/** Presentation metadata never changes the source identity used for activation. */
+function citationDetails(c: Citation) {
+  const metadata = `${c.source ?? ""} ${c.excerpt ?? ""}`;
+  const field = (name: string) =>
+    metadata
+      .match(
+        new RegExp(`\\[${name}(?:\\s*[:=]\\s*|\\s+)([^\\]]+)\\]`, "i")
+      )?.[1]
+      ?.trim();
+  const raw =
+    c.file?.trim() ||
+    field("file") ||
+    field("code")?.split(/\s+[—–]\s+/)[0] ||
+    (c.source ?? "")
+      .replace(/\[(?:repo|file|lines?|symbol)(?:\s*[:=]\s*|\s+)[^\]]*\]/gi, "")
+      .trim();
+  const path = raw.replace(/:\d+(?:-\d+)?$/, "");
+  const filename = path.split(/[\\/]/).filter(Boolean).pop();
+  let repo = field("repo");
+  if (!repo && c.url) {
+    try {
+      const url = new URL(c.url);
+      if (url.hostname === "github.com")
+        repo = url.pathname.split("/").filter(Boolean).slice(0, 2).join("/");
+    } catch {
+      /* Invalid URLs are left to the existing activation contract. */
+    }
   }
-  return source && !/^(unknown|\[unknown\])$/i.test(source)
-    ? source
-    : "Retrieved source";
+  const lineRange =
+    field("lines?") ||
+    field("file")?.match(/:(\d+(?:-\d+)?)$/)?.[1] ||
+    field("code")?.match(/:(\d+(?:-\d+)?)(?:\s|$)/)?.[1] ||
+    c.source?.match(/:(\d+(?:-\d+)?)$/)?.[1] ||
+    raw.match(/:(\d+(?:-\d+)?)$/)?.[1] ||
+    (c.line ? String(c.line) : undefined);
+  const title =
+    filename && !/^(unknown|\[unknown\])$/i.test(filename)
+      ? filename
+      : c.source_type === "code"
+      ? "Retrieved code source"
+      : "Retrieved source";
+  return { title, path: path !== title ? path : "", repo, lineRange };
+}
+
+function citationLabel(c: Citation): string {
+  const { title, lineRange } = citationDetails(c);
+  return lineRange ? `${title}:${lineRange}` : title;
 }
 
 /** Source previews are short prose, never raw fenced Markdown or a wall of code. */
 function citationPreview(value: string): string {
   const text = value
+    .replace(/\[Code\s*:\s*[^\]]*\]/gi, " ")
+    .replace(
+      /\[(?:repo|file|lines?|symbol|source_type)(?:\s*[:=]\s*|\s+)[^\]]*\]/gi,
+      " "
+    )
     .replace(/(^|\n)[ \t]*(?:`{3,}|~{3,})[\w+-]*[ \t]*(?:\r?\n|$)/g, "$1")
     .replace(/`+|~{3,}/g, "")
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
@@ -91,9 +132,9 @@ function CitationChip({
       slotProps={{
         tooltip: {
           sx: {
-            maxWidth: "min(360px, calc(100vw - 32px))",
+            maxWidth: "min(480px, calc(100vw - 32px))",
             boxSizing: "border-box",
-            maxHeight: "min(240px, calc(100dvh - 32px))",
+            maxHeight: "min(320px, calc(100dvh - 32px))",
             overflow: "hidden",
             p: "12px 14px",
             color: brand.text,
@@ -150,21 +191,45 @@ function CitationChip({
               color: brand.cyan,
             }}
           >
-            {citationLabel(c)}
+            {citationDetails(c).title}
           </Typography>
-          <Typography
-            component="span"
-            sx={{ display: "block", fontSize: 11, color: brand.muted, mt: 0.5 }}
-          >
-            {c.source_type === "code" ? "Code" : "Document"}
-          </Typography>
-          {c.excerpt && (
+          {citationDetails(c).path && (
             <Typography
               component="span"
               sx={{
                 display: "block",
-                fontSize: 13,
+                fontSize: 12,
                 lineHeight: 1.55,
+                color: brand.muted,
+                overflowWrap: "anywhere",
+                mt: 0.5,
+              }}
+            >
+              {citationDetails(c).path}
+            </Typography>
+          )}
+          <Typography
+            component="span"
+            sx={{ display: "block", fontSize: 11, color: brand.muted, mt: 0.5 }}
+          >
+            {[
+              c.source_type === "code" ? "Code" : "Document",
+              citationDetails(c).repo,
+              citationDetails(c).lineRange
+                ? `Lines ${citationDetails(c).lineRange}`
+                : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </Typography>
+          {c.excerpt && (
+            <Typography
+              data-testid="citation-preview"
+              component="span"
+              sx={{
+                display: "block",
+                fontSize: 14,
+                lineHeight: 1.65,
                 color: brand.text,
                 mt: 1,
                 whiteSpace: "normal",
@@ -514,136 +579,120 @@ export default function MessageBubble({
         )}
         {!isUser && footerSources.length > 0 && (
           <Box
-            component="section"
+            component="ul"
             aria-label="Sources"
-            className="source-cards"
+            className="source-list"
             data-testid="citation-sources"
             sx={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: 1,
+              display: "block",
+              p: 0,
+              mb: 0,
               mt: "14px",
               width: "100%",
               minWidth: 0,
               maxWidth: "100%",
             }}
           >
-            {footerSources.map((c) => (
-              <Box
-                key={c.number}
-                component="button"
-                type="button"
-                className="source-card"
-                data-testid="citation-source"
-                aria-label={`Open source ${c.number}: ${citationLabel(c)}`}
-                onClick={() => handleCitationClick(c)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    handleCitationClick(c);
-                  }
-                }}
-                sx={{
-                  display: "block",
-                  flex: "0 1 320px",
-                  width: 320,
-                  minWidth: 0,
-                  maxWidth: "100%",
-                  cursor: "pointer",
-                  textAlign: "left",
-                  p: "10px 13px",
-                  color: brand.text,
-                  bgcolor: brand.surface,
-                  border: `1px solid ${brand.line}`,
-                  borderRadius: "5px",
-                  fontFamily: fonts.body,
-                  touchAction: "manipulation",
-                  "&:hover": { borderColor: brand.cyan },
-                  "&:focus-visible": {
-                    outline: `2px solid ${brand.cyan}`,
-                    outlineOffset: 3,
-                  },
-                }}
-              >
+            {footerSources.map((c) => {
+              const details = citationDetails(c);
+              return (
                 <Box
-                  component="span"
-                  sx={{
-                    display: "flex",
-                    alignItems: "flex-start",
-                    gap: 1,
-                    minWidth: 0,
-                  }}
+                  component="li"
+                  key={c.number}
+                  sx={{ listStyle: "none", minWidth: 0 }}
                 >
                   <Box
-                    component="span"
-                    sx={{
-                      flexShrink: 0,
-                      display: "inline-flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      minWidth: 18,
-                      height: 18,
-                      borderRadius: "3px",
-                      color: brand.cyan,
-                      bgcolor: `${brand.cyan}10`,
-                      fontSize: 11,
-                      fontFamily: fonts.mono,
+                    component="button"
+                    type="button"
+                    className="source-list-row"
+                    data-testid="citation-source"
+                    aria-label={`Open source ${c.number}: ${citationLabel(c)}`}
+                    onClick={() => handleCitationClick(c)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        handleCitationClick(c);
+                      }
                     }}
-                  >
-                    {c.number}
-                  </Box>
-                  <Typography
-                    component="span"
-                    className="source-card-title"
                     sx={{
+                      display: "flex",
+                      alignItems: "baseline",
+                      gap: 1,
+                      width: "100%",
                       minWidth: 0,
-                      flex: 1,
-                      display: "-webkit-box",
-                      WebkitBoxOrient: "vertical",
-                      WebkitLineClamp: 2,
-                      overflow: "hidden",
-                      overflowWrap: "anywhere",
-                      fontSize: 13,
-                      lineHeight: 1.45,
-                      fontWeight: 500,
+                      textAlign: "left",
+                      cursor: "pointer",
+                      p: "6px 0",
+                      color: brand.text,
+                      bgcolor: "transparent",
+                      border: 0,
+                      borderBottom: `1px solid ${brand.line}`,
+                      fontFamily: fonts.body,
+                      "&:hover .source-list-title": { color: brand.cyan },
+                      "&:focus-visible": {
+                        outline: `2px solid ${brand.cyan}`,
+                        outlineOffset: 2,
+                      },
                     }}
                   >
-                    {citationLabel(c)}
-                  </Typography>
-                  <Typography
-                    component="span"
-                    sx={{
-                      flexShrink: 0,
-                      color: brand.muted,
-                      fontSize: 11,
-                      lineHeight: 1.45,
-                    }}
-                  >
-                    {c.source_type === "code" ? "Code" : "Document"}
-                  </Typography>
+                    <Box
+                      component="span"
+                      sx={{
+                        color: brand.cyan,
+                        fontFamily: fonts.mono,
+                        fontSize: 11,
+                        minWidth: 22,
+                        flexShrink: 0,
+                      }}
+                    >
+                      {c.number}.
+                    </Box>
+                    <Box
+                      component="span"
+                      sx={{
+                        minWidth: 0,
+                        flex: 1,
+                        display: "flex",
+                        alignItems: "baseline",
+                        flexWrap: "wrap",
+                        columnGap: 1,
+                      }}
+                    >
+                      <Typography
+                        component="span"
+                        className="source-list-title"
+                        sx={{
+                          fontSize: 13,
+                          fontWeight: 500,
+                          overflowWrap: "anywhere",
+                        }}
+                      >
+                        {details.title}
+                      </Typography>
+                      <Typography
+                        component="span"
+                        className="source-list-meta"
+                        sx={{
+                          color: brand.muted,
+                          fontSize: 12,
+                          overflowWrap: "anywhere",
+                        }}
+                      >
+                        {[
+                          details.repo,
+                          c.source_type === "code" ? "Code" : "Document",
+                          details.lineRange
+                            ? `Lines ${details.lineRange}`
+                            : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </Typography>
+                    </Box>
+                  </Box>
                 </Box>
-                {c.excerpt && (
-                  <Typography
-                    component="span"
-                    className="source-card-excerpt"
-                    sx={{
-                      display: "-webkit-box",
-                      WebkitBoxOrient: "vertical",
-                      WebkitLineClamp: 2,
-                      overflow: "hidden",
-                      overflowWrap: "anywhere",
-                      whiteSpace: "normal",
-                      color: brand.muted,
-                      fontSize: 12,
-                      lineHeight: 1.55,
-                      mt: "6px",
-                    }}
-                  >
-                    {citationPreview(c.excerpt)}
-                  </Typography>
-                )}
-              </Box>
-            ))}
+              );
+            })}
           </Box>
         )}
         {!isUser && (
