@@ -355,6 +355,9 @@ test("inventory snapshots deduplicate until changed and resend after reconnect",
   const firstAck = new Promise<void>((resolve) => {
     firstAcknowledged = resolve;
   });
+  controller.signal.addEventListener("abort", () => firstAcknowledged(), {
+    once: true,
+  });
   wsServer.on("connection", (socket) => {
     connections++;
     socket.on("message", (raw) => {
@@ -377,8 +380,9 @@ test("inventory snapshots deduplicate until changed and resend after reconnect",
     });
   });
   const deadline = setTimeout(() => controller.abort(), 3000);
+  let running: Promise<void> | undefined;
   try {
-    const running = runManabi({
+    running = runManabi({
       signal: controller.signal,
       readConnection: () => config,
       snapshot: () => ({ revision }),
@@ -398,6 +402,8 @@ test("inventory snapshots deduplicate until changed and resend after reconnect",
     assert.equal(received, 3);
     assert.equal(connections, 2);
   } finally {
+    controller.abort();
+    await running;
     clearTimeout(deadline);
     for (const socket of wsServer.clients) socket.terminate();
     wsServer.close();
