@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
 
+from starlette.concurrency import run_in_threadpool
+
+from db.client import get_supabase_thread_safe
 from services.search import search_documents
 
 log = logging.getLogger(__name__)
@@ -62,9 +64,10 @@ def _log_retrieval(
     channel: str,
     conversation_id: str | None = None,
 ) -> None:
-    """Insert one retrieval_log row. Never blocks the retrieval path — swallow."""
+    """Write audit metadata in a worker; failures are non-fatal."""
     try:
-        sb.table("retrieval_log").insert(
+        client = sb if sb is not None else get_supabase_thread_safe()
+        client.table("retrieval_log").insert(
             {
                 "user_id": user_id,
                 "folder_id": folder_id,
@@ -81,42 +84,20 @@ def _log_retrieval(
 
 
 def _resolve_root_folder_id(sb, folder_id: str | None, user_id: str) -> str | None:
-    """Walk parent_id up to the workspace root.
-
-    search_documents scopes by documents.root_folder_id (an exact match on the
-    workspace root). The session's scope, however, is often a SUB-folder (e.g. a
-    repo like cosm/repositories/c360-lead). Passing that sub-folder id straight
-    through matched zero documents — their root_folder_id is the workspace root,
-    not the sub-folder — so any repo/sub-folder session got 0 doc hits. Resolve
-    to the actual root so the whole workspace tree is searchable from anywhere
-    inside it. Returns folder_id unchanged on any lookup failure.
-    """
+    """Resolve the authorized root in one existing ownership-filtered SQL call."""
     if not folder_id:
         return None
-    current = folder_id
-    seen: set[str] = set()
-    for _ in range(32):  # depth guard against cycles / pathological trees
-        if current in seen:
-            break
-        seen.add(current)
-        try:
-            res = (
-                sb.table("folders")
-                .select("parent_id")
-                .eq("id", current)
-                .eq("user_id", user_id)
-                .limit(1)
-                .execute()
-            )
-        except Exception:
-            return folder_id
-        if not res.data:
-            return folder_id
-        parent = res.data[0].get("parent_id")
-        if not parent:
-            return current  # no parent → this is the root
-        current = parent
-    return current
+    try:
+        rows = (
+            sb.rpc("folder_breadcrumbs", {"p_folder_id": folder_id, "p_user_id": user_id})
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        return folder_id
+    # Empty/failed lookups retain the original restriction; never widen to all folders.
+    return rows[0]["id"] if rows else folder_id
 
 
 async def _search_docs(
@@ -137,7 +118,8 @@ async def _search_docs(
         # Resolve the workspace root in-thread (one quick lookup) so a session
         # scoped to a sub-folder still searches the whole tree — unless the
         # caller narrowed retrieval to an explicit subtree or file.
-        root_id = _resolve_root_folder_id(sb, folder_id, user_id)
+        client = sb if sb is not None else get_supabase_thread_safe()
+        root_id = _resolve_root_folder_id(client, folder_id, user_id)
         return search_documents(
             embedding,
             query_text=query_text,
@@ -152,7 +134,7 @@ async def _search_docs(
         )
 
     try:
-        rows = await asyncio.to_thread(_run)
+        rows = await run_in_threadpool(_run)
     except Exception as e:
         log.exception("rag search failed: %s", e)
         rows = []
@@ -192,7 +174,8 @@ async def retrieve_knowledge(
     hits = hits[:limit]
     total_ms = int((time.perf_counter() - t0) * 1000)
     sources_hit = [{"source": "docs", "count": len(hits), "latency_ms": doc_ms}]
-    _log_retrieval(
+    await run_in_threadpool(
+        _log_retrieval,
         sb,
         user_id=user_id,
         folder_id=folder_id,
@@ -207,5 +190,5 @@ async def retrieve_knowledge(
         query=query_text,
         hits=hits,
         sources_hit=sources_hit,
-        total_latency_ms=total_ms,
+        total_latency_ms=int((time.perf_counter() - t0) * 1000),
     )

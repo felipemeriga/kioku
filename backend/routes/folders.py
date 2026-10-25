@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from auth import get_current_user
-from db.client import get_supabase
+from db.client import get_supabase_thread_safe as get_supabase
 
 router = APIRouter(prefix="/api/folders")
 
@@ -36,7 +36,7 @@ class RenameFolderRequest(BaseModel):
 
 
 @router.get("")
-async def list_folders(
+def list_folders(
     parent_id: str | None = None,
     user_id: str = Depends(get_current_user),
 ):
@@ -97,7 +97,7 @@ def _check_unique_sibling(
 
 
 @router.post("")
-async def create_folder(
+def create_folder(
     body: CreateFolderRequest,
     user_id: str = Depends(get_current_user),
 ):
@@ -150,7 +150,7 @@ async def create_folder(
 
 
 @router.patch("/{folder_id}")
-async def update_folder(
+def update_folder(
     folder_id: str,
     body: RenameFolderRequest,
     user_id: str = Depends(get_current_user),
@@ -218,7 +218,7 @@ async def update_folder(
 
 
 @router.delete("/{folder_id}")
-async def delete_folder(
+def delete_folder(
     folder_id: str,
     delete_docs: bool = False,
     user_id: str = Depends(get_current_user),
@@ -314,7 +314,7 @@ def _descendant_folder_ids(sb, folder_id: str, user_id: str) -> list[str]:
 
 
 @router.get("/{folder_id}/breadcrumbs")
-async def get_breadcrumbs(
+def get_breadcrumbs(
     folder_id: str,
     user_id: str = Depends(get_current_user),
 ):
