@@ -26,6 +26,10 @@ from services.crypto import decrypt_secret, encrypt_secret
 router = APIRouter()
 
 
+def _user_edited(section: dict) -> bool:
+    return section.get("status") in ("pinned", "hybrid") or section.get("provenance") == "user_ui"
+
+
 def _api_key_auth(request: Request) -> tuple[str, str, str]:
     """(user_id, scope_folder_id, raw_key) from the Bearer api key."""
     auth = request.headers.get("Authorization") or ""
@@ -215,7 +219,7 @@ async def refresh_activity(body: ActivityRefreshRequest, request: Request):
     from services.folder_summary.briefing_schema import snapshot_sections
 
     sections = snapshot_sections(latest)
-    if (sections.get("activity") or {}).get("status") in ("pinned", "hybrid"):
+    if _user_edited(sections.get("activity") or {}):
         return {"ok": True, "updated": False, "reason": "section edited by user"}
     current_activity = (sections.get("activity") or {}).get("content") or {}
 
@@ -326,7 +330,7 @@ async def refresh_section(body: SectionRefreshRequest, request: Request):
 
     sections = snapshot_sections(latest)
     current = (sections.get(body.section) or {}).get("content")
-    if (sections.get(body.section) or {}).get("status") in ("pinned", "hybrid"):
+    if _user_edited(sections.get(body.section) or {}):
         return {"ok": True, "updated": False, "reason": "section edited by user"}
     if current is None:
         # Nothing to update in place — a section that was never generated needs
@@ -543,7 +547,7 @@ async def reground_holistic(body: RegroundRequest, request: Request):
 
     validated: dict[str, dict] = {}
     for sec in ("architecture", "overview"):
-        if (sections.get(sec) or {}).get("status") in ("pinned", "hybrid"):
+        if _user_edited(sections.get(sec) or {}):
             continue
         value = data.get(sec)
         if sec == "overview":

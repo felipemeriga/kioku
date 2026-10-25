@@ -53,6 +53,37 @@ def test_section_does_not_call_model_for_hybrid_section(monkeypatch):
     assert response.json() == {"ok": True, "updated": False, "reason": "section edited by user"}
 
 
+def test_section_does_not_call_model_for_user_ui_auto_section(monkeypatch):
+    _authorize(monkeypatch)
+    monkeypatch.setattr(
+        "services.folder_summary.repo.get_latest_summary",
+        lambda *_: {
+            "content": {
+                "sections": {
+                    "deployment": {
+                        "status": "auto",
+                        "provenance": "user_ui",
+                        "content": {"how_to_deploy": "User instructions"},
+                    }
+                }
+            }
+        },
+    )
+    monkeypatch.setattr(
+        "services.llm.complete", lambda **_kwargs: (_ for _ in ()).throw(AssertionError())
+    )
+    response = TestClient(app).post(
+        "/api/mihari/section",
+        json={
+            "folder_id": "f1",
+            "section": "deployment",
+            "files": [{"path": "Dockerfile", "content": "FROM python:3"}],
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["reason"] == "section edited by user"
+
+
 def test_reground_preserves_pinned_overview(monkeypatch):
     writes = []
 

@@ -360,7 +360,7 @@ def refresh_sections(
 
     for section, rules in SECTION_PATH_RULES.items():
         sec = sections.get(section) or {}
-        if sec.get("status") == "pinned":
+        if sec.get("status") in ("pinned", "hybrid") or sec.get("provenance") == "user_ui":
             continue
         if not sec.get("content"):
             continue  # never generated — needs a full regen, not a diff fold
@@ -506,6 +506,7 @@ def maybe_reground_holistic(clone: Path, repo: dict, env: dict, force: bool = Fa
         sections.get(name) or {}
         for name in ("architecture", "overview")
         if (sections.get(name) or {}).get("status") not in ("pinned", "hybrid")
+        and (sections.get(name) or {}).get("provenance") != "user_ui"
     ]
     if not writable:
         return
@@ -523,6 +524,7 @@ def maybe_reground_holistic(clone: Path, repo: dict, env: dict, force: bool = Fa
         < (450 if name == "architecture" else 300)
         for name in ("architecture", "overview")
         if (sections.get(name) or {}).get("status") not in ("pinned", "hybrid")
+        and (sections.get(name) or {}).get("provenance") != "user_ui"
     )
     if (
         not force
