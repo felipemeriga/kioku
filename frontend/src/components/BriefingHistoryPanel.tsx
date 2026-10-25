@@ -131,7 +131,9 @@ export default function BriefingHistoryPanel({ folderId }: Props) {
   const toast = useToast();
   // selected: up to 2 version IDs, in click order. Diff direction is resolved
   // chronologically (by generated_at), NOT by click order — see below.
-  const [manualSelection, setSelected] = useState<string[]>([]);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [compareMode, setCompareMode] = useState(false);
+  const [selectionNote, setSelectionNote] = useState("");
   const [restoring, setRestoring] = useState<string | null>(null);
 
   // ── queries ──────────────────────────────────────────────────────────────
@@ -152,9 +154,6 @@ export default function BriefingHistoryPanel({ folderId }: Props) {
       lastPage.length === 50 ? pages.length * 50 : undefined,
   });
   const history = historyPages?.pages.flat();
-  const selected = manualSelection.length
-    ? manualSelection
-    : (history ?? []).slice(0, 2).map((v) => v.id);
 
   const v0Id = selected[0] ?? null;
   const v1Id = selected[1] ?? null;
@@ -178,17 +177,11 @@ export default function BriefingHistoryPanel({ folderId }: Props) {
   // ── handlers ──────────────────────────────────────────────────────────────
 
   function handleVersionClick(id: string) {
-    setSelected((prev) => {
-      if (prev.includes(id)) {
-        // Deselect
-        return prev.filter((x) => x !== id);
-      }
-      if (prev.length >= 2) {
-        // Replace the oldest selection with the new one
-        return [prev[1], id];
-      }
-      return [...prev, id];
-    });
+    setSelectionNote("");
+    if (selected.includes(id)) setSelected(selected.filter((x) => x !== id));
+    else if (!compareMode) setSelected([id]);
+    else if (selected.length < 2) setSelected([...selected, id]);
+    else setSelectionNote("Unselect a version before choosing another.");
   }
 
   async function handleRestore(versionId: string) {
@@ -315,12 +308,28 @@ export default function BriefingHistoryPanel({ folderId }: Props) {
   // The latest real pair is shown initially; clicking a row inspects it.
   return (
     <Box className="history-panel">
+      <Button
+        variant="outlined"
+        aria-pressed={compareMode}
+        sx={{ mb: 2 }}
+        onClick={() => {
+          setCompareMode(!compareMode);
+          setSelected([]);
+        }}
+      >
+        {compareMode ? "Exit comparison" : "Compare versions"}
+      </Button>
       <Typography
         sx={{ fontSize: 13, lineHeight: 1.55, color: brand.muted, mb: "20px" }}
       >
         Compare two briefing versions, or inspect a previous version before
         restoring it.
       </Typography>
+      {selectionNote && (
+        <Typography role="status" sx={{ mb: 2 }}>
+          {selectionNote}
+        </Typography>
+      )}
       <Box
         className="history-layout"
         sx={{
@@ -337,6 +346,7 @@ export default function BriefingHistoryPanel({ folderId }: Props) {
                 component="button"
                 key={v.id}
                 data-testid={`version-${v.id}`}
+                aria-pressed={selected.includes(v.id)}
                 onClick={() => handleVersionClick(v.id)}
                 sx={{
                   width: "100%",
@@ -344,18 +354,17 @@ export default function BriefingHistoryPanel({ folderId }: Props) {
                   fontFamily: fonts.body,
                   p: "17px 18px",
                   border: `1px solid ${
-                    (manualSelection.length
-                      ? manualSelection
-                      : selected.slice(0, 1)
-                    ).includes(v.id)
-                      ? brand.cyan
-                      : brand.line
+                    selected.includes(v.id) ? brand.cyan : brand.line
                   }`,
                   borderRadius: "5px",
                   background: brand.surface,
                   color: brand.text,
                   cursor: "pointer",
-                  "&:hover": { borderColor: brand.cyan },
+                  "&:hover": { background: brand.raised },
+                  "&:focus-visible": {
+                    outline: `2px dashed ${brand.magenta}`,
+                    outlineOffset: 3,
+                  },
                 }}
               >
                 <Typography
@@ -413,6 +422,13 @@ export default function BriefingHistoryPanel({ folderId }: Props) {
             </Button>
           )}
         </Box>
+        {selected.length === 0 && (
+          <Typography sx={{ p: 3, color: brand.muted }}>
+            {compareMode
+              ? "Select two versions to compare. Click a selected version to unselect it."
+              : "Select a version to inspect. Click it again to unselect."}
+          </Typography>
+        )}
         {selected.length > 0 && (
           <Box
             sx={{
@@ -439,11 +455,7 @@ export default function BriefingHistoryPanel({ folderId }: Props) {
                   component="h2"
                   sx={{ fontSize: 21, fontWeight: 600 }}
                 >
-                  {manualSelection.length === 0
-                    ? "Latest changes"
-                    : selected.length === 2
-                    ? "Diff"
-                    : "Version details"}
+                  {selected.length === 2 ? "Diff" : "Version details"}
                 </Typography>
                 <Typography sx={{ fontSize: 13, color: brand.muted, mt: 0.5 }}>
                   {selected.length === 2
@@ -455,17 +467,7 @@ export default function BriefingHistoryPanel({ folderId }: Props) {
                 </Typography>
               </Box>
               <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-                {(history?.length ?? 0) > 1 && (
-                  <Button
-                    variant="outlined"
-                    onClick={() =>
-                      setSelected((history ?? []).slice(0, 2).map((v) => v.id))
-                    }
-                  >
-                    Compare versions
-                  </Button>
-                )}
-                {v0Id && manualSelection.length > 0 && (
+                {v0Id && selected.length === 1 && (
                   <Button
                     data-testid={`restore-${v0Id}`}
                     variant="outlined"

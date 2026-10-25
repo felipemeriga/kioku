@@ -1,4 +1,5 @@
 import { useState } from "react";
+import NotionFolderIndicator from "./NotionFolderIndicator";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Box,
@@ -165,7 +166,7 @@ function FolderTreeNode({
           )}
         </ListItemIcon>
         <ListItemText
-          primary={folder.name}
+          primary={<>{folder.name}<NotionFolderIndicator folderId={folder.id} /></>}
           primaryTypographyProps={{
             noWrap: true,
             sx: {

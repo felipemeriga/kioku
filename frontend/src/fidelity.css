@@ -450,14 +450,6 @@
 #root .source-cards > p {
   display: none;
 }
-#root .source-cards .source-card {
-  border: 1px solid #654b83;
-  border-radius: 5px;
-  padding: 10px 13px;
-  font-family: inherit;
-  font-size: 12px;
-  background: #12091f;
-}
 #root .message-bubble {
   margin-bottom: 28px;
 }
@@ -568,11 +560,36 @@
   min-height: 80px;
   padding: 14px 0;
 }
-#root .source-cards .source-card {
-  width: min(320px, 100%);
-  max-width: 100%;
-  min-width: 0;
-  flex: 0 1 320px;
-  display: block;
-  align-self: stretch;
+
+/* Leave breathing room after every document tab, inside its scroll area. */
+#root .documents-content {
+  padding-bottom: 32px !important;
+}
+#root .remote-repo {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  padding-block: 18px;
+}
+#root .remote-repo-status:empty {
+  display: none;
+}
+#root .remote-agent-tags {
+  justify-content: flex-end;
+  gap: 8px;
+}
+#root .remote-repo-path {
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 480px) {
+  #root .documents-content {
+    padding-bottom: 24px !important;
+  }
+  #root .remote-repo {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+  #root .remote-agent-tags {
+    justify-content: flex-start;
+  }
 }

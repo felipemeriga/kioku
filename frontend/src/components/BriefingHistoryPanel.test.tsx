@@ -41,6 +41,33 @@ const V = (p: string) => ({
 });
 
 describe("BriefingHistoryPanel", () => {
+  it("toggles only the clicked row and never reselects an implicit first version", async () => {
+    vi.spyOn(api, "fetchBriefingHistory").mockResolvedValue(META);
+    vi.spyOn(api, "fetchBriefingVersion").mockResolvedValue(V("content"));
+    renderWithProviders(<BriefingHistoryPanel folderId="f1" />);
+    const first = await screen.findByTestId("version-v2");
+    const second = screen.getByTestId("version-v1");
+    expect(first).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(first);
+    fireEvent.click(second);
+    expect(first).toHaveAttribute("aria-pressed", "false");
+    expect(second).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(second);
+    expect(second).toHaveAttribute("aria-pressed", "false");
+    expect(
+      screen.queryByRole("button", { name: "Restore version" })
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Compare versions" }));
+    fireEvent.click(first);
+    fireEvent.click(second);
+    fireEvent.click(first);
+    expect(first).toHaveAttribute("aria-pressed", "false");
+    expect(second).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(second);
+    expect(first).toHaveAttribute("aria-pressed", "false");
+    expect(second).toHaveAttribute("aria-pressed", "false");
+  });
+
   beforeEach(() => vi.restoreAllMocks());
 
   it("lists versions newest-first with changed-section chips", async () => {
@@ -66,6 +93,7 @@ describe("BriefingHistoryPanel", () => {
       );
       renderWithProviders(<BriefingHistoryPanel folderId="f1" />);
       await waitFor(() => screen.getByTestId("version-v2"));
+      fireEvent.click(screen.getByRole("button", { name: "Compare versions" }));
       fireEvent.click(screen.getByTestId(`version-${first}`));
       fireEvent.click(screen.getByTestId(`version-${second}`));
       await waitFor(() =>

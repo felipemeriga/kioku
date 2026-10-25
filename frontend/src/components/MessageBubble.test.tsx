@@ -166,11 +166,6 @@ describe("bounded source previews", () => {
         citations={[{ ...docCite, excerpt }]}
       />
     );
-    const snippet = container.querySelector(".source-card-excerpt")!;
-    expect(snippet.textContent).toContain("const sample = safe;");
-    expect(snippet.textContent).not.toMatch(/`|\n| {2}/);
-    expect(snippet.textContent!.length).toBeLessThanOrEqual(220);
-    expect(snippet.textContent).toMatch(/…$/);
     const marker = screen.getByTestId("citation-chip");
     vi.spyOn(marker, "getBoundingClientRect").mockReturnValue(
       new DOMRect(100, 200, 20, 20)
@@ -178,6 +173,10 @@ describe("bounded source previews", () => {
     fireEvent.mouseOver(marker);
     const tooltip = await screen.findByRole("tooltip");
     expect(container.contains(tooltip)).toBe(false);
+    const snippet = screen.getByTestId("citation-preview");
+    expect(snippet.textContent).not.toMatch(/`|\n| {2}/);
+    expect(snippet.textContent!.length).toBeLessThanOrEqual(220);
+    expect(snippet.textContent).toMatch(/…$/);
     expect(tooltip).toHaveTextContent("const sample = safe;");
     expect(tooltip.textContent).not.toContain("```");
     const surface = tooltip.querySelector(".MuiTooltip-tooltip") ?? tooltip;
@@ -245,4 +244,122 @@ describe("bounded source previews", () => {
       getComputedStyle(screen.getByTestId("assistant-message-surface")).minWidth
     ).toBe("0px");
   });
+});
+
+describe("compact source list", () => {
+  it("renders nineteen sources as nineteen normal list rows without card excerpts", () => {
+    const citations = Array.from({ length: 19 }, (_, i) => ({
+      ...codeCite,
+      number: i + 1,
+      file: `src/module-${i}.ts`,
+    }));
+    renderWithProviders(
+      <MessageBubble
+        role="assistant"
+        content={citations.map((c) => `[${c.number}]`).join(" ")}
+        citations={citations}
+      />
+    );
+    expect(screen.getByRole("list", { name: "Sources" })).toBeInTheDocument();
+    expect(screen.getAllByRole("listitem")).toHaveLength(19);
+    expect(screen.getAllByTestId("citation-source")).toHaveLength(19);
+    expect(document.querySelector(".source-card")).toBeNull();
+    expect(document.querySelector(".source-card-excerpt")).toBeNull();
+  });
+
+  it("presents metadata clearly while preserving the original source activation", async () => {
+    const open = vi.fn();
+    const source =
+      "[repo: org/repo] [file: very/deep/path/config.md] [lines: 12-24]";
+    renderWithProviders(
+      <MessageBubble
+        role="assistant"
+        content="Reference [1]."
+        onOpenDocument={open}
+        citations={[
+          {
+            ...docCite,
+            source,
+            excerpt:
+              "[repo: org/repo] [file: very/deep/path/config.md] [lines: 12-24] A `verified` fact.",
+          },
+        ]}
+      />
+    );
+    const row = screen.getByTestId("citation-source");
+    expect(row).toHaveTextContent("config.md");
+    expect(row).toHaveTextContent("org/repo · Document · Lines 12-24");
+    expect(row.textContent).not.toContain("[repo:");
+    const marker = screen.getByTestId("citation-chip");
+    vi.spyOn(marker, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(100, 200, 20, 20)
+    );
+    fireEvent.mouseOver(marker);
+    const tooltip = await screen.findByRole("tooltip");
+    expect(tooltip).toHaveTextContent("very/deep/path/config.md");
+    expect(screen.getByTestId("citation-preview")).toHaveTextContent(
+      "A verified fact."
+    );
+    expect(tooltip.textContent).not.toMatch(/\[(?:repo|file|lines):/);
+    fireEvent.click(row);
+    expect(open).toHaveBeenCalledWith(source, "f1");
+  });
+});
+
+it("cleans actual space-delimited retrieval metadata and Code wrappers", async () => {
+  const source = "[Code: frontend/src/api.ts:10-20 — request()]";
+  renderWithProviders(
+    <MessageBubble
+      role="assistant"
+      content="See [2]."
+      citations={[
+        {
+          ...codeCite,
+          source,
+          file: null,
+          excerpt:
+            "[repo kioku] [file frontend/src/api.ts:10-20] [symbol request()] A verified fact.",
+        },
+      ]}
+    />
+  );
+  const row = screen.getByTestId("citation-source");
+  expect(row).toHaveTextContent("api.ts");
+  expect(row).toHaveTextContent("kioku · Code · Lines 10-20");
+  expect(row.textContent).not.toMatch(/\[(?:Code|repo|file|symbol)/);
+  const marker = screen.getByTestId("citation-chip");
+  vi.spyOn(marker, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(100, 200, 20, 20)
+  );
+  fireEvent.mouseOver(marker);
+  const tooltip = await screen.findByRole("tooltip");
+  expect(tooltip).toHaveTextContent("frontend/src/api.ts");
+  expect(screen.getByTestId("citation-preview")).toHaveTextContent(
+    "A verified fact."
+  );
+  expect(tooltip.textContent).not.toMatch(/\[(?:Code|repo|file|symbol)/);
+});
+
+it("uses the filename from a raw Code wrapper when file metadata is absent", () => {
+  renderWithProviders(
+    <MessageBubble
+      role="assistant"
+      content="See [2]."
+      citations={[
+        {
+          ...codeCite,
+          source: "[Code: frontend/src/api.ts:10-20 — request()]",
+          file: null,
+          excerpt: "A fact.",
+        },
+      ]}
+    />
+  );
+  expect(screen.getByTestId("citation-source")).toHaveTextContent("api.ts");
+  expect(screen.getByTestId("citation-source")).toHaveTextContent(
+    "Lines 10-20"
+  );
+  expect(screen.getByTestId("citation-source").textContent).not.toContain(
+    "request()"
+  );
 });
