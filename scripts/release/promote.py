@@ -9,18 +9,18 @@ import subprocess
 from pathlib import Path
 
 from deployment import configuration, wait_for_deployments
-from release import channel, dump, git, update_hive
+from release import dump, git, update_hive
 
 
 def run(*args, **kwargs):
     subprocess.run(args, check=True, **kwargs)
 
 
-def assert_source_current(root, sha, branch="main"):
-    git("fetch", "origin", branch, cwd=root)
-    if git("rev-parse", "origin/" + branch, cwd=root) != sha:
+def assert_source_current(root, sha):
+    git("fetch", "origin", "main", cwd=root)
+    if git("rev-parse", "origin/main", cwd=root) != sha:
         raise RuntimeError(
-            "Release branch advanced; skip stale promotion and release accumulated changes"
+            "Main advanced; skip stale promotion and release accumulated changes"
         )
 
 
@@ -40,13 +40,9 @@ def main():
     root = Path.cwd()
     plan = json.loads((root / ".release/pending.json").read_text())
     sha = os.environ["RELEASE_SHA"]
-    branch = os.environ.get("RELEASE_BRANCH", "main")
-    if plan.get("release_branch", "main") != branch:
-        raise ValueError("Release plan and nominated branch do not match")
-    rehearsal_id = plan.get("rehearsal_id")
-    ledger_prefix = channel(branch, rehearsal_id)
-    prerelease = branch != "main"
-    assert_source_current(root, sha, branch)
+    if plan.get("release_branch", "main") != "main":
+        raise ValueError("Release plan must target main")
+    assert_source_current(root, sha)
     deploy_config = configuration(plan)
     results = [
         json.loads(p.read_text()) for p in (root / "release-results").glob("*.json")
@@ -83,7 +79,7 @@ def main():
     tags = []
     draft_tags = []
     for package, version in plan["versions"].items():
-        tag = f"{package}-v{version}" + (f"-e2e.{rehearsal_id}" if prerelease else "")
+        tag = f"{package}-v{version}"
         tags.append(tag)
         existing = subprocess.run(
             [
@@ -111,13 +107,12 @@ def main():
                 f"{package} {version}",
                 "--notes",
                 f"Source commit: {sha}\nAutomatically validated package release.",
-                *(["--prerelease", "--latest=false"] if prerelease else []),
             )
         else:
             data = json.loads(existing.stdout)
             if data["targetCommitish"] != sha:
                 raise RuntimeError(f"Release {tag} points to another commit")
-            if bool(data["isPrerelease"]) != prerelease:
+            if data["isPrerelease"]:
                 raise RuntimeError("Existing release channel does not match this plan")
             if not data["isDraft"]:
                 continue
@@ -131,9 +126,7 @@ def main():
     hive = root / "hive"
     hive_sha = None
     if plan["images"]:
-        subject = (
-            f"chore(kioku): deploy {'prerelease' if prerelease else 'release'} {sha}"
-        )
+        subject = f"chore(kioku): deploy release {sha}"
         for attempt in range(3):
             if attempt:
                 git("fetch", "origin", "main", cwd=hive)
@@ -150,11 +143,11 @@ def main():
             if not subprocess.run(
                 ["git", "diff", "--cached", "--quiet"], cwd=hive, check=False
             ).returncode:
-                assert_source_current(root, sha, branch)
+                assert_source_current(root, sha)
                 hive_sha = existing_hive_commit(hive, subject)
                 break
             git("commit", "-m", subject, cwd=hive)
-            assert_source_current(root, sha, branch)
+            assert_source_current(root, sha)
             if (
                 subprocess.run(
                     ["git", "push", "origin", "HEAD:main"], cwd=hive, check=False
@@ -185,11 +178,10 @@ def main():
             "edit",
             tag,
             "--draft=false",
-            *(["--prerelease", "--latest=false"] if prerelease else []),
         )
     git("config", "user.name", "felipemeriga", cwd=root)
     git("config", "user.email", "felipemeriga@users.noreply.github.com", cwd=root)
-    ledger = ledger_prefix + sha
+    ledger = "release/deployed-" + sha
     if not git("tag", "--list", ledger):
         git(
             "tag",

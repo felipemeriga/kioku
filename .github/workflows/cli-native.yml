@@ -67,12 +67,10 @@ jobs:
             if ($OutFile) { Copy-Item $global:KiokuFixtureBinary $OutFile }
             else { return [pscustomobject]@{ Content = $global:KiokuFixtureSums } }
           }
-          foreach ($pin in @('1.2.3', '1.2.3-e2e.20261024')) {
-            $env:KIOKU_VERSION = $pin
-            $env:KIOKU_INSTALL_DIR = Join-Path $fixture "install dir $pin"
-            & ./scripts/release/install.ps1
-            if (-not (Test-Path (Join-Path $env:KIOKU_INSTALL_DIR 'kioku.exe'))) { throw 'Installer did not create executable' }
-          }
+          $env:KIOKU_VERSION = '1.2.3'
+          $env:KIOKU_INSTALL_DIR = Join-Path $fixture 'install dir'
+          & ./scripts/release/install.ps1
+          if (-not (Test-Path (Join-Path $env:KIOKU_INSTALL_DIR 'kioku.exe'))) { throw 'Installer did not create executable' }
           Remove-Item $fixture -Recurse -Force
       - uses: actions/upload-artifact@v4
         with:

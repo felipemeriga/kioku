@@ -350,6 +350,14 @@ test("inventory snapshots deduplicate until changed and resend after reconnect",
   let revision = 1;
   let received = 0;
   let connections = 0;
+  let connectedStatuses = 0;
+  let firstAcknowledged: () => void = () => {};
+  const firstAck = new Promise<void>((resolve) => {
+    firstAcknowledged = resolve;
+  });
+  controller.signal.addEventListener("abort", () => firstAcknowledged(), {
+    once: true,
+  });
   wsServer.on("connection", (socket) => {
     connections++;
     socket.on("message", (raw) => {
@@ -366,29 +374,36 @@ test("inventory snapshots deduplicate until changed and resend after reconnect",
         socket.send(
           JSON.stringify({ type: "inventory_ack", revision: message.revision })
         );
-        if (received === 1)
-          setTimeout(() => {
-            assert.equal(received, 1);
-            revision = 2;
-          }, 30);
-        else if (received === 2) setTimeout(() => socket.terminate(), 5);
+        if (received === 2) socket.terminate();
         else if (received === 3) controller.abort();
       }
     });
   });
-  const deadline = setTimeout(() => controller.abort(), 1500);
+  const deadline = setTimeout(() => controller.abort(), 3000);
+  let running: Promise<void> | undefined;
   try {
-    await runManabi({
+    running = runManabi({
       signal: controller.signal,
       readConnection: () => config,
       snapshot: () => ({ revision }),
-      heartbeatMs: 10,
-      timeoutMs: 100,
+      status: (code) => {
+        if (code === "connected" && ++connectedStatuses === 2)
+          firstAcknowledged();
+      },
+      heartbeatMs: 50,
+      timeoutMs: 500,
       delay: () => 1,
     });
+    await firstAck;
+    await sleep(160);
+    assert.equal(received, 1);
+    revision = 2;
+    await running;
     assert.equal(received, 3);
     assert.equal(connections, 2);
   } finally {
+    controller.abort();
+    await running;
     clearTimeout(deadline);
     for (const socket of wsServer.clients) socket.terminate();
     wsServer.close();

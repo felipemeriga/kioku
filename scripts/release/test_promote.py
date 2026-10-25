@@ -7,16 +7,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 import promote
-from release import bump_packages, channel
+from release import bump_packages
 
 SHA = "a" * 40
 HIVE_SHA = "b" * 40
 
 
 class PromotionTests(unittest.TestCase):
-    def exercise(
-        self, verification_error=None, late_source_error=False, rehearsal=False
-    ):
+    def exercise(self, verification_error=None, late_source_error=False):
         events = []
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -30,13 +28,6 @@ class PromotionTests(unittest.TestCase):
                 "cli": False,
             }
             env = {"RELEASE_SHA": SHA}
-            if rehearsal:
-                plan.update(
-                    {"release_branch": "integration-test", "rehearsal_id": "run-1"}
-                )
-                env.update(
-                    {"RELEASE_BRANCH": "integration-test", "RELEASE_PRERELEASE": "true"}
-                )
             (root / ".release/pending.json").write_text(json.dumps(plan))
 
             def fake_git(*args, **kwargs):
@@ -119,33 +110,11 @@ class PromotionTests(unittest.TestCase):
             )
         )
 
-    def test_branch_rehearsal_never_publishes_stable_or_writes_production_ledger(self):
-        events = self.exercise(rehearsal=True)
-        create = next(e for e in events if e[:3] == ("gh", "release", "create"))
-        self.assertIn("frontend-v1.2.3-e2e.run-1", create)
-        self.assertIn("--prerelease", create)
-        self.assertIn("--latest=false", create)
-        ledger = next(e for e in events if e[:3] == ("git", "tag", "-a"))
-        self.assertEqual(ledger[3], "release/rehearsed-" + SHA)
-        self.assertFalse(any("release/deployed-" in str(e) for e in events))
-
-    def test_main_guard_fetches_nominated_branch_and_rejects_new_source(self):
+    def test_main_guard_rejects_new_source(self):
         with patch("promote.git", side_effect=["", "different"]) as git:
             with self.assertRaises(RuntimeError):
-                promote.assert_source_current(Path("/fixture"), SHA, "integration")
-            self.assertEqual(
-                git.call_args_list[0].args, ("fetch", "origin", "integration")
-            )
-
-    def test_rehearsal_requires_both_explicit_branch_and_opt_in(self):
-        with self.assertRaises(ValueError):
-            channel("feature", "run-1", {})
-        with self.assertRaises(ValueError):
-            channel("main", "run-1", {"RELEASE_PRERELEASE": "true"})
-        self.assertEqual(
-            channel("feature", "run-1", {"RELEASE_PRERELEASE": "true"}),
-            "release/rehearsed-",
-        )
+                promote.assert_source_current(Path("/fixture"), SHA)
+            self.assertEqual(git.call_args_list[0].args, ("fetch", "origin", "main"))
 
     def test_shared_cli_version_file_updates_without_rewriting_entry(self):
         with tempfile.TemporaryDirectory() as tmp:
