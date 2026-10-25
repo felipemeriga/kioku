@@ -8,15 +8,24 @@
  * to drop onto every folder.
  */
 import { useEffect, useRef, useState } from "react";
-import { Alert, Box, LinearProgress, Stack, Typography } from "@mui/material";
+import {
+  Alert,
+  Box,
+  Button,
+  LinearProgress,
+  Stack,
+  Typography,
+} from "@mui/material";
 
 import {
   fetchActiveIngestionJobs,
-  fetchBreadcrumbs,
   fetchNotionConfigs,
   type IngestionJob,
-  type NotionConfig,
 } from "../lib/api";
+import { Link } from "react-router-dom";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { breadcrumbOptions, FOLDER_STALE_TIME } from "../lib/folderQueries";
+import { qk } from "../lib/queryKeys";
 import { notionSyncProgress } from "../lib/notionProgress";
 import { brand } from "../theme";
 
@@ -41,9 +50,18 @@ export function NotionSyncBanner({
    *  list to show newly-ingested documents without a manual reload. */
   onPagesSynced?: () => void;
 }) {
-  const [config, setConfig] = useState<NotionConfig | null>(null);
+  const client = useQueryClient();
+  const { data: crumbs } = useQuery(breadcrumbOptions(folderId));
+  const { data: configs } = useQuery({
+    queryKey: qk.notionConfigs(),
+    queryFn: fetchNotionConfigs,
+    staleTime: FOLDER_STALE_TIME,
+  });
+  const chainIds = new Set([folderId, ...(crumbs ?? []).map((c) => c.id)]);
+  const config = configs?.find((c) => chainIds.has(c.root_folder_id)) ?? null;
+  const rootId = config?.root_folder_id;
+
   const [job, setJob] = useState<IngestionJob | null>(null);
-  const rootIdRef = useRef<string | null>(null);
   const hadJobRef = useRef(false);
   // Latest processed_pages we've seen; -1 until the first observation so
   // opening a folder mid-sync doesn't fire a spurious refresh.
@@ -60,15 +78,7 @@ export function NotionSyncBanner({
     let cancelled = false;
     let timer: number | null = null;
 
-    const loadConfig = async (rootId: string) => {
-      const cfgs = await fetchNotionConfigs();
-      const cfg = cfgs.find((c) => c.root_folder_id === rootId) ?? null;
-      if (!cancelled) setConfig(cfg);
-      return cfg;
-    };
-
     const tick = async () => {
-      const rootId = rootIdRef.current;
       if (!rootId) return;
       try {
         const active = await fetchActiveIngestionJobs();
@@ -93,7 +103,7 @@ export function NotionSyncBanner({
         // idle "last synced" line / error reflects the new state, and do a
         // final file-list refresh to catch the last page + any new folders.
         if (hadJobRef.current && !running) {
-          await loadConfig(rootId);
+          await client.invalidateQueries({ queryKey: qk.notionConfigs() });
           onPagesSyncedRef.current?.();
           lastPagesRef.current = -1;
         }
@@ -103,39 +113,26 @@ export function NotionSyncBanner({
       }
     };
 
-    (async () => {
-      try {
-        const crumbs = await fetchBreadcrumbs(folderId);
-        // Match a Notion config anchored to *any* ancestor in this folder's
-        // chain (self included), so the banner shows on the connected root
-        // folder and on every synced subfolder beneath it — regardless of
-        // whether the config points at the top root or an intermediate folder.
-        const chainIds = new Set([folderId, ...crumbs.map((c) => c.id)]);
-        const cfgs = await fetchNotionConfigs();
-        if (cancelled) return;
-        const cfg = cfgs.find((c) => chainIds.has(c.root_folder_id)) ?? null;
-        setConfig(cfg);
-        if (!cfg) return; // not a Notion folder → no banner, no poll
-        rootIdRef.current = cfg.root_folder_id;
-        await tick();
-        if (!cancelled) timer = window.setInterval(tick, POLL_MS);
-      } catch {
-        // No breadcrumbs / not authorized → render nothing.
-      }
-    })();
+    if (rootId) {
+      void tick();
+      timer = window.setInterval(tick, POLL_MS);
+    }
 
     return () => {
       cancelled = true;
       if (timer) window.clearInterval(timer);
     };
-  }, [folderId]);
+  }, [rootId, client]);
 
   if (!config) return null;
 
   const wrapSx = {
-    px: 3,
-    py: 1.5,
-    borderBottom: `1px solid ${brand.line}`,
+    px: 2.5,
+    py: 2,
+    mb: 3,
+    border: `1px solid ${brand.cyan}66`,
+    borderRadius: 1.5,
+    backgroundColor: `${brand.cyan}08`,
   } as const;
 
   if (job && (job.status === "queued" || job.status === "running")) {
@@ -179,9 +176,27 @@ export function NotionSyncBanner({
   const lastSync = config.last_full_sync_at ?? config.last_fast_sync_at;
   return (
     <Box sx={wrapSx}>
-      <Typography variant="caption" color="text.secondary">
-        Notion · synced · last update {formatTs(lastSync)}
-      </Typography>
+      <Stack
+        direction="row"
+        justifyContent="space-between"
+        alignItems="center"
+        gap={2}
+      >
+        <Typography sx={{ fontSize: 14, color: brand.muted }}>
+          <Box component="strong" sx={{ color: brand.text, fontWeight: 500 }}>
+            Notion connected
+          </Box>{" "}
+          · Last synced {formatTs(lastSync)}
+        </Typography>
+        <Button
+          component={Link}
+          to="/settings?tab=integrations"
+          size="small"
+          color="secondary"
+        >
+          Manage
+        </Button>
+      </Stack>
     </Box>
   );
 }

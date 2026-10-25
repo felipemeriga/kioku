@@ -250,11 +250,12 @@ export default function MessageBubble({
         {isUser ? (
           /* ── User bubble ── right-aligned, magenta tint */
           <Box
+            data-testid="user-message-surface"
             sx={{
               px: 2,
               py: 1.5,
-              background: `${brand.magenta}15`,
-              border: `1px solid ${brand.magenta}25`,
+              background: `${brand.magenta}18`,
+              border: `1px solid ${brand.magenta}88`,
               borderRadius: "12px 12px 3px 12px",
             }}
           >
@@ -272,16 +273,18 @@ export default function MessageBubble({
             </Typography>
           </Box>
         ) : (
-          /* ── Assistant bubble ── CornerCard with cyan corners */
+          /* Assistant message surface. */
           <CornerCard
+            data-testid="assistant-message-surface"
             color={brand.cyan}
             corners={2}
             sx={{
-              px: { xs: 0, sm: 2.25 },
-              py: 2,
+              px: { xs: 2, sm: 3 },
+              py: 2.5,
               width: "100%",
-              border: "none",
-              bgcolor: "transparent",
+              border: `1px solid ${brand.lineGlow}`,
+              bgcolor: brand.surface,
+              borderRadius: 2,
             }}
           >
             <Box

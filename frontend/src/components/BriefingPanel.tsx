@@ -236,19 +236,23 @@ export default function BriefingPanel({ folderId }: Props) {
         sx={{
           flex: 1,
           minWidth: 0,
-          maxWidth: 820,
           display: "flex",
           flexDirection: "column",
-          gap: 5,
+          gap: 0,
+          border: `1px solid ${brand.line}`,
+          borderRadius: 2,
+          overflow: "hidden",
+          backgroundColor: brand.surface,
         }}
       >
         {/* Header */}
         <Box
           sx={{
             display: "flex",
-            alignItems: "flex-end",
+            alignItems: "center",
+            flexWrap: "wrap",
             gap: 2,
-            pb: 2.25,
+            p: 3,
             borderBottom: `1px solid ${brand.line}`,
           }}
         >
@@ -260,15 +264,12 @@ export default function BriefingPanel({ folderId }: Props) {
               gap: 0.75,
             }}
           >
-            <Typography sx={{ ...hudLabel, color: brand.cyan }}>
-              BRIEFING
-            </Typography>
             <Typography
               component="h1"
               sx={{
                 margin: 0,
-                fontSize: 34,
-                fontWeight: 700,
+                fontSize: 23,
+                fontWeight: 600,
                 letterSpacing: "-0.4px",
                 lineHeight: 1.15,
                 fontFamily: fonts.display,
@@ -276,11 +277,10 @@ export default function BriefingPanel({ folderId }: Props) {
                 textShadow: "none",
               }}
             >
-              {data.folder.name}
+              Repository briefing
             </Typography>
             <Typography sx={{ fontSize: 14, color: brand.muted }}>
-              Session-start context for coding agents. Edit any section to pin
-              it.
+              Session-start context shared with your coding agents.
             </Typography>
           </Box>
           {hasBriefing && (
@@ -320,7 +320,13 @@ export default function BriefingPanel({ folderId }: Props) {
                 ref={(el: HTMLElement | null) => {
                   sectionRefs.current[i] = el;
                 }}
-                sx={{ display: "flex", flexDirection: "column", gap: 1.75 }}
+                sx={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 2,
+                  p: 3,
+                  borderBottom: `1px solid ${brand.line}`,
+                }}
               >
                 <SectionHeading
                   n={String(i + 1).padStart(2, "0")}
@@ -409,7 +415,7 @@ export default function BriefingPanel({ folderId }: Props) {
                           alignItems: "center",
                           gap: 1.5,
                           height: 56,
-                          px: 0.5,
+                          px: 3,
                           width: "100%",
                           border: 0,
                           borderBottom: `1px solid ${brand.line}`,
@@ -623,7 +629,13 @@ function SectionHeading({
     <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
       <Box
         component="span"
-        sx={{ fontFamily: fonts.mono, fontSize: 12, color, flexShrink: 0 }}
+        sx={{
+          display: "none",
+          fontFamily: fonts.mono,
+          fontSize: 12,
+          color,
+          flexShrink: 0,
+        }}
       >
         {n}
       </Box>
@@ -641,10 +653,21 @@ function SectionHeading({
       </Typography>
       {/* gradient rule */}
       <Box sx={gradientRule(color)} />
-      <StatusGlyph status={status} />
+      <Typography
+        sx={{
+          color: status === "pinned" ? brand.amber : brand.muted,
+          fontSize: 13,
+        }}
+      >
+        {status === "pinned"
+          ? "Pinned"
+          : status === "hybrid"
+          ? "Mixed"
+          : "Generated"}
+      </Typography>
       <Tooltip title="Edit section">
         <IconButton size="small" onClick={onEdit}>
-          <EditIcon sx={{ fontSize: 15, color: brand.muted }} />
+          <Typography sx={{ color: brand.cyan, fontSize: 14 }}>Edit</Typography>
         </IconButton>
       </Tooltip>
     </Box>
@@ -916,10 +939,10 @@ function ArchitectureContent({ section }: { section: BriefingSection }) {
 function MetaLine({ section }: { section: BriefingSection }) {
   const source =
     section.provenance === "agent_mcp"
-      ? "agent_mcp"
+      ? "Updated by an agent"
       : section.provenance === "user_ui"
-      ? "user_ui"
-      : "auto";
+      ? "Edited in Kioku"
+      : "Generated";
   const when = section.updated_at
     ? new Date(section.updated_at).toLocaleDateString()
     : "";
