@@ -21,7 +21,10 @@ export default function StageTabs({
     <Box
       sx={{
         display: "grid",
-        gridTemplateColumns: "repeat(4, 1fr)",
+        gridTemplateColumns: {
+          xs: "repeat(2, minmax(0, 1fr))",
+          md: "repeat(4, minmax(0, 1fr))",
+        },
         border: `1px solid ${brand.line}`,
         borderRadius: 1,
         overflow: "hidden",
@@ -45,15 +48,14 @@ export default function StageTabs({
                 fontWeight: 700,
                 fontSize: 15,
                 color: on ? brand.magenta : brand.muted,
-                textShadow: on ? `0 0 10px ${brand.magenta}66` : "none",
               }}
             >
               {s.jp}
             </Typography>
             <Typography
               sx={{
-                fontFamily: fonts.mono,
-                fontSize: 11,
+                fontFamily: fonts.body,
+                fontSize: 13,
                 color: on ? brand.text : brand.dim,
               }}
             >

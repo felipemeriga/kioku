@@ -214,7 +214,14 @@ export default function BriefingPanel({ folderId }: Props) {
   const presentKeys = BRIEFING_SECTIONS.filter((key) => data.sections[key]);
 
   return (
-    <Box sx={{ display: "flex", gap: 5, pb: 6 }}>
+    <Box
+      sx={{
+        display: "flex",
+        flexDirection: { xs: "column", lg: "row" },
+        gap: { xs: 3, lg: 4 },
+        pb: 6,
+      }}
+    >
       {/* Left: section rail */}
       {hasBriefing && (
         <SectionRail
@@ -266,7 +273,7 @@ export default function BriefingPanel({ folderId }: Props) {
                 lineHeight: 1.15,
                 fontFamily: fonts.display,
                 color: brand.text,
-                textShadow: `0 0 18px ${brand.magenta}44`,
+                textShadow: "none",
               }}
             >
               {data.folder.name}
@@ -663,9 +670,9 @@ function OverviewContent({ section }: { section: BriefingSection }) {
       <>
         <Typography
           sx={{
-            fontSize: 20,
-            fontWeight: 500,
-            lineHeight: 1.5,
+            fontSize: 17,
+            fontWeight: 400,
+            lineHeight: 1.75,
             color: brand.text,
           }}
         >
@@ -703,9 +710,9 @@ function OverviewContent({ section }: { section: BriefingSection }) {
       return (
         <Typography
           sx={{
-            fontSize: 20,
-            fontWeight: 500,
-            lineHeight: 1.5,
+            fontSize: 17,
+            fontWeight: 400,
+            lineHeight: 1.75,
             color: brand.text,
           }}
         >
@@ -851,8 +858,8 @@ function ArchitectureContent({ section }: { section: BriefingSection }) {
                 p: "8px 14px",
                 background: `${brand.magenta}12`,
                 fontFamily: fonts.mono,
-                fontSize: 10,
-                letterSpacing: "0.2em",
+                fontSize: 13,
+                letterSpacing: 0,
                 color: brand.magentaGlow,
               }}
             >
@@ -920,7 +927,7 @@ function MetaLine({ section }: { section: BriefingSection }) {
     <Typography
       sx={{
         fontFamily: fonts.mono,
-        fontSize: 11,
+        fontSize: 13,
         color: brand.muted,
         mt: 0.5,
       }}
@@ -1082,7 +1089,7 @@ function ObjectField({ label, value }: { label: string; value: unknown }) {
             fontSize: "0.75rem",
             fontFamily: fonts.mono,
             color: brand.muted,
-            textTransform: "uppercase",
+            textTransform: "none",
             letterSpacing: "0.08em",
             mb: 0.4,
           }}
@@ -1115,10 +1122,10 @@ function ObjectField({ label, value }: { label: string; value: unknown }) {
       <Box>
         <Typography
           sx={{
-            fontSize: "0.72rem",
+            fontSize: "0.8125rem",
             fontFamily: fonts.mono,
             color: brand.muted,
-            textTransform: "uppercase",
+            textTransform: "none",
             letterSpacing: "0.08em",
             mb: 0.4,
           }}
@@ -1149,7 +1156,7 @@ function ObjectField({ label, value }: { label: string; value: unknown }) {
           color: brand.cyan,
           fontSize: "0.75rem",
           mr: 0.75,
-          textTransform: "uppercase",
+          textTransform: "none",
           letterSpacing: "0.08em",
         }}
       >

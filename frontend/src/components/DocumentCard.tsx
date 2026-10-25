@@ -275,7 +275,7 @@ export default function DocumentCard({
                 color: brand.muted,
                 flexShrink: 0,
                 fontFamily: fonts.mono,
-                fontSize: "0.68rem",
+                fontSize: "0.8125rem",
               }}
             >
               {doc.chunks} chunks · {timeAgo(doc.created_at)}
@@ -291,7 +291,7 @@ export default function DocumentCard({
                 borderRadius: "3px",
                 color: statusColor,
                 fontFamily: fonts.mono,
-                fontSize: "0.65rem",
+                fontSize: "0.8125rem",
                 fontWeight: 500,
                 flexShrink: 0,
                 ...(doc.status === "processing" && {
@@ -360,10 +360,10 @@ export default function DocumentCard({
                   transform: "rotate(180deg)",
                   fontFamily: fonts.mono,
                   fontWeight: 600,
-                  fontSize: "0.62rem",
-                  letterSpacing: "0.2em",
+                  fontSize: "0.8125rem",
+                  letterSpacing: 0,
                   color: brand.ink,
-                  textTransform: "uppercase",
+                  textTransform: "none",
                   userSelect: "none",
                 }}
               >
@@ -421,7 +421,7 @@ export default function DocumentCard({
                   borderRadius: "3px",
                   color: statusColor,
                   fontFamily: fonts.mono,
-                  fontSize: "0.68rem",
+                  fontSize: "0.8125rem",
                   fontWeight: 500,
                   ...(doc.status === "processing" && {
                     animation: "pulse 1.5s infinite",
@@ -438,7 +438,7 @@ export default function DocumentCard({
               <Typography
                 sx={{
                   fontFamily: fonts.mono,
-                  fontSize: "0.68rem",
+                  fontSize: "0.8125rem",
                   color: brand.muted,
                 }}
               >

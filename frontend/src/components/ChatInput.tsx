@@ -98,7 +98,7 @@ export default function ChatInput({
   return (
     <Box
       sx={{
-        px: "48px",
+        px: { xs: 2, md: 5 },
         pb: "20px",
         display: "flex",
         flexDirection: "column",
@@ -148,13 +148,14 @@ export default function ChatInput({
         sx={{
           display: "flex",
           alignItems: "center",
+          flexWrap: { xs: "wrap", md: "nowrap" },
           gap: 1,
           px: 1,
           py: 1,
-          border: `1px solid ${brand.magenta}`,
+          border: `1px solid ${brand.lineGlow}`,
           borderRadius: "4px",
           bgcolor: brand.surface2,
-          boxShadow: `0 0 12px ${brand.magenta}44`,
+          boxShadow: "none",
         }}
       >
         <input
@@ -329,7 +330,7 @@ export default function ChatInput({
               background: debug ? `${brand.cyan}14` : "transparent",
               color: debug ? brand.cyan : brand.muted,
               fontFamily: fonts.mono,
-              fontSize: "0.6875rem",
+              fontSize: "0.8125rem",
               cursor: disabled ? "default" : "pointer",
               display: "flex",
               alignItems: "center",
@@ -351,6 +352,7 @@ export default function ChatInput({
             ml: 0.75,
             flexShrink: 0,
             userSelect: "none",
+            display: { xs: "none", md: "block" },
           }}
         >
           &gt;
@@ -370,6 +372,10 @@ export default function ChatInput({
           variant="standard"
           InputProps={{ disableUnderline: true }}
           sx={{
+            minWidth: 0,
+            flex: 1,
+            flexBasis: { xs: "calc(100% - 52px)", md: "auto" },
+            order: { xs: 1, md: 0 },
             "& .MuiInputBase-root": {
               bgcolor: "transparent",
               borderRadius: 0,
@@ -394,19 +400,18 @@ export default function ChatInput({
           disabled={disabled || !input.trim()}
           sx={{
             width: 40,
+            order: { xs: 2, md: 0 },
             height: 34,
             flexShrink: 0,
             borderRadius: "4px",
             background:
-              disabled || !input.trim()
-                ? `${brand.magenta}44`
-                : `linear-gradient(90deg, ${brand.magentaDeep} 0%, ${brand.purple} 100%)`,
-            color: "#fff",
+              disabled || !input.trim() ? brand.raised : brand.magenta,
+            color: brand.ink,
             fontSize: "0.9375rem",
             border: 0,
             "&:hover:not(:disabled)": {
-              background: `linear-gradient(90deg, ${brand.magenta} 0%, ${brand.purple} 100%)`,
-              boxShadow: `0 0 16px ${brand.magenta}55`,
+              background: brand.magentaGlow,
+              boxShadow: "none",
             },
           }}
         >

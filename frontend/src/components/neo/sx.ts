@@ -31,15 +31,16 @@ export const gradientRule = (color: string): SxProps<Theme> => ({
 });
 
 export const hudLabel: SxProps<Theme> = {
-  fontFamily: fonts.mono,
-  fontSize: 11,
-  letterSpacing: "0.3em",
+  fontFamily: fonts.body,
+  fontSize: 13,
+  fontWeight: 500,
+  letterSpacing: 0,
   color: brand.muted,
-  textTransform: "uppercase",
+  textTransform: "none",
 };
 
 export const glowText = (color: string): SxProps<Theme> => ({
-  textShadow: `0 0 10px ${color}66`,
+  color,
 });
 
 export const scanlineOn: SxProps<Theme> = { backgroundImage: scanlines };

@@ -97,9 +97,9 @@ export default function DocumentsPage() {
   // Persisted so the choice survives navigation and reloads — without this
   // the toggle silently reset to grid on every visit.
   const [viewMode, setViewMode] = useState<"grid" | "list">(() =>
-    localStorage.getItem("kioku.documents.viewMode") === "list"
-      ? "list"
-      : "grid"
+    localStorage.getItem("kioku.documents.viewMode") === "grid"
+      ? "grid"
+      : "list"
   );
   useEffect(() => {
     localStorage.setItem("kioku.documents.viewMode", viewMode);
@@ -509,7 +509,7 @@ export default function DocumentsPage() {
       {/* Toolbar */}
       <Box
         sx={{
-          px: "28px",
+          px: { xs: 2, md: 4 },
           pt: "18px",
           pb: "14px",
           display: "flex",
@@ -605,8 +605,8 @@ export default function DocumentsPage() {
                 ml: 1.25,
                 height: 22,
                 fontFamily: fonts.mono,
-                fontSize: "0.68rem",
-                letterSpacing: "0.08em",
+                fontSize: "0.8125rem",
+                letterSpacing: 0,
                 bgcolor: "transparent",
                 color: brand.cyan,
                 border: `1px solid ${alpha(brand.cyan, 0.4)}`,
@@ -617,7 +617,13 @@ export default function DocumentsPage() {
         </Stack>
 
         {/* Actions row */}
-        <Stack direction="row" alignItems="center" spacing={1.25}>
+        <Stack
+          direction="row"
+          alignItems="center"
+          useFlexGap
+          spacing={1.25}
+          sx={{ flexWrap: "wrap" }}
+        >
           <TextField
             size="small"
             placeholder="Search in this folder…"
@@ -631,7 +637,11 @@ export default function DocumentsPage() {
               ),
               endAdornment: searchQuery ? (
                 <InputAdornment position="end">
-                  <IconButton size="small" onClick={() => setSearchQuery("")}>
+                  <IconButton
+                    aria-label="Clear search"
+                    size="small"
+                    onClick={() => setSearchQuery("")}
+                  >
                     <CloseIcon sx={{ fontSize: 16 }} />
                   </IconButton>
                 </InputAdornment>
@@ -639,7 +649,9 @@ export default function DocumentsPage() {
             }}
             sx={{
               flex: 1,
-              maxWidth: 380,
+              maxWidth: { xs: "none", sm: 380 },
+              flexBasis: { xs: "100%", sm: "auto" },
+              minWidth: 0,
               "& .MuiOutlinedInput-root": {
                 fontFamily: fonts.body,
                 fontSize: "0.85rem",
@@ -736,7 +748,13 @@ export default function DocumentsPage() {
 
       {/* Content area */}
       <Box
-        sx={{ flex: 1, overflow: "auto", p: 3, position: "relative" }}
+        sx={{
+          flex: 1,
+          minHeight: 0,
+          overflow: "auto",
+          p: { xs: 2, md: 4 },
+          position: "relative",
+        }}
         onDrop={handleDrop}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
@@ -881,11 +899,11 @@ export default function DocumentsPage() {
                   color: brand.muted,
                   mb: 1.25,
                   display: "block",
-                  letterSpacing: "0.28em",
-                  fontSize: "0.62rem",
+                  letterSpacing: 0,
+                  fontSize: "0.8125rem",
                 }}
               >
-                FOLDERS · {filteredFolders.length}
+                Folders · {filteredFolders.length}
               </Typography>
               <Box
                 sx={{
@@ -946,7 +964,7 @@ export default function DocumentsPage() {
                         }
                       }}
                       sx={{
-                        height: 80,
+                        height: viewMode === "grid" ? 96 : 64,
                         px: viewMode === "grid" ? "16px" : "14px",
                         position: "relative",
                         cursor: "pointer",
@@ -970,11 +988,12 @@ export default function DocumentsPage() {
                         className="folder-card-delete"
                         size="small"
                         title="Chat with this folder"
+                        aria-label={`Chat with ${folder.name}`}
                         sx={{
                           position: "absolute",
                           top: 6,
                           right: 28,
-                          opacity: 0,
+                          opacity: 1,
                           transition: "opacity 0.15s",
                           p: 0.25,
                           bgcolor: alpha("#000000", 0.3),
@@ -993,11 +1012,12 @@ export default function DocumentsPage() {
                       <IconButton
                         className="folder-card-delete"
                         size="small"
+                        aria-label={`Delete ${folder.name}`}
                         sx={{
                           position: "absolute",
                           top: 6,
                           right: 6,
-                          opacity: 0,
+                          opacity: 1,
                           transition: "opacity 0.15s",
                           p: 0.25,
                           bgcolor: alpha("#000000", 0.3),
@@ -1015,7 +1035,7 @@ export default function DocumentsPage() {
                           sx={{
                             fontSize: 22,
                             color: folderColor,
-                            filter: `drop-shadow(0 0 6px ${folderColor})`,
+                            filter: "none",
                             flexShrink: 0,
                           }}
                         />
@@ -1024,7 +1044,7 @@ export default function DocumentsPage() {
                           sx={{
                             fontSize: 22,
                             color: folderColor,
-                            filter: `drop-shadow(0 0 6px ${folderColor})`,
+                            filter: "none",
                             flexShrink: 0,
                           }}
                         />
@@ -1050,10 +1070,10 @@ export default function DocumentsPage() {
                         <Typography
                           sx={{
                             fontFamily: fonts.mono,
-                            fontSize: "0.62rem",
-                            letterSpacing: "0.16em",
+                            fontSize: "0.8125rem",
+                            letterSpacing: 0,
                             color: brand.muted,
-                            textTransform: "uppercase",
+                            textTransform: "none",
                           }}
                         >
                           {folder.kind === "repo" ? "REPO" : "FOLDER"}
@@ -1098,11 +1118,11 @@ export default function DocumentsPage() {
                   color: brand.muted,
                   mb: 1.25,
                   display: "block",
-                  letterSpacing: "0.28em",
-                  fontSize: "0.62rem",
+                  letterSpacing: 0,
+                  fontSize: "0.8125rem",
                 }}
               >
-                FILES · {filteredDocs.length}
+                Files · {filteredDocs.length}
               </Typography>
               <Box
                 sx={{
@@ -1216,7 +1236,9 @@ export default function DocumentsPage() {
                     fontFamily: fonts.body,
                     fontSize: "0.88rem",
                     color: brand.muted,
-                    maxWidth: 380,
+                    maxWidth: { xs: "none", sm: 380 },
+                    flexBasis: { xs: "100%", sm: "auto" },
+                    minWidth: 0,
                   }}
                 >
                   Drop files anywhere on this page, click Upload above, or
@@ -1312,7 +1334,7 @@ export default function DocumentsPage() {
             <Box
               sx={{
                 width: 80,
-                height: 80,
+                height: viewMode === "grid" ? 96 : 64,
                 borderRadius: "50%",
                 display: "grid",
                 placeItems: "center",
