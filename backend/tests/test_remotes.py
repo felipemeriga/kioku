@@ -252,3 +252,106 @@ def test_disconnect_persists_inside_cancelled_asgi_scope(setup):
     row = rows[("alice", machine["id"])]
     assert row["connection_id"] is not None
     assert row["connected"] is False
+
+
+def inventory_report(folder_id):
+    return {
+        "name": "Felipe's MacBook",
+        "os_name": "macOS",
+        "os_id": "macos",
+        "architecture": "arm64",
+        "repositories": [
+            {
+                "id": "c" * 64,
+                "folder_id": folder_id,
+                "name": "kioku",
+                "path": "/home/user/kioku",
+                "agents": ["claude", "codex"],
+                "initialized_at": remotes.now_iso(),
+                "available": True,
+            }
+        ],
+        "warnings": [],
+    }
+
+
+def test_inventory_is_owned_fenced_and_does_not_claim_running_agents(setup, monkeypatch):
+    client, rows = setup
+    folder = str(uuid4())
+    monkeypatch.setattr(
+        remotes, "owned_repo_ids", lambda user, ids: {folder} if user == "alice" else set()
+    )
+    machine = register(client)
+    with client.websocket_connect("/api/remotes/connect") as socket:
+        hello(socket, machine)
+        data = inventory_report(folder)
+        socket.send_json({"type": "inventory", "revision": "c" * 64, "data": data})
+        assert socket.receive_json() == {"type": "inventory_ack", "revision": "c" * 64}
+        row = listing(client)[0]
+        assert row["inventory"][0]["agents"] == ["claude", "codex"]
+        assert row["os_name"] == "macOS"
+        assert row["inventory_updated_at"]
+        assert "running" not in str(row)
+        foreign = str(uuid4())
+        data["repositories"][0]["folder_id"] = foreign
+        socket.send_json({"type": "inventory", "revision": "d" * 64, "data": data})
+        assert socket.receive_json()["type"] == "inventory_ack"
+        assert listing(client)[0]["inventory"] == []
+        assert listing(client)[0]["warnings"][0]["code"] == "folder_unavailable"
+        assert listing(client, "bob") == []
+    assert len(rows) == 1
+
+
+def test_corrupt_registry_retains_last_good_inventory_and_recovers_warnings(setup, monkeypatch):
+    client, _ = setup
+    folder = str(uuid4())
+    monkeypatch.setattr(remotes, "owned_repo_ids", lambda *_: {folder})
+    machine = register(client)
+    with client.websocket_connect("/api/remotes/connect") as socket:
+        hello(socket, machine)
+        data = inventory_report(folder)
+        for warnings in [
+            [],
+            [{"code": "registry_unreadable", "observed_at": remotes.now_iso()}],
+            [],
+        ]:
+            data["warnings"] = warnings
+            socket.send_json({"type": "inventory", "revision": "c" * 64, "data": data})
+            assert socket.receive_json()["type"] == "inventory_ack"
+            assert len(listing(client)[0]["inventory"]) == 1
+            assert [item["code"] for item in listing(client)[0]["warnings"]] == [
+                item["code"] for item in warnings
+            ]
+        data["repositories"][0]["agents"] = ["running"]
+        socket.send_json({"type": "inventory", "revision": "c" * 64, "data": data})
+        assert socket.receive_json() == {"type": "inventory_error"}
+        assert len(listing(client)[0]["inventory"]) == 1
+        assert listing(client)[0]["warnings"][0]["code"] == "inventory_rejected"
+        socket.send_json({"type": "heartbeat"})
+        assert socket.receive_json() == {"type": "ack"}
+
+
+def test_custom_name_is_owned_and_survives_reregistration(setup):
+    client, _ = setup
+    machine = register(client)
+    url = f"/api/remotes/{machine['id']}"
+    assert (
+        client.patch(
+            url, json={"name": "Home workstation"}, headers={"X-Test-User": "bob"}
+        ).status_code
+        == 404
+    )
+    assert (
+        client.patch(
+            url, json={"name": "Home workstation"}, headers={"X-Test-User": "alice"}
+        ).status_code
+        == 200
+    )
+    register(client, machine_id=machine["id"])
+    assert listing(client)[0]["name"] == "Home workstation"
+    assert (
+        client.patch(url, json={"name": "bad\nname"}, headers={"X-Test-User": "alice"}).status_code
+        == 422
+    )
+    client.patch(url, json={"name": None}, headers={"X-Test-User": "alice"})
+    assert listing(client)[0]["name"] == "Laptop"

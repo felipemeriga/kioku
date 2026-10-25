@@ -81,8 +81,21 @@ process for the current OS user. Subsequent repositories reuse it; no separate
 start command is required. It maintains an authenticated outbound WebSocket to
 the configured backend, sends heartbeats, and retries disconnected connections
 indefinitely with exponential backoff and jitter (up to 60 seconds). Check
-machine presence in **Remotes**. This release does not collect memories or inspect
-agent sessions.
+machine presence in **Remotes**. Each init also records the repository path and its
+configured Claude Code/Codex providers in a local registry. Manabi syncs that current
+inventory separately from document indexing. Re-initializing with another provider
+keeps both configurations. This does not detect running agents or collect memories.
+
+Existing bindings can be discovered from Claude's project index or Codex's configured
+project paths, only when explicit Kioku markers exist and the current account owns
+the repository folder. Manabi never crawls the disk or reads session transcripts.
+Run init in an older project if it does not appear. Remotes shows OS logos, a friendly
+computer name, and an optional name override that survives future init runs.
+
+Missing paths and unreadable registries produce timestamped warnings. A corrupt
+registry retains the server's last successful inventory; warnings clear after recovery.
+Offline machines show last-known reports. `kioku status` also shows the last local
+connection/startup report, including failures that cannot reach the backend.
 
 Startup uses a macOS LaunchAgent, a Linux systemd user service, or a Windows
 per-user login task with a periodic restart watchdog. These are **login services**,
@@ -98,7 +111,7 @@ Node executable by absolute path when installed through npm; keep Node installed
 and re-run init after moving/removing that installation. Standalone release builds
 snapshot the Kioku executable instead and require no separate Node runtime. `kioku logout` clears the connection
 credential; the supervised process idles until the next init. Machine credentials
-only authorize connection presence, not document or memory access.
+only authorize presence and owned-repository inventory updates, not document or memory access.
 
 **Smart defaults**: no prompt when there's an obvious answer.
 

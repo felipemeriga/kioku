@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as ReactQuery from "@tanstack/react-query";
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "../test/renderWithProviders";
-import { getRemoteMachines } from "../lib/api";
+import { getRemoteMachines, renameRemoteMachine } from "../lib/api";
 import RemotesPage from "./RemotesPage";
 vi.mock("@tanstack/react-query", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@tanstack/react-query")>();
@@ -15,6 +15,7 @@ vi.mock("../lib/supabase", () => ({
 vi.mock("../lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../lib/api")>()),
   getRemoteMachines: vi.fn(),
+  renameRemoteMachine: vi.fn(),
 }));
 const machine = {
   id: "one",
@@ -118,4 +119,77 @@ it("marks previously loaded machine status unknown when refresh fails", () => {
   ).toBeInTheDocument();
   expect(screen.getByText("Status unavailable")).toBeInTheDocument();
   expect(screen.queryByText("1 online")).not.toBeInTheDocument();
+});
+
+it("shows initialized repositories and both configured providers with actual OS labels", async () => {
+  vi.mocked(getRemoteMachines).mockResolvedValue([
+    {
+      ...machine,
+      os_name: "macOS",
+      os_id: "macos",
+      architecture: "arm64",
+      inventory_updated_at: machine.last_seen,
+      inventory: [
+        {
+          id: "repo",
+          folder_id: "folder-one",
+          name: "kioku",
+          path: "/home/felipe/kioku",
+          agents: ["claude", "codex"],
+          initialized_at: machine.created_at,
+          available: true,
+        },
+      ],
+    },
+  ]);
+  renderWithProviders(<RemotesPage />);
+  expect(await screen.findByRole("link", { name: "kioku" })).toHaveAttribute(
+    "href",
+    "/documents?folder=folder-one"
+  );
+  expect(screen.getByText("/home/felipe/kioku")).toBeInTheDocument();
+  expect(screen.getByText("✳ Claude Code")).toBeInTheDocument();
+  expect(screen.getByText("›_ Codex")).toBeInTheDocument();
+  expect(screen.getAllByText("Configured")).toHaveLength(2);
+  expect(screen.getAllByText("macOS")).toHaveLength(2);
+  expect(screen.queryByText("Running")).not.toBeInTheDocument();
+});
+
+it("shows timestamped last-known warnings separately from offline presence", async () => {
+  vi.mocked(getRemoteMachines).mockResolvedValue([
+    {
+      ...machine,
+      online: false,
+      warnings: [{ code: "repo_unavailable", observed_at: machine.last_seen }],
+    },
+  ]);
+  renderWithProviders(<RemotesPage />);
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "repository path is unavailable"
+  );
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    "Last known report; machine is offline"
+  );
+  expect(
+    screen.getByRole("heading", { name: "This machine is offline" })
+  ).toBeInTheDocument();
+});
+
+it("saves an optional machine name without changing its registration", async () => {
+  vi.mocked(renameRemoteMachine).mockResolvedValue({
+    ...machine,
+    name: "Office Mac",
+    custom_name: "Office Mac",
+  });
+  const user = userEvent.setup();
+  renderWithProviders(<RemotesPage />);
+  await screen.findByRole("heading", { name: "My Mac" });
+  await user.click(screen.getByRole("button", { name: "Rename" }));
+  const name = screen.getByRole("textbox", { name: "Machine name" });
+  await user.clear(name);
+  await user.type(name, "Office Mac");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(renameRemoteMachine).toHaveBeenCalledWith("one", "Office Mac")
+  );
 });

@@ -5,11 +5,12 @@ import hashlib
 import json
 import logging
 from datetime import datetime, timezone
+from typing import Literal
 from uuid import UUID, uuid4
 
 import anyio
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from auth import get_current_user
 from db.client import get_supabase_thread_safe
@@ -18,7 +19,10 @@ router = APIRouter(prefix="/api/remotes", tags=["remotes"])
 log = logging.getLogger(__name__)
 HEARTBEAT_SECONDS = 30
 STALE_SECONDS = 90
-PUBLIC_COLUMNS = "id,name,platform,version,created_at,connected_at,last_seen,connected"
+PUBLIC_COLUMNS = (
+    "id,name,custom_name,platform,version,created_at,connected_at,last_seen,connected,"
+    "os_name,os_id,architecture,inventory,inventory_updated_at,warnings"
+)
 
 
 class Registration(BaseModel):
@@ -27,6 +31,83 @@ class Registration(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     platform: str = Field(min_length=1, max_length=60)
     version: str = Field(min_length=1, max_length=40)
+
+
+class RepoInventory(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(pattern=r"^[a-f0-9]{64}$")
+    folder_id: UUID
+    name: str = Field(min_length=1, max_length=120)
+    path: str = Field(min_length=1, max_length=1024, pattern=r"^[^\x00-\x1f\x7f]+$")
+    agents: list[Literal["claude", "codex"]] = Field(min_length=1, max_length=2)
+    initialized_at: datetime
+    available: bool
+
+
+class InventoryWarning(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    code: Literal["repo_unavailable", "registry_unreadable"]
+    observed_at: datetime
+
+
+class MachineInventory(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=120)
+    os_name: str = Field(min_length=1, max_length=60)
+    os_id: str = Field(pattern=r"^[a-z0-9_-]{1,30}$")
+    architecture: str = Field(pattern=r"^[a-z0-9_-]{1,30}$")
+    repositories: list[RepoInventory] = Field(max_length=200)
+    warnings: list[InventoryWarning] = Field(max_length=2)
+
+
+class RenameMachine(BaseModel):
+    name: str | None = Field(default=None, max_length=120)
+
+    @field_validator("name")
+    @classmethod
+    def valid_name(cls, value):
+        if value and any(ord(char) < 32 or ord(char) == 127 for char in value):
+            raise ValueError("Machine name contains control characters")
+        return value.strip() or None if value else None
+
+
+def owned_repo_ids(user_id, ids):
+    if not ids:
+        return set()
+    result = (
+        get_supabase_thread_safe()
+        .table("folders")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("kind", "repo")
+        .in_("id", list(ids))
+        .execute()
+        .data
+    )
+    return {row["id"] for row in result}
+
+
+def inventory_values(user_id, data):
+    report = MachineInventory.model_validate(data)
+    repos = [row.model_dump(mode="json") for row in report.repositories]
+    ids = {row["folder_id"] for row in repos}
+    allowed = owned_repo_ids(user_id, ids)
+    warnings = [row.model_dump(mode="json") for row in report.warnings]
+    if ids - allowed:
+        warnings.append({"code": "folder_unavailable", "observed_at": now_iso()})
+    values = {
+        "name": report.name,
+        "os_name": report.os_name,
+        "os_id": report.os_id,
+        "architecture": report.architecture,
+        "warnings": warnings,
+    }
+    if not any(row.code == "registry_unreadable" for row in report.warnings):
+        values.update(
+            inventory=[row for row in repos if row["folder_id"] in allowed],
+            inventory_updated_at=now_iso(),
+        )
+    return values
 
 
 def now_iso():
@@ -43,6 +124,7 @@ def table():
 
 def public_machine(row):
     result = {k: row.get(k) for k in PUBLIC_COLUMNS.split(",")}
+    result["name"] = row.get("custom_name") or row.get("name")
     last_seen = row.get("last_seen")
     recent = False
     if last_seen:
@@ -88,9 +170,29 @@ async def list_machines(user_id: str = Depends(get_current_user)):
     return [public_machine(row) for row in await asyncio.to_thread(read)]
 
 
-async def receive_small_json(socket, timeout):
+@router.patch("/{machine_id}")
+async def rename_machine(
+    machine_id: UUID, body: RenameMachine, user_id: str = Depends(get_current_user)
+):
+    def write():
+        return (
+            table()
+            .update({"custom_name": body.name})
+            .eq("id", str(machine_id))
+            .eq("user_id", user_id)
+            .execute()
+            .data
+        )
+
+    rows = await asyncio.to_thread(write)
+    if not rows:
+        raise HTTPException(404, "Machine not found")
+    return public_machine(rows[0])
+
+
+async def receive_small_json(socket, timeout, max_bytes=1024):
     raw = await asyncio.wait_for(socket.receive_text(), timeout=timeout)
-    if len(raw) > 1024:
+    if len(raw.encode("utf8")) > max_bytes:
         raise ValueError("Message too large")
     value = json.loads(raw)
     if not isinstance(value, dict):
@@ -145,7 +247,27 @@ async def connect(socket: WebSocket):
         )
         await socket.send_json({"type": "ready", "heartbeat_seconds": HEARTBEAT_SECONDS})
         while True:
-            message = await receive_small_json(socket, HEARTBEAT_SECONDS * 2 + 10)
+            message = await receive_small_json(socket, HEARTBEAT_SECONDS * 2 + 10, 256_000)
+            if message.get("type") == "inventory":
+                revision = message.get("revision", "")
+                if not isinstance(revision, str) or len(revision) != 64:
+                    raise ValueError("Invalid inventory revision")
+                try:
+                    values = await asyncio.to_thread(
+                        inventory_values, row["user_id"], message.get("data")
+                    )
+                    updated = await asyncio.to_thread(update, values)
+                    if not updated:
+                        await socket.close(code=4409)
+                        return
+                    await socket.send_json({"type": "inventory_ack", "revision": revision})
+                except (ValidationError, ValueError, TypeError):
+                    await asyncio.to_thread(
+                        update,
+                        {"warnings": [{"code": "inventory_rejected", "observed_at": now_iso()}]},
+                    )
+                    await socket.send_json({"type": "inventory_error"})
+                continue
             if message.get("type") != "heartbeat":
                 raise ValueError("Expected heartbeat")
             updated = await asyncio.to_thread(update, {"last_seen": now_iso()})

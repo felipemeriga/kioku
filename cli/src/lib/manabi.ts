@@ -11,13 +11,19 @@ import {
   statSync,
   chmodSync,
 } from "node:fs";
-import { hostname, homedir } from "node:os";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { setTimeout as sleep } from "node:timers/promises";
 import { spawnSync } from "node:child_process";
 import { configDir, readConfig } from "./config.js";
+import { machineInfo } from "./manabi-machine.js";
+import {
+  recordInitializedRepo,
+  inventoryPath,
+  type AgentProvider,
+} from "./manabi-inventory.js";
 import { VERSION } from "./version.js";
 import { registerManabi } from "./api.js";
 import { installManabiService } from "./manabi-service.js";
@@ -102,6 +108,8 @@ export function stageManabiRuntime(root: string): string {
   const files = [
     join(dist, "manabi-entry.js"),
     join(dist, "lib/manabi-client.js"),
+    join(dist, "lib/manabi-inventory.js"),
+    join(dist, "lib/manabi-machine.js"),
   ];
   const digest = createHash("sha256");
   for (const file of files) digest.update(readFileSync(file));
@@ -111,7 +119,8 @@ export function stageManabiRuntime(root: string): string {
     const temp = `${target}.${randomUUID()}.tmp`;
     mkdirSync(join(temp, "lib"), { recursive: true, mode: 0o700 });
     cpSync(files[0], join(temp, "manabi-entry.js"));
-    cpSync(files[1], join(temp, "lib/manabi-client.js"));
+    for (const file of files.slice(1))
+      cpSync(file, join(temp, "lib", file.split(/[\\/]/).at(-1)!));
     cpSync(ws, join(temp, "node_modules/ws"), { recursive: true });
     writeFileSync(join(temp, "package.json"), '{"type":"module"}');
     writeFileSync(join(temp, "ready"), "");
@@ -182,7 +191,25 @@ export async function withManabiLock<T>(
 }
 
 export async function ensureManabi(): Promise<void> {
-  return withManabiLock(join(configDir(), "manabi"), installManabi);
+  try {
+    return await withManabiLock(join(configDir(), "manabi"), installManabi);
+  } catch (error) {
+    const root = dirname(manabiConfigPath());
+    try {
+      mkdirSync(root, { recursive: true, mode: 0o700 });
+      writeFileSync(
+        join(root, "status.json"),
+        JSON.stringify({
+          code: "startup_failed",
+          observed_at: new Date().toISOString(),
+        }),
+        { mode: 0o600 }
+      );
+    } catch {
+      /* Original startup error remains actionable even if state cannot be saved. */
+    }
+    throw error;
+  }
 }
 
 async function installManabi(): Promise<void> {
@@ -195,7 +222,7 @@ async function installManabi(): Promise<void> {
   await registerManabi({
     id: state.id,
     secret: state.secret,
-    name: hostname(),
+    name: machineInfo().name,
     platform: `${process.platform}-${process.arch}`,
     version: VERSION,
   });
@@ -227,4 +254,19 @@ async function installManabi(): Promise<void> {
     },
     beforeStart: () => writeManabiConfig(path, state),
   });
+}
+
+export async function registerManabiRepo(repo: {
+  path: string;
+  folder_id: string;
+  name: string;
+  agents: AgentProvider[];
+}): Promise<void> {
+  const cfg = readConfig();
+  if (!cfg.user_id)
+    throw new Error("Sign in before registering a Manabi repository");
+  const identity = { api_base: cfg.api_base, user_id: cfg.user_id };
+  await withManabiLock(dirname(manabiConfigPath()), async () =>
+    recordInitializedRepo(inventoryPath(manabiConfigPath()), identity, repo)
+  );
 }
