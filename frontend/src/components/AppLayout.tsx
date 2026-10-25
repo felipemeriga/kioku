@@ -33,6 +33,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, signOut } = useAuth();
   const {
     conversations,
+    conversationsLoading,
+    conversationsError,
+    loadConversations,
     selectedId,
     selectConversation,
     createConversation,
@@ -108,6 +111,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           activePage={activePage}
           open={showPanel}
           conversations={conversations}
+          conversationsLoading={conversationsLoading}
+          conversationsError={conversationsError}
+          onRetryConversations={() => void loadConversations?.()}
           selectedConversationId={selectedId}
           onSelectConversation={selectConversation}
           onNewConversation={createConversation}
@@ -133,6 +139,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             activePage={activePage}
             open={showPanel}
             conversations={conversations}
+            conversationsLoading={conversationsLoading}
+            conversationsError={conversationsError}
+            onRetryConversations={() => void loadConversations?.()}
             selectedConversationId={selectedId}
             onSelectConversation={selectConversation}
             onNewConversation={createConversation}
