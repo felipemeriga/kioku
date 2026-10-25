@@ -34,6 +34,16 @@ beforeEach(() => {
   });
 });
 describe("responsive application workspace", () => {
+  it("gives Chat its full reading area without the global breadcrumb bar", () => {
+    renderWithProviders(
+      <AppLayout>
+        <h1>Chat workspace</h1>
+      </AppLayout>
+    );
+    expect(screen.queryByTestId("app-topbar")).not.toBeInTheDocument();
+    expect(screen.getByTestId("context-panel")).toBeVisible();
+  });
+
   it("keeps the folder navigator beside the menu on desktop", () => {
     renderWithProviders(
       <AppLayout>

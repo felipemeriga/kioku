@@ -5,7 +5,6 @@ import {
   Button,
   Chip,
   CircularProgress,
-  IconButton,
   Stack,
   Typography,
 } from "@mui/material";
@@ -23,7 +22,6 @@ import type {
 import { brand, fonts } from "../theme";
 
 interface ChatAreaProps {
-  conversationTitle?: string;
   messagesLoading?: boolean;
   messagesError?: string | null;
   onRetryMessages?: () => void;
@@ -53,7 +51,6 @@ const SUGGESTIONS = [
 ];
 
 export default function ChatArea({
-  conversationTitle = "New conversation",
   messagesLoading = false,
   messagesError = null,
   onRetryMessages,
@@ -98,57 +95,6 @@ export default function ChatArea({
         width: "100%",
       }}
     >
-      <Box
-        className="chat-thread-header"
-        sx={{
-          p: "18px 26px",
-          borderBottom: `1px solid ${brand.line}`,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 2,
-          flexShrink: 0,
-        }}
-      >
-        <Typography
-          sx={{
-            fontSize: 15,
-            fontWeight: 500,
-            overflowWrap: "anywhere",
-            minWidth: 0,
-          }}
-        >
-          {conversationTitle}
-        </Typography>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-          {onPickScope && (
-            <Button
-              variant="outlined"
-              aria-label="Scope"
-              onClick={onPickScope}
-              sx={{
-                fontSize: 13,
-                flexShrink: 0,
-                minHeight: 36,
-                px: 1.5,
-                py: 0.5,
-              }}
-            >
-              {scope?.filename ?? scope?.folderName ?? "All documents"}
-            </Button>
-          )}
-          {scope && onClearScope && (
-            <IconButton
-              aria-label="Clear scope"
-              onClick={onClearScope}
-              size="small"
-              sx={{ fontSize: 18, color: brand.muted }}
-            >
-              ×
-            </IconButton>
-          )}
-        </Box>
-      </Box>
       <Box
         ref={scrollRef}
         onScroll={handleScroll}
@@ -309,6 +255,7 @@ export default function ChatArea({
         onSend={onSend}
         disabled={isStreaming || messagesLoading || !!messagesError}
         scope={scope}
+        onPickScope={onPickScope}
         onClearScope={onClearScope}
       />
     </Box>

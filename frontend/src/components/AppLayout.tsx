@@ -181,55 +181,55 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         }}
       >
         <NeoAtmosphere />
-        <Box
-          component="header"
-          data-testid="app-topbar"
-          sx={{
-            minHeight: 70,
-            height: 70,
-            flexShrink: 0,
-            px: "40px",
-            display: "flex",
-            alignItems: "center",
-            gap: 1.5,
-            borderBottom: `1px solid ${brand.line}`,
-            "@media(max-width:780px)": { px: "22px" },
-            "@media(max-width:480px)": {
-              px: "18px",
-              minHeight: 53,
-              height: 53,
-            },
-          }}
-        >
-          {mobile && showPanel && (
-            <IconButton
-              aria-label={
-                activePage === "/documents"
-                  ? "Open folder navigator"
-                  : "Open conversations"
-              }
-              onClick={() => setPanelOpen(true)}
-              size="small"
-            >
-              <MenuOpenIcon fontSize="small" />
-            </IconButton>
-          )}
-          <Typography sx={{ color: brand.muted, fontSize: 13 }}>
-            Kioku{" "}
-            <Box component="span" sx={{ px: 1, color: brand.dim }}>
-              /
-            </Box>{" "}
-            <Box component="span" sx={{ color: brand.text }}>
-              {activePage === "/"
-                ? "Chat"
-                : activePage === "/documents"
-                ? "Documents"
-                : activePage === "/remotes"
-                ? "Remotes"
-                : "Settings"}
-            </Box>
-          </Typography>
-        </Box>
+        {activePage !== "/" && (
+          <Box
+            component="header"
+            data-testid="app-topbar"
+            sx={{
+              minHeight: 70,
+              height: 70,
+              flexShrink: 0,
+              px: "40px",
+              display: "flex",
+              alignItems: "center",
+              gap: 1.5,
+              borderBottom: `1px solid ${brand.line}`,
+              "@media(max-width:780px)": { px: "22px" },
+              "@media(max-width:480px)": {
+                px: "18px",
+                minHeight: 53,
+                height: 53,
+              },
+            }}
+          >
+            {mobile && showPanel && (
+              <IconButton
+                aria-label={
+                  activePage === "/documents"
+                    ? "Open folder navigator"
+                    : "Open conversations"
+                }
+                onClick={() => setPanelOpen(true)}
+                size="small"
+              >
+                <MenuOpenIcon fontSize="small" />
+              </IconButton>
+            )}
+            <Typography sx={{ color: brand.muted, fontSize: 13 }}>
+              Kioku{" "}
+              <Box component="span" sx={{ px: 1, color: brand.dim }}>
+                /
+              </Box>{" "}
+              <Box component="span" sx={{ color: brand.text }}>
+                {activePage === "/documents"
+                  ? "Documents"
+                  : activePage === "/remotes"
+                  ? "Remotes"
+                  : "Settings"}
+              </Box>
+            </Typography>
+          </Box>
+        )}
         {children}
       </Box>
 
