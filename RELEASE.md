@@ -244,3 +244,19 @@ unique non-main `kioku-cd-permission-probe-*` branch to verify write capability.
 A Hive fine-grained PAT must select `felipemeriga/hive` and grant **Contents: read
 and write**; granting only Metadata or Actions is insufficient. No credential
 value is printed or written to a file. The probe never invokes deployment.
+
+## Historical prerelease validation
+
+The initial pre-merge rehearsal is retained in PR #135 as release-review history.
+Its generated pending plan and temporary manifest bumps were removed when the
+branch was reconciled with the gated pipeline; they are not production inputs.
+
+The later full repository rehearsal ran through GitHub Actions
+[40066734684](https://github.com/felipemeriga/kioku/actions/runs/40066734684):
+exact-source CI, four Docker Cloud image builds, five native CLI builds, atomic
+Hive promotion, and Dokploy API verification all passed. The published
+`cli-v0.6.1-e2e.20261024.gha5` release and companion service prereleases remain
+audit records. Their `release/rehearsed-*` ledger does not establish the first
+stable production baseline. Keep legitimate release tests, installers and smoke
+scripts; do not commit generated rehearsal state or use a temporary replay plan
+to activate production.
