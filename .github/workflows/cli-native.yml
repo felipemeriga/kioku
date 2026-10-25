@@ -1,0 +1,80 @@
+name: Native CLI
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: true
+  pull_request:
+    paths:
+      - "cli/**"
+      - "scripts/release/**"
+      - ".github/workflows/release.yml"
+      - ".github/workflows/cli-native.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, target: linux-x64 }
+          - { os: ubuntu-24.04-arm, target: linux-arm64 }
+          - { os: macos-15-intel, target: darwin-x64 }
+          - { os: macos-15, target: darwin-arm64 }
+          - { os: windows-2025, target: windows-x64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.4"
+      - run: npm ci
+        working-directory: cli
+      - name: Build and smoke-test native executable
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          mkdir -p release-cli
+          suffix=''; if [[ "$TARGET" == windows-* ]]; then suffix='.exe'; fi
+          bun build cli/src/index.ts --compile --target="bun-$TARGET" --define KIOKU_STANDALONE=true --outfile "release-cli/kioku-$TARGET$suffix"
+          "release-cli/kioku-$TARGET$suffix" --version
+          "release-cli/kioku-$TARGET$suffix" --help
+          python3 scripts/release/smoke_cli.py "release-cli/kioku-$TARGET$suffix"
+          bun build scripts/release/smoke_hooks.ts --compile --target="bun-$TARGET" --define KIOKU_STANDALONE=true --outfile "hook-smoke$suffix"
+          "./hook-smoke$suffix"
+      - name: Verify Windows installer without network
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $fixture = Join-Path $env:RUNNER_TEMP 'kioku-installer-fixture'
+          New-Item -ItemType Directory -Force $fixture | Out-Null
+          $global:KiokuFixtureBinary = Join-Path $env:GITHUB_WORKSPACE 'release-cli/kioku-windows-x64.exe'
+          $global:KiokuFixtureSums = (Get-FileHash $global:KiokuFixtureBinary -Algorithm SHA256).Hash.ToLowerInvariant() + '  kioku-windows-x64.exe'
+          function Invoke-WebRequest {
+            param([string]$Uri, [string]$OutFile)
+            if ($OutFile) { Copy-Item $global:KiokuFixtureBinary $OutFile }
+            else { return [pscustomobject]@{ Content = $global:KiokuFixtureSums } }
+          }
+          foreach ($pin in @('1.2.3', '1.2.3-e2e.20261024')) {
+            $env:KIOKU_VERSION = $pin
+            $env:KIOKU_INSTALL_DIR = Join-Path $fixture "install dir $pin"
+            & ./scripts/release/install.ps1
+            if (-not (Test-Path (Join-Path $env:KIOKU_INSTALL_DIR 'kioku.exe'))) { throw 'Installer did not create executable' }
+          }
+          Remove-Item $fixture -Recurse -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli-${{ matrix.target }}
+          path: release-cli/*

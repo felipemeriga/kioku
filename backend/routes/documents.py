@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from auth import get_current_user
-from db.client import get_supabase
+from db.client import get_supabase_thread_safe as get_supabase
 from routes._validation import require_uuid
 from services.ingestion import (
     EXTENSION_TO_TYPE,
@@ -163,7 +163,7 @@ async def upload_document(
 
 
 @router.get("/ingestion-status")
-async def get_ingestion_status(user_id: str = Depends(get_current_user)):
+def get_ingestion_status(user_id: str = Depends(get_current_user)):
     """Return active + recently-finished upload jobs, mapped to the legacy
     ingestion_status shape so the frontend needs no changes."""
     sb = get_supabase()
@@ -219,7 +219,7 @@ async def get_ingestion_status(user_id: str = Depends(get_current_user)):
 
 
 @router.get("")
-async def list_documents(
+def list_documents(
     folder_id: str | None = None,
     user_id: str = Depends(get_current_user),
 ):
@@ -297,7 +297,7 @@ def _signed_view_url(sb, metadata: dict) -> tuple[str | None, str | None]:
 
 
 @router.get("/{filename}/content")
-async def get_document_content(
+def get_document_content(
     filename: str,
     folder_id: str | None = None,
     user_id: str = Depends(get_current_user),
@@ -352,7 +352,7 @@ async def get_document_content(
 
 
 @router.get("/{filename}/download")
-async def download_document(filename: str, user_id: str = Depends(get_current_user)):
+def download_document(filename: str, user_id: str = Depends(get_current_user)):
     """Generate a signed download URL for the original uploaded file."""
     sb = get_supabase()
 
@@ -390,7 +390,7 @@ class MoveDocumentRequest(BaseModel):
 
 
 @router.patch("/{filename}/move")
-async def move_document(
+def move_document(
     filename: str,
     body: MoveDocumentRequest,
     user_id: str = Depends(get_current_user),
@@ -439,7 +439,7 @@ async def move_document(
 
 
 @router.delete("/{filename}")
-async def delete_document(filename: str, user_id: str = Depends(get_current_user)):
+def delete_document(filename: str, user_id: str = Depends(get_current_user)):
     """Delete all chunks for a given filename belonging to the user."""
     sb = get_supabase()
 

@@ -26,9 +26,10 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from auth import get_current_user
-from db.client import get_supabase
+from db.client import get_supabase_thread_safe as get_supabase
 from services import cli_auth
 
 router = APIRouter(prefix="/api/cli")
@@ -251,7 +252,7 @@ async def mint_api_key(
 
 
 @router.get("/whoami")
-async def whoami(user_id: str = Depends(get_current_user)):
+def whoami(user_id: str = Depends(get_current_user)):
     """Verify the CLI's token, return user + top-level folder shortlist so
     the interactive picker can render immediately after login."""
     sb = get_supabase()
@@ -289,22 +290,15 @@ class SearchRequest(BaseModel):
     limit: int = Field(default=5, ge=1, le=25)
 
 
-@router.post("/search")
-async def search(body: SearchRequest, request: Request):
-    """Knowledge-base search from the CLI. Api-key auth. Uses the same
-    retrieval backend that MCP knowledge_base_search uses — documents and
-    indexed code — so terminal results match what Claude Code
-    would see for the same query.
-    """
+def _prepare_search(body: SearchRequest, auth: str) -> tuple[str, str, list[float]]:
+    """Validate scope and embed in one bounded worker, keeping its DB client local."""
     import hashlib
 
     from fastapi import HTTPException as HE
 
     from mcp_server import _descendant_folder_ids
     from services.embeddings import embed_query
-    from services.retrieval import retrieve_knowledge
 
-    auth = request.headers.get("Authorization") or ""
     if not auth.startswith("Bearer rag_"):
         raise HE(status_code=401, detail="Bearer api key required")
     key = auth[len("Bearer ") :]
@@ -334,8 +328,19 @@ async def search(body: SearchRequest, request: Request):
 
     # Embed + retrieve
     embedding = embed_query(body.query)
+    return user_id, target, embedding
+
+
+@router.post("/search")
+async def search(body: SearchRequest, request: Request):
+    """Search indexed knowledge without blocking unrelated API requests."""
+    from services.retrieval import retrieve_knowledge
+
+    user_id, target, embedding = await run_in_threadpool(
+        _prepare_search, body, request.headers.get("Authorization") or ""
+    )
     result = await retrieve_knowledge(
-        sb,
+        None,
         embedding=embedding,
         query_text=body.query,
         user_id=user_id,
@@ -364,7 +369,7 @@ async def search(body: SearchRequest, request: Request):
 
 
 @router.get("/scope-info")
-async def scope_info(request: Request):
+def scope_info(request: Request):
     """Compact scope summary for the SessionStart hook — auth via the
     scoped api key (not the user session). Returns the api key's scope
     folder + a flat list of descendants so the hook can print a
@@ -550,7 +555,7 @@ def _is_uuid(s: str) -> bool:
 
 
 @router.get("/folder-summary")
-async def folder_summary(request: Request, folder_id: str):
+def folder_summary(request: Request, folder_id: str):
     user_id, scope_folder_id = _api_key_scope(request)
     if not _is_uuid(folder_id):
         raise HTTPException(status_code=404, detail="Folder not found")
@@ -672,7 +677,7 @@ class RepoGraphDelta(BaseModel):
 
 
 @router.post("/repo-graph")
-async def repo_graph_upload(body: RepoGraphDelta, request: Request):
+def repo_graph_upload(body: RepoGraphDelta, request: Request):
     """Merge a per-file code-graph delta. Authenticated by scoped api key (same
     as search); the folder must be inside the key's scope subtree."""
     auth = request.headers.get("Authorization") or ""
@@ -756,7 +761,7 @@ def _code_chunks_scope(request: Request, folder_id: str) -> str:
 
 
 @router.get("/code-chunks")
-async def code_chunks_state(folder_id: str, request: Request):
+def code_chunks_state(folder_id: str, request: Request):
     """Per-file content hashes for a folder's indexed code, so the CLI can
     diff locally and upload only changed files."""
     user_id = _code_chunks_scope(request, folder_id)
@@ -848,7 +853,7 @@ async def code_chunks_upload(body: CodeChunksDelta, request: Request):
 
 
 @router.get("/repo-graph")
-async def repo_graph_meta(folder_id: str, request: Request):
+def repo_graph_meta(folder_id: str, request: Request):
     """Return the code-graph watermark for a folder so a fresh machine can seed
     its local last_indexed_sha and skip re-indexing an already-current graph."""
     auth = request.headers.get("Authorization") or ""

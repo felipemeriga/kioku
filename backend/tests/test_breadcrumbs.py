@@ -1,13 +1,4 @@
-import asyncio
 from unittest.mock import MagicMock, patch
-
-
-def _run(coro):
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
 
 
 def test_malformed_uuid_returns_empty_without_db():
@@ -15,7 +6,7 @@ def test_malformed_uuid_returns_empty_without_db():
 
     sb = MagicMock()
     with patch("routes.folders.get_supabase", return_value=sb, create=True):
-        result = _run(get_breadcrumbs("not-a-uuid", user_id="u1"))
+        result = get_breadcrumbs("not-a-uuid", user_id="u1")
     assert result == []
     sb.rpc.assert_not_called()
 
@@ -33,7 +24,7 @@ def test_breadcrumbs_single_rpc_call_preserves_order_and_kind():
     sb.rpc.return_value.execute.return_value.data = rows
 
     with patch("routes.folders.get_supabase", return_value=sb, create=True):
-        result = _run(get_breadcrumbs("33333333-3333-3333-3333-333333333333", user_id="u1"))
+        result = get_breadcrumbs("33333333-3333-3333-3333-333333333333", user_id="u1")
 
     # Exactly one DB round-trip, to the recursive-CTE function.
     sb.rpc.assert_called_once()
@@ -53,5 +44,5 @@ def test_breadcrumbs_empty_when_rpc_returns_none():
     sb = MagicMock()
     sb.rpc.return_value.execute.return_value.data = None
     with patch("routes.folders.get_supabase", return_value=sb, create=True):
-        result = _run(get_breadcrumbs("33333333-3333-3333-3333-333333333333", user_id="u1"))
+        result = get_breadcrumbs("33333333-3333-3333-3333-333333333333", user_id="u1")
     assert result == []
