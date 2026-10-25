@@ -25,8 +25,9 @@ CLI releases additionally contain executables, installers, and SHA256SUMS.
 Merge the application dependencies before activating the Release workflow: Manabi
 connection, inventory, full-app design, its follow-up layouts and theme, and the
 API concurrency fixes. The final application tree must include the current
-production UI before the CD PR reaches main; otherwise the first release would
-replace manually deployed features with older code.
+production UI before enabling the production gate; CD can merge first while
+that gate remains disabled. Otherwise a release could replace manually deployed
+features with older code.
 
 The first stable release deliberately builds all packages because production
 rehearsals use `release/rehearsed-*`, not `release/deployed-*`. Do not create a
@@ -36,8 +37,10 @@ first stable automatic patch is 0.1.2. Backend, frontend, and CLI versions come
 from their own manifests and must retain the latest authored values when
 reconciling branches. CLI npm publication is independent of GitHub Releases.
 
-The old pre-merge rehearsal PR #135 is evidence, not a production dependency;
-its generated pending plan and historical version commits must not be merged.
+The pre-merge rehearsal PR #135 was reconciled against gated main before its
+merge. Its resulting tree contains only the release-review audit note; generated
+pending plans and rehearsal version changes were removed. Historical rehearsal
+records remain available as evidence, independently of production release state.
 Production migrations already applied manually remain recorded and are not
 reapplied or repaired by this integration. The normal migration-history drift
 must not be resolved by resetting the database.
