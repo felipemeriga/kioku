@@ -32,7 +32,11 @@ export default function ChatPage() {
   const toast = useToast();
   const {
     selectedId,
+    conversations,
     messages,
+    messagesLoading,
+    messagesError,
+    retryMessages,
     setMessages,
     loadConversations,
     createConversation,
@@ -213,7 +217,14 @@ export default function ChatPage() {
   return (
     <>
       <ChatArea
+        conversationTitle={
+          conversations.find((c) => c.id === selectedId)?.title ??
+          "New conversation"
+        }
         messages={messages}
+        messagesLoading={messagesLoading}
+        messagesError={messagesError}
+        onRetryMessages={retryMessages}
         streamingContent={streamingContent}
         isStreaming={isStreaming}
         currentStage={currentStage}

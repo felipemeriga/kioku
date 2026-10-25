@@ -63,14 +63,16 @@ export default function InspectDialog({
     <Dialog
       open={open}
       onClose={onClose}
-      maxWidth="lg"
+      maxWidth={false}
       fullWidth
       PaperProps={{
         sx: {
+          maxWidth: 750,
+          width: "calc(100% - 32px)",
           bgcolor: brand.surface2,
           backgroundImage: scanlines,
           border: `1px solid ${brand.cyan}`,
-          borderRadius: 1,
+          borderRadius: "8px",
           boxShadow: `0 0 4px ${brand.cyan}88, 0 0 24px ${brand.cyan}33, 0 24px 64px rgba(0,0,0,0.7)`,
           // Bound the modal and make it a flex column whose Paper never scrolls
           // (overflow:hidden) — so a tall tab scrolls the DialogContent body
@@ -90,8 +92,8 @@ export default function InspectDialog({
           alignItems: "center",
           gap: 1.5,
           pb: 1,
-          px: "22px",
-          pt: "18px",
+          px: "24px",
+          pt: "20px",
           flexShrink: 0,
         }}
       >
@@ -153,7 +155,7 @@ export default function InspectDialog({
             px: "16px",
             "&.Mui-selected": {
               color: brand.magentaGlow,
-              bgcolor: `${brand.magenta}18`,
+              bgcolor: "transparent",
               boxShadow: `inset 0 -2px 0 ${brand.magenta}`,
             },
           },
@@ -169,8 +171,8 @@ export default function InspectDialog({
           flex: 1,
           minHeight: 0,
           overflowY: "auto",
-          px: "22px",
-          py: "20px",
+          px: "24px",
+          py: "24px",
         }}
       >
         {tab === 0 && (

@@ -1,6 +1,8 @@
 import { useState } from "react";
 import {
   Box,
+  Menu,
+  MenuItem,
   IconButton,
   List,
   ListItemButton,
@@ -9,7 +11,6 @@ import {
   Tooltip,
   Typography,
   useMediaQuery,
-  useTheme,
 } from "@mui/material";
 import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
 import FolderOpenIcon from "@mui/icons-material/FolderOpen";
@@ -60,7 +61,9 @@ export default function IconRail({
   userEmail,
   onSignOut,
 }: IconRailProps) {
-  const compact = useMediaQuery(useTheme().breakpoints.down("lg"));
+  const compact = useMediaQuery("(max-width:780px)");
+  const handset = useMediaQuery("(max-width:480px)");
+  const [accountAnchor, setAccountAnchor] = useState<HTMLElement | null>(null);
   const [userCollapsed, setCollapsed] = useState(
     () =>
       typeof localStorage !== "undefined" &&
@@ -72,12 +75,80 @@ export default function IconRail({
       localStorage.setItem("kioku:rail-collapsed", previous ? "0" : "1");
       return !previous;
     });
+  if (handset)
+    return (
+      <Box
+        component="nav"
+        aria-label="Main navigation"
+        sx={{
+          height: 64,
+          minHeight: 64,
+          px: "14px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          bgcolor: brand.surface2,
+          borderBottom: `1px solid ${brand.line}`,
+        }}
+      >
+        <IconButton
+          aria-label="Account menu"
+          onClick={(event) => setAccountAnchor(event.currentTarget)}
+          sx={{
+            border: `1px solid ${brand.magenta}`,
+            color: brand.magenta,
+            fontFamily: fonts.jp,
+            fontSize: 23,
+            width: 32,
+            height: 34,
+          }}
+        >
+          記
+        </IconButton>
+        <Box sx={{ display: "flex", gap: "1px" }}>
+          {items.map(({ page, icon, label, testId }) => (
+            <IconButton
+              key={page}
+              aria-label={label}
+              aria-current={activePage === page ? "page" : undefined}
+              data-testid={testId}
+              data-active={activePage === page}
+              onClick={() =>
+                page === activePage ? onTogglePanel() : onNavigate(page)
+              }
+              sx={{
+                width: 42,
+                height: 42,
+                color: activePage === page ? brand.magenta : brand.muted,
+                bgcolor: activePage === page ? `${brand.magenta}12` : undefined,
+                borderBottom:
+                  activePage === page
+                    ? `2px solid ${brand.magenta}`
+                    : "2px solid transparent",
+              }}
+            >
+              {icon}
+            </IconButton>
+          ))}
+        </Box>
+        <Menu
+          anchorEl={accountAnchor}
+          open={!!accountAnchor}
+          onClose={() => setAccountAnchor(null)}
+        >
+          <MenuItem disabled>{userEmail}</MenuItem>
+          <MenuItem data-testid="nav-signout" onClick={onSignOut}>
+            Sign out
+          </MenuItem>
+        </Menu>
+      </Box>
+    );
   return (
     <Box
       component="nav"
       aria-label="Main navigation"
       sx={{
-        width: collapsed ? { xs: 60, sm: 72 } : 200,
+        width: collapsed ? 72 : { xs: 190, lg: 224 },
         height: "100dvh",
         display: "flex",
         flexDirection: "column",
@@ -88,36 +159,54 @@ export default function IconRail({
     >
       <Box
         sx={{
-          height: 88,
-          px: collapsed ? 0 : 2.5,
+          height: 106,
+          px: collapsed ? 0 : 3.5,
           display: "flex",
           alignItems: "center",
           justifyContent: collapsed ? "center" : "flex-start",
-          gap: 1.25,
+          gap: "13px",
         }}
       >
         <Box
           aria-hidden="true"
           sx={{
-            width: 32,
-            height: 34,
+            width: 42,
+            height: 42,
             display: "grid",
             placeItems: "center",
             border: `1px solid ${brand.magenta}`,
             borderRadius: "4px",
             color: brand.magenta,
             fontFamily: fonts.jp,
-            fontSize: 20,
+            fontSize: 26,
           }}
         >
           記
         </Box>
         {!collapsed && (
-          <Typography
-            sx={{ fontSize: 22, fontWeight: 600, letterSpacing: "-0.03em" }}
-          >
-            Kioku
-          </Typography>
+          <Box>
+            <Typography
+              sx={{
+                fontFamily: fonts.jp,
+                fontSize: 10,
+                color: brand.muted,
+                lineHeight: 1.4,
+                letterSpacing: ".15em",
+              }}
+            >
+              キオク
+            </Typography>
+            <Typography
+              sx={{
+                fontSize: 22,
+                fontWeight: 600,
+                lineHeight: 1.2,
+                letterSpacing: "-.03em",
+              }}
+            >
+              kioku
+            </Typography>
+          </Box>
         )}
       </Box>
       <List
@@ -126,7 +215,7 @@ export default function IconRail({
           py: 0,
           display: "flex",
           flexDirection: "column",
-          gap: 0.5,
+          gap: "3px",
         }}
       >
         {items.map(({ page, icon, label, testId }) => (
@@ -142,7 +231,7 @@ export default function IconRail({
               }
               sx={{
                 minHeight: 44,
-                px: collapsed ? 0 : 1.5,
+                px: collapsed ? 0 : "14px",
                 justifyContent: collapsed ? "center" : "flex-start",
                 color: activePage === page ? brand.text : brand.muted,
               }}
@@ -187,6 +276,25 @@ export default function IconRail({
             )}
           </IconButton>
         </Tooltip>
+      )}
+      {!collapsed && (
+        <Box
+          sx={{
+            mx: "10px",
+            px: "16px",
+            pt: 2.5,
+            pb: 1.5,
+            borderTop: `1px solid ${brand.line}`,
+          }}
+        >
+          <Typography
+            sx={{ fontSize: 12, color: brand.muted, lineHeight: 1.6 }}
+          >
+            Built for remembering.
+            <br />
+            Designed for reading.
+          </Typography>
+        </Box>
       )}
       <Box
         sx={{

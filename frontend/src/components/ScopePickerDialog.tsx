@@ -1,3 +1,4 @@
+import { brand } from "../theme";
 /**
  * ScopePickerDialog — choose a RAG scope: any folder (searches its whole
  * subtree) or a single document inside the current folder view.
@@ -84,12 +85,13 @@ export default function ScopePickerDialog({
     <Dialog
       open={open}
       onClose={onClose}
-      maxWidth="xs"
+      maxWidth="sm"
+      PaperProps={{ sx: { maxWidth: 520, borderRadius: "8px" } }}
       fullWidth
       TransitionProps={{ onEnter: handleOpen }}
     >
       <DialogTitle>Scope the search</DialogTitle>
-      <DialogContent sx={{ px: 1, pb: 0 }}>
+      <DialogContent sx={{ px: 3, pb: 3 }}>
         <Box
           sx={{ display: "flex", alignItems: "center", gap: 1, px: 1, mb: 1 }}
         >
@@ -116,7 +118,18 @@ export default function ScopePickerDialog({
           </Typography>
         </Box>
 
-        <List dense sx={{ maxHeight: 340, overflow: "auto" }}>
+        <List
+          dense
+          sx={{
+            maxHeight: 340,
+            overflow: "auto",
+            border: `1px solid ${brand.line}`,
+            borderRadius: "5px",
+            p: 1.5,
+            "& .MuiListItemButton-root": { p: "11px 12px", m: 0 },
+            "& .MuiListItemText-primary": { fontSize: 14 },
+          }}
+        >
           {currentId !== null && (
             <ListItemButton
               onClick={() =>
@@ -128,16 +141,16 @@ export default function ScopePickerDialog({
                 mb: 0.5,
                 border: 1,
                 borderStyle: "dashed",
-                borderColor: alpha("#FF2E93", 0.3),
-                "&:hover": { bgcolor: alpha("#FF2E93", 0.08) },
+                borderColor: alpha(brand.magenta, 0.3),
+                "&:hover": { bgcolor: alpha(brand.magenta, 0.08) },
               }}
             >
               <ListItemIcon>
-                <CenterFocusStrongIcon sx={{ color: "#FF2E93" }} />
+                <CenterFocusStrongIcon sx={{ color: brand.magenta }} />
               </ListItemIcon>
               <ListItemText
                 primary={`Search only “${currentName}”`}
-                primaryTypographyProps={{ fontWeight: 500, color: "#a78bfa" }}
+                primaryTypographyProps={{ fontWeight: 500, color: brand.cyan }}
               />
             </ListItemButton>
           )}
@@ -149,7 +162,7 @@ export default function ScopePickerDialog({
               sx={{ borderRadius: 2, mx: 0.5, mb: 0.25 }}
             >
               <ListItemIcon>
-                <FolderIcon sx={{ color: "#FF2E93" }} />
+                <FolderIcon sx={{ color: brand.magenta }} />
               </ListItemIcon>
               <ListItemText primary={f.name} />
             </ListItemButton>
@@ -180,7 +193,7 @@ export default function ScopePickerDialog({
           {loadError && (
             <Typography
               variant="body2"
-              sx={{ color: "#ef4444", textAlign: "center", py: 2, px: 2 }}
+              sx={{ color: brand.red, textAlign: "center", py: 2, px: 2 }}
             >
               Couldn't load folders: {loadError}
             </Typography>

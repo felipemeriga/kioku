@@ -120,11 +120,11 @@ export default function RemotesPage() {
   const selected =
     matches.find((machine) => machine.id === selectedId) ?? matches[0];
   return (
-    <main className="remotes-page" style={colors}>
+    <section data-testid="remotes-page" className="remotes-page" style={colors}>
       <header className="remotes-heading">
         <div>
           <h1>Remotes</h1>
-          <p>Your machines. Connected through Manabi.</p>
+          <p>Your machines and the projects they’re connected to.</p>
         </div>
         <Button
           variant="contained"
@@ -134,11 +134,6 @@ export default function RemotesPage() {
           Connect machine
         </Button>
       </header>
-      <div className="remotes-preview-note" role="note">
-        <strong>Manabi</strong> Configured repositories and agents are
-        available. Memory collection and agent session activity are coming
-        later.
-      </div>
       {machines.isError && (
         <Alert
           severity="error"
@@ -165,6 +160,15 @@ export default function RemotesPage() {
               <i className="remote-dot offline" />
               {all.filter((machine) => !machine.online).length} offline
             </span>
+            {all.some((machine) => (machine.warnings?.length ?? 0) > 0) && (
+              <span className="remotes-attention">
+                {
+                  all.filter((machine) => (machine.warnings?.length ?? 0) > 0)
+                    .length
+                }{" "}
+                needs attention
+              </span>
+            )}
           </>
         )}
         <span>
@@ -191,10 +195,7 @@ export default function RemotesPage() {
                 aria-pressed={selected?.id === machine.id}
                 onClick={() => setSelectedId(machine.id)}
               >
-                <span className="remote-machine-name">
-                  <DesktopWindowsOutlinedIcon fontSize="small" />
-                  {machine.name}
-                </span>
+                <span className="remote-machine-name">{machine.name}</span>
                 <span className="remote-machine-meta">
                   <OperatingSystem machine={machine} />
                 </span>
@@ -207,7 +208,15 @@ export default function RemotesPage() {
                     />
                     {presence(machine)}
                   </span>
-                  <span>Manabi {machine.version}</span>
+                  <span>
+                    {(machine.warnings?.length ?? 0) > 0
+                      ? `${machine.warnings!.length} ${
+                          machine.warnings!.length === 1
+                            ? "warning"
+                            : "warnings"
+                        }`
+                      : `Manabi ${machine.version}`}
+                  </span>
                 </span>
               </button>
             ))}
@@ -245,7 +254,7 @@ export default function RemotesPage() {
                 </div>
               </div>
               <Button
-                size="small"
+                variant="outlined"
                 onClick={() => {
                   setRenameId(selected.id);
                   setNewName(selected.custom_name ?? selected.name);
@@ -267,29 +276,6 @@ export default function RemotesPage() {
               </span>
               <span>Last seen {date(selected.last_seen)}</span>
             </div>
-            <div className="remote-section-title">
-              <h3>Connection</h3>
-              <span>Authenticated outbound WebSocket</span>
-            </div>
-            <dl className="remote-connection">
-              <div>
-                <dt>Registered</dt>
-                <dd>{date(selected.created_at)}</dd>
-              </div>
-              <div>
-                <dt>Last connected</dt>
-                <dd>{date(selected.connected_at)}</dd>
-              </div>
-            </dl>
-            {!selected.online && !machines.isError && (
-              <div className="remote-offline">
-                <h3>This machine is offline</h3>
-                <p>
-                  Manabi reconnects automatically when the machine is awake, its
-                  user service is running, and the backend is reachable.
-                </p>
-              </div>
-            )}
             {(selected.warnings ?? []).length > 0 && (
               <div
                 className="remote-warnings"
@@ -348,7 +334,9 @@ export default function RemotesPage() {
                       {repo.agents.map((agent) => (
                         <span key={agent}>
                           {agent === "claude" ? "✳ Claude Code" : "›_ Codex"}
-                          <small>Configured</small>
+                          <small className="remote-configured-label">
+                            Configured
+                          </small>
                         </span>
                       ))}
                     </div>
@@ -396,13 +384,32 @@ export default function RemotesPage() {
               </>
             )}
             <div className="remote-section-title">
-              <h3>Memory collection</h3>
-              <span>Not enabled yet</span>
+              <h3>Connection</h3>
+              <span>Authenticated outbound WebSocket</span>
             </div>
-            <p className="remote-footnote">
-              This version reports connection and configured repositories. It
-              does not read memories, inspect agent sessions, or run remote
-              commands.
+            <dl className="remote-connection">
+              <div>
+                <dt>Registered</dt>
+                <dd>{date(selected.created_at)}</dd>
+              </div>
+              <div>
+                <dt>Last connected</dt>
+                <dd>{date(selected.connected_at)}</dd>
+              </div>
+            </dl>
+            {!selected.online && !machines.isError && (
+              <div className="remote-offline">
+                <h3>This machine is offline</h3>
+                <p>
+                  Manabi reconnects automatically when the machine is awake, its
+                  user service is running, and the backend is reachable.
+                </p>
+              </div>
+            )}
+            <p className="remote-footnote remote-capability-note">
+              Memory collection is not enabled. Manabi reports its connection
+              and configured repositories; it does not read memories, inspect
+              open sessions, or run remote commands.
             </p>
           </section>
         ) : (
@@ -506,6 +513,6 @@ export default function RemotesPage() {
           <Button onClick={() => setConnectOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>
-    </main>
+    </section>
   );
 }

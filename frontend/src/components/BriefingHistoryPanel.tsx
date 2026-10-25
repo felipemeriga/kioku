@@ -34,7 +34,6 @@ import {
 } from "../lib/api";
 import { serializeSection } from "../lib/serializeSection";
 import { brand, fonts } from "../theme";
-import CornerCard from "./neo/CornerCard";
 import { useToast } from "./ToastProvider";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -149,7 +148,7 @@ export default function BriefingHistoryPanel({ folderId }: Props) {
   const toast = useToast();
   // selected: up to 2 version IDs, in click order. Diff direction is resolved
   // chronologically (by generated_at), NOT by click order — see below.
-  const [selected, setSelected] = useState<string[]>([]);
+  const [manualSelection, setSelected] = useState<string[]>([]);
   const [restoring, setRestoring] = useState<string | null>(null);
 
   // ── queries ──────────────────────────────────────────────────────────────
@@ -170,6 +169,9 @@ export default function BriefingHistoryPanel({ folderId }: Props) {
       lastPage.length === 50 ? pages.length * 50 : undefined,
   });
   const history = historyPages?.pages.flat();
+  const selected = manualSelection.length
+    ? manualSelection
+    : (history ?? []).slice(0, 2).map((v) => v.id);
 
   const v0Id = selected[0] ?? null;
   const v1Id = selected[1] ?? null;
@@ -320,304 +322,247 @@ export default function BriefingHistoryPanel({ folderId }: Props) {
         )
       : [];
 
-  // ── render ────────────────────────────────────────────────────────────────
-
+  // The latest real pair is shown initially; clicking a row inspects it.
   return (
-    <Box
-      sx={{
-        display: "flex",
-        flexDirection: { xs: "column", md: "row" },
-        gap: 3,
-        alignItems: "flex-start",
-      }}
-    >
-      {/* Left: version timeline */}
+    <Box className="history-panel">
+      <Typography
+        sx={{ fontSize: 13, lineHeight: 1.55, color: brand.muted, mb: "20px" }}
+      >
+        Compare two briefing versions, or inspect a previous version before
+        restoring it.
+      </Typography>
       <Box
+        className="history-layout"
         sx={{
-          flex: { md: "0 0 320px" },
-          width: { xs: "100%", md: "auto" },
-          minWidth: 0,
+          display: "grid",
+          gridTemplateColumns: "260px minmax(0,1fr)",
+          gap: "22px",
+          alignItems: "start",
         }}
       >
-        <Typography
-          sx={{
-            fontFamily: fonts.mono,
-            fontSize: 13,
-            fontWeight: 600,
-            letterSpacing: 0,
-            textTransform: "none",
-            color: brand.muted,
-            mb: 1.5,
-          }}
-        >
-          Version history · {history?.length ?? 0}
-        </Typography>
-
-        {(!history || history.length === 0) && (
-          <Typography
-            sx={{ fontFamily: fonts.mono, fontSize: 13, color: brand.dim }}
-          >
-            No versions recorded yet.
-          </Typography>
-        )}
-
-        <Stack spacing={1}>
-          {(history ?? []).map((v) => {
-            const isSelected = selected.includes(v.id);
-            const borderColor = isSelected ? brand.cyan : brand.line;
-            return (
-              <CornerCard
+        <Box>
+          <Stack spacing={1.25}>
+            {(history ?? []).map((v) => (
+              <Box
+                component="button"
                 key={v.id}
                 data-testid={`version-${v.id}`}
-                color={isSelected ? brand.cyan : brand.violet2}
                 onClick={() => handleVersionClick(v.id)}
                 sx={{
-                  p: 1.5,
+                  width: "100%",
+                  textAlign: "left",
+                  fontFamily: fonts.body,
+                  p: "17px 18px",
+                  border: `1px solid ${
+                    (manualSelection.length
+                      ? manualSelection
+                      : selected.slice(0, 1)
+                    ).includes(v.id)
+                      ? brand.cyan
+                      : brand.line
+                  }`,
+                  borderRadius: "5px",
+                  background: brand.surface,
+                  color: brand.text,
                   cursor: "pointer",
-                  border: `1px solid ${borderColor}`,
-                  background: isSelected ? `${brand.cyan}0d` : brand.surface,
-                  transition: "border-color 0.15s, background 0.15s",
-                  "&:hover": {
-                    borderColor: brand.cyan,
-                    background: `${brand.cyan}08`,
-                  },
+                  "&:hover": { borderColor: brand.cyan },
                 }}
               >
-                {/* Top row: trigger badge + time */}
-                <Stack
-                  direction="row"
-                  alignItems="center"
-                  spacing={1}
-                  sx={{ mb: 0.75 }}
+                <Typography
+                  component="span"
+                  sx={{ display: "block", fontSize: 14, fontWeight: 500 }}
                 >
-                  <Chip
-                    label={v.trigger ?? "unknown"}
-                    size="small"
-                    sx={{
-                      fontFamily: fonts.mono,
-                      fontSize: 13,
-                      height: 18,
-                      letterSpacing: "0.06em",
-                      backgroundColor: `${brand.violet2}22`,
-                      color: brand.violet2,
-                      border: `1px solid ${brand.violet2}44`,
-                    }}
-                  />
-                  <Typography
-                    sx={{
-                      fontFamily: fonts.mono,
-                      fontSize: 13,
-                      color: brand.muted,
-                      flexGrow: 1,
-                    }}
-                  >
-                    {timeAgo(v.generated_at)}
-                  </Typography>
-                  {isSelected && (
-                    <Box
-                      component="span"
-                      sx={{
-                        fontFamily: fonts.mono,
-                        fontSize: 13,
-                        color: brand.cyan,
-                        textShadow: "none",
-                      }}
-                    >
-                      ●
-                    </Box>
-                  )}
-                </Stack>
-
-                {/* Changed sections chips */}
-                {v.changed_sections.length > 0 && (
-                  <Stack
-                    direction="row"
-                    spacing={0.5}
-                    sx={{ flexWrap: "wrap", mb: 0.75, gap: "4px" }}
-                  >
-                    {v.changed_sections.map((sec) => (
-                      <Chip
-                        key={sec}
-                        label={sec}
-                        size="small"
-                        sx={{
-                          fontFamily: fonts.mono,
-                          fontSize: 13,
-                          height: 16,
-                          letterSpacing: "0.04em",
-                          backgroundColor: `${brand.amber}18`,
-                          color: brand.amber,
-                          border: `1px solid ${brand.amber}33`,
-                        }}
-                      />
-                    ))}
-                  </Stack>
-                )}
-
-                {/* Restore button */}
-                {v.updated_by && (
-                  <Typography
-                    sx={{
-                      fontFamily: fonts.mono,
-                      fontSize: 13,
-                      color: brand.muted,
-                      mb: 1,
-                      overflowWrap: "anywhere",
-                    }}
-                  >
-                    By {v.updated_by}
-                  </Typography>
-                )}
-                <Button
-                  data-testid={`restore-${v.id}`}
-                  variant="outlined"
-                  size="small"
-                  startIcon={
-                    restoring === v.id ? (
-                      <CircularProgress size={12} />
-                    ) : (
-                      <RestoreIcon />
-                    )
-                  }
-                  disabled={restoring != null}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void handleRestore(v.id);
-                  }}
+                  {v.generated_at
+                    ? new Date(v.generated_at).toLocaleString(undefined, {
+                        month: "short",
+                        day: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })
+                    : "Undated version"}
+                </Typography>
+                <Typography
+                  component="span"
                   sx={{
-                    fontFamily: fonts.mono,
-                    fontSize: 13,
-                    letterSpacing: "0.06em",
-                    borderColor: `${brand.magenta}66`,
-                    color: brand.magenta,
-                    py: 0.25,
-                    px: 1,
-                    minHeight: 0,
-                    "&:hover": {
-                      borderColor: brand.magenta,
-                      backgroundColor: `${brand.magenta}12`,
-                    },
-                    "&.Mui-disabled": {
-                      borderColor: brand.line,
-                      color: brand.muted,
-                    },
+                    display: "block",
+                    fontSize: 12,
+                    color: brand.muted,
+                    my: 1,
                   }}
                 >
-                  {restoring === v.id ? "Restoring…" : "Restore"}
-                </Button>
-              </CornerCard>
-            );
-          })}
-        </Stack>
-
-        {hasNextPage && (
-          <Button
-            disabled={isFetchingNextPage}
-            onClick={() => void fetchNextPage()}
-          >
-            {isFetchingNextPage ? "Loading…" : "Load older versions"}
-          </Button>
-        )}
-
-        {selected.length > 0 && selected.length < 2 && (
-          <Typography
-            sx={{
-              fontFamily: fonts.mono,
-              fontSize: 13,
-              color: brand.muted,
-              mt: 1.5,
-            }}
-          >
-            Select one more version to compare.
-          </Typography>
-        )}
-      </Box>
-
-      {/* Right: diff panel (only when 2 selected and data loaded) */}
-      {selected.length > 0 && (
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography
-            sx={{
-              fontFamily: fonts.mono,
-              fontSize: 13,
-              fontWeight: 600,
-              letterSpacing: 0,
-              textTransform: "none",
-              color: brand.muted,
-              mb: 1.5,
-            }}
-          >
-            {selected.length === 2 ? "Diff" : "Version details"}
-          </Typography>
-
-          {versionError ? (
-            <Box role="alert">
-              <Typography>Couldn't load this version.</Typography>
-              <Button
-                onClick={() => {
-                  void firstVersion.refetch();
-                  if (selected.length === 2) void secondVersion.refetch();
-                }}
-              >
-                Retry
-              </Button>
-            </Box>
-          ) : selected.length === 1 && version0 ? (
-            <Box data-testid="version-details">
-              {Object.entries(version0.sections).map(([key, section]) => (
-                <Box key={key} sx={{ mb: 2 }}>
-                  <Typography
-                    sx={{ color: brand.cyan, fontFamily: fonts.mono }}
-                  >
-                    {key}
-                  </Typography>
-                  <Box
-                    component="pre"
-                    sx={{
-                      whiteSpace: "pre-wrap",
-                      overflowWrap: "anywhere",
-                      fontFamily: fonts.mono,
-                      fontSize: 12,
-                    }}
-                  >
-                    {serializeSection(section.content)}
-                  </Box>
-                </Box>
-              ))}
-            </Box>
-          ) : !olderVersion || !newerVersion ? (
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <CircularProgress size={14} sx={{ color: brand.cyan }} />
-              <Typography
-                sx={{
-                  fontFamily: fonts.mono,
-                  fontSize: 12,
-                  color: brand.muted,
-                }}
-              >
-                Loading versions…
-              </Typography>
-            </Box>
-          ) : (
-            <Box>
-              {allKeys.map((key) => {
-                const oldSec = olderVersion.sections[key];
-                const newSec = newerVersion.sections[key];
-                const oldText = serializeSection(oldSec?.content ?? null);
-                const newText = serializeSection(newSec?.content ?? null);
-                return (
-                  <SectionDiff
-                    key={key}
-                    sectionKey={key}
-                    oldText={oldText}
-                    newText={newText}
-                  />
-                );
-              })}
-            </Box>
+                  {v.changed_sections?.length
+                    ? v.changed_sections.join(", ")
+                    : "All sections"}
+                </Typography>
+                <Chip
+                  label={v.trigger ?? "unknown"}
+                  size="small"
+                  variant="outlined"
+                  sx={{
+                    height: 22,
+                    fontSize: 10,
+                    borderRadius: "3px",
+                    color: brand.cyan,
+                    borderColor: `${brand.cyan}44`,
+                  }}
+                />
+              </Box>
+            ))}
+          </Stack>
+          {!history?.length && (
+            <Typography color="text.secondary">
+              No versions recorded yet.
+            </Typography>
+          )}
+          {hasNextPage && (
+            <Button
+              disabled={isFetchingNextPage}
+              onClick={() => void fetchNextPage()}
+            >
+              {isFetchingNextPage ? "Loading…" : "Load older versions"}
+            </Button>
           )}
         </Box>
-      )}
+        {selected.length > 0 && (
+          <Box
+            sx={{
+              border: `1px solid ${brand.line}`,
+              borderRadius: "8px",
+              bgcolor: brand.surface,
+              overflow: "hidden",
+              minWidth: 0,
+            }}
+          >
+            <Box
+              sx={{
+                p: "20px 24px",
+                borderBottom: `1px solid ${brand.line}`,
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 2,
+                flexWrap: "wrap",
+              }}
+            >
+              <Box>
+                <Typography
+                  component="h2"
+                  sx={{ fontSize: 21, fontWeight: 600 }}
+                >
+                  {manualSelection.length === 0
+                    ? "Latest changes"
+                    : selected.length === 2
+                    ? "Diff"
+                    : "Version details"}
+                </Typography>
+                <Typography sx={{ fontSize: 13, color: brand.muted, mt: 0.5 }}>
+                  {selected.length === 2
+                    ? "Selected versions, compared chronologically"
+                    : `${timeAgo(
+                        history?.find((v) => v.id === v0Id)?.generated_at ??
+                          null
+                      )}`}
+                </Typography>
+              </Box>
+              <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                {(history?.length ?? 0) > 1 && (
+                  <Button
+                    variant="outlined"
+                    onClick={() =>
+                      setSelected((history ?? []).slice(0, 2).map((v) => v.id))
+                    }
+                  >
+                    Compare versions
+                  </Button>
+                )}
+                {v0Id && (
+                  <Button
+                    data-testid={`restore-${v0Id}`}
+                    variant="outlined"
+                    disabled={restoring != null}
+                    startIcon={
+                      restoring ? (
+                        <CircularProgress size={12} />
+                      ) : (
+                        <RestoreIcon />
+                      )
+                    }
+                    onClick={() => void handleRestore(v0Id)}
+                  >
+                    {restoring ? "Restoring…" : "Restore version"}
+                  </Button>
+                )}
+              </Box>
+            </Box>
+            <Box className="history-details" sx={{ p: 3 }}>
+              {versionError ? (
+                <Box role="alert">
+                  <Typography>Couldn't load this version.</Typography>
+                  <Button
+                    onClick={() => {
+                      void firstVersion.refetch();
+                      if (selected.length === 2) void secondVersion.refetch();
+                    }}
+                  >
+                    Retry
+                  </Button>
+                </Box>
+              ) : selected.length === 1 && version0 ? (
+                <Box data-testid="version-details">
+                  {Object.entries(version0.sections).map(([key, section]) => (
+                    <Box key={key} sx={{ mb: 3 }}>
+                      <Typography
+                        component="h3"
+                        sx={{
+                          fontSize: 17,
+                          fontWeight: 600,
+                          textTransform: "capitalize",
+                          mb: 1.5,
+                        }}
+                      >
+                        {key.replaceAll("_", " ")}
+                      </Typography>
+                      <Box
+                        sx={{
+                          whiteSpace: "pre-wrap",
+                          overflowWrap: "anywhere",
+                          fontSize: 16,
+                          lineHeight: 1.75,
+                          color: brand.muted,
+                        }}
+                      >
+                        {serializeSection(section.content)}
+                      </Box>
+                    </Box>
+                  ))}
+                </Box>
+              ) : !olderVersion || !newerVersion ? (
+                <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+                  <CircularProgress size={14} />
+                  <Typography color="text.secondary">
+                    Loading versions…
+                  </Typography>
+                </Box>
+              ) : (
+                <Box>
+                  {allKeys.map((key) => (
+                    <SectionDiff
+                      key={key}
+                      sectionKey={key}
+                      oldText={serializeSection(
+                        olderVersion.sections[key]?.content ?? null
+                      )}
+                      newText={serializeSection(
+                        newerVersion.sections[key]?.content ?? null
+                      )}
+                    />
+                  ))}
+                </Box>
+              )}
+            </Box>
+          </Box>
+        )}
+      </Box>
     </Box>
   );
 }

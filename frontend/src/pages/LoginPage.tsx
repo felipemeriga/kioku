@@ -13,7 +13,7 @@ import {
 } from "@mui/material";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
-import { brand, fonts, neonGlow } from "../theme";
+import { brand, fonts } from "../theme";
 import NeoAtmosphere from "../components/neo/NeoAtmosphere";
 
 export default function LoginPage() {
@@ -85,149 +85,311 @@ export default function LoginPage() {
   return (
     <Box
       component="main"
+      data-testid="login-page"
       sx={{
         minHeight: "100dvh",
         display: "grid",
-        placeItems: "center",
-        px: 3,
-        py: 6,
-        background: brand.ink,
+        gridTemplateColumns: "1fr 1fr",
+        bgcolor: brand.ink,
         position: "relative",
         isolation: "isolate",
         overflow: "hidden",
+        "& [data-testid='login-atmosphere'] > :last-child": { display: "none" },
+        "@media(max-width:900px)": { gridTemplateColumns: "1fr" },
       }}
     >
       <NeoAtmosphere login />
-      <Stack
-        spacing={4}
+      <Box
+        component="section"
+        data-testid="login-brand"
         sx={{
-          width: "100%",
-          maxWidth: 420,
-          ml: { xs: 0, md: "44%" },
-          position: "relative",
+          p: "65px",
+          display: "flex",
+          flexDirection: "column",
+          borderRight: `1px solid ${brand.line}`,
+          background: `linear-gradient(90deg, ${brand.ink}A6, ${brand.ink}22)`,
+          minWidth: 0,
+          "@media(max-width:1180px)": { p: "45px" },
+          "@media(max-width:900px)": {
+            p: "30px",
+            minHeight: 240,
+            borderRight: 0,
+            borderBottom: `1px solid ${brand.line}`,
+          },
+          "@media(max-width:480px)": { p: "25px 22px" },
         }}
       >
-        <Stack direction="row" alignItems="center" spacing={1.5}>
+        <Stack direction="row" alignItems="center" spacing="13px">
           <Box
             aria-hidden="true"
             sx={{
-              width: 42,
-              height: 44,
+              width: 38,
+              height: 42,
               display: "grid",
               placeItems: "center",
               border: `1px solid ${brand.magenta}`,
-              borderRadius: "4px",
               color: brand.magenta,
+              borderRadius: "3px",
               fontFamily: fonts.jp,
-              fontSize: 24,
+              fontSize: 25,
             }}
           >
             記
           </Box>
-          <Box>
+          <Box sx={{ "@media(max-width:780px)": { display: "none" } }}>
             <Typography
-              sx={{ fontSize: 28, fontWeight: 600, letterSpacing: "-0.03em" }}
+              sx={{
+                fontSize: 11,
+                color: brand.muted,
+                letterSpacing: 2,
+                lineHeight: 1.3,
+              }}
             >
-              Kioku
+              キオク
             </Typography>
-            <Typography sx={{ fontSize: 14, color: brand.muted }}>
-              A second brain for your work.
+            <Typography
+              sx={{
+                fontSize: 23,
+                fontWeight: 600,
+                letterSpacing: "-.8px",
+                lineHeight: 1.3,
+              }}
+            >
+              kioku
             </Typography>
           </Box>
         </Stack>
         <Box
-          component="form"
-          onSubmit={handleSubmit}
           sx={{
-            p: { xs: 2.5, sm: 4 },
-            border: `1px solid ${brand.magenta}`,
-            borderTop: `2px solid ${brand.cyan}`,
-            boxShadow: neonGlow(brand.magenta, 2),
-            borderRadius: 2,
-            bgcolor: brand.surface,
+            my: "auto",
+            py: "70px",
+            maxWidth: 440,
+            textShadow: `0 2px 10px ${brand.ink}`,
+            "@media(max-width:900px)": {
+              mt: 0,
+              pt: "35px",
+              pb: 0,
+              maxWidth: 600,
+            },
           }}
         >
-          <Typography component="h1" variant="h4" sx={{ mb: 1 }}>
+          <Typography
+            aria-hidden="true"
+            sx={{
+              fontSize: 90,
+              color: brand.magenta,
+              fontFamily: fonts.jp,
+              fontWeight: 400,
+              lineHeight: 1.1,
+              mb: "30px",
+              letterSpacing: "10px",
+              "@media(max-width:900px)": { display: "none" },
+            }}
+          >
+            記憶
+          </Typography>
+          <Typography
+            component="h1"
+            sx={{
+              fontSize: 42,
+              fontWeight: 600,
+              lineHeight: 1.2,
+              letterSpacing: "-1.2px",
+              mb: "20px",
+              "@media(max-width:1180px)": { fontSize: 36 },
+              "@media(max-width:900px)": { fontSize: 30, mb: "10px" },
+              "@media(max-width:480px)": { fontSize: 27 },
+            }}
+          >
+            Your work deserves
+            <br />
+            to be remembered.
+          </Typography>
+          <Typography
+            sx={{
+              fontSize: 17,
+              color: brand.text,
+              lineHeight: 1.7,
+              maxWidth: "40ch",
+              "@media(max-width:900px)": { fontSize: 15 },
+            }}
+          >
+            Documents, repository context, and grounded answers. A second brain
+            for the way you build.
+          </Typography>
+        </Box>
+        <Typography
+          sx={{
+            fontSize: 12,
+            color: brand.muted,
+            "@media(max-width:900px)": { display: "none" },
+          }}
+        >
+          Kioku · A second brain for your repositories
+        </Typography>
+      </Box>
+      <Box
+        component="section"
+        data-testid="login-form-side"
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          p: "65px 40px",
+          bgcolor: `${brand.ink}F0`,
+          "@media(max-width:900px)": { p: "42px 26px" },
+          "@media(max-width:480px)": { p: "35px 22px" },
+        }}
+      >
+        <Box
+          component="form"
+          onSubmit={handleSubmit}
+          sx={{ width: "100%", maxWidth: 380 }}
+        >
+          <Typography
+            component="h2"
+            sx={{
+              fontSize: 29,
+              fontWeight: 600,
+              lineHeight: 1.3,
+              mb: "12px",
+              "@media(max-width:480px)": { fontSize: 26 },
+            }}
+          >
             {isSignUp ? "Create your account" : "Welcome back"}
           </Typography>
-          <Typography sx={{ color: brand.muted, mb: 3, fontSize: 15 }}>
+          <Typography
+            sx={{
+              color: brand.muted,
+              fontSize: 15,
+              lineHeight: 1.65,
+              mb: "30px",
+            }}
+          >
             {isSignUp
               ? "Start building your shared knowledge."
-              : "Sign in to your second brain."}
+              : "Sign in to continue working with your knowledge."}
           </Typography>
-          <Stack spacing={2.5}>
-            <TextField
-              InputLabelProps={{ required: false }}
-              label="Email"
-              type="email"
-              fullWidth
-              required
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              autoComplete="email"
-            />
-            <TextField
-              InputLabelProps={{ required: false }}
-              label="Password"
-              type="password"
-              fullWidth
-              required
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              autoComplete={isSignUp ? "new-password" : "current-password"}
-            />
-            {error && <Alert severity="error">{error}</Alert>}
-            {notice && <Alert severity="success">{notice}</Alert>}
-            <Button
-              type="submit"
-              variant="contained"
-              fullWidth
-              disabled={loading}
-              sx={{ minHeight: 44 }}
-            >
-              {loading ? (
-                <CircularProgress size={22} color="inherit" />
-              ) : isSignUp ? (
-                "Sign up"
-              ) : (
-                "Sign in"
-              )}
-            </Button>
-          </Stack>
+          <Typography
+            component="label"
+            htmlFor="login-email"
+            sx={{ display: "block", fontSize: 14, fontWeight: 500, mb: "8px" }}
+          >
+            Email
+          </Typography>
+          <TextField
+            id="login-email"
+            type="email"
+            fullWidth
+            required
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            autoComplete="email"
+            placeholder="you@example.com"
+            size="small"
+            sx={{
+              mb: "20px",
+              "& .MuiInputBase-root": {
+                height: 44,
+                borderRadius: "4px",
+                bgcolor: brand.ink,
+                fontSize: 14,
+              },
+            }}
+          />
+          <Typography
+            component="label"
+            htmlFor="login-password"
+            sx={{ display: "block", fontSize: 14, fontWeight: 500, mb: "8px" }}
+          >
+            Password
+          </Typography>
+          <TextField
+            id="login-password"
+            type="password"
+            fullWidth
+            required
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            autoComplete={isSignUp ? "new-password" : "current-password"}
+            placeholder="Enter your password"
+            size="small"
+            sx={{
+              mb: "20px",
+              "& .MuiInputBase-root": {
+                height: 44,
+                borderRadius: "4px",
+                bgcolor: brand.ink,
+                fontSize: 14,
+              },
+            }}
+          />
+          {error && (
+            <Alert severity="error" sx={{ mb: "20px" }}>
+              {error}
+            </Alert>
+          )}
+          {notice && (
+            <Alert severity="success" sx={{ mb: "20px" }}>
+              {notice}
+            </Alert>
+          )}
+          <Button
+            type="submit"
+            variant="contained"
+            fullWidth
+            disabled={loading}
+            sx={{ minHeight: 44, mt: "8px" }}
+          >
+            {loading ? (
+              <CircularProgress size={22} color="inherit" />
+            ) : isSignUp ? (
+              "Sign up"
+            ) : (
+              "Sign in"
+            )}
+          </Button>
           <Typography
             sx={{
               color: brand.muted,
               textAlign: "center",
-              mt: 3,
+              mt: "24px",
               fontSize: 14,
             }}
           >
-            {isSignUp ? "Already have an account? " : "Need an account? "}
+            {isSignUp ? "Already have an account? " : "New to Kioku? "}
             <MuiLink
               component="button"
               type="button"
+              aria-label={isSignUp ? "Sign in" : "Sign up"}
               onClick={() => {
                 setIsSignUp(!isSignUp);
                 setError("");
                 setNotice("");
               }}
               sx={{
-                color: brand.magenta,
+                color: brand.cyan,
                 fontSize: "inherit",
                 fontFamily: "inherit",
-                fontWeight: 500,
+                p: 0,
               }}
             >
-              {isSignUp ? "Sign in" : "Sign up"}
+              {isSignUp ? "Sign in" : "Create an account"}
             </MuiLink>
           </Typography>
+          <Typography
+            sx={{
+              fontSize: 15,
+              color: brand.muted,
+              mt: "20px",
+              mb: "30px",
+              lineHeight: 1.65,
+            }}
+          >
+            Your knowledge. Connected across sessions.
+          </Typography>
         </Box>
-        <Typography
-          sx={{ color: brand.dim, textAlign: "center", fontSize: 13 }}
-        >
-          Your knowledge. Connected across sessions.
-        </Typography>
-      </Stack>
+      </Box>
     </Box>
   );
 }

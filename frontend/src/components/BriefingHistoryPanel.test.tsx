@@ -47,7 +47,9 @@ describe("BriefingHistoryPanel", () => {
     vi.spyOn(api, "fetchBriefingHistory").mockResolvedValue(META);
     renderWithProviders(<BriefingHistoryPanel folderId="f1" />);
     await waitFor(() =>
-      expect(screen.getByText("overview")).toBeInTheDocument()
+      expect(
+        within(screen.getByTestId("version-v2")).getByText("overview")
+      ).toBeInTheDocument()
     );
     expect(screen.getByText(/seed/i)).toBeInTheDocument();
   });
@@ -63,7 +65,7 @@ describe("BriefingHistoryPanel", () => {
         id === "v2" ? V("new") : V("old")
       );
       renderWithProviders(<BriefingHistoryPanel folderId="f1" />);
-      await waitFor(() => screen.getByText("overview"));
+      await waitFor(() => screen.getByTestId("version-v2"));
       fireEvent.click(screen.getByTestId(`version-${first}`));
       fireEvent.click(screen.getByTestId(`version-${second}`));
       await waitFor(() =>
@@ -83,7 +85,8 @@ describe("BriefingHistoryPanel", () => {
       .mockResolvedValue({ ok: true, restored_from: "v1" });
     renderWithProviders(<BriefingHistoryPanel folderId="f1" />);
     await waitFor(() => screen.getByTestId("version-v1"));
-    fireEvent.click(screen.getByTestId("restore-v1"));
+    fireEvent.click(screen.getByTestId("version-v1"));
+    fireEvent.click(await screen.findByTestId("restore-v1"));
     await waitFor(() => expect(spy).toHaveBeenCalledWith("f1", "v1"));
     await waitFor(() => expect(invalidate).toHaveBeenCalledTimes(2));
     expect(screen.getByText("Briefing restored.")).toBeInTheDocument();
@@ -107,6 +110,7 @@ describe("BriefingHistoryPanel", () => {
       new Error("Restore failed")
     );
     renderWithProviders(<BriefingHistoryPanel folderId="f1" />);
+    fireEvent.click(await screen.findByTestId("version-v1"));
     fireEvent.click(await screen.findByTestId("restore-v1"));
     expect(await screen.findByText("Restore failed")).toBeInTheDocument();
     expect(screen.getByTestId("restore-v1")).toBeEnabled();
@@ -114,14 +118,15 @@ describe("BriefingHistoryPanel", () => {
 
   it("retries a failed version fetch", async () => {
     vi.spyOn(api, "fetchBriefingHistory").mockResolvedValue(META);
-    vi.spyOn(api, "fetchBriefingVersion")
-      .mockRejectedValueOnce(new Error("offline"))
-      .mockResolvedValue(V("recovered"));
+    const versionFetch = vi
+      .spyOn(api, "fetchBriefingVersion")
+      .mockRejectedValue(new Error("offline"));
     renderWithProviders(<BriefingHistoryPanel folderId="f1" />);
     fireEvent.click(await screen.findByTestId("version-v1"));
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Couldn't load this version."
     );
+    versionFetch.mockResolvedValue(V("recovered"));
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(await screen.findByTestId("version-details")).toHaveTextContent(
       "recovered"

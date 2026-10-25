@@ -1,29 +1,5 @@
-.remotes-page {
-  padding: 40px 48px;
-  color: var(--remote-text);
-}
 .remotes-page * {
   box-sizing: border-box;
-}
-.remotes-heading {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 20px;
-}
-.remotes-heading h1 {
-  margin: 0 0 8px;
-  font-size: 1.875rem;
-  font-weight: 600;
-  letter-spacing: -0.035em;
-}
-.remotes-heading p {
-  margin: 0;
-  color: var(--remote-muted);
-  font-size: 15px;
-}
-.remotes-heading button {
-  white-space: nowrap;
 }
 .remotes-preview-note {
   margin-top: 24px;
@@ -34,15 +10,6 @@
 .remotes-preview-note strong {
   color: var(--remote-cyan);
   margin-right: 8px;
-}
-.remotes-fleet {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 18px;
-  padding: 20px 0;
-  border-bottom: 1px solid var(--remote-line);
-  font-size: 14px;
-  color: var(--remote-muted);
 }
 .remotes-fleet > :last-child {
   margin-left: auto;
@@ -59,38 +26,11 @@
 .remote-dot.offline {
   background: var(--remote-muted);
 }
-.remotes-workspace {
-  display: grid;
-  grid-template-columns: 264px minmax(0, 1fr);
-  margin-top: 24px;
-  min-height: 560px;
-  border: 1px solid var(--remote-line);
-  border-radius: 8px;
-  background: var(--remote-sunken);
-}
-.remotes-machines {
-  padding: 16px 12px;
-  border-right: 1px solid var(--remote-line);
-  min-width: 0;
-}
 .remotes-machines input {
   font-size: 14px;
 }
 .remotes-machine-list {
   margin-top: 16px;
-}
-.remote-machine {
-  width: 100%;
-  display: block;
-  text-align: left;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  padding: 16px 12px;
-  margin-bottom: 8px;
-  cursor: pointer;
 }
 .remote-machine:hover {
   background: color-mix(in srgb, var(--remote-cyan) 5%, transparent);
@@ -116,41 +56,6 @@
   color: var(--remote-muted);
   flex-shrink: 0;
 }
-.remote-machine-meta {
-  display: block;
-  color: var(--remote-muted);
-  font-size: 13px;
-  margin: 8px 0 14px 30px;
-  overflow-wrap: anywhere;
-}
-.remote-machine-footer {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 8px;
-  margin-left: 30px;
-  color: var(--remote-muted);
-  font-size: 13px;
-}
-.remotes-machine-help {
-  padding: 20px 12px 0;
-  border-top: 1px solid var(--remote-line);
-  margin-top: 24px;
-  color: var(--remote-muted);
-  font-size: 13px;
-  line-height: 1.7;
-}
-.remote-detail {
-  min-width: 0;
-  padding: 28px;
-}
-.remote-detail-heading {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
-  flex-wrap: wrap;
-}
 .remote-detail-identity {
   display: flex;
   align-items: center;
@@ -160,38 +65,10 @@
 .remote-detail-identity > div {
   min-width: 0;
 }
-.remote-detail-heading h2 {
-  margin: 0 0 8px;
-  font-size: 21px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  overflow-wrap: anywhere;
-}
 .remote-detail-heading p {
   margin: 0;
   font-size: 13px;
   color: var(--remote-muted);
-}
-.remote-machine-icon {
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  flex-shrink: 0;
-  border: 1px solid var(--remote-line);
-  border-radius: 8px;
-  color: var(--remote-cyan);
-  background: var(--remote-surface);
-}
-.remote-statusbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 24px;
-  padding: 14px 0;
-  border-block: 1px solid var(--remote-line);
-  color: var(--remote-muted);
-  font-size: 13px;
 }
 .remote-statusbar strong {
   color: var(--remote-text);
@@ -208,50 +85,10 @@
   flex-wrap: wrap;
   margin: 28px 0 14px;
 }
-.remote-section-title h3 {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-}
 .remote-section-title span {
   font-size: 13px;
   color: var(--remote-muted);
   font-weight: 400;
-}
-.remote-section-title h3 span {
-  margin-left: 6px;
-}
-.remote-connection {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px 24px;
-  margin: 0;
-}
-.remote-connection dt {
-  margin-bottom: 4px;
-  color: var(--remote-muted);
-  font-size: 13px;
-}
-.remote-connection dd {
-  margin: 0;
-  font-size: 14px;
-  overflow-wrap: anywhere;
-}
-.remote-repos {
-  border: 1px solid var(--remote-line);
-  border-radius: 8px;
-  overflow: hidden;
-}
-.remote-repo {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 12px 20px;
-  padding: 20px;
-  border-bottom: 1px solid var(--remote-line);
-}
-.remote-repo:last-child {
-  border-bottom: 0;
 }
 .remote-repo-identity {
   min-width: 0;
@@ -272,60 +109,12 @@
   overflow-wrap: anywhere;
   font: 13px/1.65 var(--remote-mono);
 }
-.remote-repo-status {
-  color: var(--remote-muted);
-  text-align: right;
-  font-size: 13px;
-}
 .remote-repo-status.unavailable {
   color: var(--remote-amber);
-}
-.remote-agent-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  grid-column: 1;
-  grid-row: 2;
-}
-.remote-agent-tags > span {
-  display: inline-flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 8px;
-  border: 1px solid var(--remote-line);
-  border-radius: 4px;
-  padding: 5px 8px;
-  color: var(--remote-text);
-  font-size: 13px;
 }
 .remote-agent-tags small {
   color: var(--remote-muted);
   font-size: inherit;
-}
-.remote-agents {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-.remote-agent {
-  border: 1px solid var(--remote-line);
-  padding: 20px;
-  border-radius: 8px;
-  min-width: 0;
-  background: var(--remote-surface);
-}
-.remote-agent h4 {
-  margin: 0 0 8px;
-  color: var(--remote-text);
-  font-size: 15px;
-  font-weight: 600;
-}
-.remote-agent p {
-  margin: 0;
-  color: var(--remote-muted);
-  font-size: 14px;
-  line-height: 1.7;
-  overflow-wrap: anywhere;
 }
 .remote-agent p.remote-footnote {
   margin-top: 8px;
@@ -398,63 +187,427 @@
   font-weight: 500;
   color: var(--remote-text);
 }
-.remotes-footer {
+/* Approved Remotes structure; the shared shell owns primary navigation. */
+.remotes-page {
+  line-height: 1.55;
+  padding: 36px 40px 56px;
+  color: var(--remote-text);
+  width: 100%;
+  max-width: 1280px;
+  margin-inline: auto;
+}
+.remotes-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 28px;
+}
+.remotes-heading h1 {
+  margin: 0 0 8px;
+  font-size: 32px;
+  font-weight: 600;
+  letter-spacing: -0.8px;
+  line-height: 1.2;
+}
+.remotes-heading p {
+  margin: 0;
+  color: var(--remote-muted);
+  font-size: 16px;
+  line-height: 1.55;
+}
+.remotes-heading button {
+  white-space: nowrap;
+  min-height: 44px;
+}
+.remotes-fleet {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  padding: 0;
+  border-bottom: 1px solid var(--remote-line);
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--remote-muted);
+  margin-bottom: 22px;
+  border: 0;
+}
+.remotes-attention {
+  color: var(--remote-amber);
+}
+.remotes-workspace {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  margin-top: 0;
+  min-height: 560px;
+  border: 1px solid var(--remote-line);
+  border-radius: 8px;
+  background: var(--remote-surface);
+  overflow: hidden;
+}
+.remotes-machines {
+  padding: 16px;
+  border-right: 1px solid var(--remote-line);
+  min-width: 0;
+  background: var(--remote-sunken);
+}
+.remotes-machines .MuiInputBase-root {
+  min-height: 44px;
+  border-radius: 4px;
+}
+.remote-machine {
+  width: 100%;
+  display: block;
+  text-align: left;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  padding: 16px 15px;
+  margin-bottom: 8px;
+  cursor: pointer;
+}
+.remote-machine-meta {
+  display: block;
+  color: var(--remote-muted);
+  font-size: 13px;
+  margin: 6px 0 14px;
+  overflow-wrap: anywhere;
+}
+.remote-machine-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  margin-left: 0;
+  color: var(--remote-muted);
+  font-size: 12px;
+}
+.remotes-machine-help {
+  padding: 20px 0 0;
+  border-top: 0;
+  margin-top: 24px;
   color: var(--remote-muted);
   font-size: 13px;
   line-height: 1.7;
-  margin-top: 20px;
 }
-@media (max-width: 1200px) {
+.remote-detail {
+  min-width: 0;
+  padding: 28px;
+}
+.remote-detail-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: nowrap;
+}
+.remote-detail-heading h2 {
+  line-height: 1.3;
+  margin: 0 0 8px;
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+  overflow-wrap: anywhere;
+}
+.remote-detail-heading .MuiButton-root {
+  min-height: 44px;
+  flex-shrink: 0;
+}
+.remote-machine-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border: 1px solid var(--remote-line);
+  border-radius: 4px;
+  color: var(--remote-cyan);
+  background: var(--remote-surface);
+}
+.remote-statusbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 24px;
+  padding: 14px 0;
+  border-block: 1px solid var(--remote-line);
+  color: var(--remote-muted);
+  font-size: 13px;
+}
+.remote-section-title h3 {
+  line-height: 1.4;
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+.remote-section-title h3 span {
+  margin-left: 6px;
+  border: 1px solid var(--remote-line);
+  padding: 0 5px;
+  border-radius: 3px;
+}
+.remote-repos {
+  border: 0;
+  border-radius: 0;
+  overflow: hidden;
+}
+.remote-repo {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 250px);
+  align-items: start;
+  gap: 12px 20px;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--remote-line);
+}
+.remote-repo:last-child {
+  border-bottom: 1px solid var(--remote-line);
+}
+.remote-agent-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  grid-column: 2;
+  grid-row: 1;
+  justify-content: flex-end;
+  align-self: start;
+}
+.remote-agent-tags > span {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  border: 1px solid var(--remote-line);
+  border-radius: 4px;
+  padding: 3px 7px;
+  color: var(--remote-text);
+  font-size: 12px;
+}
+.remote-configured-label {
+  display: none;
+}
+.remote-repo-status {
+  color: var(--remote-muted);
+  text-align: right;
+  font-size: 12px;
+  grid-column: 2;
+  grid-row: 1;
+  align-self: end;
+  padding-top: 34px;
+}
+.remote-agents {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+.remote-agent {
+  border: 0;
+  padding: 0 0 18px;
+  border-radius: 0;
+  min-width: 0;
+  background: var(--remote-surface);
+  border-bottom: 1px solid var(--remote-line);
+}
+.remote-agent h4 {
+  margin: 0 0 8px;
+  color: var(--remote-text);
+  font-size: 14px;
+  font-weight: 600;
+}
+.remote-agent p {
+  margin: 0;
+  color: var(--remote-muted);
+  font-size: 13px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.remote-connection {
+  display: block;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 24px;
+  margin: 0;
+}
+.remote-connection > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 7px 0;
+}
+.remote-connection dt {
+  margin-bottom: 4px;
+  color: var(--remote-muted);
+  font-size: 13px;
+  margin: 0;
+}
+.remote-connection dd {
+  margin: 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+.remote-capability-note {
+  margin-top: 24px;
+}
+.remotes-footer {
+  color: var(--remote-muted);
+  font-size: 12px;
+  line-height: 1.7;
+  margin-top: 22px;
+}
+@media (max-width: 1150px) {
   .remotes-page {
-    padding: 32px 24px;
+    padding: 30px;
   }
   .remotes-workspace {
-    grid-template-columns: 232px minmax(0, 1fr);
+    grid-template-columns: 225px minmax(0, 1fr);
   }
   .remote-detail {
-    padding: 24px;
+    padding: 22px;
   }
-  .remote-agents {
-    grid-template-columns: minmax(0, 1fr);
+  .remote-repo {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .remote-agent-tags {
+    grid-column: 1;
+    grid-row: 2;
+    justify-content: flex-start;
+  }
+  .remote-repo-status {
+    grid-column: 1;
+    grid-row: 3;
+    padding-top: 0;
+    text-align: left;
   }
 }
 @media (max-width: 900px) {
-  .remotes-page {
-    padding: 24px 16px;
-  }
   .remotes-heading {
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
   }
   .remotes-heading h1 {
-    font-size: 26px;
+    font-size: 32px;
   }
   .remotes-workspace {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: 225px minmax(0, 1fr);
   }
   .remotes-machines {
+    border-right: 1px solid var(--remote-line);
+    border-bottom: 0;
+  }
+  .remotes-machine-help {
+    display: block;
+  }
+}
+@media (max-width: 780px) {
+  .remotes-page {
+    padding: 26px 22px;
+  }
+  .remotes-workspace {
+    grid-template-columns: 1fr;
+  }
+  .remotes-machines {
+    padding: 16px;
     border-right: 0;
     border-bottom: 1px solid var(--remote-line);
+    overflow-x: auto;
   }
+  .remotes-machines > .MuiTextField-root,
   .remotes-machine-help {
     display: none;
   }
-  .remote-detail {
-    padding: 20px 16px;
+  .remotes-machine-list {
+    display: flex;
+    gap: 8px;
+    margin: 0;
+    width: max-content;
   }
-  .remotes-fleet > :last-child,
+  .remote-machine {
+    width: 195px;
+    min-width: 185px;
+    margin: 0;
+    flex-shrink: 0;
+  }
+  .remote-machine-meta {
+    margin-bottom: 14px;
+  }
+  .remote-machine-name {
+    font-size: 14px;
+  }
+  .remote-detail {
+    padding: 22px;
+  }
+  .remote-agents {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .remote-statusbar > :last-child {
-    margin-left: 0;
+    margin-left: auto;
   }
 }
-@media (max-width: 500px) {
-  .remote-connection {
-    grid-template-columns: minmax(0, 1fr);
+@media (max-width: 480px) {
+  .remotes-page {
+    padding: 25px 18px 36px;
   }
-  .remote-repo {
-    grid-template-columns: minmax(0, 1fr);
-    padding: 16px;
+  .remotes-heading {
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 24px;
   }
-  .remote-repo-status {
-    text-align: left;
+  .remotes-heading h1 {
+    font-size: 28px;
+  }
+  .remotes-heading p {
+    font-size: 14px;
+  }
+  .remotes-heading .MuiButton-root {
+    min-height: 40px;
+    font-size: 12px;
+    padding: 9px 11px;
+  }
+  .remotes-heading .MuiButton-startIcon {
+    display: none;
+  }
+  .remotes-fleet {
+    gap: 12px;
+    font-size: 13px;
+  }
+  .remotes-fleet > :last-child {
+    margin-left: 0;
+  }
+  .remotes-machine-list .remote-machine {
+    width: 185px;
+  }
+  .remote-detail {
+    padding: 20px 18px;
+  }
+  .remote-machine-icon {
+    display: none;
+  }
+  .remote-detail-heading h2 {
+    font-size: 21px;
+  }
+  .remote-detail-heading .MuiButton-root {
+    min-height: 36px;
+    font-size: 12px;
+    padding: 7px 10px;
+  }
+  .remote-statusbar {
+    font-size: 12px;
+    flex-wrap: nowrap;
+    align-items: flex-start;
+  }
+  .remote-statusbar > :last-child {
+    text-align: right;
+    max-width: 140px;
+  }
+  .remote-section-title {
+    align-items: flex-start;
+  }
+  .remote-section-title > span {
+    font-size: 12px;
+  }
+  .remote-agents {
+    grid-template-columns: 1fr;
   }
 }
