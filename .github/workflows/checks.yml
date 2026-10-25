@@ -1,0 +1,131 @@
+name: Checks
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend-lint:
+    name: Backend Lint & Format
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      - uses: astral-sh/setup-uv@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: uv sync --frozen
+
+      - name: Ruff check
+        run: uv run ruff check . ../mihari
+
+      - name: Ruff format check
+        run: uv run ruff format --check . ../mihari
+
+  backend-tests:
+    name: Backend Unit Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      redis:
+        image: redis:7
+        # Service containers are pulled before steps run, so a login step can't
+        # help them — authenticate the pull here to dodge Docker Hub's anonymous
+        # rate limit (which intermittently failed this job).
+        credentials:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      - uses: astral-sh/setup-uv@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: uv sync --frozen
+
+      - name: Pytest
+        run: uv run pytest tests/ -v
+
+  frontend-lint:
+    name: Frontend Lint & Typecheck
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+
+      - name: ESLint
+        run: npx eslint .
+
+      - name: TypeScript typecheck
+        run: npx tsc --noEmit
+
+      - name: Frontend unit tests
+        env:
+          VITE_SUPABASE_URL: https://example.supabase.co
+          VITE_SUPABASE_ANON_KEY: ci-placeholder
+        run: npm run test:run
+
+      - name: Production build
+        run: npm run build
+
+  cli-tests:
+    name: CLI tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci && npm test
+        working-directory: cli
+
+  release-tests:
+    name: Release planner tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - run: python3 -m unittest discover -s scripts/release -p 'test_*.py' -v

@@ -4,10 +4,26 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from release import affected, bump, bump_packages, prepare, update_hive
+from release import affected, build_matrix, bump, bump_packages, prepare, update_hive
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_matrix_omits_public_namespace_that_can_match_a_login_secret(self):
+        plan = {
+            "images": [
+                {
+                    "package": "backend",
+                    "image": "felipemeriga1/kioku-backend",
+                    "tag": "0.1.1",
+                    "dockerfile": "backend/Dockerfile",
+                }
+            ]
+        }
+        matrix = build_matrix(plan)
+        self.assertNotIn("felipemeriga1", json.dumps(matrix))
+        self.assertEqual(matrix[0]["repository"], "kioku-backend")
+        self.assertEqual(matrix[0]["dockerfile"], "backend/Dockerfile")
+
     def test_dependency_impact(self):
         self.assertEqual(affected(["backend/services/search.py"]), ["backend", "mcp"])
         self.assertEqual(affected(["cli/package-lock.json"]), ["cli", "mihari"])

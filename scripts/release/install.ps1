@@ -10,7 +10,7 @@ if (-not $version) {
     if (-not $release) { throw 'No CLI release found; set KIOKU_VERSION explicitly.' }
     $version = $release.tag_name.Substring(5)
 }
-if ($version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$') { throw 'Invalid release version' }
+if ($version -notmatch '\A\d+\.\d+\.\d+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?\z') { throw 'Invalid release version' }
 $base = "https://github.com/$repo/releases/download/cli-v$version"
 $temp = Join-Path ([System.IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString())
 New-Item -ItemType Directory -Path $temp | Out-Null
