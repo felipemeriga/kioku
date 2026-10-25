@@ -14,6 +14,19 @@ const defaultProps = {
 };
 
 describe("ChatArea", () => {
+  it("keeps scope beside the composer without a redundant thread header", async () => {
+    const pick = vi.fn();
+    const user = userEvent.setup();
+    const { container } = renderWithProviders(
+      <ChatArea {...defaultProps} onPickScope={pick} />
+    );
+    expect(container.querySelector(".chat-thread-header")).toBeNull();
+    const scope = screen.getByRole("button", { name: "Scope" });
+    expect(scope.closest(".chat-composer")).not.toBeNull();
+    await user.click(scope);
+    expect(pick).toHaveBeenCalledOnce();
+  });
+
   it("renders empty state with suggestion chips when no messages", () => {
     renderWithProviders(<ChatArea {...defaultProps} />);
     expect(screen.getByText("Ask your second brain.")).toBeInTheDocument();

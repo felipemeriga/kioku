@@ -1,6 +1,16 @@
 import { Children, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { Box, Button, Typography, Tooltip, alpha } from "@mui/material";
+import {
+  Box,
+  Button,
+  Typography,
+  Tooltip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  alpha,
+} from "@mui/material";
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -22,13 +32,28 @@ interface MessageBubbleProps {
 
 const CITE_RE = /\[(\d+)\]/g;
 
-/** A short label for a source in the footer / tooltip. */
+/** Labels keep real source identity; missing metadata is never treated as a filename. */
 function citationLabel(c: Citation): string {
+  const source = c.source?.trim() ?? "";
   if (c.source_type === "code") {
-    const loc = c.line ? `${c.file ?? c.source}:${c.line}` : c.file ?? c.source;
-    return c.symbol ? `${loc} — ${c.symbol}` : loc;
+    const file = c.file?.trim() || source;
+    const loc = c.line ? `${file}:${c.line}` : file;
+    return (c.symbol ? `${loc} — ${c.symbol}` : loc) || "Retrieved code source";
   }
-  return c.source;
+  return source && !/^(unknown|\[unknown\])$/i.test(source)
+    ? source
+    : "Retrieved source";
+}
+
+/** Source previews are short prose, never raw fenced Markdown or a wall of code. */
+function citationPreview(value: string): string {
+  const text = value
+    .replace(/(^|\n)[ \t]*(?:`{3,}|~{3,})[\w+-]*[ \t]*(?:\r?\n|$)/g, "$1")
+    .replace(/`+|~{3,}/g, "")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text.length > 220 ? `${text.slice(0, 219).trimEnd()}…` : text;
 }
 
 /** Citation numbers that actually appear in the answer text, ignoring any that
@@ -40,7 +65,7 @@ function citedNumbers(content: string): Set<number> {
   return nums;
 }
 
-/** Inline [N] chip — hover shows the source + excerpt, click opens it. */
+/** Hover/focus is a bounded preview; activation follows the real source contract. */
 function CitationChip({
   c,
   onClick,
@@ -48,58 +73,148 @@ function CitationChip({
   c: Citation;
   onClick: (c: Citation) => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const activate = () => {
+    setOpen(false);
+    onClick(c);
+  };
   return (
     <Tooltip
       arrow
+      describeChild
+      placement="top"
+      disableInteractive
+      disableTouchListener
+      open={open}
+      onOpen={() => setOpen(true)}
+      onClose={() => setOpen(false)}
+      slotProps={{
+        tooltip: {
+          sx: {
+            maxWidth: "min(360px, calc(100vw - 32px))",
+            boxSizing: "border-box",
+            maxHeight: "min(240px, calc(100dvh - 32px))",
+            overflow: "hidden",
+            p: "12px 14px",
+            color: brand.text,
+            bgcolor: brand.raised,
+            border: `1px solid ${brand.lineGlow}`,
+            overflowWrap: "anywhere",
+            wordBreak: "break-word",
+            fontSize: 13,
+            lineHeight: 1.55,
+          },
+        },
+        popper: {
+          disablePortal: false,
+          modifiers: [
+            { name: "offset", options: { offset: [0, 8] } },
+            {
+              name: "flip",
+              options: {
+                rootBoundary: "viewport",
+                padding: 16,
+                fallbackPlacements: [
+                  "top-start",
+                  "top-end",
+                  "bottom-start",
+                  "bottom-end",
+                ],
+              },
+            },
+            {
+              name: "preventOverflow",
+              options: {
+                rootBoundary: "viewport",
+                padding: 16,
+                altAxis: true,
+                tether: false,
+              },
+            },
+          ],
+        },
+      }}
       title={
-        <Box sx={{ maxWidth: 320 }}>
+        <Box>
           <Typography
+            component="span"
             sx={{
-              fontFamily: fonts.mono,
-              fontSize: "0.7rem",
+              display: "-webkit-box",
+              WebkitBoxOrient: "vertical",
+              WebkitLineClamp: 2,
+              overflow: "hidden",
+              overflowWrap: "anywhere",
+              fontSize: 13,
+              fontWeight: 600,
+              lineHeight: 1.45,
               color: brand.cyan,
             }}
           >
             {citationLabel(c)}
           </Typography>
+          <Typography
+            component="span"
+            sx={{ display: "block", fontSize: 11, color: brand.muted, mt: 0.5 }}
+          >
+            {c.source_type === "code" ? "Code" : "Document"}
+          </Typography>
           {c.excerpt && (
             <Typography
+              component="span"
               sx={{
-                fontSize: "0.75rem",
-                mt: 0.5,
-                color: alpha("#ffffff", 0.8),
-                whiteSpace: "pre-wrap",
+                display: "block",
+                fontSize: 13,
+                lineHeight: 1.55,
+                color: brand.text,
+                mt: 1,
+                whiteSpace: "normal",
+                overflowWrap: "anywhere",
               }}
             >
-              {c.excerpt}
+              {citationPreview(c.excerpt)}
             </Typography>
           )}
         </Box>
       }
     >
       <Box
-        component="span"
-        role="button"
-        tabIndex={0}
+        component="button"
+        type="button"
         data-testid="citation-chip"
-        onClick={() => onClick(c)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") onClick(c);
+        aria-label={`Open source ${c.number}: ${citationLabel(c)}`}
+        onClick={activate}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            activate();
+          } else if (event.key === "Escape") setOpen(false);
         }}
         sx={{
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          minWidth: 20,
+          height: 20,
           cursor: "pointer",
-          mx: "1px",
+          mx: "2px",
           px: "4px",
           fontFamily: fonts.mono,
-          fontSize: "0.72em",
+          fontSize: 12,
           fontWeight: 600,
           lineHeight: 1,
-          verticalAlign: "super",
+          verticalAlign: "baseline",
+          position: "relative",
+          top: "-0.1em",
           color: brand.cyan,
-          borderRadius: "3px",
-          border: `1px solid ${brand.cyan}55`,
+          borderRadius: "4px",
+          border: `1px solid ${brand.cyan}77`,
           bgcolor: `${brand.cyan}12`,
+          touchAction: "manipulation",
           "&:hover": { bgcolor: `${brand.cyan}26` },
+          "&:focus-visible": {
+            outline: `2px solid ${brand.cyan}`,
+            outlineOffset: 3,
+          },
         }}
       >
         {c.number}
@@ -154,17 +269,22 @@ export default function MessageBubble({
   const toast = useToast();
   const isUser = role === "user";
   const [inspectOpen, setInspectOpen] = useState(false);
+  const [excerptSource, setExcerptSource] = useState<Citation | null>(null);
 
   const handleCitationClick = useMemo(
     () => (c: Citation) => {
       if (c.source_type === "document") {
-        if (onOpenDocument) onOpenDocument(c.source, c.folder_id);
+        const filename = c.source?.trim() ?? "";
+        if (!filename || /^(unknown|\[unknown\])$/i.test(filename)) {
+          setExcerptSource(c);
+        } else if (onOpenDocument) onOpenDocument(filename, c.folder_id);
         else if (c.url) window.open(c.url, "_blank", "noopener,noreferrer");
+        else setExcerptSource(c);
       } else if (c.url) {
-        // Code source → open the GitHub blob deep link.
         window.open(c.url, "_blank", "noopener,noreferrer");
+      } else {
+        setExcerptSource(c);
       }
-      // Code with no URL: the hover popover already surfaces the excerpt.
     },
     [onOpenDocument]
   );
@@ -213,6 +333,8 @@ export default function MessageBubble({
     <Box
       className="message-bubble"
       sx={{
+        minWidth: 0,
+        maxWidth: "100%",
         display: "flex",
         justifyContent: isUser ? "flex-end" : "flex-start",
         alignItems: "flex-start",
@@ -286,6 +408,9 @@ export default function MessageBubble({
               px: { xs: 2, sm: 3 },
               py: 2.5,
               width: "100%",
+              minWidth: 0,
+              maxWidth: "100%",
+              boxSizing: "border-box",
               border: `1px solid ${brand.cyan}99`,
               bgcolor: brand.surface,
               borderRadius: 2,
@@ -299,8 +424,18 @@ export default function MessageBubble({
                 "& p": { m: 0, mb: 1, "&:last-child": { mb: 0 } },
                 "& ul, & ol": { my: 0.5, pl: 2.5 },
                 "& li": { mb: 0.25 },
+                minWidth: 0,
+                width: "100%",
+                maxWidth: "100%",
                 "& pre": {
-                  overflow: "auto",
+                  display: "block",
+                  minWidth: 0,
+                  maxWidth: "100%",
+                  boxSizing: "border-box",
+                  overflowX: "auto",
+                  whiteSpace: "pre",
+                  overflowWrap: "normal",
+                  wordBreak: "normal",
                   bgcolor: alpha("#000000", 0.3),
                   p: 1.5,
                   borderRadius: 2,
@@ -310,6 +445,17 @@ export default function MessageBubble({
                   fontSize: "0.85rem",
                   fontFamily: fonts.mono,
                 },
+                "& pre code": {
+                  whiteSpace: "pre",
+                  overflowWrap: "normal",
+                  wordBreak: "normal",
+                  fontSize: 13,
+                },
+                "& :not(pre) > code": {
+                  overflowWrap: "anywhere",
+                  wordBreak: "break-word",
+                  whiteSpace: "break-spaces",
+                },
                 "& a": {
                   color: brand.cyan,
                   textDecoration: "none",
@@ -318,6 +464,8 @@ export default function MessageBubble({
                 // GFM tables (enabled via remark-gfm): compact, scrollable
                 // container so a wide table doesn't blow out the bubble.
                 "& .md-table-wrap": {
+                  minWidth: 0,
+                  maxWidth: "100%",
                   overflowX: "auto",
                   my: 1,
                   border: `1px solid ${alpha("#ffffff", 0.1)}`,
@@ -366,64 +514,98 @@ export default function MessageBubble({
         )}
         {!isUser && footerSources.length > 0 && (
           <Box
+            component="section"
+            aria-label="Sources"
             className="source-cards"
             data-testid="citation-sources"
             sx={{
-              mt: 1,
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 1,
+              mt: "14px",
               width: "100%",
-              pt: 1,
-              borderTop: `1px solid ${brand.cyan}22`,
+              minWidth: 0,
+              maxWidth: "100%",
             }}
           >
-            <Typography
-              sx={{
-                fontFamily: fonts.mono,
-                fontSize: "0.6rem",
-                letterSpacing: "0.2em",
-                color: brand.muted,
-                mb: 0.5,
-              }}
-            >
-              SOURCES
-            </Typography>
             {footerSources.map((c) => (
               <Box
                 key={c.number}
-                role="button"
-                tabIndex={0}
+                component="button"
+                type="button"
                 className="source-card"
                 data-testid="citation-source"
+                aria-label={`Open source ${c.number}: ${citationLabel(c)}`}
                 onClick={() => handleCitationClick(c)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ")
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
                     handleCitationClick(c);
+                  }
                 }}
                 sx={{
-                  display: "flex",
-                  gap: 0.75,
-                  alignItems: "baseline",
+                  display: "block",
+                  flex: "0 1 320px",
+                  width: 320,
+                  minWidth: 0,
+                  maxWidth: "100%",
                   cursor: "pointer",
-                  py: 0.25,
-                  fontFamily: fonts.mono,
-                  fontSize: "0.75rem",
-                  color: alpha("#ffffff", 0.75),
-                  "&:hover": { color: brand.cyan },
+                  textAlign: "left",
+                  p: "10px 13px",
+                  color: brand.text,
+                  bgcolor: brand.surface,
+                  border: `1px solid ${brand.line}`,
+                  borderRadius: "5px",
+                  fontFamily: fonts.body,
+                  touchAction: "manipulation",
+                  "&:hover": { borderColor: brand.cyan },
+                  "&:focus-visible": {
+                    outline: `2px solid ${brand.cyan}`,
+                    outlineOffset: 3,
+                  },
                 }}
               >
-                <Box component="span" sx={{ color: brand.cyan }}>
-                  [{c.number}]
-                </Box>
                 <Box
                   component="span"
-                  sx={{ overflowWrap: "anywhere", minWidth: 0 }}
+                  sx={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: 1,
+                    minWidth: 0,
+                  }}
                 >
-                  <Typography
+                  <Box
                     component="span"
                     sx={{
-                      display: "block",
-                      fontSize: 12,
+                      flexShrink: 0,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      minWidth: 18,
+                      height: 18,
+                      borderRadius: "3px",
+                      color: brand.cyan,
+                      bgcolor: `${brand.cyan}10`,
+                      fontSize: 11,
+                      fontFamily: fonts.mono,
+                    }}
+                  >
+                    {c.number}
+                  </Box>
+                  <Typography
+                    component="span"
+                    className="source-card-title"
+                    sx={{
+                      minWidth: 0,
+                      flex: 1,
+                      display: "-webkit-box",
+                      WebkitBoxOrient: "vertical",
+                      WebkitLineClamp: 2,
+                      overflow: "hidden",
+                      overflowWrap: "anywhere",
+                      fontSize: 13,
+                      lineHeight: 1.45,
                       fontWeight: 500,
-                      color: brand.text,
                     }}
                   >
                     {citationLabel(c)}
@@ -431,20 +613,35 @@ export default function MessageBubble({
                   <Typography
                     component="span"
                     sx={{
-                      display: "block",
-                      fontSize: 12,
+                      flexShrink: 0,
                       color: brand.muted,
-                      mt: 0.5,
+                      fontSize: 11,
+                      lineHeight: 1.45,
                     }}
                   >
                     {c.source_type === "code" ? "Code" : "Document"}
-                    {c.excerpt
-                      ? ` · ${c.excerpt.slice(0, 90)}${
-                          c.excerpt.length > 90 ? "…" : ""
-                        }`
-                      : ""}
                   </Typography>
                 </Box>
+                {c.excerpt && (
+                  <Typography
+                    component="span"
+                    className="source-card-excerpt"
+                    sx={{
+                      display: "-webkit-box",
+                      WebkitBoxOrient: "vertical",
+                      WebkitLineClamp: 2,
+                      overflow: "hidden",
+                      overflowWrap: "anywhere",
+                      whiteSpace: "normal",
+                      color: brand.muted,
+                      fontSize: 12,
+                      lineHeight: 1.55,
+                      mt: "6px",
+                    }}
+                  >
+                    {citationPreview(c.excerpt)}
+                  </Typography>
+                )}
               </Box>
             ))}
           </Box>
@@ -490,6 +687,61 @@ export default function MessageBubble({
           </Box>
         )}
       </Box>
+      <Dialog
+        open={!!excerptSource}
+        onClose={() => setExcerptSource(null)}
+        maxWidth="sm"
+        fullWidth
+        aria-labelledby="source-excerpt-title"
+        slotProps={{
+          paper: {
+            sx: {
+              m: 2,
+              width: "calc(100% - 32px)",
+              maxWidth: 520,
+              maxHeight: "calc(100dvh - 48px)",
+            },
+          },
+        }}
+      >
+        <DialogTitle
+          id="source-excerpt-title"
+          sx={{
+            fontSize: 18,
+            lineHeight: 1.45,
+            overflowWrap: "anywhere",
+            display: "-webkit-box",
+            WebkitBoxOrient: "vertical",
+            WebkitLineClamp: 2,
+            overflow: "hidden",
+          }}
+        >
+          {excerptSource ? citationLabel(excerptSource) : "Source"}
+        </DialogTitle>
+        <DialogContent>
+          <Typography sx={{ fontSize: 12, color: brand.cyan, mb: 1 }}>
+            Retrieved{" "}
+            {excerptSource?.source_type === "code" ? "code" : "document"}{" "}
+            excerpt
+          </Typography>
+          <Typography
+            data-testid="source-excerpt-text"
+            sx={{
+              fontSize: 14,
+              lineHeight: 1.65,
+              overflowWrap: "anywhere",
+              whiteSpace: "normal",
+            }}
+          >
+            {excerptSource?.excerpt
+              ? citationPreview(excerptSource.excerpt)
+              : "No excerpt was returned for this source."}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setExcerptSource(null)}>Close</Button>
+        </DialogActions>
+      </Dialog>
       {!isUser && debug && (
         <InspectDialog
           open={inspectOpen}

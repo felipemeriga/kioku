@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { qk } from "../lib/queryKeys";
 import {
+  Alert,
   Box,
   Stack,
   Typography,
@@ -15,6 +16,7 @@ import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import RefreshIcon from "@mui/icons-material/Refresh";
+import { messageFromError } from "./ToastProvider";
 import { brand, fonts } from "../theme";
 import { getFolderStatus, refreshFolder } from "../lib/api";
 import { refreshState } from "../lib/refreshState";
@@ -42,6 +44,7 @@ function indexGlyph(at: string | null): { glyph: string; color: string } {
 
 export default function StatusPanel({ folderId }: { folderId: string }) {
   const [note, setNote] = useState<string>("");
+  const [requestError, setRequestError] = useState(false);
   const [now, setNow] = useState(Date.now);
   // Optimistic flag for the brief moment between the click and the refetch that
   // pulls the server's refresh-started timestamp.
@@ -93,12 +96,19 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
     (status?.sections_refresh_started_at ?? "")
       ? indexState
       : sectionsState;
+  const latestError =
+    (status?.index_refresh_started_at ?? "") >
+    (status?.sections_refresh_started_at ?? "")
+      ? status?.index_refresh_error
+      : status?.sections_refresh_error;
   const message =
     note ||
     (anyRunning
-      ? note
+      ? "Refresh requested. Waiting for Mihari to finish."
       : latestState === "failed"
-      ? "Refresh failed. Check mihari logs and retry."
+      ? `Refresh failed. ${
+          latestError || "Mihari did not report diagnostic details."
+        } Retry when the issue is resolved.`
       : latestState === "timed-out"
       ? "Refresh timed out or was interrupted. Please retry."
       : latestState === "completed"
@@ -108,6 +118,7 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
   const start = async (target: "index" | "sections") => {
     if (anyRunning) return;
     setNote("");
+    setRequestError(false);
     setNow(Date.now());
     setClicking(target);
     try {
@@ -116,11 +127,38 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
       await refetch(); // pull the server's started_at so the state persists
       setNote("");
     } catch (e) {
-      const is409 = (e as { status?: number })?.status === 409;
-      setNote(is409 ? "A refresh is already running." : "Mihari unavailable.");
+      const code = (e as { status?: number })?.status;
+      if (code === 409) {
+        await refetch();
+        setNote("");
+      } else {
+        setRequestError(true);
+        setNote(
+          code === 503
+            ? `Mihari unavailable. ${messageFromError(e, "Try again shortly.")}`
+            : messageFromError(e, "Couldn’t start the refresh. Please retry.")
+        );
+      }
     } finally {
       setClicking(null); // server-derived running() takes over from here
     }
+  };
+
+  const attribution = (value: string | null | undefined): string | null => {
+    if (!value) return null;
+    if (
+      [
+        "watcher",
+        "kioku-watcher",
+        "cloud-watcher",
+        "cloud_watcher",
+        "mihari",
+      ].includes(value.trim().toLowerCase())
+    )
+      return "by Mihari";
+    if (value === "agent_mcp") return "Updated by an agent";
+    if (/^[0-9a-f-]{36}$/i.test(value)) return "Updated in Kioku";
+    return `by ${value}`;
   };
 
   const cards = [
@@ -152,26 +190,14 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
       icon: InfoOutlinedIcon,
       label: "Architecture",
       at: status?.architecture_at ?? null,
-      sub: status?.architecture_by
-        ? status.architecture_by === "agent_mcp"
-          ? "Updated by an agent"
-          : /^[0-9a-f-]{36}$/i.test(status.architecture_by)
-          ? "Updated in Kioku"
-          : `by ${status.architecture_by}`
-        : null,
+      sub: attribution(status?.architecture_by),
       color: brand.cyan,
     },
     {
       icon: InfoOutlinedIcon,
       label: "Overview",
       at: status?.overview_at ?? null,
-      sub: status?.overview_by
-        ? status.overview_by === "agent_mcp"
-          ? "Updated by an agent"
-          : /^[0-9a-f-]{36}$/i.test(status.overview_by)
-          ? "Updated in Kioku"
-          : `by ${status.overview_by}`
-        : null,
+      sub: attribution(status?.overview_by),
       color: brand.magenta,
     },
     {
@@ -249,16 +275,86 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
           className="status-header"
           sx={{ px: 3, py: 2.5, borderBottom: `1px solid ${brand.line}` }}
         >
-          <Typography component="h2" sx={{ fontWeight: 600, fontSize: 18 }}>
-            {anyRunning
-              ? "Refreshing repository context"
-              : latestState === "failed" || latestState === "timed-out"
-              ? "Refresh needs attention"
-              : "Repository context"}
-          </Typography>
-          <Typography sx={{ mt: 0.5, color: brand.muted, fontSize: 14 }}>
-            Index and briefing timestamps reported by Mihari.
-          </Typography>
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 2,
+              flexWrap: "wrap",
+            }}
+          >
+            <Box sx={{ minWidth: 0, flex: "1 1 240px" }}>
+              <Typography component="h2" sx={{ fontWeight: 600, fontSize: 18 }}>
+                {anyRunning
+                  ? "Refreshing repository context"
+                  : requestError ||
+                    latestState === "failed" ||
+                    latestState === "timed-out"
+                  ? "Refresh needs attention"
+                  : "Repository context"}
+              </Typography>
+              <Typography sx={{ mt: 0.5, color: brand.muted, fontSize: 14 }}>
+                Index and briefing timestamps reported by Mihari.
+              </Typography>
+            </Box>
+            <Stack
+              direction="row"
+              spacing={1.5}
+              sx={{ flexWrap: "wrap", rowGap: 1 }}
+              data-testid="status-actions"
+            >
+              <Button
+                variant="contained"
+                disabled={isPending || anyRunning}
+                onClick={() => start("index")}
+                startIcon={
+                  indexRunning ? (
+                    <CircularProgress size={14} color="inherit" />
+                  ) : (
+                    <RefreshIcon />
+                  )
+                }
+              >
+                {indexRunning ? "Refreshing…" : "Refresh code index"}
+              </Button>
+              <Button
+                variant="outlined"
+                disabled={isPending || anyRunning}
+                onClick={() => start("sections")}
+                startIcon={
+                  sectionsRunning ? (
+                    <CircularProgress size={14} color="inherit" />
+                  ) : (
+                    <RefreshIcon />
+                  )
+                }
+              >
+                {sectionsRunning ? "Refreshing…" : "Refresh detail sections"}
+              </Button>
+            </Stack>
+          </Box>
+          {message && (
+            <Alert
+              role={
+                requestError ||
+                latestState === "failed" ||
+                latestState === "timed-out"
+                  ? "alert"
+                  : "status"
+              }
+              severity={
+                requestError || latestState === "failed"
+                  ? "error"
+                  : latestState === "timed-out"
+                  ? "warning"
+                  : "info"
+              }
+              sx={{ mt: 2, fontSize: 13, overflowWrap: "anywhere" }}
+            >
+              {message}
+            </Alert>
+          )}
         </Box>
         <Box className="status-list">
           {cards.map((c) => {
@@ -325,79 +421,6 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
           })}
         </Box>
       </Box>
-
-      <Stack
-        direction="row"
-        spacing={1.5}
-        alignItems="center"
-        sx={{ flexWrap: "wrap" }}
-      >
-        <Button
-          variant="contained"
-          size="small"
-          startIcon={
-            indexRunning ? (
-              <CircularProgress size={14} color="inherit" />
-            ) : (
-              <RefreshIcon />
-            )
-          }
-          disabled={anyRunning}
-          onClick={() => start("index")}
-          sx={{
-            fontFamily: fonts.body,
-            fontSize: 13,
-            letterSpacing: "0.08em",
-            borderColor: brand.lineGlow,
-            color: brand.cyan,
-            "&:hover": {
-              borderColor: brand.lineGlow,
-              backgroundColor: `${brand.cyan}12`,
-              boxShadow: "none",
-            },
-            "&.Mui-disabled": {
-              borderColor: brand.line,
-              color: brand.muted,
-            },
-          }}
-        >
-          {indexRunning ? "Refreshing…" : "Refresh code index"}
-        </Button>
-        <Button
-          variant="outlined"
-          size="small"
-          startIcon={
-            sectionsRunning ? <CircularProgress size={14} /> : <RefreshIcon />
-          }
-          disabled={anyRunning}
-          onClick={() => start("sections")}
-          sx={{
-            fontFamily: fonts.body,
-            fontSize: 13,
-            letterSpacing: "0.08em",
-            borderColor: brand.magenta,
-            color: brand.magenta,
-            "&:hover": {
-              borderColor: brand.magenta,
-              backgroundColor: `${brand.magenta}12`,
-              boxShadow: `0 0 12px ${brand.magenta}44`,
-            },
-            "&.Mui-disabled": {
-              borderColor: brand.line,
-              color: brand.muted,
-            },
-          }}
-        >
-          {sectionsRunning ? "Refreshing…" : "Refresh detail sections"}
-        </Button>
-        {message && (
-          <Typography
-            sx={{ fontFamily: fonts.body, fontSize: 13, color: brand.muted }}
-          >
-            {message}
-          </Typography>
-        )}
-      </Stack>
     </Box>
   );
 }

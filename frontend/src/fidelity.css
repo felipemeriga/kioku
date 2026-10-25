@@ -562,3 +562,17 @@
 #root .file-table-header {
   line-height: 1.55;
 }
+
+/* Chat intentionally has no breadcrumb/thread bars; actions stay by the composer. */
+#root .repository-status .status-row {
+  min-height: 80px;
+  padding: 14px 0;
+}
+#root .source-cards .source-card {
+  width: min(320px, 100%);
+  max-width: 100%;
+  min-width: 0;
+  flex: 0 1 320px;
+  display: block;
+  align-self: stretch;
+}

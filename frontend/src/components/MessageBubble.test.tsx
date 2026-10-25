@@ -128,3 +128,121 @@ describe("MessageBubble citations", () => {
     expect(screen.queryByTestId("citation-sources")).toBeNull();
   });
 });
+
+describe("bounded source previews", () => {
+  it("activates inline markers with Enter and Space without scrolling the page", () => {
+    const open = vi.fn();
+    renderWithProviders(
+      <MessageBubble
+        role="assistant"
+        content="See [1]."
+        citations={[docCite]}
+        onOpenDocument={open}
+      />
+    );
+    const marker = screen.getByTestId("citation-chip");
+    expect(marker.tagName).toBe("BUTTON");
+    for (const key of ["Enter", " "]) {
+      const event = new KeyboardEvent("keydown", {
+        key,
+        bubbles: true,
+        cancelable: true,
+      });
+      fireEvent(marker, event);
+      expect(event.defaultPrevented).toBe(true);
+    }
+    expect(open).toHaveBeenCalledTimes(2);
+    expect(open).toHaveBeenLastCalledWith("notes.pdf", "f1");
+  });
+
+  it("shows short plain-text snippets instead of raw fences and repeated whitespace", async () => {
+    const excerpt = `\`\`\`typescript\nconst sample = \`safe\`;\n${"value   ".repeat(
+      100
+    )}\n\`\`\``;
+    const { container } = renderWithProviders(
+      <MessageBubble
+        role="assistant"
+        content="See [1]."
+        citations={[{ ...docCite, excerpt }]}
+      />
+    );
+    const snippet = container.querySelector(".source-card-excerpt")!;
+    expect(snippet.textContent).toContain("const sample = safe;");
+    expect(snippet.textContent).not.toMatch(/`|\n| {2}/);
+    expect(snippet.textContent!.length).toBeLessThanOrEqual(220);
+    expect(snippet.textContent).toMatch(/…$/);
+    const marker = screen.getByTestId("citation-chip");
+    vi.spyOn(marker, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(100, 200, 20, 20)
+    );
+    fireEvent.mouseOver(marker);
+    const tooltip = await screen.findByRole("tooltip");
+    expect(container.contains(tooltip)).toBe(false);
+    expect(tooltip).toHaveTextContent("const sample = safe;");
+    expect(tooltip.textContent).not.toContain("```");
+    const surface = tooltip.querySelector(".MuiTooltip-tooltip") ?? tooltip;
+    expect(getComputedStyle(surface).maxWidth).toContain("100vw - 32px");
+  });
+
+  it("uses the excerpt fallback for unknown document names without requesting a fake file", async () => {
+    const open = vi.fn();
+    renderWithProviders(
+      <MessageBubble
+        role="assistant"
+        content="See [1]."
+        citations={[
+          {
+            ...docCite,
+            source: "unknown",
+            excerpt: "A verified retrieved excerpt.",
+          },
+        ]}
+        onOpenDocument={open}
+      />
+    );
+    fireEvent.click(screen.getByTestId("citation-chip"));
+    expect(open).not.toHaveBeenCalled();
+    expect(await screen.findByRole("dialog")).toHaveTextContent(
+      "Retrieved source"
+    );
+    expect(screen.getByTestId("source-excerpt-text")).toHaveTextContent(
+      "A verified retrieved excerpt."
+    );
+  });
+
+  it("opens an excerpt on touch or click when a code source has no deep link", async () => {
+    renderWithProviders(
+      <MessageBubble
+        role="assistant"
+        content="See [2]."
+        citations={[{ ...codeCite, url: null }]}
+      />
+    );
+    fireEvent.click(screen.getByTestId("citation-source"));
+    expect(await screen.findByRole("dialog")).toHaveTextContent(
+      "Retrieved code excerpt"
+    );
+    expect(screen.getByTestId("source-excerpt-text")).toHaveTextContent(
+      "def foo(): ..."
+    );
+  });
+
+  it("keeps wide code scrolling inside its own bounded surface", () => {
+    const longUrl = `https://example.test/${"path".repeat(200)}`;
+    const { container } = renderWithProviders(
+      <MessageBubble
+        role="assistant"
+        content={`${longUrl}\n\n\`inline-${"value".repeat(
+          80
+        )}\`\n\n\`\`\`text\n${longUrl}\n\`\`\``}
+      />
+    );
+    const pre = container.querySelector("pre")!;
+    expect(getComputedStyle(pre).maxWidth).toBe("100%");
+    expect(getComputedStyle(pre).overflowX).toBe("auto");
+    expect(getComputedStyle(pre).whiteSpace).toBe("pre");
+    expect(
+      getComputedStyle(screen.getByTestId("assistant-message-surface")).minWidth
+    ).toBe("0px");
+  });
+});
