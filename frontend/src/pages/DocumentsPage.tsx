@@ -120,6 +120,7 @@ export default function DocumentsPage() {
     [currentFolderId, setSearchParams]
   );
   const [newFolderOpen, setNewFolderOpen] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
 
   // Multi-select
@@ -295,6 +296,7 @@ export default function DocumentsPage() {
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
+    if (files.length) setUploadOpen(false);
     for (const file of Array.from(files)) {
       void uploadOne(file);
     }
@@ -599,7 +601,7 @@ export default function DocumentsPage() {
               variant="contained"
               size="small"
               startIcon={<UploadFileIcon />}
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => setUploadOpen(true)}
             >
               Upload
             </Button>
@@ -1415,6 +1417,92 @@ export default function DocumentsPage() {
       />
 
       {/* New Folder Dialog */}
+      <Dialog
+        open={uploadOpen}
+        onClose={() => setUploadOpen(false)}
+        maxWidth={false}
+        fullWidth
+        PaperProps={{ sx: { maxWidth: 750, borderRadius: "8px" } }}
+      >
+        <DialogTitle sx={{ p: "24px 26px", fontSize: 21 }}>
+          Upload documents
+        </DialogTitle>
+        <DialogContent sx={{ px: "26px", pb: 3 }}>
+          <Box
+            onDragEnter={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onDragOver={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setGlobalDropActive(false);
+              const files = Array.from(event.dataTransfer.files);
+              if (files.length) setUploadOpen(false);
+              for (const file of files) void uploadOne(file);
+            }}
+            sx={{
+              border: `1px dashed ${brand.lineGlow}`,
+              borderRadius: "5px",
+              p: "32px 20px",
+              textAlign: "center",
+              bgcolor: brand.ink,
+            }}
+          >
+            <UploadFileIcon
+              sx={{ color: brand.muted, fontSize: 22, mb: 1.5 }}
+            />
+            <Typography sx={{ fontSize: 17, fontWeight: 600, mb: 1 }}>
+              Drop files here
+            </Typography>
+            <Typography sx={{ fontSize: 14, color: brand.muted, mb: 2 }}>
+              PDF, Markdown, Word, text, images, and audio.
+            </Typography>
+            <Button
+              variant="outlined"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              Choose files
+            </Button>
+          </Box>
+          <Typography
+            component="label"
+            htmlFor="upload-destination"
+            sx={{ display: "block", fontSize: 14, mt: 3, mb: 1 }}
+          >
+            Destination folder
+          </Typography>
+          <TextField
+            id="upload-destination"
+            size="small"
+            fullWidth
+            value={
+              breadcrumbs.length
+                ? breadcrumbs.map((item) => item.name).join(" / ")
+                : "All documents"
+            }
+            slotProps={{
+              input: { readOnly: true },
+              htmlInput: { "aria-label": "Destination folder" },
+            }}
+            sx={{ "& .MuiOutlinedInput-root": { height: 44 } }}
+          />
+          <Typography sx={{ fontSize: 13, color: brand.muted, mt: 1.5 }}>
+            Files are added to this folder. Processing progress appears in the
+            upload status panel.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: "26px", pb: 3, justifyContent: "flex-start" }}>
+          <Button variant="contained" onClick={() => setUploadOpen(false)}>
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <Dialog
         open={newFolderOpen}
         onClose={() => setNewFolderOpen(false)}
