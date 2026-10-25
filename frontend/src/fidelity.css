@@ -1,0 +1,564 @@
+/* Geometry from the approved screen prototype; colors remain Kioku's neon theme. */
+#root .documents-page {
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+#root .documents-header {
+  padding: 36px 40px 28px;
+}
+#root .documents-path {
+  gap: 10px;
+  margin-bottom: 20px;
+  min-height: 18px;
+}
+#root .documents-path button {
+  min-height: 0;
+  padding: 0;
+  font-size: 13px;
+  font-weight: 400;
+}
+#root .documents-heading {
+  flex-direction: row;
+  align-items: center;
+  gap: 20px;
+}
+#root .documents-heading h1 {
+  font-size: 32px;
+}
+#root .documents-content {
+  padding: 0 40px 56px;
+}
+#root .upload-strip {
+  min-height: 72px;
+  padding: 15px 18px;
+  margin-bottom: 20px;
+  border-radius: 5px;
+}
+#root .folder-tabs {
+  margin: 0 0 26px;
+  min-height: 44px;
+}
+#root .folder-tabs .MuiTabs-flexContainer {
+  gap: 28px;
+}
+#root .folder-tabs .MuiTab-root {
+  padding: 10px 0 13px;
+  min-width: 0;
+  min-height: 44px;
+  font-size: 15px;
+  margin: 0;
+}
+#root .documents-toolbar {
+  margin-bottom: 18px;
+  flex-wrap: nowrap;
+  justify-content: space-between;
+  gap: 10px;
+}
+#root .documents-toolbar .documents-search {
+  max-width: 360px;
+  min-width: 0;
+  flex: 1;
+}
+#root .documents-toolbar .MuiToggleButtonGroup-root {
+  flex-shrink: 0;
+}
+#root .documents-toolbar .MuiToggleButton-root {
+  width: 42px;
+  height: 44px;
+}
+#root .folder-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 28px;
+}
+#root .folder-card {
+  height: auto;
+  min-height: 86px;
+  padding: 18px;
+  border-radius: 6px;
+}
+#root .folder-card .folder-title {
+  font-size: 15px;
+  font-weight: 500;
+}
+#root .file-table {
+  border-radius: 8px;
+}
+#root .file-table-header,
+#root .file-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 22% 25% 28px;
+}
+#root .file-table-header {
+  padding: 12px 20px;
+  font-size: 12px;
+}
+#root .file-row {
+  padding: 17px 20px;
+  min-height: 0;
+}
+#root .file-row .file-name {
+  font-size: 14px;
+}
+#root .file-row .file-source,
+#root .file-row .file-updated {
+  font-size: 13px;
+}
+#root .file-row .file-type {
+  width: 30px;
+  height: 34px;
+  font-size: 9px;
+}
+#root .files-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 0 0 14px;
+  font-size: 16px;
+  font-family: inherit;
+}
+#root .files-heading .MuiChip-root {
+  height: 18px;
+  border: 1px solid currentColor;
+  background: none;
+  font-size: 11px;
+  border-radius: 3px;
+}
+#root .briefing-layout {
+  gap: 30px;
+}
+#root .briefing-panel {
+  border-radius: 8px;
+}
+#root .briefing-panel-header {
+  padding: 20px 24px;
+}
+#root .briefing-panel-header h1 {
+  font-size: 21px;
+}
+#root .briefing-panel-header p {
+  font-size: 13px;
+}
+#root .briefing-section {
+  padding: 23px 26px;
+  gap: 15px;
+}
+#root .briefing-section h2 {
+  font-size: 21px;
+}
+#root .briefing-section .section-title-rule {
+  display: none;
+}
+#root .briefing-section p,
+#root .briefing-section li {
+  font-size: 16px;
+  line-height: 1.75;
+}
+#root .briefing-section .briefing-meta {
+  font-size: 13px;
+  font-family: inherit;
+}
+#root .briefing-panel .collapsed-section {
+  padding: 18px 24px;
+  gap: 10px;
+}
+#root .briefing-panel .collapsed-section .section-number,
+#root .briefing-panel .collapsed-section .section-description,
+#root .briefing-panel .collapsed-section .section-edit {
+  display: none;
+}
+#root .briefing-panel .collapsed-section .section-chevron {
+  order: -1;
+  margin: 0;
+}
+#root .briefing-panel .collapsed-section .section-title {
+  width: auto;
+  flex: 1;
+  font-size: 16px;
+  font-weight: 500;
+}
+#root .section-rail {
+  width: 180px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 0;
+}
+#root .section-rail button {
+  padding: 7px 10px;
+  border-radius: 0;
+  border-left: 2px solid transparent;
+  background: transparent;
+}
+#root .section-rail button[data-active="true"] {
+  border-left-color: #ff1493;
+}
+#root .section-rail .section-rail-number,
+#root .section-rail .section-rail-glyph,
+#root .section-rail .section-rail-legend,
+#root .section-rail .section-rail-label {
+  display: none;
+}
+@media (max-width: 1180px) {
+  #root .briefing-layout {
+    gap: 20px;
+  }
+  #root .section-rail {
+    width: 150px;
+  }
+}
+@media (max-width: 900px) {
+  #root .folder-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  #root .section-rail {
+    display: none;
+  }
+}
+@media (max-width: 780px) {
+  #root .documents-header {
+    padding: 26px 22px 28px;
+  }
+  #root .documents-content {
+    padding: 0 22px 36px;
+  }
+}
+@media (max-width: 480px) {
+  #root .documents-header {
+    padding: 25px 18px 28px;
+  }
+  #root .documents-content {
+    padding: 0 18px 36px;
+  }
+  #root .documents-heading {
+    align-items: flex-start;
+    gap: 12px;
+  }
+  #root .documents-heading h1 {
+    font-size: 28px;
+  }
+  #root .documents-heading p {
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  #root .documents-actions {
+    flex-shrink: 0;
+  }
+  #root .documents-actions .new-folder-action {
+    display: none;
+  }
+  #root .documents-actions .MuiButton-root {
+    font-size: 13px;
+    padding: 8px 10px;
+  }
+  #root .upload-strip {
+    min-height: 66px;
+    padding: 12px;
+  }
+  #root .upload-strip p {
+    font-size: 13px;
+  }
+  #root .folder-tabs .MuiTabs-flexContainer {
+    gap: 22px;
+  }
+  #root .folder-tabs .MuiTab-root {
+    font-size: 14px;
+  }
+  #root .documents-toolbar .documents-search {
+    max-width: none;
+  }
+  #root .documents-toolbar input {
+    font-size: 13px;
+  }
+  #root .folder-grid {
+    gap: 9px;
+  }
+  #root .folder-card {
+    padding: 13px;
+    gap: 9px;
+    min-height: 75px;
+  }
+  #root .folder-card .folder-title {
+    font-size: 14px;
+  }
+  #root .file-table-header,
+  #root .file-row {
+    grid-template-columns: minmax(0, 1fr) 34% 24px;
+    padding: 13px 12px;
+  }
+  #root .file-table-header .source-heading,
+  #root .file-row .file-source,
+  #root .file-row .file-mobile-metadata {
+    display: none;
+  }
+  #root .file-row .file-updated {
+    display: block;
+    font-size: 12px;
+  }
+  #root .file-row .file-name {
+    font-size: 13px;
+  }
+  #root .file-row .file-type {
+    width: 24px;
+    height: 30px;
+    font-size: 8px;
+  }
+  #root .file-row .file-name-cell {
+    gap: 9px;
+  }
+  #root .briefing-panel-header {
+    padding: 20px 18px;
+  }
+  #root .briefing-section {
+    padding: 20px 18px;
+  }
+  #root .briefing-panel .collapsed-section {
+    padding: 18px;
+  }
+}
+#root .briefing-layout {
+  flex-direction: row;
+  padding-bottom: 28px;
+}
+#root .briefing-section h2 {
+  flex: 1;
+}
+#root .repository-status .status-list {
+  padding: 0 24px;
+}
+#root .repository-status .status-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: 15px;
+  padding: 19px 0;
+}
+#root .repository-status .status-row > .status-content > p:first-child {
+  font-size: 17px;
+  font-weight: 600;
+}
+#root .repository-status .status-row > .status-content > p:not(:first-child) {
+  font-size: 14px;
+}
+@media (max-width: 900px) {
+  #root .briefing-layout {
+    flex-direction: column;
+  }
+}
+@media (max-width: 480px) {
+  #root .repository-status .status-list {
+    padding: 0 18px;
+  }
+  #root .repository-status .status-row {
+    grid-template-columns: 23px minmax(0, 1fr);
+    gap: 10px;
+  }
+  #root .repository-status .status-time {
+    grid-column: 2;
+    text-align: left;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+}
+@media (max-width: 900px) {
+  #root .history-layout {
+    grid-template-columns: 1fr;
+  }
+  #root .history-layout > div:first-child > .MuiStack-root {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 7px;
+  }
+  #root .history-layout > div:first-child > .MuiStack-root > * {
+    margin: 0;
+    padding: 11px 9px;
+  }
+}
+@media (max-width: 480px) {
+  #root .history-details {
+    padding: 18px;
+  }
+}
+#root .chat-composer {
+  padding: 20px 24px;
+  border-top: 1px solid #654b83;
+  gap: 12px;
+  flex-shrink: 0;
+}
+#root .chat-composer .composer-options {
+  padding: 0;
+  border: 0;
+  background: none;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+#root .chat-composer .composer-input {
+  order: -1;
+  flex: 1 0 100%;
+  width: 100%;
+}
+#root .chat-composer .composer-input .MuiInputBase-root {
+  border: 1px solid #b06aff;
+  border-radius: 5px;
+  min-height: 90px;
+  padding: 13px 14px;
+  background: #0d0718;
+  align-items: flex-start;
+}
+#root .chat-composer .composer-input textarea {
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1.6;
+  padding: 0;
+}
+#root .chat-composer .MuiChip-root {
+  font-family: inherit;
+  font-size: 13px;
+  background: transparent;
+  height: 34px;
+}
+#root .chat-composer .chat-debug {
+  font-family: inherit;
+  width: auto;
+  min-width: 52px;
+  padding: 0 8px;
+  font-size: 13px;
+}
+#root .chat-composer .composer-options > .MuiButton-root {
+  margin-left: auto;
+  order: 0;
+  width: 92px;
+  height: 44px;
+  min-height: 44px;
+  padding: 10px 16px;
+  font-size: 14px;
+}
+#root .source-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border: 0;
+  padding: 0;
+  margin-top: 14px;
+}
+#root .source-cards > p {
+  display: none;
+}
+#root .source-cards .source-card {
+  border: 1px solid #654b83;
+  border-radius: 5px;
+  padding: 10px 13px;
+  font-family: inherit;
+  font-size: 12px;
+  background: #12091f;
+}
+#root .message-bubble {
+  margin-bottom: 28px;
+}
+@media (max-width: 480px) {
+  #root .chat-thread-header {
+    padding: 15px;
+    gap: 10px;
+  }
+  #root .chat-thread-header p {
+    font-size: 13px;
+  }
+  #root .thread-content {
+    padding: 22px 18px;
+  }
+  #root .chat-composer {
+    padding: 16px 13px;
+  }
+  #root .chat-composer .composer-options {
+    gap: 7px;
+  }
+  #root .chat-composer .composer-input textarea {
+    font-size: 14px;
+  }
+}
+
+#root .documents-path button {
+  line-height: 1.5;
+}
+#root .documents-search .MuiOutlinedInput-root {
+  height: 44px;
+}
+#root .file-row .file-name {
+  line-height: 1.45;
+}
+#root .file-row .file-chunks {
+  font-size: 12px;
+  line-height: 1.5;
+  margin-top: 3px;
+}
+#root .upload-strip > button {
+  width: 40px;
+  height: 40px;
+}
+#root .source-card {
+  max-width: 380px;
+  align-items: flex-start;
+}
+
+#root .documents-path {
+  min-height: 26px;
+  margin-bottom: 12px;
+}
+#root .documents-heading p {
+  line-height: 1.55;
+}
+#root .folder-card .folder-title {
+  line-height: 1.4;
+}
+#root .folder-card p:not(.folder-title) {
+  font-family: inherit;
+  line-height: 1.5;
+}
+#root .files-heading {
+  font-size: 17px;
+  line-height: 1.4;
+  margin-bottom: 16px;
+  font-weight: 600;
+}
+#root .repository-status .status-content > p:first-child {
+  line-height: 1.4;
+}
+#root .repository-status .status-content > p:not(:first-child) {
+  line-height: 1.55;
+}
+#root .repository-status .status-time p {
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.55;
+}
+
+#root .repository-status .status-header h2 {
+  font-size: 16px;
+  line-height: 1.4;
+}
+#root .repository-status .status-header p {
+  font-size: 13px;
+  line-height: 1.55;
+}
+#root .repository-status .status-row {
+  min-height: 88.5px;
+}
+#root .documents-toolbar .MuiToggleButtonGroup-root {
+  border: 0;
+  gap: 5px;
+}
+#root .documents-toolbar .MuiToggleButton-root {
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--kioku-control);
+  border-radius: 4px;
+}
+#root .file-table-header {
+  line-height: 1.55;
+}

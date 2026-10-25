@@ -1,6 +1,7 @@
 import { useState, useRef } from "react";
 import {
   Box,
+  Button,
   TextField,
   IconButton,
   CircularProgress,
@@ -8,7 +9,6 @@ import {
   Menu,
   MenuItem,
   Tooltip,
-  Typography,
 } from "@mui/material";
 import AttachFileIcon from "@mui/icons-material/AttachFile";
 import CenterFocusStrongIcon from "@mui/icons-material/CenterFocusStrong";
@@ -97,6 +97,7 @@ export default function ChatInput({
 
   return (
     <Box
+      className="chat-composer"
       sx={{
         px: { xs: 2, md: 5 },
         pb: "20px",
@@ -106,45 +107,48 @@ export default function ChatInput({
       }}
     >
       {/* ── Scope / filter chips row ── */}
-      <Box
-        sx={{
-          display: "flex",
-          gap: 0.75,
-          flexWrap: "wrap",
-        }}
-      >
-        {scopeLabel && (
-          <Chip
-            label={`◎ ${scopeLabel}`}
-            size="small"
-            sx={{
-              fontFamily: fonts.mono,
-              fontSize: "0.75rem",
-              borderRadius: "3px",
-              border: `1px solid ${brand.magenta}66`,
-              bgcolor: `${brand.magenta}14`,
-              color: brand.magentaGlow,
-              "& .MuiChip-label": { px: 1 },
-            }}
-            onDelete={onClearScope}
-          />
-        )}
-        {uploadedFile && (
-          <Chip
-            label={`Uploaded: ${uploadedFile}`}
-            size="small"
-            onDelete={() => setUploadedFile(null)}
-            sx={{
-              fontFamily: fonts.mono,
-              fontSize: "0.75rem",
-              borderRadius: "3px",
-            }}
-          />
-        )}
-      </Box>
+      {(uploadedFile || (scopeLabel && onPickScope)) && (
+        <Box
+          sx={{
+            display: "flex",
+            gap: 0.75,
+            flexWrap: "wrap",
+          }}
+        >
+          {scopeLabel && onPickScope && (
+            <Chip
+              label={`◎ ${scopeLabel}`}
+              size="small"
+              sx={{
+                fontFamily: fonts.mono,
+                fontSize: "0.75rem",
+                borderRadius: "3px",
+                border: `1px solid ${brand.magenta}66`,
+                bgcolor: `${brand.magenta}14`,
+                color: brand.magentaGlow,
+                "& .MuiChip-label": { px: 1 },
+              }}
+              onDelete={onClearScope}
+            />
+          )}
+          {uploadedFile && (
+            <Chip
+              label={`Uploaded: ${uploadedFile}`}
+              size="small"
+              onDelete={() => setUploadedFile(null)}
+              sx={{
+                fontFamily: fonts.mono,
+                fontSize: "0.75rem",
+                borderRadius: "3px",
+              }}
+            />
+          )}
+        </Box>
+      )}
 
-      {/* ── Main input row ── */}
+      {/* Textarea followed by the options row. */}
       <Box
+        className="composer-options"
         sx={{
           display: "flex",
           alignItems: "center",
@@ -315,6 +319,7 @@ export default function ChatInput({
           }
         >
           <Box
+            className="chat-debug"
             component="button"
             aria-label="Debug"
             onClick={() => setDebug((prev) => !prev)}
@@ -339,30 +344,18 @@ export default function ChatInput({
               "&:hover:not(:disabled)": { bgcolor: `${brand.cyan}20` },
             }}
           >
-            DBG
+            Debug
           </Box>
         </Tooltip>
 
         {/* Prompt prefix glyph */}
-        <Typography
-          sx={{
-            fontFamily: fonts.mono,
-            fontSize: "0.875rem",
-            color: brand.magenta,
-            ml: 0.75,
-            flexShrink: 0,
-            userSelect: "none",
-            display: { xs: "none", md: "block" },
-          }}
-        >
-          &gt;
-        </Typography>
-
         {/* Text field */}
         <TextField
+          className="composer-input"
           fullWidth
           multiline
-          maxRows={4}
+          minRows={2}
+          maxRows={6}
           placeholder="Ask a question about your documents..."
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -394,7 +387,8 @@ export default function ChatInput({
         />
 
         {/* Neon send button */}
-        <IconButton
+        <Button
+          variant="contained"
           aria-label="Send"
           onClick={handleSend}
           disabled={disabled || !input.trim()}
@@ -415,8 +409,8 @@ export default function ChatInput({
             },
           }}
         >
-          ➤
-        </IconButton>
+          Send
+        </Button>
       </Box>
     </Box>
   );

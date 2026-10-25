@@ -29,7 +29,6 @@ import {
   Typography,
   alpha,
 } from "@mui/material";
-import EditIcon from "@mui/icons-material/Edit";
 import DeleteSweepOutlinedIcon from "@mui/icons-material/DeleteSweepOutlined";
 import SaveIcon from "@mui/icons-material/Save";
 import CloseIcon from "@mui/icons-material/Close";
@@ -45,7 +44,7 @@ import { messageFromError, useToast } from "./ToastProvider";
 import { brand, fonts } from "../theme";
 import SectionRail, { type RailItem } from "./neo/SectionRail";
 import PillChain from "./neo/PillChain";
-import StatusGlyph, { type GlyphStatus } from "./neo/StatusGlyph";
+import { type GlyphStatus } from "./neo/StatusGlyph";
 import { gradientRule, hudLabel } from "./neo/sx";
 
 interface Props {
@@ -215,6 +214,7 @@ export default function BriefingPanel({ folderId }: Props) {
 
   return (
     <Box
+      className="briefing-layout"
       sx={{
         display: "flex",
         flexDirection: { xs: "column", lg: "row" },
@@ -233,6 +233,7 @@ export default function BriefingPanel({ folderId }: Props) {
 
       {/* Right: reading column */}
       <Box
+        className="briefing-panel"
         sx={{
           flex: 1,
           minWidth: 0,
@@ -247,6 +248,7 @@ export default function BriefingPanel({ folderId }: Props) {
       >
         {/* Header */}
         <Box
+          className="briefing-panel-header"
           sx={{
             display: "flex",
             alignItems: "center",
@@ -295,8 +297,8 @@ export default function BriefingPanel({ folderId }: Props) {
                   color: brand.muted,
                   borderColor: brand.line,
                   flexShrink: 0,
-                  height: 32,
-                  fontSize: 12,
+                  minHeight: 44,
+                  fontSize: 14,
                   "&:hover": {
                     borderColor: brand.magenta,
                     color: brand.magenta,
@@ -316,6 +318,7 @@ export default function BriefingPanel({ folderId }: Props) {
             {presentKeys.slice(0, 2).map((key, i) => (
               <Box
                 key={key}
+                className="briefing-section"
                 component="section"
                 ref={(el: HTMLElement | null) => {
                   sectionRefs.current[i] = el;
@@ -379,6 +382,7 @@ export default function BriefingPanel({ folderId }: Props) {
             {/* Collapsible sections 03–08 */}
             {presentKeys.length > 2 && (
               <Box
+                className="briefing-section"
                 component="section"
                 sx={{
                   display: "flex",
@@ -401,6 +405,7 @@ export default function BriefingPanel({ folderId }: Props) {
                     >
                       {/* Row header — always visible */}
                       <Box
+                        className="collapsed-section"
                         component="button"
                         onClick={() => {
                           setCollapsed((prev) => ({
@@ -429,6 +434,7 @@ export default function BriefingPanel({ folderId }: Props) {
                         }}
                       >
                         <Box
+                          className="section-number"
                           component="span"
                           sx={{
                             fontFamily: fonts.mono,
@@ -440,6 +446,7 @@ export default function BriefingPanel({ folderId }: Props) {
                           {n}
                         </Box>
                         <Box
+                          className="section-title"
                           component="span"
                           sx={{
                             fontSize: 17,
@@ -452,6 +459,7 @@ export default function BriefingPanel({ folderId }: Props) {
                           {SECTION_TITLES[key]}
                         </Box>
                         <Box
+                          className="section-description"
                           component="span"
                           sx={{
                             flex: 1,
@@ -465,29 +473,18 @@ export default function BriefingPanel({ folderId }: Props) {
                         >
                           {SECTION_DESCRIPTIONS[key]}
                         </Box>
-                        <StatusGlyph status={mapStatus(section.status)} />
-                        <Tooltip title="Edit section">
-                          <IconButton
-                            size="small"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (EDITABLE_SECTIONS.includes(key)) {
-                                setEditingSection(key);
-                              } else {
-                                toast.show(
-                                  `${SECTION_TITLES[key]} is auto-populated — use Suggest to refresh.`,
-                                  "info"
-                                );
-                              }
-                            }}
-                            sx={{ flexShrink: 0 }}
-                          >
-                            <EditIcon
-                              sx={{ fontSize: 14, color: brand.muted }}
-                            />
-                          </IconButton>
-                        </Tooltip>
+                        <Typography
+                          component="span"
+                          sx={{ fontSize: 13, color: brand.muted }}
+                        >
+                          {section.status === "pinned"
+                            ? "Pinned"
+                            : section.status === "hybrid"
+                            ? "Mixed"
+                            : "Generated"}
+                        </Typography>
                         <Box
+                          className="section-chevron"
                           component="span"
                           sx={{
                             fontFamily: fonts.mono,
@@ -507,11 +504,26 @@ export default function BriefingPanel({ folderId }: Props) {
                       {/* Expanded content */}
                       {!isCollapsed && (
                         <Box
+                          className="briefing-section"
                           sx={{
                             py: 2.5,
                             borderBottom: `1px solid ${brand.line}`,
                           }}
                         >
+                          <Button
+                            aria-label="Edit section"
+                            sx={{ alignSelf: "flex-end", color: brand.cyan }}
+                            onClick={() =>
+                              EDITABLE_SECTIONS.includes(key)
+                                ? setEditingSection(key)
+                                : toast.show(
+                                    `${SECTION_TITLES[key]} is auto-populated — use Suggest to refresh.`,
+                                    "info"
+                                  )
+                            }
+                          >
+                            Edit
+                          </Button>
                           <Box sx={{ mt: 1.75 }}>
                             {editingSection === key ? (
                               <SectionEditor
@@ -652,9 +664,10 @@ function SectionHeading({
         {title}
       </Typography>
       {/* gradient rule */}
-      <Box sx={gradientRule(color)} />
+      <Box className="section-title-rule" sx={gradientRule(color)} />
       <Typography
         sx={{
+          ml: "auto",
           color: status === "pinned" ? brand.amber : brand.muted,
           fontSize: 13,
         }}
@@ -948,6 +961,7 @@ function MetaLine({ section }: { section: BriefingSection }) {
     : "";
   return (
     <Typography
+      className="briefing-meta"
       sx={{
         fontFamily: fonts.mono,
         fontSize: 13,

@@ -98,7 +98,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <Box sx={{ display: "flex", height: "100dvh", overflow: "hidden" }}>
+    <Box
+      sx={{
+        display: "flex",
+        height: "100dvh",
+        overflow: "hidden",
+        "@media(max-width:480px)": { flexDirection: "column" },
+      }}
+    >
       <IconRail
         activePage={activePage}
         onNavigate={(page) => navigate(page)}
@@ -116,7 +123,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           onRetryConversations={() => void loadConversations?.()}
           selectedConversationId={selectedId}
           onSelectConversation={selectConversation}
-          onNewConversation={createConversation}
+          onNewConversation={() =>
+            void createConversation().catch((err) =>
+              toast.showError(err, "Couldn’t create conversation.")
+            )
+          }
           onDeleteConversation={removeConversation}
           onNewFolder={handleNewFolder}
           onRequestDeleteFolder={handleRequestDeleteFolder}
@@ -144,7 +155,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             onRetryConversations={() => void loadConversations?.()}
             selectedConversationId={selectedId}
             onSelectConversation={selectConversation}
-            onNewConversation={createConversation}
+            onNewConversation={() =>
+              void createConversation().catch((err) =>
+                toast.showError(err, "Couldn’t create conversation.")
+              )
+            }
             onDeleteConversation={removeConversation}
             onNewFolder={handleNewFolder}
             onRequestDeleteFolder={handleRequestDeleteFolder}
@@ -166,18 +181,27 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         }}
       >
         <NeoAtmosphere />
-        {mobile && showPanel && (
-          <Box
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              gap: 1,
-              px: 1.5,
-              minHeight: 48,
-              flexShrink: 0,
-              borderBottom: `1px solid ${brand.line}`,
-            }}
-          >
+        <Box
+          component="header"
+          data-testid="app-topbar"
+          sx={{
+            minHeight: 70,
+            height: 70,
+            flexShrink: 0,
+            px: "40px",
+            display: "flex",
+            alignItems: "center",
+            gap: 1.5,
+            borderBottom: `1px solid ${brand.line}`,
+            "@media(max-width:780px)": { px: "22px" },
+            "@media(max-width:480px)": {
+              px: "18px",
+              minHeight: 53,
+              height: 53,
+            },
+          }}
+        >
+          {mobile && showPanel && (
             <IconButton
               aria-label={
                 activePage === "/documents"
@@ -185,14 +209,27 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   : "Open conversations"
               }
               onClick={() => setPanelOpen(true)}
+              size="small"
             >
-              <MenuOpenIcon />
+              <MenuOpenIcon fontSize="small" />
             </IconButton>
-            <Typography sx={{ fontSize: 14, color: brand.muted }}>
-              {activePage === "/documents" ? "Folders" : "Conversations"}
-            </Typography>
-          </Box>
-        )}
+          )}
+          <Typography sx={{ color: brand.muted, fontSize: 13 }}>
+            Kioku{" "}
+            <Box component="span" sx={{ px: 1, color: brand.dim }}>
+              /
+            </Box>{" "}
+            <Box component="span" sx={{ color: brand.text }}>
+              {activePage === "/"
+                ? "Chat"
+                : activePage === "/documents"
+                ? "Documents"
+                : activePage === "/remotes"
+                ? "Remotes"
+                : "Settings"}
+            </Box>
+          </Typography>
+        </Box>
         {children}
       </Box>
 

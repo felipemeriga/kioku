@@ -235,7 +235,7 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
   }
 
   return (
-    <Box>
+    <Box className="repository-status">
       <Box
         sx={{
           border: `1px solid ${brand.line}`,
@@ -245,7 +245,10 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
           mb: 3,
         }}
       >
-        <Box sx={{ px: 3, py: 2.5, borderBottom: `1px solid ${brand.line}` }}>
+        <Box
+          className="status-header"
+          sx={{ px: 3, py: 2.5, borderBottom: `1px solid ${brand.line}` }}
+        >
           <Typography component="h2" sx={{ fontWeight: 600, fontSize: 18 }}>
             {anyRunning
               ? "Refreshing repository context"
@@ -257,64 +260,70 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
             Index and briefing timestamps reported by Mihari.
           </Typography>
         </Box>
-        {cards.map((c) => {
-          const Icon = c.icon;
-          const glyph = indexGlyph(c.at);
-          return (
-            <Box
-              key={c.label}
-              sx={{
-                display: "flex",
-                alignItems: "center",
-                gap: 2,
-                px: 3,
-                py: 2.5,
-                borderBottom: `1px solid ${brand.line}`,
-                "&:last-child": { borderBottom: 0 },
-              }}
-            >
-              <Icon sx={{ color: brand.cyan, fontSize: 22, flexShrink: 0 }} />
-              <Box sx={{ minWidth: 0, flex: 1 }}>
-                <Typography sx={{ fontSize: 16, fontWeight: 500 }}>
-                  {c.label}
-                </Typography>
-                {c.sub && (
-                  <Typography
-                    sx={{
-                      color: brand.muted,
-                      fontSize: 14,
-                      mt: 0.5,
-                      overflowWrap: "anywhere",
-                    }}
-                  >
-                    {c.sub}
+        <Box className="status-list">
+          {cards.map((c) => {
+            const Icon = c.icon;
+            const glyph = indexGlyph(c.at);
+            return (
+              <Box
+                className="status-row"
+                key={c.label}
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 2,
+                  px: 3,
+                  py: 2.5,
+                  borderBottom: `1px solid ${brand.line}`,
+                  "&:last-child": { borderBottom: 0 },
+                }}
+              >
+                <Icon sx={{ color: brand.cyan, fontSize: 22, flexShrink: 0 }} />
+                <Box className="status-content" sx={{ minWidth: 0, flex: 1 }}>
+                  <Typography sx={{ fontSize: 16, fontWeight: 500 }}>
+                    {c.label}
                   </Typography>
-                )}
-              </Box>
-              <Box sx={{ textAlign: "right", flexShrink: 0 }}>
-                {isPending ? (
-                  <CircularProgress size={16} />
-                ) : (
-                  <>
+                  {c.sub && (
                     <Typography
                       sx={{
-                        color: c.at ? brand.green : brand.muted,
-                        fontSize: 13,
+                        color: brand.muted,
+                        fontSize: 14,
+                        mt: 0.5,
+                        overflowWrap: "anywhere",
                       }}
                     >
-                      {glyph.glyph} {c.at ? "Recorded" : "Not available"}
+                      {c.sub}
                     </Typography>
-                    <Typography
-                      sx={{ color: brand.muted, fontSize: 13, mt: 0.5 }}
-                    >
-                      {timeAgo(c.at)}
-                    </Typography>
-                  </>
-                )}
+                  )}
+                </Box>
+                <Box
+                  className="status-time"
+                  sx={{ textAlign: "right", flexShrink: 0 }}
+                >
+                  {isPending ? (
+                    <CircularProgress size={16} />
+                  ) : (
+                    <>
+                      <Typography
+                        sx={{
+                          color: c.at ? brand.green : brand.muted,
+                          fontSize: 13,
+                        }}
+                      >
+                        {glyph.glyph} {c.at ? "Recorded" : "Not available"}
+                      </Typography>
+                      <Typography
+                        sx={{ color: brand.muted, fontSize: 13, mt: 0.5 }}
+                      >
+                        {timeAgo(c.at)}
+                      </Typography>
+                    </>
+                  )}
+                </Box>
               </Box>
-            </Box>
-          );
-        })}
+            );
+          })}
+        </Box>
       </Box>
 
       <Stack
@@ -324,10 +333,14 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
         sx={{ flexWrap: "wrap" }}
       >
         <Button
-          variant="outlined"
+          variant="contained"
           size="small"
           startIcon={
-            indexRunning ? <CircularProgress size={14} /> : <RefreshIcon />
+            indexRunning ? (
+              <CircularProgress size={14} color="inherit" />
+            ) : (
+              <RefreshIcon />
+            )
           }
           disabled={anyRunning}
           onClick={() => start("index")}

@@ -233,6 +233,7 @@ export default function DocumentCard({
       >
         {variant === "list" ? (
           <Box
+            className="file-row"
             sx={{
               display: "grid",
               gridTemplateColumns: {
@@ -249,6 +250,7 @@ export default function DocumentCard({
           >
             <Box
               role="cell"
+              className="file-name-cell"
               sx={{
                 display: "flex",
                 alignItems: "center",
@@ -267,6 +269,7 @@ export default function DocumentCard({
                 />
               )}
               <Box
+                className="file-type"
                 aria-hidden="true"
                 sx={{
                   border: `1px solid ${brand.lineGlow}`,
@@ -287,6 +290,7 @@ export default function DocumentCard({
               </Box>
               <Box sx={{ minWidth: 0 }}>
                 <Typography
+                  className="file-name"
                   sx={{
                     color: brand.text,
                     fontSize: 16,
@@ -297,6 +301,7 @@ export default function DocumentCard({
                   {doc.source_filename}
                 </Typography>
                 <Typography
+                  className="file-chunks"
                   sx={{
                     mt: 0.5,
                     color: doc.status === "failed" ? brand.red : brand.muted,
@@ -307,6 +312,7 @@ export default function DocumentCard({
                   {doc.status !== "completed" ? ` · ${doc.status}` : ""}
                 </Typography>
                 <Typography
+                  className="file-mobile-metadata"
                   sx={{
                     display: { xs: "block", md: "none" },
                     mt: 0.5,
@@ -320,6 +326,7 @@ export default function DocumentCard({
               </Box>
             </Box>
             <Typography
+              className="file-source"
               role="cell"
               sx={{
                 display: { xs: "none", md: "block" },
@@ -331,6 +338,7 @@ export default function DocumentCard({
             </Typography>
             <Typography
               role="cell"
+              className="file-updated"
               component="time"
               dateTime={updatedAt}
               sx={{

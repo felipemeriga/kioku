@@ -19,6 +19,9 @@ export function useConversations() {
   // appended live during the chat SSE stream, which React Query shouldn't own.
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [messagesError, setMessagesError] = useState<string | null>(null);
+  const [messageAttempt, setMessageAttempt] = useState(0);
 
   const listQuery = useQuery({
     queryKey: qk.conversationsForUser(ownerId),
@@ -81,18 +84,41 @@ export function useConversations() {
   useEffect(() => {
     if (!selectedId) return;
     let active = true;
-    fetchConversation(selectedId).then((conv) => {
+    void Promise.resolve().then(async () => {
       if (!active) return;
-      setMessages(conv.messages);
+      setMessagesLoading(true);
+      setMessagesError(null);
+      try {
+        const conv = await fetchConversation(selectedId);
+        if (active) setMessages(conv.messages);
+      } catch (error) {
+        if (active) {
+          setMessages([]);
+          setMessagesError(messageFromError(error));
+        }
+      } finally {
+        if (active) setMessagesLoading(false);
+      }
     });
     return () => {
       active = false;
     };
-  }, [selectedId]);
+  }, [selectedId, messageAttempt]);
 
-  const selectConversation = useCallback((id: string) => {
-    setSelectedId(id);
-  }, []);
+  const selectConversation = useCallback(
+    (id: string) => {
+      if (id === selectedId) return;
+      setMessages([]);
+      setMessagesError(null);
+      setMessagesLoading(true);
+      setSelectedId(id);
+    },
+    [selectedId]
+  );
+  const retryMessages = useCallback(
+    () => setMessageAttempt((attempt) => attempt + 1),
+    []
+  );
 
   const removeConversation = useCallback(
     async (id: string) => {
@@ -106,7 +132,9 @@ export function useConversations() {
       if (selectedId === id) {
         const next = remaining.length > 0 ? remaining[0].id : null;
         setSelectedId(next);
-        if (!next) setMessages([]);
+        setMessages([]);
+        setMessagesError(null);
+        setMessagesLoading(!!next);
       }
     },
     [queryClient, selectedId, ownerId]
@@ -120,6 +148,9 @@ export function useConversations() {
       : null,
     selectedId,
     messages,
+    messagesLoading,
+    messagesError,
+    retryMessages,
     setMessages,
     selectConversation,
     loadConversations,

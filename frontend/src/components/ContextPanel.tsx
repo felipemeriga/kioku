@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import {
   Box,
   Alert,
@@ -194,32 +194,27 @@ function ChatPanel({
     <>
       <Box
         sx={{
-          px: "14px",
-          pt: 2,
-          pb: 1.25,
+          px: 2,
+          pt: 2.5,
+          pb: 2,
           display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
+          flexDirection: "column",
+          gap: 1.5,
         }}
       >
-        <Typography sx={hudLabel}>Conversations</Typography>
-        <IconButton
+        <Typography sx={{ fontSize: 14, color: brand.muted }}>
+          Conversations
+        </Typography>
+        <Button
           data-testid="new-chat-button"
           aria-label="New conversation"
-          size="small"
+          variant="outlined"
+          startIcon={<AddIcon sx={{ fontSize: 16 }} />}
           onClick={onNew}
-          sx={{
-            width: 28,
-            height: 28,
-            borderRadius: "3px",
-            border: `1px solid ${brand.magenta}55`,
-            bgcolor: `${brand.magenta}14`,
-            color: brand.magenta,
-            "&:hover": { bgcolor: `${brand.magenta}25` },
-          }}
+          fullWidth
         >
-          <AddIcon sx={{ fontSize: 16 }} />
-        </IconButton>
+          New conversation
+        </Button>
       </Box>
 
       {loading && (
@@ -241,18 +236,50 @@ function ChatPanel({
         </Typography>
       )}
       <List sx={{ flex: 1, overflow: "auto", px: "8px" }}>
-        {conversations.map((conv) => (
-          <ConversationRow
-            key={conv.id}
-            conv={conv}
-            isSelected={conv.id === selectedId}
-            onSelect={() => onSelect(conv.id)}
-            onDelete={() => onDelete(conv.id)}
-          />
-        ))}
+        {conversations.map((conv, index) => {
+          const group = conversationGroup(conv.updated_at);
+          return (
+            <Fragment key={conv.id}>
+              {(index === 0 ||
+                group !==
+                  conversationGroup(conversations[index - 1].updated_at)) && (
+                <Typography
+                  component="li"
+                  sx={{
+                    listStyle: "none",
+                    fontSize: 12,
+                    color: brand.muted,
+                    px: 1.5,
+                    pt: 1.5,
+                    pb: 0.75,
+                  }}
+                >
+                  {group}
+                </Typography>
+              )}
+              <ConversationRow
+                conv={conv}
+                isSelected={conv.id === selectedId}
+                onSelect={() => onSelect(conv.id)}
+                onDelete={() => onDelete(conv.id)}
+              />
+            </Fragment>
+          );
+        })}
       </List>
     </>
   );
+}
+
+function conversationGroup(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Earlier";
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+  if (date.toDateString() === today.toDateString()) return "Today";
+  if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
+  return date.toLocaleDateString(undefined, { month: "long", year: "numeric" });
 }
 
 /**
@@ -327,6 +354,10 @@ function ConversationRow({
 
   return (
     <ListItemButton
+      component="li"
+      data-testid="conversation-row"
+      aria-label={`Open conversation: ${conv.title}`}
+      aria-current={isSelected ? "true" : undefined}
       selected={isSelected}
       onClick={editing ? undefined : onSelect}
       onDoubleClick={(e) => startEdit(e)}
@@ -378,7 +409,7 @@ function ConversationRow({
           disabled={saving}
           fullWidth
           sx={{
-            fontSize: "0.85rem",
+            fontSize: 13,
             color: "#fff",
             "& input": {
               padding: 0,

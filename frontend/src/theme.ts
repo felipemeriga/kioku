@@ -67,7 +67,7 @@ const theme = createTheme({
     text: { primary: brand.text, secondary: brand.muted },
     divider: brand.line,
   },
-  shape: { borderRadius: 8 },
+  shape: { borderRadius: 4 },
   typography: {
     fontFamily: FONT_BODY,
     h1: {
@@ -108,6 +108,13 @@ const theme = createTheme({
   components: {
     MuiCssBaseline: {
       styleOverrides: {
+        ":root": {
+          "--kioku-line": brand.line,
+          "--kioku-control": brand.lineGlow,
+          "--kioku-surface": brand.surface,
+          "--kioku-sunken": brand.surface2,
+          "--kioku-accent": brand.magenta,
+        },
         html: { height: "100%", colorScheme: "dark" },
         body: { background: brand.ink, minHeight: "100vh", margin: 0 },
         "#root": { minHeight: "100vh" },
@@ -154,8 +161,10 @@ const theme = createTheme({
       styleOverrides: {
         root: {
           borderRadius: 4,
-          minHeight: 36,
-          paddingInline: 16,
+          minHeight: 44,
+          padding: "10px 16px",
+          fontSize: 14,
+          fontWeight: 600,
           boxShadow: "none",
         },
         contained: {

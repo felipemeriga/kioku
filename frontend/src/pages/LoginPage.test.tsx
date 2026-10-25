@@ -21,7 +21,7 @@ vi.mock("../lib/supabase", () => ({
 describe("LoginPage", () => {
   it("renders sign in form by default", () => {
     renderWithProviders(<LoginPage />, { initialEntries: ["/login"] });
-    expect(screen.getByText("Kioku")).toBeInTheDocument();
+    expect(screen.getByText("kioku")).toBeInTheDocument();
     expect(screen.getByLabelText("Email")).toBeInTheDocument();
     expect(screen.getByLabelText("Password")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
@@ -30,14 +30,14 @@ describe("LoginPage", () => {
   it("toggles to sign up form", async () => {
     const user = userEvent.setup();
     renderWithProviders(<LoginPage />, { initialEntries: ["/login"] });
-    await user.click(screen.getByText("Sign up"));
+    await user.click(screen.getByRole("button", { name: "Sign up" }));
     expect(screen.getByRole("button", { name: "Sign up" })).toBeInTheDocument();
   });
 
   it("tells the user to check their email after signing up", async () => {
     const user = userEvent.setup();
     renderWithProviders(<LoginPage />, { initialEntries: ["/login"] });
-    await user.click(screen.getByText("Sign up")); // toggle to sign-up
+    await user.click(screen.getByRole("button", { name: "Sign up" })); // toggle to sign-up
     await user.type(screen.getByLabelText("Email"), "new@example.com");
     await user.type(screen.getByLabelText("Password"), "password123");
     await user.click(screen.getByRole("button", { name: "Sign up" }));

@@ -14,14 +14,21 @@ const mockUseAuth = vi.fn(
   (): { session: { user: { email: string } } | null; loading: boolean } => ({
     session: { user: { email: "me@example.com" } },
     loading: false,
-  }),
+  })
 );
 vi.mock("../hooks/useAuth", () => ({
   useAuth: () => mockUseAuth(),
 }));
 const complete = vi.fn().mockResolvedValue(undefined);
 const deny = vi.fn().mockResolvedValue(undefined);
-const deviceInfo = vi.fn().mockResolvedValue({ hostname: "laptop", os: "darwin", valid: true, expired: false });
+const deviceInfo = vi
+  .fn()
+  .mockResolvedValue({
+    hostname: "laptop",
+    os: "darwin",
+    valid: true,
+    expired: false,
+  });
 vi.mock("../lib/api", () => ({
   deviceInfo: (...a: unknown[]) => deviceInfo(...a),
   deviceComplete: (...a: unknown[]) => complete(...a),
@@ -32,17 +39,45 @@ beforeEach(() => {
   complete.mockClear();
   deny.mockClear();
   deviceInfo.mockClear();
-  mockUseAuth.mockReturnValue({ session: { user: { email: "me@example.com" } }, loading: false });
-  deviceInfo.mockResolvedValue({ hostname: "laptop", os: "darwin", valid: true, expired: false });
+  mockUseAuth.mockReturnValue({
+    session: { user: { email: "me@example.com" } },
+    loading: false,
+  });
+  deviceInfo.mockResolvedValue({
+    hostname: "laptop",
+    os: "darwin",
+    valid: true,
+    expired: false,
+  });
 });
 
 describe("CliAuthPage", () => {
   it("shows device info and authorizes", async () => {
-    renderWithProviders(<CliAuthPage />, { initialEntries: ["/cli-auth?req=abc123"] });
+    renderWithProviders(<CliAuthPage />, {
+      initialEntries: ["/cli-auth?req=abc123"],
+    });
     await screen.findByText(/laptop/);
     await userEvent.click(screen.getByRole("button", { name: /authorize/i }));
     await waitFor(() => expect(complete).toHaveBeenCalledWith("abc123"));
     await screen.findByText(/signed in/i);
+  });
+
+  it("shows an expired link without offering authorization", async () => {
+    deviceInfo.mockResolvedValue({
+      hostname: "laptop",
+      os: "darwin",
+      valid: false,
+      expired: true,
+    });
+    renderWithProviders(<CliAuthPage />, {
+      initialEntries: ["/cli-auth?req=expired"],
+    });
+    expect(
+      await screen.findByText(/This login link has expired/)
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /authorize/i })
+    ).not.toBeInTheDocument();
   });
 
   it("shows an error when req is missing", async () => {
@@ -61,7 +96,7 @@ describe("CliAuthPage", () => {
             <Route path="/login" element={<div>login-sentinel</div>} />
           </Routes>
         </ThemeProvider>
-      </MemoryRouter>,
+      </MemoryRouter>
     );
     await screen.findByText("login-sentinel");
   });

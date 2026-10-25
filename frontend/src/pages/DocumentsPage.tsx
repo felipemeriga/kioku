@@ -32,7 +32,6 @@ import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import FolderIcon from "@mui/icons-material/Folder";
 import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
-import MicIcon from "@mui/icons-material/Mic";
 import DriveFileMoveIcon from "@mui/icons-material/DriveFileMove";
 import CloseIcon from "@mui/icons-material/Close";
 import StopIcon from "@mui/icons-material/Stop";
@@ -42,8 +41,6 @@ import ViewListIcon from "@mui/icons-material/ViewList";
 import CreateNewFolderIcon from "@mui/icons-material/CreateNewFolder";
 import HomeIcon from "@mui/icons-material/Home";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
-import InsightsIcon from "@mui/icons-material/Insights";
-import HistoryIcon from "@mui/icons-material/History";
 import { useDocuments } from "../hooks/useDocuments";
 import { useIngestionStatus } from "../hooks/useIngestionStatus";
 import { createFolder, deleteFolder, downloadDocument } from "../lib/api";
@@ -488,6 +485,7 @@ export default function DocumentsPage() {
 
   return (
     <Box
+      className="documents-page"
       sx={{
         display: "flex",
         flexDirection: "column",
@@ -495,12 +493,16 @@ export default function DocumentsPage() {
         overflow: "auto",
       }}
     >
-      <Box sx={{ px: { xs: 2, md: 4 }, pt: 3, pb: 3 }}>
+      <Box
+        className="documents-header"
+        sx={{ px: { xs: 2, md: 4 }, pt: 3, pb: 3 }}
+      >
         <Stack
           direction="row"
           alignItems="center"
           gap={0.5}
           sx={{ mb: 2, flexWrap: "wrap" }}
+          className="documents-path"
           aria-label="Folder path"
         >
           <IconButton
@@ -510,7 +512,7 @@ export default function DocumentsPage() {
           >
             <HomeIcon sx={{ fontSize: 18 }} />
           </IconButton>
-          {breadcrumbs.slice(0, -1).map((bc) => (
+          {breadcrumbs.map((bc) => (
             <Box key={bc.id} sx={{ display: "flex", alignItems: "center" }}>
               <ChevronRightIcon sx={{ fontSize: 16, color: brand.muted }} />
               <Button
@@ -525,6 +527,7 @@ export default function DocumentsPage() {
           ))}
         </Stack>
         <Stack
+          className="documents-heading"
           direction={{ xs: "column", sm: "row" }}
           justifyContent="space-between"
           alignItems={{ xs: "flex-start", sm: "center" }}
@@ -550,7 +553,13 @@ export default function DocumentsPage() {
                 : "Your documents and repository knowledge."}
             </Typography>
           </Box>
-          <Stack direction="row" gap={1.25} alignItems="center" flexWrap="wrap">
+          <Stack
+            className="documents-actions"
+            direction="row"
+            gap={1.25}
+            alignItems="center"
+            flexWrap="nowrap"
+          >
             {ingestionTasks.length > 0 && (
               <Tooltip title="Processing status">
                 <IconButton size="small" onClick={openIngestionDrawer}>
@@ -579,6 +588,7 @@ export default function DocumentsPage() {
             <Button
               size="small"
               variant="outlined"
+              className="new-folder-action"
               startIcon={<CreateNewFolderIcon fontSize="small" />}
               onClick={() => setNewFolderOpen(true)}
               sx={{ borderColor: brand.line, color: brand.muted }}
@@ -598,6 +608,7 @@ export default function DocumentsPage() {
       </Box>
       {/* Content area */}
       <Box
+        className="documents-content"
         sx={{
           flex: 1,
           minHeight: 0,
@@ -621,6 +632,7 @@ export default function DocumentsPage() {
 
         {/* Small recorder chip — full-page drop overlay handles file uploads */}
         <Stack
+          className="upload-strip"
           direction="row"
           spacing={1}
           alignItems="center"
@@ -635,6 +647,7 @@ export default function DocumentsPage() {
           }}
         >
           <IconButton
+            aria-label={isRecording ? "Stop recording" : "Record audio"}
             onClick={handleMicClick}
             size="small"
             sx={{
@@ -658,7 +671,15 @@ export default function DocumentsPage() {
             {isRecording ? (
               <StopIcon sx={{ fontSize: 16 }} />
             ) : (
-              <MicIcon sx={{ fontSize: 16 }} />
+              <Box
+                aria-hidden="true"
+                sx={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: "50%",
+                  bgcolor: brand.magenta,
+                }}
+              />
             )}
           </IconButton>
           {isRecording ? (
@@ -705,6 +726,7 @@ export default function DocumentsPage() {
               knowledge lives on its own tab, away from the file browser. */}
         {currentFolderIsRepo && (
           <Tabs
+            className="folder-tabs"
             value={folderTab}
             onChange={(_, v) => setFolderTab(v)}
             sx={{
@@ -717,35 +739,15 @@ export default function DocumentsPage() {
                 fontFamily: fonts.display,
                 fontSize: "0.9rem",
                 color: brand.muted,
-                "&.Mui-selected": { color: brand.cyan },
+                "&.Mui-selected": { color: brand.text },
               },
-              "& .MuiTabs-indicator": { backgroundColor: brand.cyan },
+              "& .MuiTabs-indicator": { backgroundColor: brand.magenta },
             }}
           >
-            <Tab
-              value="files"
-              label="Files"
-              icon={<FolderIcon sx={{ fontSize: 18 }} />}
-              iconPosition="start"
-            />
-            <Tab
-              value="briefing"
-              label="Briefing"
-              icon={<AccountTreeIcon sx={{ fontSize: 18 }} />}
-              iconPosition="start"
-            />
-            <Tab
-              value="status"
-              label="Status"
-              icon={<InsightsIcon sx={{ fontSize: 18 }} />}
-              iconPosition="start"
-            />
-            <Tab
-              value="history"
-              label="History"
-              icon={<HistoryIcon sx={{ fontSize: 18 }} />}
-              iconPosition="start"
-            />
+            <Tab value="files" label="Files" />
+            <Tab value="briefing" label="Briefing" />
+            <Tab value="status" label="Status" />
+            <Tab value="history" label="History" />
           </Tabs>
         )}
 
@@ -754,10 +756,12 @@ export default function DocumentsPage() {
             direction="row"
             alignItems="center"
             gap={1.5}
+            className="documents-toolbar"
             sx={{ mb: 3, flexWrap: "wrap" }}
           >
             <TextField
               size="small"
+              className="documents-search"
               placeholder="Search in this folder…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -813,11 +817,11 @@ export default function DocumentsPage() {
                 },
               }}
             >
-              <ToggleButton value="grid" aria-label="Grid view">
-                <GridViewIcon fontSize="small" />
-              </ToggleButton>
               <ToggleButton value="list" aria-label="List view">
                 <ViewListIcon fontSize="small" />
+              </ToggleButton>
+              <ToggleButton value="grid" aria-label="Grid view">
+                <GridViewIcon fontSize="small" />
               </ToggleButton>
             </ToggleButtonGroup>
           </Stack>
@@ -825,21 +829,9 @@ export default function DocumentsPage() {
         {/* Sub-folders grid */}
         {(!currentFolderIsRepo || folderTab === "files") &&
           filteredFolders.length > 0 && (
-            <Box sx={{ mb: 3 }}>
-              <Typography
-                variant="overline"
-                sx={{
-                  fontFamily: fonts.mono,
-                  color: brand.muted,
-                  mb: 1.25,
-                  display: "block",
-                  letterSpacing: 0,
-                  fontSize: "0.8125rem",
-                }}
-              >
-                Folders · {filteredFolders.length}
-              </Typography>
+            <Box>
               <Box
+                className="folder-grid"
                 sx={{
                   display: "grid",
                   gridTemplateColumns:
@@ -848,10 +840,10 @@ export default function DocumentsPage() {
                 }}
               >
                 {filteredFolders.map((folder) => {
-                  const folderColor =
-                    folder.kind === "repo" ? brand.cyan : brand.magenta;
+                  const folderColor = brand.cyan;
                   return (
                     <CornerCard
+                      className="folder-card"
                       key={folder.id}
                       color={
                         dragOverFolderId === folder.id
@@ -997,6 +989,7 @@ export default function DocumentsPage() {
                         }}
                       >
                         <Typography
+                          className="folder-title"
                           noWrap
                           sx={{
                             fontWeight: 500,
@@ -1015,7 +1008,7 @@ export default function DocumentsPage() {
                             textTransform: "none",
                           }}
                         >
-                          {folder.kind === "repo" ? "REPO" : "FOLDER"}
+                          {folder.kind === "repo" ? "Repository" : "Folder"}
                         </Typography>
                       </Box>
                     </CornerCard>
@@ -1051,6 +1044,7 @@ export default function DocumentsPage() {
           filteredDocs.length > 0 && (
             <Box>
               <Typography
+                className="files-heading"
                 variant="overline"
                 sx={{
                   fontFamily: fonts.mono,
@@ -1061,14 +1055,25 @@ export default function DocumentsPage() {
                   fontSize: "0.8125rem",
                 }}
               >
-                Files{" "}
-                <Chip
-                  size="small"
-                  label={filteredDocs.length}
-                  sx={{ ml: 0.5 }}
-                />
+                <Box
+                  component="span"
+                  sx={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 0.5,
+                  }}
+                >
+                  Files <Chip size="small" label={filteredDocs.length} />
+                </Box>
+                <Typography
+                  component="span"
+                  sx={{ fontSize: 12, color: brand.muted }}
+                >
+                  Updated most recently
+                </Typography>
               </Typography>
               <Box
+                className="file-table"
                 role={viewMode === "list" ? "table" : undefined}
                 aria-label="Files"
                 sx={{
@@ -1081,6 +1086,7 @@ export default function DocumentsPage() {
                 {viewMode === "list" && (
                   <Box
                     role="row"
+                    className="file-table-header"
                     sx={{
                       display: { xs: "none", md: "grid" },
                       gridTemplateColumns: "minmax(0,1fr) 160px 180px 44px",
@@ -1093,7 +1099,9 @@ export default function DocumentsPage() {
                     }}
                   >
                     <span role="columnheader">Name</span>
-                    <span role="columnheader">Source</span>
+                    <span className="source-heading" role="columnheader">
+                      Source
+                    </span>
                     <span role="columnheader">Last updated</span>
                     <span />
                   </Box>

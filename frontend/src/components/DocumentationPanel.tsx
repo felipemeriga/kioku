@@ -1,185 +1,84 @@
 import { useState } from "react";
-import {
-  Box,
-  Paper,
-  Typography,
-  Collapse,
-  IconButton,
-  Chip,
-} from "@mui/material";
-import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
-import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
+import { Box, Button, Typography, Collapse } from "@mui/material";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useQuery } from "@tanstack/react-query";
-import { brand, fonts } from "../theme";
+import { brand } from "../theme";
 import { fetchDocumentation } from "../lib/api";
 import { qk } from "../lib/queryKeys";
 
-function relTime(iso: string): string {
-  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
-  if (s < 60) return "just now";
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
-}
-
-/** The "complete overview" deep architecture doc for a repo folder. Renders
- *  nothing for non-repo folders (the endpoint 400s) so it's safe to drop on any
- *  folder view. */
 export default function DocumentationPanel({ folderId }: { folderId: string }) {
   const [expanded, setExpanded] = useState(false);
-
-  // Non-repo folders 400 here → isError → render nothing. The briefing
-  // "Clear & regenerate" invalidates ['documentation', folderId], so this
-  // refetches automatically (no more briefing-cleared event needed).
   const { data, isPending, isError } = useQuery({
     queryKey: qk.documentation(folderId),
     queryFn: () => fetchDocumentation(folderId),
   });
-  const doc = data?.documentation ?? null;
-
+  const doc = data?.documentation;
   if (isPending || isError || !doc) return null;
-
-  const cardSx = {
-    p: 2.5,
-    mb: 3,
-    bgcolor: brand.surface,
-    border: `1px solid ${brand.line}`,
-    borderRadius: 3,
-  } as const;
-
-  const header = (
-    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-      <DescriptionOutlinedIcon sx={{ fontSize: 20, color: brand.cyan }} />
-      <Typography
-        sx={{
-          fontFamily: fonts.display,
-          fontSize: "1.25rem",
-          color: brand.text,
-        }}
-      >
-        Detailed documentation
-      </Typography>
-    </Box>
-  );
-
-  if (!doc) {
-    return (
-      <Paper elevation={0} sx={cardSx}>
-        {header}
-        <Typography sx={{ color: brand.muted, mt: 1, fontSize: "0.9rem" }}>
-          No detailed architecture doc yet. It's generated together with the
-          repo summary — or, in a Claude Code session in this repo, say
-          “generate the docs”.
-        </Typography>
-      </Paper>
-    );
-  }
-
   return (
-    <Paper elevation={0} sx={cardSx}>
+    <Box
+      sx={{
+        border: `1px solid ${brand.line}`,
+        borderRadius: "8px",
+        bgcolor: brand.surface,
+        mb: 3,
+        overflow: "hidden",
+      }}
+    >
       <Box
-        onClick={() => setExpanded(!expanded)}
         sx={{
+          px: 3,
+          py: 2.5,
+          borderBottom: `1px solid ${brand.line}`,
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          cursor: "pointer",
+          gap: 2,
+          flexWrap: "wrap",
         }}
       >
-        {header}
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-          <Chip
-            label={relTime(doc.generated_at)}
-            size="small"
-            sx={{
-              fontFamily: fonts.mono,
-              fontSize: "0.65rem",
-              color: brand.muted,
-              bgcolor: "transparent",
-              border: `1px solid ${brand.line}`,
-            }}
-          />
-          <IconButton size="small" sx={{ color: brand.muted }}>
-            <ExpandMoreIcon
-              sx={{
-                transform: expanded ? "rotate(180deg)" : "rotate(0deg)",
-                transition: "transform 0.2s",
-              }}
-            />
-          </IconButton>
+        <Box>
+          <Typography component="h2" sx={{ fontSize: 20, fontWeight: 600 }}>
+            Detailed documentation
+          </Typography>
+          <Typography sx={{ fontSize: 13, color: brand.muted, mt: 0.5 }}>
+            Generated {new Date(doc.generated_at).toLocaleString()}
+          </Typography>
         </Box>
+        <Button
+          variant="outlined"
+          onClick={() => setExpanded(!expanded)}
+          aria-expanded={expanded}
+        >
+          {expanded ? "Close documentation" : "Read documentation"}
+        </Button>
       </Box>
-
-      {doc.abstract && (
-        <Typography
-          sx={{
-            color: brand.muted,
-            mt: 1.5,
-            fontSize: "0.92rem",
-            lineHeight: 1.6,
-            fontFamily: fonts.body,
-          }}
-        >
-          {doc.abstract}
+      <Box sx={{ p: 3 }}>
+        <Typography sx={{ color: brand.muted, fontSize: 16, lineHeight: 1.75 }}>
+          {doc.abstract || "Generated repository documentation."}
         </Typography>
-      )}
-
-      <Collapse in={expanded} timeout="auto">
-        <Box
-          sx={{
-            mt: 2,
-            pt: 2,
-            borderTop: `1px solid ${brand.line}`,
-            color: brand.text,
-            fontFamily: fonts.body,
-            fontSize: "0.9rem",
-            lineHeight: 1.65,
-            "& h1, & h2, & h3, & h4": {
-              fontFamily: fonts.display,
-              color: brand.text,
-              mt: 2,
-              mb: 1,
-            },
-            "& code": {
-              fontFamily: fonts.mono,
-              fontSize: "0.82em",
-              bgcolor: brand.surface2,
-              px: 0.5,
-              borderRadius: 0.5,
-            },
-            "& pre": {
-              bgcolor: brand.surface2,
-              p: 1.5,
-              borderRadius: 1,
-              overflow: "auto",
-            },
-            "& a": { color: brand.cyan },
-            "& table": { borderCollapse: "collapse" },
-            "& th, & td": { border: `1px solid ${brand.line}`, px: 1, py: 0.5 },
-          }}
-        >
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-            {doc.content}
-          </ReactMarkdown>
-        </Box>
-      </Collapse>
-
-      {!expanded && (
-        <Typography
-          onClick={() => setExpanded(true)}
-          sx={{
-            mt: 1,
-            fontFamily: fonts.mono,
-            fontSize: "0.7rem",
-            color: brand.cyan,
-            cursor: "pointer",
-          }}
-        >
-          ▸ Read the full document
-        </Typography>
-      )}
-    </Paper>
+        <Collapse in={expanded}>
+          <Box
+            sx={{
+              pt: 3,
+              fontSize: 16,
+              lineHeight: 1.75,
+              overflowWrap: "anywhere",
+              "& pre": { overflow: "auto", p: 2, bgcolor: brand.ink },
+              "& table": {
+                display: "block",
+                overflow: "auto",
+                borderCollapse: "collapse",
+              },
+              "& td, & th": { border: `1px solid ${brand.line}`, p: 1 },
+            }}
+          >
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {doc.content}
+            </ReactMarkdown>
+          </Box>
+        </Collapse>
+      </Box>
+    </Box>
   );
 }

@@ -33,11 +33,22 @@ const POLL_MS = 3000;
 
 function formatTs(iso: string | null): string {
   if (!iso) return "never";
-  try {
-    return new Date(iso).toLocaleString();
-  } catch {
-    return iso;
-  }
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "unknown";
+  const time = date.toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return date.toDateString() === new Date().toDateString()
+    ? `today at ${time}`
+    : `${date.toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+        year:
+          date.getFullYear() === new Date().getFullYear()
+            ? undefined
+            : "numeric",
+      })}, ${time}`;
 }
 
 export function NotionSyncBanner({
@@ -127,11 +138,11 @@ export function NotionSyncBanner({
   if (!config) return null;
 
   const wrapSx = {
-    px: 2.5,
-    py: 2,
-    mb: 3,
+    padding: "13px 16px",
+    minHeight: 60,
+    marginBottom: "20px",
     border: `1px solid ${brand.cyan}66`,
-    borderRadius: 1.5,
+    borderRadius: "5px",
     backgroundColor: `${brand.cyan}08`,
   } as const;
 
@@ -193,6 +204,7 @@ export function NotionSyncBanner({
           to="/settings?tab=integrations"
           size="small"
           color="secondary"
+          sx={{ minHeight: 32, py: 0, px: 0, minWidth: 0, fontSize: 13 }}
         >
           Manage
         </Button>

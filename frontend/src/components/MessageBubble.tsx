@@ -1,10 +1,12 @@
 import { Children, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { Box, Typography, Chip, Tooltip, alpha } from "@mui/material";
+import { Box, Button, Typography, Tooltip, alpha } from "@mui/material";
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Citation, DebugTrace } from "../lib/api";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import { useToast } from "./ToastProvider";
 import InspectDialog from "./InspectDialog";
 import CornerCard from "./neo/CornerCard";
 import { brand, fonts } from "../theme";
@@ -149,6 +151,7 @@ export default function MessageBubble({
   citations,
   onOpenDocument,
 }: MessageBubbleProps) {
+  const toast = useToast();
   const isUser = role === "user";
   const [inspectOpen, setInspectOpen] = useState(false);
 
@@ -208,6 +211,7 @@ export default function MessageBubble({
 
   return (
     <Box
+      className="message-bubble"
       sx={{
         display: "flex",
         justifyContent: isUser ? "flex-end" : "flex-start",
@@ -287,6 +291,9 @@ export default function MessageBubble({
               borderRadius: 2,
             }}
           >
+            <Typography sx={{ fontSize: 13, color: brand.cyan, mb: 1.5 }}>
+              Kioku
+            </Typography>
             <Box
               sx={{
                 "& p": { m: 0, mb: 1, "&:last-child": { mb: 0 } },
@@ -359,6 +366,7 @@ export default function MessageBubble({
         )}
         {!isUser && footerSources.length > 0 && (
           <Box
+            className="source-cards"
             data-testid="citation-sources"
             sx={{
               mt: 1,
@@ -383,6 +391,7 @@ export default function MessageBubble({
                 key={c.number}
                 role="button"
                 tabIndex={0}
+                className="source-card"
                 data-testid="citation-source"
                 onClick={() => handleCitationClick(c)}
                 onKeyDown={(e) => {
@@ -408,31 +417,77 @@ export default function MessageBubble({
                   component="span"
                   sx={{ overflowWrap: "anywhere", minWidth: 0 }}
                 >
-                  {citationLabel(c)}
+                  <Typography
+                    component="span"
+                    sx={{
+                      display: "block",
+                      fontSize: 12,
+                      fontWeight: 500,
+                      color: brand.text,
+                    }}
+                  >
+                    {citationLabel(c)}
+                  </Typography>
+                  <Typography
+                    component="span"
+                    sx={{
+                      display: "block",
+                      fontSize: 12,
+                      color: brand.muted,
+                      mt: 0.5,
+                    }}
+                  >
+                    {c.source_type === "code" ? "Code" : "Document"}
+                    {c.excerpt
+                      ? ` · ${c.excerpt.slice(0, 90)}${
+                          c.excerpt.length > 90 ? "…" : ""
+                        }`
+                      : ""}
+                  </Typography>
                 </Box>
               </Box>
             ))}
           </Box>
         )}
-        {!isUser && debug && (
-          <Chip
-            label="⌕ Inspect"
-            size="small"
-            onClick={() => setInspectOpen(true)}
-            sx={{
-              mt: 0.75,
-              cursor: "pointer",
-              height: 28,
-              fontFamily: fonts.mono,
-              fontSize: "0.75rem",
-              bgcolor: `${brand.cyan}10`,
-              color: brand.cyan,
-              border: `1px solid ${brand.cyan}66`,
-              borderRadius: "3px",
-              "& .MuiChip-label": { px: 1.25 },
-              "&:hover": { bgcolor: `${brand.cyan}20` },
-            }}
-          />
+        {!isUser && (
+          <Box sx={{ display: "flex", gap: 2, alignItems: "center", mt: 1 }}>
+            <Button
+              size="small"
+              startIcon={<ContentCopyIcon sx={{ fontSize: 14 }} />}
+              sx={{
+                color: brand.muted,
+                minHeight: 32,
+                p: 0,
+                fontWeight: 400,
+                fontSize: 13,
+              }}
+              onClick={() => {
+                void navigator.clipboard
+                  .writeText(content)
+                  .then(() => toast.showSuccess("Answer copied."))
+                  .catch((err) =>
+                    toast.showError(err, "Couldn’t copy answer.")
+                  );
+              }}
+            >
+              Copy answer
+            </Button>
+            {debug && (
+              <Button
+                size="small"
+                sx={{
+                  color: brand.cyan,
+                  minHeight: 32,
+                  p: 0,
+                  fontWeight: 400,
+                  fontSize: 13,
+                }}
+                onClick={() => setInspectOpen(true)}
+              >
+                Inspect response
+              </Button>
+            )}
+          </Box>
         )}
       </Box>
       {!isUser && debug && (
