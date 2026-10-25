@@ -13,38 +13,45 @@ export default function GridFloor({ animate = false, sx }: GridFloorProps) {
       aria-hidden="true"
       sx={{
         position: "absolute",
-        left: "-400px",
-        right: "-400px",
+        left: 0,
+        right: 0,
         bottom: 0,
         height: "40%",
         overflow: "hidden",
         pointerEvents: "none",
-        // Grid inner element uses the perspective + rotateX approach from mockup
-        "&::before": {
-          content: '""',
-          position: "absolute",
-          inset: 0,
-          backgroundColor: "#08040F",
-          backgroundImage: `linear-gradient(${brand.cyan}55 1.5px, transparent 1.5px), linear-gradient(90deg, ${brand.cyan}55 1.5px, transparent 1.5px)`,
-          backgroundSize: "64px 48px",
-          transform: "perspective(360px) rotateX(62deg)",
-          transformOrigin: "top center",
-          // Animated grid scroll — slowly moves toward horizon
-          ...(animate
-            ? {
-                "@keyframes gridScroll": {
-                  "0%": { backgroundPosition: "0px 0px" },
-                  "100%": { backgroundPosition: "0px 48px" },
-                },
-                animation: "gridScroll 8s linear infinite",
-                "@media (prefers-reduced-motion: reduce)": {
-                  animation: "none",
-                },
-              }
-            : {}),
-        },
         ...sx,
       }}
-    />
+    >
+      <Box
+        sx={{
+          position: "absolute",
+          inset: 0,
+          transform: "perspective(360px) rotateX(62deg)",
+          transformOrigin: "top center",
+        }}
+      >
+        <Box
+          data-testid="retro-grid"
+          sx={{
+            position: "absolute",
+            inset: "-48px -40% 0",
+            backgroundImage: `linear-gradient(${brand.cyan}66 1px, transparent 1px), linear-gradient(90deg, ${brand.cyan}66 1px, transparent 1px)`,
+            backgroundSize: "64px 48px",
+            ...(animate
+              ? {
+                  "@keyframes gridScroll": {
+                    from: { transform: "translate3d(0,-48px,0)" },
+                    to: { transform: "translate3d(0,0,0)" },
+                  },
+                  animation: "gridScroll 8s linear infinite",
+                  "@media (prefers-reduced-motion: reduce)": {
+                    animation: "none",
+                  },
+                }
+              : {}),
+          }}
+        />
+      </Box>
+    </Box>
   );
 }

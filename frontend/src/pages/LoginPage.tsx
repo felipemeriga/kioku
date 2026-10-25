@@ -13,7 +13,8 @@ import {
 } from "@mui/material";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
-import { brand, fonts } from "../theme";
+import { brand, fonts, neonGlow } from "../theme";
+import NeoAtmosphere from "../components/neo/NeoAtmosphere";
 
 export default function LoginPage() {
   const { session, loading: authLoading } = useAuth();
@@ -91,9 +92,21 @@ export default function LoginPage() {
         px: 3,
         py: 6,
         background: brand.ink,
+        position: "relative",
+        isolation: "isolate",
+        overflow: "hidden",
       }}
     >
-      <Stack spacing={4} sx={{ width: "100%", maxWidth: 420 }}>
+      <NeoAtmosphere login />
+      <Stack
+        spacing={4}
+        sx={{
+          width: "100%",
+          maxWidth: 420,
+          ml: { xs: 0, md: "44%" },
+          position: "relative",
+        }}
+      >
         <Stack direction="row" alignItems="center" spacing={1.5}>
           <Box
             aria-hidden="true"
@@ -127,7 +140,9 @@ export default function LoginPage() {
           onSubmit={handleSubmit}
           sx={{
             p: { xs: 2.5, sm: 4 },
-            border: `1px solid ${brand.line}`,
+            border: `1px solid ${brand.magenta}`,
+            borderTop: `2px solid ${brand.cyan}`,
+            boxShadow: neonGlow(brand.magenta, 2),
             borderRadius: 2,
             bgcolor: brand.surface,
           }}
