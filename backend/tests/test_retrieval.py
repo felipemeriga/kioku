@@ -7,6 +7,28 @@ import pytest
 from services import retrieval
 
 
+@pytest.mark.parametrize(
+    "rows,expected", [([{"id": "workspace"}, {"id": "repo"}], "workspace"), ([], "repo")]
+)
+def test_root_resolution_uses_one_owner_filtered_rpc(rows, expected):
+    sb = MagicMock()
+    sb.rpc.return_value.execute.return_value.data = rows
+    assert retrieval._resolve_root_folder_id(sb, "repo", "alice") == expected
+    sb.rpc.assert_called_once_with(
+        "folder_breadcrumbs", {"p_folder_id": "repo", "p_user_id": "alice"}
+    )
+    sb.table.assert_not_called()
+
+
+def test_root_resolution_failure_does_not_widen_scope():
+    sb = MagicMock()
+    sb.rpc.return_value.execute.side_effect = RuntimeError("unavailable")
+    assert retrieval._resolve_root_folder_id(sb, "repo", "alice") == "repo"
+    sb.reset_mock()
+    assert retrieval._resolve_root_folder_id(sb, None, "alice") is None
+    sb.rpc.assert_not_called()
+
+
 @pytest.mark.asyncio
 async def test_retrieval_preserves_scope_filters_and_logs(monkeypatch):
     sb = MagicMock()

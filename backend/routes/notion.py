@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from auth import get_current_user
-from db.client import get_supabase
+from db.client import get_supabase_thread_safe as get_supabase
 from services.crypto import decrypt_secret, encrypt_secret
 from services.notion_sync.client import NotionClient
 from services.notion_sync.reconciliation import pending_pages
@@ -60,7 +60,7 @@ class NotionPageOption(BaseModel):
 
 
 @router.get("/configs", response_model=list[ConfigResponse])
-async def list_configs(user_id: str = Depends(get_current_user)):
+def list_configs(user_id: str = Depends(get_current_user)):
     sb = get_supabase()
     rows = (
         sb.table("notion_sync_configs")

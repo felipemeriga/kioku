@@ -56,7 +56,7 @@ def _get_signing_key(token: str) -> tuple[jwt.PyJWK, str]:
     raise jwt.InvalidTokenError(f"No matching key found for kid: {kid}")
 
 
-async def get_current_user(request: Request) -> str:
+def get_current_user(request: Request) -> str:
     """Extract and validate Supabase JWT. Returns user_id."""
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):

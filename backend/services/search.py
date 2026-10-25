@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from langsmith import traceable
 
-from db.client import get_supabase
+from db.client import get_supabase_thread_safe as get_supabase
 from services.embeddings import embed_query
 from services.metrics import record, submit_with_context
 from services.query import generate_multi_queries, rewrite_query
