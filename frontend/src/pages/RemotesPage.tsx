@@ -334,9 +334,6 @@ export default function RemotesPage() {
                       {repo.agents.map((agent) => (
                         <span key={agent}>
                           {agent === "claude" ? "✳ Claude Code" : "›_ Codex"}
-                          <small className="remote-configured-label">
-                            Configured
-                          </small>
                         </span>
                       ))}
                     </div>
@@ -345,44 +342,18 @@ export default function RemotesPage() {
                         repo.available ? "" : " unavailable"
                       }`}
                     >
-                      {repo.available ? "Initialized" : "Path unavailable"}
+                      {repo.available ? "" : "Path unavailable"}
                     </span>
                   </div>
                 ))}
               </div>
             )}
-            <p className="remote-footnote">
-              Configured means this repository was initialized with Kioku. It
-              does not mean an agent is installed, running, or has an open
-              session.
+            <p
+              className="remote-footnote"
+              title="Providers listed here are repository configurations, not detected running processes or open sessions."
+            >
+              Configured providers · activity detection is not enabled.
             </p>
-            {selected.inventory != null && selected.inventory.length > 0 && (
-              <>
-                <div className="remote-section-title">
-                  <h3>Configured agents</h3>
-                  <span>Repository configuration · no process detection</span>
-                </div>
-                <div className="remote-agents">
-                  {(["claude", "codex"] as const).map((agent) => {
-                    const repos = selected.inventory!.filter((repo) =>
-                      repo.agents.includes(agent)
-                    );
-                    return repos.length ? (
-                      <section className="remote-agent" key={agent}>
-                        <h4>{agent === "claude" ? "Claude Code" : "Codex"}</h4>
-                        <p>
-                          {repos.length} initialized{" "}
-                          {repos.length === 1 ? "repository" : "repositories"}
-                        </p>
-                        <p className="remote-footnote">
-                          {repos.map((repo) => repo.name).join(" · ")}
-                        </p>
-                      </section>
-                    ) : null;
-                  })}
-                </div>
-              </>
-            )}
             <div className="remote-section-title">
               <h3>Connection</h3>
               <span>Authenticated outbound WebSocket</span>

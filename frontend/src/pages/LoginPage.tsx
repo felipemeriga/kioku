@@ -214,8 +214,8 @@ export default function LoginPage() {
               "@media(max-width:900px)": { fontSize: 15 },
             }}
           >
-            Documents, repository context, and grounded answers. A second brain
-            for the way you build.
+            Documents, repository knowledge, and a shared memory layer for your
+            coding agents. Grounded answers for the way you build.
           </Typography>
         </Box>
         <Typography
