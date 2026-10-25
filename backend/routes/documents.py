@@ -233,7 +233,7 @@ async def list_documents(
     sb = get_supabase()
     rows = (
         sb.rpc(
-            "list_documents_grouped",
+            "list_documents_grouped_v2",
             {"p_user_id": user_id, "p_folder_id": folder_id},
         ).execute()
     ).data or []

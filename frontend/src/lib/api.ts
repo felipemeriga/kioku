@@ -552,6 +552,7 @@ export interface DocumentInfo {
   chunks: number;
   status: "processing" | "completed" | "failed";
   created_at: string;
+  last_updated?: string | null;
   folder_id: string | null;
 }
 
