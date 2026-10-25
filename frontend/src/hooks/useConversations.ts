@@ -8,34 +8,46 @@ import {
   fetchConversation,
 } from "../lib/api";
 import { qk } from "../lib/queryKeys";
+import { useAuth } from "./useAuth";
+import { messageFromError } from "../components/ToastProvider";
 
 export function useConversations() {
   const queryClient = useQueryClient();
+  const { user, loading: authLoading } = useAuth();
+  const ownerId = user?.id ?? null;
   // selectedId + messages stay local: messages are both server-loaded AND
   // appended live during the chat SSE stream, which React Query shouldn't own.
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [messagesError, setMessagesError] = useState<string | null>(null);
+  const [messageAttempt, setMessageAttempt] = useState(0);
 
-  const { data: conversations = [], isSuccess } = useQuery({
-    queryKey: qk.conversations(),
+  const listQuery = useQuery({
+    queryKey: qk.conversationsForUser(ownerId),
     queryFn: fetchConversations,
+    enabled: !authLoading && !!ownerId,
   });
+  const { data: conversations = [], isSuccess } = listQuery;
 
   const loadConversations = useCallback(
-    () => queryClient.invalidateQueries({ queryKey: qk.conversations() }),
-    [queryClient]
+    () =>
+      queryClient.invalidateQueries({
+        queryKey: qk.conversationsForUser(ownerId),
+      }),
+    [queryClient, ownerId]
   );
 
   const createConversation = useCallback(async () => {
     const conv = await apiCreateConversation();
-    queryClient.setQueryData<Conversation[]>(qk.conversations(), (prev) => [
-      conv,
-      ...(prev ?? []),
-    ]);
+    queryClient.setQueryData<Conversation[]>(
+      qk.conversationsForUser(ownerId),
+      (prev) => [conv, ...(prev ?? [])]
+    );
     setSelectedId(conv.id);
     setMessages([]);
     return conv;
-  }, [queryClient]);
+  }, [queryClient, ownerId]);
 
   // Auto-select the first conversation, or create one for a brand-new user so
   // the chat is immediately usable (#90). Runs once after the list first loads.
@@ -59,50 +71,86 @@ export function useConversations() {
   // Rename-from-sidebar dispatches conversations-changed → refetch the list.
   useEffect(() => {
     const handler = () => {
-      void queryClient.invalidateQueries({ queryKey: qk.conversations() });
+      void queryClient.invalidateQueries({
+        queryKey: qk.conversationsForUser(ownerId),
+      });
     };
     window.addEventListener("conversations-changed", handler);
     return () => window.removeEventListener("conversations-changed", handler);
-  }, [queryClient]);
+  }, [queryClient, ownerId]);
 
   // Load messages for the selected conversation; chat streaming then appends
   // to this local state live via setMessages.
   useEffect(() => {
     if (!selectedId) return;
     let active = true;
-    fetchConversation(selectedId).then((conv) => {
+    void Promise.resolve().then(async () => {
       if (!active) return;
-      setMessages(conv.messages);
+      setMessagesLoading(true);
+      setMessagesError(null);
+      try {
+        const conv = await fetchConversation(selectedId);
+        if (active) setMessages(conv.messages);
+      } catch (error) {
+        if (active) {
+          setMessages([]);
+          setMessagesError(messageFromError(error));
+        }
+      } finally {
+        if (active) setMessagesLoading(false);
+      }
     });
     return () => {
       active = false;
     };
-  }, [selectedId]);
+  }, [selectedId, messageAttempt]);
 
-  const selectConversation = useCallback((id: string) => {
-    setSelectedId(id);
-  }, []);
+  const selectConversation = useCallback(
+    (id: string) => {
+      if (id === selectedId) return;
+      setMessages([]);
+      setMessagesError(null);
+      setMessagesLoading(true);
+      setSelectedId(id);
+    },
+    [selectedId]
+  );
+  const retryMessages = useCallback(
+    () => setMessageAttempt((attempt) => attempt + 1),
+    []
+  );
 
   const removeConversation = useCallback(
     async (id: string) => {
       await apiDeleteConversation(id);
       const prev =
-        queryClient.getQueryData<Conversation[]>(qk.conversations()) ?? [];
+        queryClient.getQueryData<Conversation[]>(
+          qk.conversationsForUser(ownerId)
+        ) ?? [];
       const remaining = prev.filter((c) => c.id !== id);
-      queryClient.setQueryData(qk.conversations(), remaining);
+      queryClient.setQueryData(qk.conversationsForUser(ownerId), remaining);
       if (selectedId === id) {
         const next = remaining.length > 0 ? remaining[0].id : null;
         setSelectedId(next);
-        if (!next) setMessages([]);
+        setMessages([]);
+        setMessagesError(null);
+        setMessagesLoading(!!next);
       }
     },
-    [queryClient, selectedId]
+    [queryClient, selectedId, ownerId]
   );
 
   return {
     conversations,
+    conversationsLoading: listQuery.isPending,
+    conversationsError: listQuery.isError
+      ? messageFromError(listQuery.error)
+      : null,
     selectedId,
     messages,
+    messagesLoading,
+    messagesError,
+    retryMessages,
     setMessages,
     selectConversation,
     loadConversations,

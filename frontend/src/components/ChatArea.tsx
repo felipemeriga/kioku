@@ -1,5 +1,13 @@
 import { useEffect, useRef } from "react";
-import { Box, Chip, Stack, Typography } from "@mui/material";
+import {
+  Alert,
+  Box,
+  Button,
+  Chip,
+  CircularProgress,
+  Stack,
+  Typography,
+} from "@mui/material";
 import MessageBubble from "./MessageBubble";
 import ChatInput from "./ChatInput";
 import ThinkingBar from "./ThinkingBar";
@@ -14,6 +22,9 @@ import type {
 import { brand, fonts } from "../theme";
 
 interface ChatAreaProps {
+  messagesLoading?: boolean;
+  messagesError?: string | null;
+  onRetryMessages?: () => void;
   messages: Message[];
   streamingContent: string;
   isStreaming: boolean;
@@ -40,6 +51,9 @@ const SUGGESTIONS = [
 ];
 
 export default function ChatArea({
+  messagesLoading = false,
+  messagesError = null,
+  onRetryMessages,
   messages,
   streamingContent,
   isStreaming,
@@ -71,11 +85,12 @@ export default function ChatArea({
 
   return (
     <Box
+      className="chat-workspace"
       sx={{
         flex: 1,
         display: "flex",
         flexDirection: "column",
-        height: "100%",
+        height: "auto",
         minHeight: 0,
         width: "100%",
       }}
@@ -85,108 +100,133 @@ export default function ChatArea({
         onScroll={handleScroll}
         sx={{ flex: 1, overflow: "auto" }}
       >
-        <Box sx={{ py: { xs: 3, md: 5 }, px: { xs: 2, md: 5 }, width: "100%" }}>
-          {messages.length === 0 && !isStreaming && (
-            <Stack
-              alignItems="center"
-              spacing={2.5}
-              sx={{
-                minHeight: "calc(100dvh - 260px)",
-                justifyContent: "center",
-                px: { xs: 0, sm: 3 },
-              }}
+        <Box
+          className="thread-content"
+          sx={{ py: 3, px: "26px", width: "100%" }}
+        >
+          {messagesLoading && (
+            <Box
+              role="status"
+              sx={{ display: "flex", alignItems: "center", gap: 1, p: 3 }}
             >
-              {/* Brand glyph */}
-              <Box
+              <CircularProgress size={18} />
+              <Typography color="text.secondary">
+                Loading conversation…
+              </Typography>
+            </Box>
+          )}
+          {messagesError && (
+            <Alert
+              severity="error"
+              action={<Button onClick={onRetryMessages}>Retry</Button>}
+            >
+              Couldn’t load this conversation. {messagesError}
+            </Alert>
+          )}
+          {messages.length === 0 &&
+            !isStreaming &&
+            !messagesLoading &&
+            !messagesError && (
+              <Stack
+                alignItems="center"
+                spacing={2.5}
                 sx={{
-                  width: 54,
-                  height: 54,
-                  borderRadius: "6px",
-                  border: `1.5px solid ${brand.magenta}`,
-                  display: "flex",
-                  alignItems: "center",
+                  minHeight: "min(480px, 50dvh)",
                   justifyContent: "center",
-                  fontFamily: fonts.jp,
-                  fontWeight: 900,
-                  fontSize: "1.8rem",
-                  color: brand.magentaGlow,
-                  boxShadow: "none",
+                  px: { xs: 0, sm: 3 },
                 }}
               >
-                記
-              </Box>
+                {/* Brand glyph */}
+                <Box
+                  sx={{
+                    width: 54,
+                    height: 54,
+                    borderRadius: "6px",
+                    border: `1.5px solid ${brand.magenta}`,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontFamily: fonts.jp,
+                    fontWeight: 900,
+                    fontSize: "1.8rem",
+                    color: brand.magentaGlow,
+                    boxShadow: "none",
+                  }}
+                >
+                  記
+                </Box>
 
-              <Stack spacing={0.5} alignItems="center">
-                <Typography
-                  variant="overline"
-                  sx={{
-                    fontFamily: fonts.body,
-                    fontSize: "0.875rem",
-                    letterSpacing: 0,
-                    color: brand.cyan,
-                  }}
-                >
-                  Ready when you are
-                </Typography>
-                <Typography
-                  sx={{
-                    fontFamily: fonts.display,
-                    fontWeight: 700,
-                    fontSize: "1.6rem",
-                    letterSpacing: "-0.02em",
-                    color: brand.text,
-                  }}
-                >
-                  Ask your second brain.
-                </Typography>
-                <Typography
-                  sx={{
-                    fontFamily: fonts.body,
-                    fontSize: "0.9rem",
-                    color: brand.muted,
-                    textAlign: "center",
-                    maxWidth: 460,
-                    mt: 0.5,
-                  }}
-                >
-                  Query your repos and docs, or reach for the web when your
-                  corpus doesn't have the answer.
-                </Typography>
-              </Stack>
-
-              {/* Suggestion neon cards */}
-              <Stack
-                direction="row"
-                flexWrap="wrap"
-                useFlexGap
-                justifyContent="center"
-                sx={{ mt: 1, maxWidth: 600, columnGap: 1, rowGap: 1.25 }}
-              >
-                {SUGGESTIONS.map((text) => (
-                  <Chip
-                    key={text}
-                    label={text}
-                    variant="outlined"
-                    onClick={() => onSend(text)}
+                <Stack spacing={0.5} alignItems="center">
+                  <Typography
+                    variant="overline"
                     sx={{
                       fontFamily: fonts.body,
                       fontSize: "0.875rem",
-                      borderRadius: "3px",
-                      borderColor: `${brand.magenta}55`,
-                      color: brand.muted,
-                      bgcolor: `${brand.magenta}08`,
-                      "&:hover": {
-                        bgcolor: `${brand.magenta}18`,
-                        borderColor: brand.magenta,
-                        color: brand.text,
-                        boxShadow: "none",
-                      },
+                      letterSpacing: 0,
+                      color: brand.cyan,
                     }}
-                  />
-                ))}
+                  >
+                    Ready when you are
+                  </Typography>
+                  <Typography
+                    sx={{
+                      fontFamily: fonts.display,
+                      fontWeight: 700,
+                      fontSize: "1.6rem",
+                      letterSpacing: "-0.02em",
+                      color: brand.text,
+                    }}
+                  >
+                    Ask your second brain.
+                  </Typography>
+                  <Typography
+                    sx={{
+                      fontFamily: fonts.body,
+                      fontSize: "0.9rem",
+                      color: brand.muted,
+                      textAlign: "center",
+                      maxWidth: 460,
+                      mt: 0.5,
+                    }}
+                  >
+                    Query your repos and docs, or reach for the web when your
+                    corpus doesn't have the answer.
+                  </Typography>
+                </Stack>
+
+                {/* Suggestion neon cards */}
+                <Stack
+                  direction="row"
+                  flexWrap="wrap"
+                  useFlexGap
+                  justifyContent="center"
+                  sx={{ mt: 1, maxWidth: 600, columnGap: 1, rowGap: 1.25 }}
+                >
+                  {SUGGESTIONS.map((text) => (
+                    <Chip
+                      key={text}
+                      label={text}
+                      variant="outlined"
+                      onClick={() => onSend(text)}
+                      sx={{
+                        fontFamily: fonts.body,
+                        fontSize: "0.875rem",
+                        borderRadius: "3px",
+                        borderColor: `${brand.magenta}55`,
+                        color: brand.muted,
+                        bgcolor: `${brand.magenta}08`,
+                        "&:hover": {
+                          bgcolor: `${brand.magenta}18`,
+                          borderColor: brand.magenta,
+                          color: brand.text,
+                          boxShadow: "none",
+                        },
+                      }}
+                    />
+                  ))}
+                </Stack>
               </Stack>
-            </Stack>
-          )}
+            )}
           {messages.map((msg) => (
             <MessageBubble
               key={msg.id}
@@ -213,7 +253,7 @@ export default function ChatArea({
       </Box>
       <ChatInput
         onSend={onSend}
-        disabled={isStreaming}
+        disabled={isStreaming || messagesLoading || !!messagesError}
         scope={scope}
         onPickScope={onPickScope}
         onClearScope={onClearScope}

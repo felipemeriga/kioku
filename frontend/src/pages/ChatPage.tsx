@@ -33,6 +33,9 @@ export default function ChatPage() {
   const {
     selectedId,
     messages,
+    messagesLoading,
+    messagesError,
+    retryMessages,
     setMessages,
     loadConversations,
     createConversation,
@@ -214,6 +217,9 @@ export default function ChatPage() {
     <>
       <ChatArea
         messages={messages}
+        messagesLoading={messagesLoading}
+        messagesError={messagesError}
+        onRetryMessages={retryMessages}
         streamingContent={streamingContent}
         isStreaming={isStreaming}
         currentStage={currentStage}

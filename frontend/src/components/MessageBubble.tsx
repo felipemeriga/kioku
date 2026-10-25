@@ -1,10 +1,22 @@
 import { Children, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { Box, Typography, Chip, Tooltip, alpha } from "@mui/material";
+import {
+  Box,
+  Button,
+  Typography,
+  Tooltip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  alpha,
+} from "@mui/material";
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Citation, DebugTrace } from "../lib/api";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import { useToast } from "./ToastProvider";
 import InspectDialog from "./InspectDialog";
 import CornerCard from "./neo/CornerCard";
 import { brand, fonts } from "../theme";
@@ -20,13 +32,69 @@ interface MessageBubbleProps {
 
 const CITE_RE = /\[(\d+)\]/g;
 
-/** A short label for a source in the footer / tooltip. */
-function citationLabel(c: Citation): string {
-  if (c.source_type === "code") {
-    const loc = c.line ? `${c.file ?? c.source}:${c.line}` : c.file ?? c.source;
-    return c.symbol ? `${loc} — ${c.symbol}` : loc;
+/** Presentation metadata never changes the source identity used for activation. */
+function citationDetails(c: Citation) {
+  const metadata = `${c.source ?? ""} ${c.excerpt ?? ""}`;
+  const field = (name: string) =>
+    metadata
+      .match(
+        new RegExp(`\\[${name}(?:\\s*[:=]\\s*|\\s+)([^\\]]+)\\]`, "i")
+      )?.[1]
+      ?.trim();
+  const raw =
+    c.file?.trim() ||
+    field("file") ||
+    field("code")?.split(/\s+[—–]\s+/)[0] ||
+    (c.source ?? "")
+      .replace(/\[(?:repo|file|lines?|symbol)(?:\s*[:=]\s*|\s+)[^\]]*\]/gi, "")
+      .trim();
+  const path = raw.replace(/:\d+(?:-\d+)?$/, "");
+  const filename = path.split(/[\\/]/).filter(Boolean).pop();
+  let repo = field("repo");
+  if (!repo && c.url) {
+    try {
+      const url = new URL(c.url);
+      if (url.hostname === "github.com")
+        repo = url.pathname.split("/").filter(Boolean).slice(0, 2).join("/");
+    } catch {
+      /* Invalid URLs are left to the existing activation contract. */
+    }
   }
-  return c.source;
+  const lineRange =
+    field("lines?") ||
+    field("file")?.match(/:(\d+(?:-\d+)?)$/)?.[1] ||
+    field("code")?.match(/:(\d+(?:-\d+)?)(?:\s|$)/)?.[1] ||
+    c.source?.match(/:(\d+(?:-\d+)?)$/)?.[1] ||
+    raw.match(/:(\d+(?:-\d+)?)$/)?.[1] ||
+    (c.line ? String(c.line) : undefined);
+  const title =
+    filename && !/^(unknown|\[unknown\])$/i.test(filename)
+      ? filename
+      : c.source_type === "code"
+      ? "Retrieved code source"
+      : "Retrieved source";
+  return { title, path: path !== title ? path : "", repo, lineRange };
+}
+
+function citationLabel(c: Citation): string {
+  const { title, lineRange } = citationDetails(c);
+  return lineRange ? `${title}:${lineRange}` : title;
+}
+
+/** Source previews are short prose, never raw fenced Markdown or a wall of code. */
+function citationPreview(value: string): string {
+  const text = value
+    .replace(/\[Code\s*:\s*[^\]]*\]/gi, " ")
+    .replace(
+      /\[(?:repo|file|lines?|symbol|source_type)(?:\s*[:=]\s*|\s+)[^\]]*\]/gi,
+      " "
+    )
+    .replace(/(^|\n)[ \t]*(?:`{3,}|~{3,})[\w+-]*[ \t]*(?:\r?\n|$)/g, "$1")
+    .replace(/`+|~{3,}/g, "")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text.length > 220 ? `${text.slice(0, 219).trimEnd()}…` : text;
 }
 
 /** Citation numbers that actually appear in the answer text, ignoring any that
@@ -38,7 +106,7 @@ function citedNumbers(content: string): Set<number> {
   return nums;
 }
 
-/** Inline [N] chip — hover shows the source + excerpt, click opens it. */
+/** Hover/focus is a bounded preview; activation follows the real source contract. */
 function CitationChip({
   c,
   onClick,
@@ -46,58 +114,172 @@ function CitationChip({
   c: Citation;
   onClick: (c: Citation) => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const activate = () => {
+    setOpen(false);
+    onClick(c);
+  };
   return (
     <Tooltip
       arrow
+      describeChild
+      placement="top"
+      disableInteractive
+      disableTouchListener
+      open={open}
+      onOpen={() => setOpen(true)}
+      onClose={() => setOpen(false)}
+      slotProps={{
+        tooltip: {
+          sx: {
+            maxWidth: "min(480px, calc(100vw - 32px))",
+            boxSizing: "border-box",
+            maxHeight: "min(320px, calc(100dvh - 32px))",
+            overflow: "hidden",
+            p: "12px 14px",
+            color: brand.text,
+            bgcolor: brand.raised,
+            border: `1px solid ${brand.lineGlow}`,
+            overflowWrap: "anywhere",
+            wordBreak: "break-word",
+            fontSize: 13,
+            lineHeight: 1.55,
+          },
+        },
+        popper: {
+          disablePortal: false,
+          modifiers: [
+            { name: "offset", options: { offset: [0, 8] } },
+            {
+              name: "flip",
+              options: {
+                rootBoundary: "viewport",
+                padding: 16,
+                fallbackPlacements: [
+                  "top-start",
+                  "top-end",
+                  "bottom-start",
+                  "bottom-end",
+                ],
+              },
+            },
+            {
+              name: "preventOverflow",
+              options: {
+                rootBoundary: "viewport",
+                padding: 16,
+                altAxis: true,
+                tether: false,
+              },
+            },
+          ],
+        },
+      }}
       title={
-        <Box sx={{ maxWidth: 320 }}>
+        <Box>
           <Typography
+            component="span"
             sx={{
-              fontFamily: fonts.mono,
-              fontSize: "0.7rem",
+              display: "-webkit-box",
+              WebkitBoxOrient: "vertical",
+              WebkitLineClamp: 2,
+              overflow: "hidden",
+              overflowWrap: "anywhere",
+              fontSize: 13,
+              fontWeight: 600,
+              lineHeight: 1.45,
               color: brand.cyan,
             }}
           >
-            {citationLabel(c)}
+            {citationDetails(c).title}
+          </Typography>
+          {citationDetails(c).path && (
+            <Typography
+              component="span"
+              sx={{
+                display: "block",
+                fontSize: 12,
+                lineHeight: 1.55,
+                color: brand.muted,
+                overflowWrap: "anywhere",
+                mt: 0.5,
+              }}
+            >
+              {citationDetails(c).path}
+            </Typography>
+          )}
+          <Typography
+            component="span"
+            sx={{ display: "block", fontSize: 11, color: brand.muted, mt: 0.5 }}
+          >
+            {[
+              c.source_type === "code" ? "Code" : "Document",
+              citationDetails(c).repo,
+              citationDetails(c).lineRange
+                ? `Lines ${citationDetails(c).lineRange}`
+                : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
           </Typography>
           {c.excerpt && (
             <Typography
+              data-testid="citation-preview"
+              component="span"
               sx={{
-                fontSize: "0.75rem",
-                mt: 0.5,
-                color: alpha("#ffffff", 0.8),
-                whiteSpace: "pre-wrap",
+                display: "block",
+                fontSize: 14,
+                lineHeight: 1.65,
+                color: brand.text,
+                mt: 1,
+                whiteSpace: "normal",
+                overflowWrap: "anywhere",
               }}
             >
-              {c.excerpt}
+              {citationPreview(c.excerpt)}
             </Typography>
           )}
         </Box>
       }
     >
       <Box
-        component="span"
-        role="button"
-        tabIndex={0}
+        component="button"
+        type="button"
         data-testid="citation-chip"
-        onClick={() => onClick(c)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") onClick(c);
+        aria-label={`Open source ${c.number}: ${citationLabel(c)}`}
+        onClick={activate}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            activate();
+          } else if (event.key === "Escape") setOpen(false);
         }}
         sx={{
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          minWidth: 20,
+          height: 20,
           cursor: "pointer",
-          mx: "1px",
+          mx: "2px",
           px: "4px",
           fontFamily: fonts.mono,
-          fontSize: "0.72em",
+          fontSize: 12,
           fontWeight: 600,
           lineHeight: 1,
-          verticalAlign: "super",
+          verticalAlign: "baseline",
+          position: "relative",
+          top: "-0.1em",
           color: brand.cyan,
-          borderRadius: "3px",
-          border: `1px solid ${brand.cyan}55`,
+          borderRadius: "4px",
+          border: `1px solid ${brand.cyan}77`,
           bgcolor: `${brand.cyan}12`,
+          touchAction: "manipulation",
           "&:hover": { bgcolor: `${brand.cyan}26` },
+          "&:focus-visible": {
+            outline: `2px solid ${brand.cyan}`,
+            outlineOffset: 3,
+          },
         }}
       >
         {c.number}
@@ -149,19 +331,25 @@ export default function MessageBubble({
   citations,
   onOpenDocument,
 }: MessageBubbleProps) {
+  const toast = useToast();
   const isUser = role === "user";
   const [inspectOpen, setInspectOpen] = useState(false);
+  const [excerptSource, setExcerptSource] = useState<Citation | null>(null);
 
   const handleCitationClick = useMemo(
     () => (c: Citation) => {
       if (c.source_type === "document") {
-        if (onOpenDocument) onOpenDocument(c.source, c.folder_id);
+        const filename = c.source?.trim() ?? "";
+        if (!filename || /^(unknown|\[unknown\])$/i.test(filename)) {
+          setExcerptSource(c);
+        } else if (onOpenDocument) onOpenDocument(filename, c.folder_id);
         else if (c.url) window.open(c.url, "_blank", "noopener,noreferrer");
+        else setExcerptSource(c);
       } else if (c.url) {
-        // Code source → open the GitHub blob deep link.
         window.open(c.url, "_blank", "noopener,noreferrer");
+      } else {
+        setExcerptSource(c);
       }
-      // Code with no URL: the hover popover already surfaces the excerpt.
     },
     [onOpenDocument]
   );
@@ -208,7 +396,10 @@ export default function MessageBubble({
 
   return (
     <Box
+      className="message-bubble"
       sx={{
+        minWidth: 0,
+        maxWidth: "100%",
         display: "flex",
         justifyContent: isUser ? "flex-end" : "flex-start",
         alignItems: "flex-start",
@@ -282,18 +473,34 @@ export default function MessageBubble({
               px: { xs: 2, sm: 3 },
               py: 2.5,
               width: "100%",
+              minWidth: 0,
+              maxWidth: "100%",
+              boxSizing: "border-box",
               border: `1px solid ${brand.cyan}99`,
               bgcolor: brand.surface,
               borderRadius: 2,
             }}
           >
+            <Typography sx={{ fontSize: 13, color: brand.cyan, mb: 1.5 }}>
+              Kioku
+            </Typography>
             <Box
               sx={{
                 "& p": { m: 0, mb: 1, "&:last-child": { mb: 0 } },
                 "& ul, & ol": { my: 0.5, pl: 2.5 },
                 "& li": { mb: 0.25 },
+                minWidth: 0,
+                width: "100%",
+                maxWidth: "100%",
                 "& pre": {
-                  overflow: "auto",
+                  display: "block",
+                  minWidth: 0,
+                  maxWidth: "100%",
+                  boxSizing: "border-box",
+                  overflowX: "auto",
+                  whiteSpace: "pre",
+                  overflowWrap: "normal",
+                  wordBreak: "normal",
                   bgcolor: alpha("#000000", 0.3),
                   p: 1.5,
                   borderRadius: 2,
@@ -303,6 +510,17 @@ export default function MessageBubble({
                   fontSize: "0.85rem",
                   fontFamily: fonts.mono,
                 },
+                "& pre code": {
+                  whiteSpace: "pre",
+                  overflowWrap: "normal",
+                  wordBreak: "normal",
+                  fontSize: 13,
+                },
+                "& :not(pre) > code": {
+                  overflowWrap: "anywhere",
+                  wordBreak: "break-word",
+                  whiteSpace: "break-spaces",
+                },
                 "& a": {
                   color: brand.cyan,
                   textDecoration: "none",
@@ -311,6 +529,8 @@ export default function MessageBubble({
                 // GFM tables (enabled via remark-gfm): compact, scrollable
                 // container so a wide table doesn't blow out the bubble.
                 "& .md-table-wrap": {
+                  minWidth: 0,
+                  maxWidth: "100%",
                   overflowX: "auto",
                   my: 1,
                   border: `1px solid ${alpha("#ffffff", 0.1)}`,
@@ -359,82 +579,218 @@ export default function MessageBubble({
         )}
         {!isUser && footerSources.length > 0 && (
           <Box
+            component="ul"
+            aria-label="Sources"
+            className="source-list"
             data-testid="citation-sources"
             sx={{
-              mt: 1,
+              display: "block",
+              p: 0,
+              mb: 0,
+              mt: "14px",
               width: "100%",
-              pt: 1,
-              borderTop: `1px solid ${brand.cyan}22`,
+              minWidth: 0,
+              maxWidth: "100%",
             }}
           >
-            <Typography
-              sx={{
-                fontFamily: fonts.mono,
-                fontSize: "0.6rem",
-                letterSpacing: "0.2em",
-                color: brand.muted,
-                mb: 0.5,
-              }}
-            >
-              SOURCES
-            </Typography>
-            {footerSources.map((c) => (
-              <Box
-                key={c.number}
-                role="button"
-                tabIndex={0}
-                data-testid="citation-source"
-                onClick={() => handleCitationClick(c)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ")
-                    handleCitationClick(c);
-                }}
-                sx={{
-                  display: "flex",
-                  gap: 0.75,
-                  alignItems: "baseline",
-                  cursor: "pointer",
-                  py: 0.25,
-                  fontFamily: fonts.mono,
-                  fontSize: "0.75rem",
-                  color: alpha("#ffffff", 0.75),
-                  "&:hover": { color: brand.cyan },
-                }}
-              >
-                <Box component="span" sx={{ color: brand.cyan }}>
-                  [{c.number}]
-                </Box>
+            {footerSources.map((c) => {
+              const details = citationDetails(c);
+              return (
                 <Box
-                  component="span"
-                  sx={{ overflowWrap: "anywhere", minWidth: 0 }}
+                  component="li"
+                  key={c.number}
+                  sx={{ listStyle: "none", minWidth: 0 }}
                 >
-                  {citationLabel(c)}
+                  <Box
+                    component="button"
+                    type="button"
+                    className="source-list-row"
+                    data-testid="citation-source"
+                    aria-label={`Open source ${c.number}: ${citationLabel(c)}`}
+                    onClick={() => handleCitationClick(c)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        handleCitationClick(c);
+                      }
+                    }}
+                    sx={{
+                      display: "flex",
+                      alignItems: "baseline",
+                      gap: 1,
+                      width: "100%",
+                      minWidth: 0,
+                      textAlign: "left",
+                      cursor: "pointer",
+                      p: "6px 0",
+                      color: brand.text,
+                      bgcolor: "transparent",
+                      border: 0,
+                      borderBottom: `1px solid ${brand.line}`,
+                      fontFamily: fonts.body,
+                      "&:hover .source-list-title": { color: brand.cyan },
+                      "&:focus-visible": {
+                        outline: `2px solid ${brand.cyan}`,
+                        outlineOffset: 2,
+                      },
+                    }}
+                  >
+                    <Box
+                      component="span"
+                      sx={{
+                        color: brand.cyan,
+                        fontFamily: fonts.mono,
+                        fontSize: 11,
+                        minWidth: 22,
+                        flexShrink: 0,
+                      }}
+                    >
+                      {c.number}.
+                    </Box>
+                    <Box
+                      component="span"
+                      sx={{
+                        minWidth: 0,
+                        flex: 1,
+                        display: "flex",
+                        alignItems: "baseline",
+                        flexWrap: "wrap",
+                        columnGap: 1,
+                      }}
+                    >
+                      <Typography
+                        component="span"
+                        className="source-list-title"
+                        sx={{
+                          fontSize: 13,
+                          fontWeight: 500,
+                          overflowWrap: "anywhere",
+                        }}
+                      >
+                        {details.title}
+                      </Typography>
+                      <Typography
+                        component="span"
+                        className="source-list-meta"
+                        sx={{
+                          color: brand.muted,
+                          fontSize: 12,
+                          overflowWrap: "anywhere",
+                        }}
+                      >
+                        {[
+                          details.repo,
+                          c.source_type === "code" ? "Code" : "Document",
+                          details.lineRange
+                            ? `Lines ${details.lineRange}`
+                            : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </Typography>
+                    </Box>
+                  </Box>
                 </Box>
-              </Box>
-            ))}
+              );
+            })}
           </Box>
         )}
-        {!isUser && debug && (
-          <Chip
-            label="⌕ Inspect"
-            size="small"
-            onClick={() => setInspectOpen(true)}
-            sx={{
-              mt: 0.75,
-              cursor: "pointer",
-              height: 28,
-              fontFamily: fonts.mono,
-              fontSize: "0.75rem",
-              bgcolor: `${brand.cyan}10`,
-              color: brand.cyan,
-              border: `1px solid ${brand.cyan}66`,
-              borderRadius: "3px",
-              "& .MuiChip-label": { px: 1.25 },
-              "&:hover": { bgcolor: `${brand.cyan}20` },
-            }}
-          />
+        {!isUser && (
+          <Box sx={{ display: "flex", gap: 2, alignItems: "center", mt: 1 }}>
+            <Button
+              size="small"
+              startIcon={<ContentCopyIcon sx={{ fontSize: 14 }} />}
+              sx={{
+                color: brand.muted,
+                minHeight: 32,
+                p: 0,
+                fontWeight: 400,
+                fontSize: 13,
+              }}
+              onClick={() => {
+                void navigator.clipboard
+                  .writeText(content)
+                  .then(() => toast.showSuccess("Answer copied."))
+                  .catch((err) =>
+                    toast.showError(err, "Couldn’t copy answer.")
+                  );
+              }}
+            >
+              Copy answer
+            </Button>
+            {debug && (
+              <Button
+                size="small"
+                sx={{
+                  color: brand.cyan,
+                  minHeight: 32,
+                  p: 0,
+                  fontWeight: 400,
+                  fontSize: 13,
+                }}
+                onClick={() => setInspectOpen(true)}
+              >
+                Inspect response
+              </Button>
+            )}
+          </Box>
         )}
       </Box>
+      <Dialog
+        open={!!excerptSource}
+        onClose={() => setExcerptSource(null)}
+        maxWidth="sm"
+        fullWidth
+        aria-labelledby="source-excerpt-title"
+        slotProps={{
+          paper: {
+            sx: {
+              m: 2,
+              width: "calc(100% - 32px)",
+              maxWidth: 520,
+              maxHeight: "calc(100dvh - 48px)",
+            },
+          },
+        }}
+      >
+        <DialogTitle
+          id="source-excerpt-title"
+          sx={{
+            fontSize: 18,
+            lineHeight: 1.45,
+            overflowWrap: "anywhere",
+            display: "-webkit-box",
+            WebkitBoxOrient: "vertical",
+            WebkitLineClamp: 2,
+            overflow: "hidden",
+          }}
+        >
+          {excerptSource ? citationLabel(excerptSource) : "Source"}
+        </DialogTitle>
+        <DialogContent>
+          <Typography sx={{ fontSize: 12, color: brand.cyan, mb: 1 }}>
+            Retrieved{" "}
+            {excerptSource?.source_type === "code" ? "code" : "document"}{" "}
+            excerpt
+          </Typography>
+          <Typography
+            data-testid="source-excerpt-text"
+            sx={{
+              fontSize: 14,
+              lineHeight: 1.65,
+              overflowWrap: "anywhere",
+              whiteSpace: "normal",
+            }}
+          >
+            {excerptSource?.excerpt
+              ? citationPreview(excerptSource.excerpt)
+              : "No excerpt was returned for this source."}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setExcerptSource(null)}>Close</Button>
+        </DialogActions>
+      </Dialog>
       {!isUser && debug && (
         <InspectDialog
           open={inspectOpen}

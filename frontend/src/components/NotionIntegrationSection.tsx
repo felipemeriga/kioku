@@ -18,13 +18,9 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import RefreshIcon from "@mui/icons-material/Refresh";
-import DeleteIcon from "@mui/icons-material/Delete";
-import FolderIcon from "@mui/icons-material/Folder";
-import AddIcon from "@mui/icons-material/Add";
 import { messageFromError, useToast } from "./ToastProvider";
-import CornerCard from "./neo/CornerCard";
-import { brand, fonts } from "../theme";
+import { brand } from "../theme";
+import { Link as RouterLink } from "react-router-dom";
 
 import {
   connectNotion,
@@ -47,6 +43,7 @@ import { notionSyncProgress } from "../lib/notionProgress";
 export function NotionIntegrationSection() {
   const toast = useToast();
   const [configs, setConfigs] = useState<NotionConfig[]>([]);
+  const [loading, setLoading] = useState(true);
   const [folders, setFolders] = useState<{ id: string; name: string }[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -68,10 +65,13 @@ export function NotionIntegrationSection() {
         fetchNotionConfigs(),
         fetchFolders(null),
       ]);
+      setError(null);
       setConfigs(cfgs);
       setFolders(fs.map((f) => ({ id: f.id, name: f.name })));
     } catch (err) {
       setError(`Couldn't load Notion configs: ${messageFromError(err)}`);
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -119,6 +119,7 @@ export function NotionIntegrationSection() {
 
   useEffect(() => {
     let cancelled = false;
+    const timers = pollTimers.current;
     (async () => {
       try {
         const active = await fetchActiveIngestionJobs();
@@ -136,8 +137,7 @@ export function NotionIntegrationSection() {
     })();
     return () => {
       cancelled = true;
-      for (const configId of Object.keys(pollTimers.current))
-        stopPolling(configId);
+      for (const configId of Object.keys(timers)) stopPolling(configId);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -206,339 +206,376 @@ export function NotionIntegrationSection() {
   };
 
   return (
-    <CornerCard
-      color={brand.cyan}
+    <Box
+      data-testid="notion-settings-section"
       sx={{
-        p: "22px 24px",
         display: "flex",
         flexDirection: "column",
-        gap: "14px",
+        gap: "24px",
+        width: "100%",
       }}
     >
-      {/* Section heading row */}
-      <Box sx={{ display: "flex", alignItems: "center", gap: "10px" }}>
-        <Typography sx={{ fontSize: 19, fontWeight: 600, m: 0 }}>
-          Notion syncs
-        </Typography>
-        <Box sx={{ flexGrow: 1 }} />
-        <Button
-          startIcon={<AddIcon />}
-          onClick={() => setDialogOpen(true)}
-          sx={{
-            height: 36,
-            px: "14px",
-            border: 0,
-            borderRadius: "4px",
-            backgroundImage: `linear-gradient(90deg, ${brand.magentaDeep} 0%, ${brand.purple} 100%)`,
-            color: "#ffffff",
-            fontWeight: 600,
-            fontSize: 13,
-            textTransform: "none",
-            "&:hover": {
-              backgroundImage: `linear-gradient(90deg, ${brand.magenta} 0%, ${brand.purple} 100%)`,
-            },
-          }}
-        >
-          Connect a folder to Notion
-        </Button>
-      </Box>
-
-      {error && (
-        <Alert severity="error" onClose={() => setError(null)}>
-          {error}
-        </Alert>
-      )}
-
-      {/* Empty state */}
-      {configs.length === 0 && (
+      <Box
+        data-testid="notion-settings-panel"
+        sx={{
+          border: `1px solid ${brand.line}`,
+          borderRadius: "8px",
+          bgcolor: brand.surface,
+          overflow: "hidden",
+        }}
+      >
         <Box
           sx={{
             display: "flex",
-            flexDirection: "column",
+            justifyContent: "space-between",
             alignItems: "center",
-            gap: "12px",
-            py: "28px",
-            borderRadius: "4px",
-            border: `1px dashed ${brand.cyan}44`,
-            bgcolor: `${brand.cyan}06`,
+            gap: "16px",
+            p: "20px 24px",
+            borderBottom: `1px solid ${brand.line}`,
+            "@media(max-width:780px)": { p: "18px", alignItems: "flex-start" },
           }}
         >
-          <Typography
-            sx={{ fontSize: 14, color: brand.muted, textAlign: "center" }}
-          >
-            No folders synced with Notion yet — connect one.
-          </Typography>
-          <Button
-            startIcon={<AddIcon />}
-            onClick={() => setDialogOpen(true)}
-            sx={{
-              height: 34,
-              px: "14px",
-              borderRadius: "4px",
-              border: `1px solid ${brand.cyan}`,
-              bgcolor: `${brand.cyan}10`,
-              color: brand.cyan,
-              fontSize: 13,
-              fontWeight: 600,
-              textTransform: "none",
-              "&:hover": { bgcolor: `${brand.cyan}20` },
-            }}
-          >
-            Connect a folder to Notion
-          </Button>
-        </Box>
-      )}
-
-      {configs.map((cfg) => {
-        const activeJob = activeJobsByConfig[cfg.id];
-        const syncing = !!activeJob;
-        return (
-          <Box
-            key={cfg.id}
-            sx={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "10px",
-              p: "14px 16px",
-              borderRadius: "4px",
-              border: `1px solid ${brand.cyan}44`,
-              bgcolor: `${brand.cyan}08`,
-            }}
-          >
-            {/* Folder name — prominent lead */}
-            <Box sx={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <FolderIcon sx={{ fontSize: 18, color: brand.cyan }} />
-              <Typography
-                sx={{ fontSize: 17, fontWeight: 700, color: brand.text }}
-              >
-                {folderName(folders, cfg.root_folder_id)}
-              </Typography>
-            </Box>
-
-            {/* Notion page title */}
+          <Box>
+            <Typography
+              component="h2"
+              sx={{ fontSize: 21, fontWeight: 600, lineHeight: 1.3 }}
+            >
+              Notion syncs
+            </Typography>
             <Typography
               sx={{
                 fontSize: 13,
+                lineHeight: 1.55,
                 color: brand.muted,
-                fontFamily: fonts.mono,
-                pl: "26px",
+                mt: "5px",
               }}
             >
-              {cfg.notion_page_title ?? cfg.notion_page_id}
+              Bring a Notion page and its children into a Kioku folder.
             </Typography>
-
-            {/* Sync detail grid */}
-            <Box
-              sx={{
-                display: "grid",
-                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-                gap: "6px 16px",
-                fontFamily: fonts.mono,
-                fontSize: 12,
-                color: brand.text,
-                pl: "26px",
-              }}
+          </Box>
+          <Button
+            variant="contained"
+            onClick={() => setDialogOpen(true)}
+            sx={{ minHeight: 44, flexShrink: 0 }}
+          >
+            Connect folder
+          </Button>
+        </Box>
+        <Box sx={{ p: "24px", "@media(max-width:780px)": { p: "20px" } }}>
+          {error && (
+            <Alert
+              severity="error"
+              sx={{ mb: 2 }}
+              action={<Button onClick={() => void refresh()}>Retry</Button>}
             >
-              <span>
-                <Box component="span" sx={{ color: brand.muted }}>
-                  POLL{" "}
+              {error}
+            </Alert>
+          )}
+          {loading && (
+            <Typography role="status" sx={{ color: brand.muted, fontSize: 14 }}>
+              Loading Notion syncs…
+            </Typography>
+          )}
+          {!loading && !error && configs.length === 0 && (
+            <Typography sx={{ color: brand.muted, fontSize: 14, py: 2 }}>
+              No folders synced with Notion yet. Connect a folder to bring its
+              Notion pages into Kioku.
+            </Typography>
+          )}
+          {configs.map((cfg, index) => {
+            const activeJob = activeJobsByConfig[cfg.id];
+            const syncing = !!activeJob;
+            const pending = pendingByConfig[cfg.id];
+            const mappedFolder = folders.find(
+              (folder) => folder.id === cfg.root_folder_id
+            );
+            const progress = activeJob ? notionSyncProgress(activeJob) : null;
+            return (
+              <Box
+                key={cfg.id}
+                sx={{
+                  pt: index ? "24px" : "18px",
+                  pb: index < configs.length - 1 ? "24px" : 0,
+                  borderBottom:
+                    index < configs.length - 1
+                      ? `1px solid ${brand.line}`
+                      : undefined,
+                }}
+              >
+                <Box
+                  sx={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 2,
+                  }}
+                >
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography
+                      component="h3"
+                      sx={{
+                        fontSize: 17,
+                        fontWeight: 600,
+                        overflowWrap: "anywhere",
+                      }}
+                    >
+                      {cfg.notion_page_title ??
+                        mappedFolder?.name ??
+                        "Notion connection"}
+                    </Typography>
+                    <Typography
+                      sx={{
+                        fontSize: 13,
+                        lineHeight: 1.55,
+                        color: brand.muted,
+                        mt: "5px",
+                      }}
+                    >
+                      Kioku folder:{" "}
+                      <Box
+                        component={RouterLink}
+                        to={`/documents?folder=${cfg.root_folder_id}`}
+                        sx={{ color: brand.muted, textUnderlineOffset: "3px" }}
+                      >
+                        {mappedFolder?.name ?? "Open mapped folder"}
+                      </Box>
+                    </Typography>
+                    <Typography
+                      sx={{
+                        fontSize: 13,
+                        color: brand.muted,
+                        mt: "5px",
+                        overflowWrap: "anywhere",
+                      }}
+                    >
+                      Root page: {cfg.notion_page_title ?? cfg.notion_page_id}
+                    </Typography>
+                  </Box>
+                  <Typography
+                    sx={{
+                      color: cfg.last_error ? brand.amber : brand.green,
+                      fontSize: 12,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    ●{" "}
+                    {syncing
+                      ? "Syncing"
+                      : cfg.last_error
+                      ? "Needs attention"
+                      : "Connected"}
+                  </Typography>
                 </Box>
-                every {cfg.fast_poll_interval_min} min
-              </span>
-              <span>
-                <Box component="span" sx={{ color: brand.muted }}>
-                  LAST FAST{" "}
+                <Box
+                  component="dl"
+                  sx={{
+                    m: "20px 0 22px",
+                    pt: "8px",
+                    borderTop: `1px solid ${brand.line}`,
+                    "& > div": {
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: "16px",
+                      py: "6px",
+                      fontSize: 13,
+                    },
+                    "& dt": { color: brand.muted },
+                    "& dd": { m: 0, textAlign: "right" },
+                  }}
+                >
+                  <Box>
+                    <dt>Last sync</dt>
+                    <dd>{formatTs(cfg.last_fast_sync_at)}</dd>
+                  </Box>
+                  <Box>
+                    <dt>Latest reconciliation</dt>
+                    <dd>{formatTs(cfg.last_full_sync_at)}</dd>
+                  </Box>
+                  <Box>
+                    <dt>Checks for changes</dt>
+                    <dd>Every {cfg.fast_poll_interval_min} minutes</dd>
+                  </Box>
                 </Box>
-                {formatTs(cfg.last_fast_sync_at)}
-              </span>
-              <span>
-                <Box component="span" sx={{ color: brand.muted }}>
-                  LAST FULL{" "}
-                </Box>
-                {formatTs(cfg.last_full_sync_at)}
-              </span>
-            </Box>
-
-            {cfg.last_error && (
-              <Alert severity="warning" sx={{ mt: 0 }}>
-                {cfg.last_error}
-              </Alert>
-            )}
-
-            {/* Action buttons */}
-            <Box
-              sx={{
-                display: "flex",
-                gap: "8px",
-                flexWrap: "wrap",
-                alignItems: "center",
-              }}
-            >
-              <Button
-                onClick={() => handleCheckPending(cfg.id)}
-                disabled={pendingByConfig[cfg.id] === "loading"}
-                title="List pages in Notion that are missing from kioku or edited since their last ingest — exactly what Reconcile would sync"
-                sx={{
-                  height: 34,
-                  px: "12px",
-                  borderRadius: "4px",
-                  border: `1px solid ${brand.lineGlow}`,
-                  bgcolor: "transparent",
-                  color: brand.text,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  textTransform: "none",
-                  "&:hover": { bgcolor: `${brand.cyan}10` },
-                  "&.Mui-disabled": { opacity: 0.5 },
-                }}
-              >
-                {pendingByConfig[cfg.id] === "loading"
-                  ? "Checking…"
-                  : "Check pending"}
-              </Button>
-              <Button
-                startIcon={<RefreshIcon />}
-                onClick={() => handleSync(cfg.id)}
-                disabled={syncing}
-                sx={{
-                  height: 34,
-                  px: "12px",
-                  borderRadius: "4px",
-                  border: `1px solid ${brand.cyan}`,
-                  bgcolor: `${brand.cyan}10`,
-                  color: brand.cyan,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  textTransform: "none",
-                  "&:hover": { bgcolor: `${brand.cyan}20` },
-                  "&.Mui-disabled": { opacity: 0.5 },
-                }}
-              >
-                {syncing ? "Syncing…" : "Sync now"}
-              </Button>
-              <Button
-                onClick={() => handleReconcile(cfg.id)}
-                disabled={syncing}
-                title="Full walk: detects deletions and re-ingests any drift"
-                sx={{
-                  height: 34,
-                  px: "12px",
-                  borderRadius: "4px",
-                  border: `1px solid ${brand.lineGlow}`,
-                  bgcolor: "transparent",
-                  color: brand.text,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  textTransform: "none",
-                  "&:hover": { bgcolor: `${brand.cyan}10` },
-                  "&.Mui-disabled": { opacity: 0.5 },
-                }}
-              >
-                Reconcile
-              </Button>
-              <Box sx={{ flexGrow: 1 }} />
-              <Button
-                startIcon={<DeleteIcon />}
-                onClick={() =>
-                  requestDisconnect(
-                    cfg.id,
-                    cfg.notion_page_title ?? cfg.notion_page_id
-                  )
-                }
-                sx={{
-                  height: 34,
-                  px: "12px",
-                  borderRadius: "4px",
-                  border: `1px solid ${brand.red}66`,
-                  bgcolor: "transparent",
-                  color: brand.red,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  textTransform: "none",
-                  "&:hover": { bgcolor: `${brand.red}14` },
-                }}
-              >
-                Disconnect
-              </Button>
-            </Box>
-
-            {/* Progress bar for active job */}
-            {activeJob &&
-              (() => {
-                const { pct, label } = notionSyncProgress(activeJob);
-                return (
-                  <Box sx={{ mt: 0.5 }}>
+                {cfg.last_error && (
+                  <Alert severity="warning" sx={{ mb: 2 }}>
+                    {cfg.last_error}
+                  </Alert>
+                )}
+                {progress && (
+                  <Box role="status" sx={{ mb: "18px" }}>
                     <Stack
                       direction="row"
                       justifyContent="space-between"
-                      alignItems="baseline"
-                      sx={{ mb: 0.5 }}
+                      sx={{ mb: 1 }}
                     >
-                      <Typography variant="caption" color="text.secondary">
-                        {label}
+                      <Typography sx={{ fontSize: 13, color: brand.muted }}>
+                        {progress.label}
                       </Typography>
-                      {pct !== null && (
-                        <Typography variant="caption" color="text.secondary">
-                          {pct}%
+                      {progress.pct !== null && (
+                        <Typography sx={{ fontSize: 13, color: brand.muted }}>
+                          {progress.pct}%
                         </Typography>
                       )}
                     </Stack>
                     <LinearProgress
-                      variant={pct === null ? "indeterminate" : "determinate"}
-                      value={pct ?? undefined}
-                      sx={{ height: 6, borderRadius: 3 }}
+                      variant={
+                        progress.pct === null ? "indeterminate" : "determinate"
+                      }
+                      value={progress.pct ?? undefined}
+                      sx={{ height: 5, borderRadius: "2px" }}
                     />
                   </Box>
-                );
-              })()}
-
-            {/* Pending list */}
-            {(() => {
-              const pending = pendingByConfig[cfg.id];
-              if (!pending || pending === "loading") return null;
-              return (
-                <Box sx={{ mt: 0.5 }}>
-                  {pending.pending.length === 0 ? (
-                    <Alert severity="success" sx={{ py: 0 }}>
-                      All {pending.total_in_notion} Notion pages are synced.
-                    </Alert>
-                  ) : (
-                    <Alert severity="info" sx={{ py: 0.5 }}>
-                      <Typography variant="body2" sx={{ mb: 0.5 }}>
-                        {pending.pending.length} of {pending.total_in_notion}{" "}
-                        pages left to sync — run Reconcile to ingest them:
-                      </Typography>
-                      <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
-                        {pending.pending.map((p) => (
-                          <Typography
-                            key={p.page_id}
-                            component="li"
-                            variant="body2"
-                          >
-                            {p.title || p.page_id}{" "}
-                            <Typography
-                              component="span"
-                              variant="caption"
-                              color="text.secondary"
-                            >
-                              (
-                              {p.reason === "missing"
-                                ? "not in kioku"
-                                : "edited since last ingest"}
-                              )
-                            </Typography>
-                          </Typography>
-                        ))}
-                      </Box>
-                    </Alert>
-                  )}
+                )}
+                <Box
+                  sx={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: "14px",
+                    p: "13px 16px",
+                    border: `1px solid ${brand.cyan}44`,
+                    bgcolor: `${brand.cyan}08`,
+                    borderRadius: "5px",
+                    color: brand.muted,
+                    fontSize: 14,
+                  }}
+                >
+                  <Typography sx={{ fontSize: 14 }}>
+                    {pending === "loading"
+                      ? "Checking for changed pages…"
+                      : pending
+                      ? pending.pending.length === 0
+                        ? `All ${pending.total_in_notion} Notion pages are synced.`
+                        : `${pending.pending.length} of ${pending.total_in_notion} pages need to sync.`
+                      : "Check for Notion pages that are new or updated."}
+                  </Typography>
+                  <Button
+                    onClick={() => void handleCheckPending(cfg.id)}
+                    disabled={pending === "loading"}
+                    sx={{
+                      color: brand.cyan,
+                      fontSize: 13,
+                      minHeight: 32,
+                      p: 0,
+                      lineHeight: 1.55,
+                      whiteSpace: "nowrap",
+                      minWidth: 0,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {pending === "loading" ? "Checking…" : "Check for changes"}
+                  </Button>
                 </Box>
-              );
-            })()}
-          </Box>
-        );
-      })}
-
+                {pending &&
+                  pending !== "loading" &&
+                  pending.pending.length > 0 && (
+                    <Box
+                      component="ul"
+                      sx={{
+                        my: "16px",
+                        pl: "22px",
+                        color: brand.muted,
+                        fontSize: 14,
+                      }}
+                    >
+                      {pending.pending.map((page) => (
+                        <Box
+                          component="li"
+                          key={page.page_id}
+                          sx={{ py: "3px" }}
+                        >
+                          {page.title || page.page_id} ·{" "}
+                          {page.reason === "missing"
+                            ? "Not in Kioku"
+                            : "Edited since last ingest"}
+                        </Box>
+                      ))}
+                    </Box>
+                  )}
+                <Box
+                  sx={{
+                    display: "flex",
+                    gap: "10px",
+                    flexWrap: "wrap",
+                    mt: "22px",
+                  }}
+                >
+                  <Button
+                    variant="contained"
+                    onClick={() => void handleSync(cfg.id)}
+                    disabled={syncing}
+                    sx={{ minHeight: 44 }}
+                  >
+                    {syncing ? "Syncing…" : "Sync now"}
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    onClick={() => void handleReconcile(cfg.id)}
+                    disabled={syncing}
+                    title="Detect removed pages and re-ingest changed content"
+                    sx={{ minHeight: 44 }}
+                  >
+                    Reconcile
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    color="error"
+                    onClick={() =>
+                      requestDisconnect(
+                        cfg.id,
+                        cfg.notion_page_title ?? cfg.notion_page_id
+                      )
+                    }
+                    sx={{ minHeight: 44 }}
+                  >
+                    Disconnect
+                  </Button>
+                </Box>
+                <Typography
+                  sx={{
+                    fontSize: 13,
+                    color: brand.muted,
+                    mt: "16px",
+                    lineHeight: 1.7,
+                  }}
+                >
+                  Reconciliation detects updated and removed pages.
+                  Disconnecting can keep the imported documents.
+                </Typography>
+              </Box>
+            );
+          })}
+        </Box>
+      </Box>
+      <Box
+        sx={{
+          p: "24px",
+          border: `1px solid ${brand.line}`,
+          borderRadius: "8px",
+          bgcolor: brand.surface,
+          "@media(max-width:780px)": { p: "20px" },
+        }}
+      >
+        <Typography
+          component="h3"
+          sx={{ fontSize: 17, fontWeight: 600, mb: "12px" }}
+        >
+          Folder integrations
+        </Typography>
+        <Typography
+          sx={{ fontSize: 14, color: brand.muted, mb: "16px", lineHeight: 1.7 }}
+        >
+          You can also manage integrations directly from a folder in Documents.
+        </Typography>
+        <Button
+          component={RouterLink}
+          to="/documents"
+          variant="outlined"
+          sx={{ minHeight: 44 }}
+        >
+          Open folder integrations
+        </Button>
+      </Box>
       <NotionConnectDialog
         open={dialogOpen}
         rootFolders={folders}
@@ -577,7 +614,7 @@ export function NotionIntegrationSection() {
           </Button>
         </DialogActions>
       </Dialog>
-    </CornerCard>
+    </Box>
   );
 }
 
@@ -688,10 +725,10 @@ export function NotionConnectDialog({
           />
           {!fixedFolderId && (
             <FormControl fullWidth>
-              <InputLabel>Rag root folder</InputLabel>
+              <InputLabel>Kioku folder</InputLabel>
               <Select
                 value={rootFolderId}
-                label="Rag root folder"
+                label="Kioku folder"
                 onChange={(e) => setRootFolderId(e.target.value)}
               >
                 {rootFolders.map((f) => (
@@ -717,18 +754,23 @@ export function NotionConnectDialog({
   );
 }
 
-function folderName(
-  folders: { id: string; name: string }[],
-  id: string
-): string {
-  return folders.find((f) => f.id === id)?.name ?? id;
-}
-
 function formatTs(iso: string | null): string {
-  if (!iso) return "never";
-  try {
-    return new Date(iso).toLocaleString();
-  } catch {
-    return iso;
-  }
+  if (!iso) return "Never";
+  const value = new Date(iso);
+  if (Number.isNaN(value.getTime())) return iso;
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const time = value.toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  if (value.toDateString() === today.toDateString()) return `Today, ${time}`;
+  if (value.toDateString() === yesterday.toDateString())
+    return `Yesterday, ${time}`;
+  return `${value.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    ...(value.getFullYear() !== today.getFullYear() ? { year: "numeric" } : {}),
+  })}, ${time}`;
 }

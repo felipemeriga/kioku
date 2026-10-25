@@ -20,6 +20,7 @@ export default function SectionRail({
 }) {
   return (
     <Box
+      className="section-rail"
       component="aside"
       aria-label="Briefing sections"
       sx={{
@@ -32,6 +33,7 @@ export default function SectionRail({
       }}
     >
       <Typography
+        className="section-rail-label"
         sx={{ ...hudLabel, px: 1.25, pb: 1.25, fontSize: 13, width: "100%" }}
       >
         Sections
@@ -39,6 +41,7 @@ export default function SectionRail({
       {items.map((s, i) => (
         <Box
           key={s.n}
+          data-active={i === activeIndex}
           component="button"
           onClick={() => onSelect(i)}
           sx={{
@@ -62,6 +65,7 @@ export default function SectionRail({
           }}
         >
           <Box
+            className="section-rail-number"
             component="span"
             sx={{
               width: 18,
@@ -75,10 +79,13 @@ export default function SectionRail({
           <Box component="span" sx={{ flexGrow: 1 }}>
             {s.title}
           </Box>
-          <StatusGlyph status={s.status} />
+          <Box className="section-rail-glyph">
+            <StatusGlyph status={s.status} />
+          </Box>
         </Box>
       ))}
       <Stack
+        className="section-rail-legend"
         sx={{
           display: { xs: "none", lg: "flex" },
           gap: 0.75,

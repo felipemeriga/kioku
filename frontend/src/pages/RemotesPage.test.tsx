@@ -48,9 +48,7 @@ describe("Remotes connection", () => {
     expect(screen.getByText("1 online")).toBeInTheDocument();
     expect(screen.getByText("1 offline")).toBeInTheDocument();
     expect(
-      screen.getByText(
-        /Memory collection and agent session activity are coming later/
-      )
+      screen.getByText(/Memory collection is not enabled/)
     ).toBeInTheDocument();
     expect(screen.queryByText(/imported/)).not.toBeInTheDocument();
   });
@@ -150,7 +148,14 @@ it("shows initialized repositories and both configured providers with actual OS 
   expect(screen.getByText("/home/felipe/kioku")).toBeInTheDocument();
   expect(screen.getByText("✳ Claude Code")).toBeInTheDocument();
   expect(screen.getByText("›_ Codex")).toBeInTheDocument();
-  expect(screen.getAllByText("Configured")).toHaveLength(2);
+  expect(
+    screen.getByText(
+      "Configured providers · activity detection is not enabled."
+    )
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByRole("heading", { name: "Configured agents" })
+  ).not.toBeInTheDocument();
   expect(screen.getAllByText("macOS")).toHaveLength(2);
   expect(screen.queryByText("Running")).not.toBeInTheDocument();
 });

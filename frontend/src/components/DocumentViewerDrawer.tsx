@@ -183,7 +183,7 @@ export default function DocumentViewerDrawer({
       onClose={onClose}
       PaperProps={{
         sx: {
-          width: { xs: "100%", sm: 680 },
+          width: "min(680px, 95vw)",
           bgcolor: brand.surface2,
           backgroundImage: `repeating-linear-gradient(0deg, rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 1px, transparent 1px, transparent 3px)`,
           borderLeft: `1px solid ${brand.magenta}`,
@@ -229,8 +229,8 @@ function DrawerBody({
       <Box
         component="header"
         sx={{
-          px: 2.5,
-          py: 2,
+          px: "26px",
+          py: "23px",
           borderBottom: `1px solid ${brand.line}`,
           display: "flex",
           alignItems: "center",
@@ -245,8 +245,8 @@ function DrawerBody({
         <Typography
           sx={{
             flex: 1,
-            fontFamily: fonts.mono,
-            fontSize: "0.94rem",
+            fontFamily: fonts.body,
+            fontSize: 25,
             color: brand.text,
           }}
           noWrap

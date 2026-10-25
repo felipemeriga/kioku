@@ -33,6 +33,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, signOut } = useAuth();
   const {
     conversations,
+    conversationsLoading,
+    conversationsError,
+    loadConversations,
     selectedId,
     selectConversation,
     createConversation,
@@ -95,7 +98,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <Box sx={{ display: "flex", height: "100dvh", overflow: "hidden" }}>
+    <Box
+      sx={{
+        display: "flex",
+        height: "100dvh",
+        overflow: "hidden",
+        "@media(max-width:480px)": { flexDirection: "column" },
+      }}
+    >
       <IconRail
         activePage={activePage}
         onNavigate={(page) => navigate(page)}
@@ -108,9 +118,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           activePage={activePage}
           open={showPanel}
           conversations={conversations}
+          conversationsLoading={conversationsLoading}
+          conversationsError={conversationsError}
+          onRetryConversations={() => void loadConversations?.()}
           selectedConversationId={selectedId}
           onSelectConversation={selectConversation}
-          onNewConversation={createConversation}
+          onNewConversation={() =>
+            void createConversation().catch((err) =>
+              toast.showError(err, "Couldn’t create conversation.")
+            )
+          }
           onDeleteConversation={removeConversation}
           onNewFolder={handleNewFolder}
           onRequestDeleteFolder={handleRequestDeleteFolder}
@@ -133,9 +150,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             activePage={activePage}
             open={showPanel}
             conversations={conversations}
+            conversationsLoading={conversationsLoading}
+            conversationsError={conversationsError}
+            onRetryConversations={() => void loadConversations?.()}
             selectedConversationId={selectedId}
             onSelectConversation={selectConversation}
-            onNewConversation={createConversation}
+            onNewConversation={() =>
+              void createConversation().catch((err) =>
+                toast.showError(err, "Couldn’t create conversation.")
+              )
+            }
             onDeleteConversation={removeConversation}
             onNewFolder={handleNewFolder}
             onRequestDeleteFolder={handleRequestDeleteFolder}
@@ -157,30 +181,52 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         }}
       >
         <NeoAtmosphere />
-        {mobile && showPanel && (
+        {activePage !== "/" && (
           <Box
+            component="header"
+            data-testid="app-topbar"
             sx={{
+              minHeight: 70,
+              height: 70,
+              flexShrink: 0,
+              px: "40px",
               display: "flex",
               alignItems: "center",
-              gap: 1,
-              px: 1.5,
-              minHeight: 48,
-              flexShrink: 0,
+              gap: 1.5,
               borderBottom: `1px solid ${brand.line}`,
+              "@media(max-width:780px)": { px: "22px" },
+              "@media(max-width:480px)": {
+                px: "18px",
+                minHeight: 53,
+                height: 53,
+              },
             }}
           >
-            <IconButton
-              aria-label={
-                activePage === "/documents"
-                  ? "Open folder navigator"
-                  : "Open conversations"
-              }
-              onClick={() => setPanelOpen(true)}
-            >
-              <MenuOpenIcon />
-            </IconButton>
-            <Typography sx={{ fontSize: 14, color: brand.muted }}>
-              {activePage === "/documents" ? "Folders" : "Conversations"}
+            {mobile && showPanel && (
+              <IconButton
+                aria-label={
+                  activePage === "/documents"
+                    ? "Open folder navigator"
+                    : "Open conversations"
+                }
+                onClick={() => setPanelOpen(true)}
+                size="small"
+              >
+                <MenuOpenIcon fontSize="small" />
+              </IconButton>
+            )}
+            <Typography sx={{ color: brand.muted, fontSize: 13 }}>
+              Kioku{" "}
+              <Box component="span" sx={{ px: 1, color: brand.dim }}>
+                /
+              </Box>{" "}
+              <Box component="span" sx={{ color: brand.text }}>
+                {activePage === "/documents"
+                  ? "Documents"
+                  : activePage === "/remotes"
+                  ? "Remotes"
+                  : "Settings"}
+              </Box>
             </Typography>
           </Box>
         )}

@@ -32,7 +32,6 @@ import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import FolderIcon from "@mui/icons-material/Folder";
 import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
-import MicIcon from "@mui/icons-material/Mic";
 import DriveFileMoveIcon from "@mui/icons-material/DriveFileMove";
 import CloseIcon from "@mui/icons-material/Close";
 import StopIcon from "@mui/icons-material/Stop";
@@ -42,8 +41,6 @@ import ViewListIcon from "@mui/icons-material/ViewList";
 import CreateNewFolderIcon from "@mui/icons-material/CreateNewFolder";
 import HomeIcon from "@mui/icons-material/Home";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
-import InsightsIcon from "@mui/icons-material/Insights";
-import HistoryIcon from "@mui/icons-material/History";
 import { useDocuments } from "../hooks/useDocuments";
 import { useIngestionStatus } from "../hooks/useIngestionStatus";
 import { createFolder, deleteFolder, downloadDocument } from "../lib/api";
@@ -54,7 +51,6 @@ import {
   folderOptions,
   prefetchFolder,
 } from "../lib/folderQueries";
-import { qk } from "../lib/queryKeys";
 import DocumentCard from "../components/DocumentCard";
 import DocumentViewerDrawer from "../components/DocumentViewerDrawer";
 import MoveDialog from "../components/MoveDialog";
@@ -64,7 +60,7 @@ import BriefingHistoryPanel from "../components/BriefingHistoryPanel";
 import DocumentationPanel from "../components/DocumentationPanel";
 import StatusPanel from "../components/StatusPanel";
 import FolderIntegrationsDialog from "../components/FolderIntegrationsDialog";
-import { NotionSyncBanner } from "../components/NotionSyncBanner";
+import NotionFolderIndicator from "../components/NotionFolderIndicator";
 import { useToast, messageFromError } from "../components/ToastProvider";
 import { brand, fonts } from "../theme";
 import CornerCard from "../components/neo/CornerCard";
@@ -123,6 +119,7 @@ export default function DocumentsPage() {
     [currentFolderId, setSearchParams]
   );
   const [newFolderOpen, setNewFolderOpen] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
 
   // Multi-select
@@ -298,6 +295,7 @@ export default function DocumentsPage() {
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
+    if (files.length) setUploadOpen(false);
     for (const file of Array.from(files)) {
       void uploadOne(file);
     }
@@ -337,18 +335,6 @@ export default function DocumentsPage() {
       })),
     [subFoldersQuery.data]
   );
-
-  // Imperative refresh used by the Notion sync-progress handler.
-  const loadSubFolders = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: qk.folders(currentFolderId) });
-  }, [queryClient, currentFolderId]);
-
-  // Refresh the file grid + subfolders as a Notion sync ingests new pages,
-  // so documents appear live without a manual reload.
-  const handleSyncProgress = useCallback(() => {
-    loadDocuments();
-    loadSubFolders();
-  }, [loadDocuments, loadSubFolders]);
 
   // Breadcrumbs for the current folder (empty at root). keepPreviousData so the
   // strip doesn't blank to "Home" while the next folder's path loads.
@@ -488,6 +474,7 @@ export default function DocumentsPage() {
 
   return (
     <Box
+      className="documents-page"
       sx={{
         display: "flex",
         flexDirection: "column",
@@ -495,12 +482,16 @@ export default function DocumentsPage() {
         overflow: "auto",
       }}
     >
-      <Box sx={{ px: { xs: 2, md: 4 }, pt: 3, pb: 3 }}>
+      <Box
+        className="documents-header"
+        sx={{ px: { xs: 2, md: 4 }, pt: 3, pb: 3 }}
+      >
         <Stack
           direction="row"
           alignItems="center"
           gap={0.5}
           sx={{ mb: 2, flexWrap: "wrap" }}
+          className="documents-path"
           aria-label="Folder path"
         >
           <IconButton
@@ -510,7 +501,7 @@ export default function DocumentsPage() {
           >
             <HomeIcon sx={{ fontSize: 18 }} />
           </IconButton>
-          {breadcrumbs.slice(0, -1).map((bc) => (
+          {breadcrumbs.map((bc) => (
             <Box key={bc.id} sx={{ display: "flex", alignItems: "center" }}>
               <ChevronRightIcon sx={{ fontSize: 16, color: brand.muted }} />
               <Button
@@ -525,6 +516,7 @@ export default function DocumentsPage() {
           ))}
         </Stack>
         <Stack
+          className="documents-heading"
           direction={{ xs: "column", sm: "row" }}
           justifyContent="space-between"
           alignItems={{ xs: "flex-start", sm: "center" }}
@@ -543,6 +535,9 @@ export default function DocumentsPage() {
               {currentFolderId
                 ? breadcrumbs.at(-1)?.name ?? "Loading folder…"
                 : "All documents"}
+              {currentFolderId && (
+                <NotionFolderIndicator folderId={currentFolderId} />
+              )}
             </Typography>
             <Typography sx={{ mt: 1, color: brand.muted, fontSize: 16 }}>
               {currentFolderIsRepo
@@ -550,7 +545,13 @@ export default function DocumentsPage() {
                 : "Your documents and repository knowledge."}
             </Typography>
           </Box>
-          <Stack direction="row" gap={1.25} alignItems="center" flexWrap="wrap">
+          <Stack
+            className="documents-actions"
+            direction="row"
+            gap={1.25}
+            alignItems="center"
+            flexWrap="nowrap"
+          >
             {ingestionTasks.length > 0 && (
               <Tooltip title="Processing status">
                 <IconButton size="small" onClick={openIngestionDrawer}>
@@ -579,6 +580,7 @@ export default function DocumentsPage() {
             <Button
               size="small"
               variant="outlined"
+              className="new-folder-action"
               startIcon={<CreateNewFolderIcon fontSize="small" />}
               onClick={() => setNewFolderOpen(true)}
               sx={{ borderColor: brand.line, color: brand.muted }}
@@ -589,7 +591,7 @@ export default function DocumentsPage() {
               variant="contained"
               size="small"
               startIcon={<UploadFileIcon />}
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => setUploadOpen(true)}
             >
               Upload
             </Button>
@@ -598,6 +600,7 @@ export default function DocumentsPage() {
       </Box>
       {/* Content area */}
       <Box
+        className="documents-content"
         sx={{
           flex: 1,
           minHeight: 0,
@@ -609,18 +612,9 @@ export default function DocumentsPage() {
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
       >
-        {/* Notion sync status for the current folder's root — live progress
-          while a sync runs, last-synced/error when idle, nothing otherwise. */}
-        {currentFolderId && (
-          <NotionSyncBanner
-            key={currentFolderId}
-            folderId={currentFolderId}
-            onPagesSynced={handleSyncProgress}
-          />
-        )}
-
         {/* Small recorder chip — full-page drop overlay handles file uploads */}
         <Stack
+          className="upload-strip"
           direction="row"
           spacing={1}
           alignItems="center"
@@ -635,6 +629,7 @@ export default function DocumentsPage() {
           }}
         >
           <IconButton
+            aria-label={isRecording ? "Stop recording" : "Record audio"}
             onClick={handleMicClick}
             size="small"
             sx={{
@@ -658,7 +653,15 @@ export default function DocumentsPage() {
             {isRecording ? (
               <StopIcon sx={{ fontSize: 16 }} />
             ) : (
-              <MicIcon sx={{ fontSize: 16 }} />
+              <Box
+                aria-hidden="true"
+                sx={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: "50%",
+                  bgcolor: brand.magenta,
+                }}
+              />
             )}
           </IconButton>
           {isRecording ? (
@@ -705,6 +708,7 @@ export default function DocumentsPage() {
               knowledge lives on its own tab, away from the file browser. */}
         {currentFolderIsRepo && (
           <Tabs
+            className="folder-tabs"
             value={folderTab}
             onChange={(_, v) => setFolderTab(v)}
             sx={{
@@ -717,35 +721,15 @@ export default function DocumentsPage() {
                 fontFamily: fonts.display,
                 fontSize: "0.9rem",
                 color: brand.muted,
-                "&.Mui-selected": { color: brand.cyan },
+                "&.Mui-selected": { color: brand.text },
               },
-              "& .MuiTabs-indicator": { backgroundColor: brand.cyan },
+              "& .MuiTabs-indicator": { backgroundColor: brand.magenta },
             }}
           >
-            <Tab
-              value="files"
-              label="Files"
-              icon={<FolderIcon sx={{ fontSize: 18 }} />}
-              iconPosition="start"
-            />
-            <Tab
-              value="briefing"
-              label="Briefing"
-              icon={<AccountTreeIcon sx={{ fontSize: 18 }} />}
-              iconPosition="start"
-            />
-            <Tab
-              value="status"
-              label="Status"
-              icon={<InsightsIcon sx={{ fontSize: 18 }} />}
-              iconPosition="start"
-            />
-            <Tab
-              value="history"
-              label="History"
-              icon={<HistoryIcon sx={{ fontSize: 18 }} />}
-              iconPosition="start"
-            />
+            <Tab value="files" label="Files" />
+            <Tab value="briefing" label="Briefing" />
+            <Tab value="status" label="Status" />
+            <Tab value="history" label="History" />
           </Tabs>
         )}
 
@@ -754,10 +738,12 @@ export default function DocumentsPage() {
             direction="row"
             alignItems="center"
             gap={1.5}
+            className="documents-toolbar"
             sx={{ mb: 3, flexWrap: "wrap" }}
           >
             <TextField
               size="small"
+              className="documents-search"
               placeholder="Search in this folder…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -813,11 +799,11 @@ export default function DocumentsPage() {
                 },
               }}
             >
-              <ToggleButton value="grid" aria-label="Grid view">
-                <GridViewIcon fontSize="small" />
-              </ToggleButton>
               <ToggleButton value="list" aria-label="List view">
                 <ViewListIcon fontSize="small" />
+              </ToggleButton>
+              <ToggleButton value="grid" aria-label="Grid view">
+                <GridViewIcon fontSize="small" />
               </ToggleButton>
             </ToggleButtonGroup>
           </Stack>
@@ -825,21 +811,9 @@ export default function DocumentsPage() {
         {/* Sub-folders grid */}
         {(!currentFolderIsRepo || folderTab === "files") &&
           filteredFolders.length > 0 && (
-            <Box sx={{ mb: 3 }}>
-              <Typography
-                variant="overline"
-                sx={{
-                  fontFamily: fonts.mono,
-                  color: brand.muted,
-                  mb: 1.25,
-                  display: "block",
-                  letterSpacing: 0,
-                  fontSize: "0.8125rem",
-                }}
-              >
-                Folders · {filteredFolders.length}
-              </Typography>
+            <Box>
               <Box
+                className="folder-grid"
                 sx={{
                   display: "grid",
                   gridTemplateColumns:
@@ -848,10 +822,10 @@ export default function DocumentsPage() {
                 }}
               >
                 {filteredFolders.map((folder) => {
-                  const folderColor =
-                    folder.kind === "repo" ? brand.cyan : brand.magenta;
+                  const folderColor = brand.cyan;
                   return (
                     <CornerCard
+                      className="folder-card"
                       key={folder.id}
                       color={
                         dragOverFolderId === folder.id
@@ -997,6 +971,7 @@ export default function DocumentsPage() {
                         }}
                       >
                         <Typography
+                          className="folder-title"
                           noWrap
                           sx={{
                             fontWeight: 500,
@@ -1005,6 +980,7 @@ export default function DocumentsPage() {
                           }}
                         >
                           {folder.name}
+                          <NotionFolderIndicator folderId={folder.id} />
                         </Typography>
                         <Typography
                           sx={{
@@ -1015,7 +991,7 @@ export default function DocumentsPage() {
                             textTransform: "none",
                           }}
                         >
-                          {folder.kind === "repo" ? "REPO" : "FOLDER"}
+                          {folder.kind === "repo" ? "Repository" : "Folder"}
                         </Typography>
                       </Box>
                     </CornerCard>
@@ -1051,6 +1027,7 @@ export default function DocumentsPage() {
           filteredDocs.length > 0 && (
             <Box>
               <Typography
+                className="files-heading"
                 variant="overline"
                 sx={{
                   fontFamily: fonts.mono,
@@ -1061,14 +1038,25 @@ export default function DocumentsPage() {
                   fontSize: "0.8125rem",
                 }}
               >
-                Files{" "}
-                <Chip
-                  size="small"
-                  label={filteredDocs.length}
-                  sx={{ ml: 0.5 }}
-                />
+                <Box
+                  component="span"
+                  sx={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 0.5,
+                  }}
+                >
+                  Files <Chip size="small" label={filteredDocs.length} />
+                </Box>
+                <Typography
+                  component="span"
+                  sx={{ fontSize: 12, color: brand.muted }}
+                >
+                  Updated most recently
+                </Typography>
               </Typography>
               <Box
+                className="file-table"
                 role={viewMode === "list" ? "table" : undefined}
                 aria-label="Files"
                 sx={{
@@ -1081,6 +1069,7 @@ export default function DocumentsPage() {
                 {viewMode === "list" && (
                   <Box
                     role="row"
+                    className="file-table-header"
                     sx={{
                       display: { xs: "none", md: "grid" },
                       gridTemplateColumns: "minmax(0,1fr) 160px 180px 44px",
@@ -1093,7 +1082,9 @@ export default function DocumentsPage() {
                     }}
                   >
                     <span role="columnheader">Name</span>
-                    <span role="columnheader">Source</span>
+                    <span className="source-heading" role="columnheader">
+                      Source
+                    </span>
                     <span role="columnheader">Last updated</span>
                     <span />
                   </Box>
@@ -1407,6 +1398,92 @@ export default function DocumentsPage() {
       />
 
       {/* New Folder Dialog */}
+      <Dialog
+        open={uploadOpen}
+        onClose={() => setUploadOpen(false)}
+        maxWidth={false}
+        fullWidth
+        PaperProps={{ sx: { maxWidth: 750, borderRadius: "8px" } }}
+      >
+        <DialogTitle sx={{ p: "24px 26px", fontSize: 21 }}>
+          Upload documents
+        </DialogTitle>
+        <DialogContent sx={{ px: "26px", pb: 3 }}>
+          <Box
+            onDragEnter={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onDragOver={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setGlobalDropActive(false);
+              const files = Array.from(event.dataTransfer.files);
+              if (files.length) setUploadOpen(false);
+              for (const file of files) void uploadOne(file);
+            }}
+            sx={{
+              border: `1px dashed ${brand.lineGlow}`,
+              borderRadius: "5px",
+              p: "32px 20px",
+              textAlign: "center",
+              bgcolor: brand.ink,
+            }}
+          >
+            <UploadFileIcon
+              sx={{ color: brand.muted, fontSize: 22, mb: 1.5 }}
+            />
+            <Typography sx={{ fontSize: 17, fontWeight: 600, mb: 1 }}>
+              Drop files here
+            </Typography>
+            <Typography sx={{ fontSize: 14, color: brand.muted, mb: 2 }}>
+              PDF, Markdown, Word, text, images, and audio.
+            </Typography>
+            <Button
+              variant="outlined"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              Choose files
+            </Button>
+          </Box>
+          <Typography
+            component="label"
+            htmlFor="upload-destination"
+            sx={{ display: "block", fontSize: 14, mt: 3, mb: 1 }}
+          >
+            Destination folder
+          </Typography>
+          <TextField
+            id="upload-destination"
+            size="small"
+            fullWidth
+            value={
+              breadcrumbs.length
+                ? breadcrumbs.map((item) => item.name).join(" / ")
+                : "All documents"
+            }
+            slotProps={{
+              input: { readOnly: true },
+              htmlInput: { "aria-label": "Destination folder" },
+            }}
+            sx={{ "& .MuiOutlinedInput-root": { height: 44 } }}
+          />
+          <Typography sx={{ fontSize: 13, color: brand.muted, mt: 1.5 }}>
+            Files are added to this folder. Processing progress appears in the
+            upload status panel.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: "26px", pb: 3, justifyContent: "flex-start" }}>
+          <Button variant="contained" onClick={() => setUploadOpen(false)}>
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <Dialog
         open={newFolderOpen}
         onClose={() => setNewFolderOpen(false)}

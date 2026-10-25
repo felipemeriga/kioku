@@ -6,6 +6,28 @@ import { refreshState } from "../lib/refreshState";
 import * as api from "../lib/api";
 
 describe("StatusPanel", () => {
+  it("keeps refresh controls before the metrics and shows the real failure at the top", async () => {
+    vi.spyOn(api, "getFolderStatus").mockResolvedValue({
+      index_refresh_started_at: new Date(Date.now() - 1000).toISOString(),
+      index_refresh_finished_at: new Date().toISOString(),
+      index_refresh_error: "SANITIZED_TEST_FAILURE: connection refused",
+      architecture_by: "watcher",
+      overview_by: "kioku-watcher",
+    } as api.FolderStatus);
+    renderWithProviders(<StatusPanel folderId="f1" />);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "SANITIZED_TEST_FAILURE"
+    );
+    expect(screen.getAllByText("by Mihari")).toHaveLength(2);
+    expect(screen.queryByText("by watcher")).toBeNull();
+    const actions = screen.getByTestId("status-actions");
+    expect(
+      actions.compareDocumentPosition(screen.getByText("Git updates")) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(screen.getByText("Refresh code index")).toBeEnabled();
+  });
+
   beforeEach(() => vi.restoreAllMocks());
 
   it.each([false, true])(
@@ -117,7 +139,9 @@ describe("StatusPanel", () => {
       .spyOn(api, "refreshFolder")
       .mockResolvedValue({ started: true });
     renderWithProviders(<StatusPanel folderId="f1" />);
-    await waitFor(() => screen.getByText("Refresh detail sections"));
+    await waitFor(() =>
+      expect(screen.getByText("Refresh detail sections")).toBeEnabled()
+    );
     fireEvent.click(screen.getByText("Refresh detail sections"));
     await waitFor(() => expect(spy).toHaveBeenCalledWith("f1", "sections"));
   });
