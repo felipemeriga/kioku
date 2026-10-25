@@ -28,7 +28,16 @@ def _setup_reground(monkeypatch, posted):
         "generated_at": _recent_iso(),
         "content": {
             "sections": {
-                "architecture": {"updated_at": _recent_iso()},
+                "architecture": {
+                    "content": {"summary": "A" * 500},
+                    "updated_at": _recent_iso(),
+                    "updated_by": "mihari:guide-v2",
+                },
+                "overview": {
+                    "content": {"description": "B" * 320},
+                    "updated_at": _recent_iso(),
+                    "updated_by": "mihari:guide-v2",
+                },
             }
         },
     }
@@ -36,6 +45,7 @@ def _setup_reground(monkeypatch, posted):
     monkeypatch.setattr(mihari, "run_git", lambda *a, **k: (0, "", ""))
     monkeypatch.setattr(mihari, "decrypt", lambda s: "KEY")
     monkeypatch.setattr(mihari.Path, "is_file", lambda self: True)
+    monkeypatch.setattr(mihari.Path, "is_dir", lambda self: False)
     monkeypatch.setattr(mihari.Path, "stat", lambda self: type("S", (), {"st_size": 100})())
     monkeypatch.setattr(mihari.Path, "read_text", lambda self, **k: "content")
 
@@ -76,6 +86,137 @@ def test_reground_force_bypasses_gates(monkeypatch):
         force=True,
     )
     assert posted["n"] == 1  # force -> proceeds to POST /reground
+
+
+def test_reground_never_posts_when_both_sections_are_user_edited(monkeypatch):
+    posted = {"n": 0}
+    _setup_reground(monkeypatch, posted)
+    monkeypatch.setattr(
+        mihari,
+        "rest_get",
+        lambda *_: [
+            {
+                "generated_at": _recent_iso(),
+                "content": {
+                    "sections": {
+                        "architecture": {"status": "pinned", "updated_at": _recent_iso()},
+                        "overview": {"status": "hybrid", "updated_at": _recent_iso()},
+                    }
+                },
+            }
+        ],
+    )
+    mihari.maybe_reground_holistic(
+        Path("/clone"),
+        {"folder_id": "f1", "remote_url": "r", "api_key_encrypted": "x"},
+        {},
+        force=True,
+    )
+    assert posted["n"] == 0
+
+
+def test_reground_old_auto_sections_upgrade_once(monkeypatch):
+    posted = {"n": 0}
+    _setup_reground(monkeypatch, posted)
+    monkeypatch.setattr(
+        mihari,
+        "rest_get",
+        lambda *_: [
+            {
+                "generated_at": _recent_iso(),
+                "content": {
+                    "sections": {
+                        "architecture": {"updated_at": _recent_iso(), "updated_by": "agent_mcp"},
+                        "overview": {"updated_at": _recent_iso(), "updated_by": "agent_mcp"},
+                    }
+                },
+            }
+        ],
+    )
+    mihari.maybe_reground_holistic(
+        Path("/clone"),
+        {"folder_id": "f1", "remote_url": "r", "api_key_encrypted": "x"},
+        {},
+    )
+    assert posted["n"] == 1
+
+
+def test_reground_does_not_replace_recent_rich_agent_briefing(monkeypatch):
+    posted = {"n": 0}
+    _setup_reground(monkeypatch, posted)
+    monkeypatch.setattr(
+        mihari,
+        "rest_get",
+        lambda *_: [
+            {
+                "generated_at": _recent_iso(),
+                "content": {
+                    "sections": {
+                        "architecture": {
+                            "content": {"summary": "Actual service boundaries. " * 25},
+                            "updated_at": _recent_iso(),
+                            "updated_by": "agent_mcp",
+                        },
+                        "overview": {
+                            "content": {"description": "Actual purpose. " * 25},
+                            "updated_at": _recent_iso(),
+                            "updated_by": "agent_mcp",
+                        },
+                    }
+                },
+            }
+        ],
+    )
+    mihari.maybe_reground_holistic(
+        Path("/clone"),
+        {"folder_id": "f1", "remote_url": "r", "api_key_encrypted": "x"},
+        {},
+    )
+    assert posted["n"] == 0
+
+
+def test_failed_reground_attempt_has_cooldown_on_same_head(monkeypatch, tmp_path):
+    (tmp_path / ".git").mkdir()
+    (tmp_path / "README.md").write_text("The API accepts requests.\n")
+    monkeypatch.setattr(mihari, "API_URL", "http://api")
+    monkeypatch.setattr(mihari, "decrypt", lambda *_: "KEY")
+    monkeypatch.setattr(
+        mihari,
+        "rest_get",
+        lambda *_: [
+            {
+                "generated_at": _recent_iso(),
+                "content": {
+                    "sections": {
+                        "architecture": {"content": {"summary": "Short"}},
+                        "overview": {"content": {"description": "Short"}},
+                    }
+                },
+            }
+        ],
+    )
+
+    def git(args, *_rest, **_kwargs):
+        if args[:2] == ["rev-parse", "HEAD"]:
+            return 0, "abc123", ""
+        return 0, "", ""
+
+    monkeypatch.setattr(mihari, "run_git", git)
+    posted = []
+
+    class Response:
+        ok = True
+
+        def raise_for_status(self): ...
+
+        def json(self):
+            return {"updated": False}
+
+    monkeypatch.setattr(mihari.requests, "post", lambda *a, **k: posted.append(k) or Response())
+    repo = {"folder_id": "f1", "remote_url": "r", "api_key_encrypted": "x"}
+    mihari.maybe_reground_holistic(tmp_path, repo, {})
+    mihari.maybe_reground_holistic(tmp_path, repo, {})
+    assert len(posted) == 1
 
 
 def test_guide_upgrade_uses_grounded_repo_context_without_new_commits(monkeypatch, tmp_path):
@@ -127,6 +268,47 @@ def test_guide_upgrade_uses_grounded_repo_context_without_new_commits(monkeypatc
     assert any(f["path"] == "README.md" and f["role"] == "context" for f in posted[0]["files"])
 
 
+def test_section_refresh_no_change_after_upgrade_makes_no_model_call(monkeypatch, tmp_path):
+    (tmp_path / "README.md").write_text("Start the API with make api.\n")
+    monkeypatch.setattr(mihari, "API_URL", "http://api")
+    monkeypatch.setattr(
+        mihari,
+        "rest_get",
+        lambda *_: [
+            {
+                "generated_at": _recent_iso(),
+                "content": {
+                    "sections": {
+                        "how_it_runs": {
+                            "content": {"requirements": [], "local_dev": "make api"},
+                            "updated_at": _recent_iso(),
+                            "updated_by": "mihari:guide-v2",
+                        },
+                        "deployment": {
+                            "content": {
+                                "environments": [],
+                                "how_to_deploy": "CI",
+                                "ci_cd_notes": "",
+                            },
+                            "updated_at": _recent_iso(),
+                            "updated_by": "mihari:guide-v2",
+                        },
+                    }
+                },
+            }
+        ],
+    )
+    monkeypatch.setattr(mihari, "run_git", lambda *a, **k: (0, "", ""))
+    monkeypatch.setattr(mihari, "decrypt", lambda *_: "KEY")
+    monkeypatch.setattr(mihari.requests, "post", lambda *a, **k: pytest.fail("unexpected call"))
+    mihari.refresh_sections(
+        tmp_path,
+        {"folder_id": "f1", "remote_url": "r", "api_key_encrypted": "x"},
+        {},
+        force_guide=True,
+    )
+
+
 def test_force_refresh_sections_calls_reground_forced(monkeypatch, tmp_path):
     seen = {}
 
@@ -156,7 +338,7 @@ def test_force_refresh_sections_calls_reground_forced(monkeypatch, tmp_path):
     monkeypatch.setattr(mihari, "seed_bindings", lambda *a, **k: None)
     monkeypatch.setattr(mihari, "kioku_index", lambda clone: (True, ""))
     monkeypatch.setattr(  # noqa: E501
-        mihari, "refresh_sections", lambda *a, **k: seen.__setitem__("sections", True)
+        mihari, "refresh_sections", lambda *a, **k: seen.__setitem__("sections", k)
     )
     monkeypatch.setattr(mihari, "refresh_activity", lambda *a, **k: None)
     monkeypatch.setattr(  # noqa: E501
@@ -181,7 +363,7 @@ def test_force_refresh_sections_calls_reground_forced(monkeypatch, tmp_path):
     }
     mihari.force_refresh(repo, {"private_key_encrypted": "enc"}, "sections")
 
-    assert seen.get("sections") is True
+    assert seen["sections"]["force_all"] is True
     assert seen.get("reground_force") is True
     assert seen.get("fresh") is True
 

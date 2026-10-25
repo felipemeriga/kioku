@@ -194,9 +194,8 @@ class ActivityRefreshRequest(BaseModel):
 
 @router.post("/activity")
 async def refresh_activity(body: ActivityRefreshRequest, request: Request):
-    """Fold new commits into the briefing's `activity` section — the one
-    section that IS auto-maintained (cheap Haiku call, no agent session).
-    Prose sections (overview/architecture/…) are never touched here."""
+    """Fold new commits into the briefing's activity section with a bounded
+    Haiku call. User-edited sections stay untouched."""
     user_id, scope_id, _raw = _api_key_auth(request)
     sb = get_supabase()
 
@@ -216,6 +215,8 @@ async def refresh_activity(body: ActivityRefreshRequest, request: Request):
     from services.folder_summary.briefing_schema import snapshot_sections
 
     sections = snapshot_sections(latest)
+    if (sections.get("activity") or {}).get("status") in ("pinned", "hybrid"):
+        return {"ok": True, "updated": False, "reason": "section edited by user"}
     current_activity = (sections.get("activity") or {}).get("content") or {}
 
     import json as _json
@@ -228,9 +229,11 @@ async def refresh_activity(body: ActivityRefreshRequest, request: Request):
     prompt = (
         "You maintain the `activity` section of a repository briefing. "
         "Fold the NEW commits into the existing section: keep it a narrative "
-        "summary (4-8 sentences) plus 5-10 concrete highlight bullets, newest "
+        "summary (4-8 clear sentences) plus 5-10 concrete highlight bullets, newest "
         "work first, dropping stale items as needed. Group related commits "
-        "into themes; never output a raw commit list.\n\n"
+        "into themes, explain what changed and why it matters when supported "
+        "by the subjects; never output a raw commit list or infer unmentioned "
+        "behavior.\n\n"
         f"CURRENT SECTION (JSON):\n{_json.dumps(current_activity)[:6000]}\n\n"
         f"NEW COMMITS:\n{commit_lines}\n\n"
         'Reply with ONLY valid JSON: {"summary": "...", "highlights": ["...", ...]}'
@@ -248,6 +251,14 @@ async def refresh_activity(body: ActivityRefreshRequest, request: Request):
         new_activity = _json.loads(text)
     except _json.JSONDecodeError:
         raise HTTPException(status_code=502, detail="activity model returned invalid JSON")
+    if (
+        not isinstance(new_activity, dict)
+        or not isinstance(new_activity.get("summary"), str)
+        or not isinstance(new_activity.get("highlights"), list)
+        or any(not isinstance(item, str) for item in new_activity["highlights"])
+        or not new_activity["summary"].strip()
+    ):
+        return {"ok": True, "updated": False, "reason": "activity failed quality check"}
 
     from services.folder_summary.briefing_schema import new_section
 
@@ -267,10 +278,8 @@ async def refresh_activity(body: ActivityRefreshRequest, request: Request):
     return {"ok": True, "updated": True, "commits": len(body.commits)}
 
 
-# Sections Mihari may auto-maintain from the changed files themselves —
-# concrete, path-driven sections that a diff updates accurately. The holistic
-# sections (architecture/overview) still need a full regen and are only warned
-# about, never auto-written here.
+# Concrete sections Mihari maintains from changed files. Holistic sections
+# use the separate, much less frequent re-grounding path below.
 MIHARI_MAINTAINED_SECTIONS = {"deployment", "how_it_runs"}
 
 
@@ -317,8 +326,8 @@ async def refresh_section(body: SectionRefreshRequest, request: Request):
 
     sections = snapshot_sections(latest)
     current = (sections.get(body.section) or {}).get("content")
-    if (sections.get(body.section) or {}).get("status") == "pinned":
-        return {"ok": True, "updated": False, "reason": "section pinned"}
+    if (sections.get(body.section) or {}).get("status") in ("pinned", "hybrid"):
+        return {"ok": True, "updated": False, "reason": "section edited by user"}
     if current is None:
         # Nothing to update in place — a section that was never generated needs
         # the full regen path, not a diff fold.
@@ -341,7 +350,12 @@ async def refresh_section(body: SectionRefreshRequest, request: Request):
         "support it. Preserve verified details in the current section when changed files "
         "do not contradict them. Do not invent commands, environment values, or services. "
         if body.section == "how_it_runs"
-        else "Explain changed deployment behavior clearly without inventing steps. "
+        else (
+            "For deployment, explain the environments, release entry points, CI/CD "
+            "sequence, and verification or rollback steps only where source files "
+            "support them. Prefer short headed prose to a list of filenames or raw "
+            "workflow YAML. Preserve still-valid details in the current section. "
+        )
     )
     prompt = (
         f"You maintain the `{body.section}` section of a repository briefing. "
@@ -374,10 +388,26 @@ async def refresh_section(body: SectionRefreshRequest, request: Request):
             raise HTTPException(status_code=502, detail="section model changed briefing shape")
         local_dev = new_content.get("local_dev")
         requirements = new_content.get("requirements")
-        if not isinstance(local_dev, str) or not isinstance(requirements, list):
+        if (
+            not isinstance(local_dev, str)
+            or not isinstance(requirements, list)
+            or any(not isinstance(item, str) for item in requirements)
+        ):
             raise HTTPException(status_code=502, detail="section model changed how_it_runs types")
-        if len(local_dev.strip()) < 180:
-            return {"ok": True, "updated": False, "reason": "generated guide too short"}
+        if len(local_dev.strip()) < 180 or (
+            local_dev.count(";") >= 3 and local_dev.count("\n") < 2
+        ):
+            return {"ok": True, "updated": False, "reason": "generated guide failed quality check"}
+    if body.section == "deployment":
+        if (
+            not isinstance(new_content, dict)
+            or set(new_content) != set(current)
+            or not isinstance(new_content.get("environments"), list)
+            or not isinstance(new_content.get("how_to_deploy"), str)
+            or not isinstance(new_content.get("ci_cd_notes"), str)
+            or not (new_content["how_to_deploy"].strip() or new_content["ci_cd_notes"].strip())
+        ):
+            return {"ok": True, "updated": False, "reason": "deployment failed quality check"}
 
     from services.folder_summary.briefing_schema import new_section
 
@@ -393,7 +423,7 @@ async def refresh_section(body: SectionRefreshRequest, request: Request):
                 new_content,
                 status="auto",
                 provenance="auto",
-                updated_by="mihari:guide-v2" if body.section == "how_it_runs" else "mihari",
+                updated_by="mihari:guide-v2",
             ),
         },
     ).execute()
@@ -441,6 +471,29 @@ async def reground_holistic(body: RegroundRequest, request: Request):
     cur_arch = (sections.get("architecture") or {}).get("content")
     cur_over = (sections.get("overview") or {}).get("content")
 
+    # Reuse the AST graph that `kioku index` already uploaded. A bounded
+    # symbol/edge sample complements README and manifests without re-embedding.
+    symbols = (
+        sb.table("repo_symbols")
+        .select("file,symbol,kind")
+        .eq("folder_id", body.folder_id)
+        .eq("user_id", user_id)
+        .limit(100)
+        .execute()
+        .data
+        or []
+    )
+    edges = (
+        sb.table("repo_edges")
+        .select("ref_file,src_node_id,dst_node_id,relation")
+        .eq("folder_id", body.folder_id)
+        .eq("user_id", user_id)
+        .limit(50)
+        .execute()
+        .data
+        or []
+    )
+
     import json as _json
 
     from services.llm import Task, complete
@@ -449,13 +502,21 @@ async def reground_holistic(body: RegroundRequest, request: Request):
     prompt = (
         "You maintain a repository briefing. Regenerate the `architecture` and "
         "`overview` sections, RE-GROUNDED in the current key files and structure "
-        "below (do not just copy the stale versions). Return EXACTLY this JSON "
+        "below (do not just copy the stale versions). Write for a developer who "
+        "needs to understand this repository: describe its purpose, principal "
+        "applications and packages, their responsibilities, and the actual data "
+        "or control flow between them. Use real paths in component entries. "
+        "Prefer several connected sentences over terse labels; avoid a raw file "
+        "inventory. State uncertainty if the supplied files do not establish a "
+        "relationship. Do not invent runtime behavior. Return EXACTLY this JSON "
         "object and nothing else:\n"
         '{"architecture": {"summary": "str", "components": '
         '[{"name": "str", "role": "str", "path": "str"}], "data_flow": "str"}, '
         '"overview": {"purpose": "str", "description": "str"}}\n\n'
         f"FILE STRUCTURE:\n{body.structure[:3000]}\n\n"
-        f"KEY FILES:\n{file_blobs[:40000]}\n\n"
+        f"KEY FILES:\n{file_blobs[:30000]}\n\n"
+        f"INDEXED SYMBOL SAMPLE:\n{_json.dumps(symbols)[:8000]}\n\n"
+        f"INDEXED RELATION SAMPLE:\n{_json.dumps(edges)[:4000]}\n\n"
         f"CURRENT architecture (reference, may be stale):\n"
         f"{_json.dumps(cur_arch)[:3000] if cur_arch else 'none'}\n\n"
         f"CURRENT overview (reference):\n"
@@ -463,7 +524,7 @@ async def reground_holistic(body: RegroundRequest, request: Request):
     )
     response = complete(
         task=Task.FOLDER_SUMMARY_REGROUND,
-        max_tokens=3000,
+        max_tokens=3200,
         system=(
             "You write accurate, concise repo architecture/overview from source. "
             "Output only valid JSON."
@@ -480,21 +541,57 @@ async def reground_holistic(body: RegroundRequest, request: Request):
 
     from services.folder_summary.briefing_schema import new_section
 
-    updated: list[str] = []
+    validated: dict[str, dict] = {}
     for sec in ("architecture", "overview"):
-        if isinstance(data.get(sec), dict):
-            sb.rpc(
-                "set_briefing_section",
-                {
-                    "p_folder_id": body.folder_id,
-                    "p_user_id": user_id,
-                    "p_section": sec,
-                    "p_value": new_section(
-                        data[sec], status="auto", provenance="auto", updated_by="mihari"
-                    ),
-                },
-            ).execute()
-            updated.append(sec)
+        if (sections.get(sec) or {}).get("status") in ("pinned", "hybrid"):
+            continue
+        value = data.get(sec)
+        if sec == "overview":
+            valid = (
+                isinstance(value, dict)
+                and isinstance(value.get("purpose"), str)
+                and isinstance(value.get("description"), str)
+                and bool(value["purpose"].strip())
+                and bool(value["description"].strip())
+            )
+        else:
+            valid = (
+                isinstance(value, dict)
+                and isinstance(value.get("summary"), str)
+                and isinstance(value.get("components"), list)
+                and isinstance(value.get("data_flow"), str)
+                and bool(value["summary"].strip())
+                and all(
+                    isinstance(component, dict)
+                    and all(isinstance(component.get(key), str) for key in ("name", "role", "path"))
+                    for component in value["components"]
+                )
+            )
+        old_content = (sections.get(sec) or {}).get("content")
+        if (
+            valid
+            and isinstance(old_content, dict)
+            and len(_json.dumps(old_content)) > 350
+            and len(_json.dumps(value)) < len(_json.dumps(old_content)) // 2
+        ):
+            valid = False  # do not replace a detailed agent briefing with a thin summary
+        if not valid:
+            return {"ok": True, "updated": False, "reason": f"{sec} failed quality check"}
+        validated[sec] = value
+    updated: list[str] = []
+    for sec, value in validated.items():
+        sb.rpc(
+            "set_briefing_section",
+            {
+                "p_folder_id": body.folder_id,
+                "p_user_id": user_id,
+                "p_section": sec,
+                "p_value": new_section(
+                    value, status="auto", provenance="auto", updated_by="mihari:guide-v2"
+                ),
+            },
+        ).execute()
+        updated.append(sec)
     return {"ok": True, "updated": bool(updated), "sections": updated}
 
 

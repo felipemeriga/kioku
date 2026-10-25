@@ -328,7 +328,12 @@ def refresh_activity(clone: Path, repo: dict, old_sha: str | None, new_sha: str,
 
 
 def refresh_sections(
-    clone: Path, repo: dict, env: dict, strict: bool = False, force_guide: bool = False
+    clone: Path,
+    repo: dict,
+    env: dict,
+    strict: bool = False,
+    force_guide: bool = False,
+    force_all: bool = False,
 ) -> None:
     """Fold changed path-driven files into their concrete briefing sections
     (deployment/how_it_runs) via the backend (cheap Haiku) — the
@@ -369,15 +374,28 @@ def refresh_sections(
             continue
         changed = {line.strip() for line in out.split("\n") if line.strip()}
         matched = sorted(f for f in changed if any(r in f.lower() for r in rules))
-        guide_upgrade = (
-            section == "how_it_runs" and force_guide and sec.get("updated_by") != "mihari:guide-v2"
+        current_text = json.dumps(sec.get("content") or {})
+        thin = len(current_text) < (350 if section == "how_it_runs" else 220)
+        if section == "how_it_runs" and current_text.count(";") >= 3 and "\\n" not in current_text:
+            thin = True
+        guide_upgrade = force_all or (
+            force_guide and thin and sec.get("updated_by") != "mihari:guide-v2"
         )
         if guide_upgrade and not matched:
-            matched = [
-                path
-                for path in ("README.md", "readme.md", "Makefile", "pyproject.toml", "package.json")
-                if (clone / path).is_file()
-            ]
+            candidates = (
+                ("README.md", "readme.md", "Makefile", "pyproject.toml", "package.json")
+                if section == "how_it_runs"
+                else ("Dockerfile", "docker-compose.yml", ".github/workflows/deploy.yml")
+            )
+            matched = [path for path in candidates if (clone / path).is_file()]
+            if section == "deployment" and not matched:
+                code, tracked, _ = run_git(["ls-files"], env, cwd=str(clone))
+                if code == 0:
+                    matched = [
+                        path
+                        for path in tracked.splitlines()
+                        if any(rule in path.lower() for rule in rules) and (clone / path).is_file()
+                    ][:5]
         if not matched:
             continue
         files = []
@@ -460,10 +478,10 @@ HOLISTIC_COMMITS_FLOOR = 3
 
 
 def maybe_reground_holistic(clone: Path, repo: dict, env: dict, force: bool = False) -> None:
-    """Re-ground architecture/overview from the current key files (~twice a
-    month) via the backend (Sonnet) so these holistic sections stay fresh
-    without a full re-init. Gated on days-since-last-write + a commits floor.
-    Pass force=True to bypass the gates (e.g. for manual on-demand triggers)."""
+    """Re-ground architecture/overview from key files and the indexed graph.
+    Thin old auto sections get a one-time upgrade; later passes need both age
+    and commit churn. A seven-day same-head attempt cooldown prevents costly
+    retries after rejected model output. Explicit refresh bypasses the gates."""
     if not API_URL or not repo.get("api_key_encrypted"):
         return
     rows = rest_get(
@@ -482,29 +500,113 @@ def maybe_reground_holistic(clone: Path, repo: dict, env: dict, force: bool = Fa
     sections = content.get("sections") if isinstance(content.get("sections"), dict) else content
     sections = sections or {}
 
-    # Watermark: when architecture was last (re)written.
-    last = ((sections.get("architecture") or {}).get("updated_at")) or generated_at
+    # Watermark from the newest writable holistic section. A pinned section
+    # must never keep the expensive refresh due forever.
+    writable = [
+        sections.get(name) or {}
+        for name in ("architecture", "overview")
+        if (sections.get(name) or {}).get("status") not in ("pinned", "hybrid")
+    ]
+    if not writable:
+        return
+    last = max(
+        (section.get("updated_at") or generated_at for section in writable),
+        default=generated_at,
+    )
     try:
         last_dt = datetime.fromisoformat(str(last).replace("Z", "+00:00"))
     except ValueError:
         return
-    if not force and (datetime.now(timezone.utc) - last_dt).days < HOLISTIC_REGROUND_DAYS:
+    upgrade_due = any(
+        (sections.get(name) or {}).get("updated_by") != "mihari:guide-v2"
+        and len(json.dumps((sections.get(name) or {}).get("content") or {}))
+        < (450 if name == "architecture" else 300)
+        for name in ("architecture", "overview")
+        if (sections.get(name) or {}).get("status") not in ("pinned", "hybrid")
+    )
+    if (
+        not force
+        and not upgrade_due
+        and (datetime.now(timezone.utc) - last_dt).days < HOLISTIC_REGROUND_DAYS
+    ):
         return  # not due yet
     code, n, _ = run_git(["rev-list", "--count", f"--since={last}", "HEAD"], env, cwd=str(clone))
-    if not force and (code != 0 or int(n or 0) < HOLISTIC_COMMITS_FLOOR):
+    if not force and not upgrade_due and (code != 0 or int(n or 0) < HOLISTIC_COMMITS_FLOOR):
         return  # not enough churn to bother
+    # Record attempts even when the model rejects the output. Otherwise a
+    # stale timestamp would trigger the same expensive pass every poll.
+    code, head, _ = run_git(["rev-parse", "HEAD"], env, cwd=str(clone))
+    attempt_path = clone / ".git" / "kioku-reground-attempt.json"
+    if not force and code == 0 and head and attempt_path.is_file():
+        try:
+            attempt = json.loads(attempt_path.read_text())
+            attempted = datetime.fromisoformat(attempt["at"])
+            if attempt.get("head") == head and (datetime.now(timezone.utc) - attempted).days < 7:
+                return
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
 
     # Ground holistic refresh from durable entry points and manifests.
     paths = []
-    for cand in ("README.md", "readme.md", "pyproject.toml", "package.json", "go.mod"):
+    for cand in (
+        "README.md",
+        "pyproject.toml",
+        "package.json",
+        "go.mod",
+        "Cargo.toml",
+        "Makefile",
+        "docker-compose.yml",
+    ):
         if (clone / cand).is_file():
             paths.append(cand)
+    for top in sorted(clone.iterdir()) if clone.is_dir() else []:
+        if (
+            not top.is_dir()
+            or top.name.startswith(".")
+            or top.name in {"design-system", "tests", "test", "docs", "node_modules"}
+        ):
+            continue
+        picked = 0
+        for name in (
+            "README.md",
+            "main.py",
+            "mihari.py",
+            "src/main.ts",
+            "src/main.tsx",
+            "src/index.ts",
+            "src/index.tsx",
+            "pyproject.toml",
+            "package.json",
+            "Cargo.toml",
+        ):
+            candidate = top / name
+            if candidate.is_file():
+                paths.append(str(candidate.relative_to(clone)))
+                picked += 1
+                if picked == 2:
+                    break
+        if len(paths) >= 12:
+            break
+    # Include a few package-level READMEs/manifests for monorepos. These are
+    # far more informative than a root manifest alone and still have a hard cap.
+    for parent in ("apps", "packages", "services", "crates"):
+        base = clone / parent
+        if not base.is_dir():
+            continue
+        for child in sorted(base.iterdir())[:12]:
+            if not child.is_dir():
+                continue
+            for name in ("README.md", "package.json", "Cargo.toml", "pyproject.toml"):
+                candidate = child / name
+                if candidate.is_file():
+                    paths.append(str(candidate.relative_to(clone)))
+                    break
     files = []
-    for f in paths[:14]:
+    for f in paths[:12]:
         p = clone / f
         try:
             if p.is_file() and p.stat().st_size < 80_000:
-                files.append({"path": f, "content": p.read_text(errors="replace")[:12000]})
+                files.append({"path": f, "content": p.read_text(errors="replace")[:3500]})
         except OSError:
             continue
     if not files:
@@ -518,6 +620,13 @@ def maybe_reground_holistic(clone: Path, repo: dict, env: dict, force: bool = Fa
         structure = "\n".join(tops[:200])
 
     key = decrypt(repo["api_key_encrypted"])
+    if code == 0 and head:
+        try:
+            attempt_path.write_text(
+                json.dumps({"head": head, "at": datetime.now(timezone.utc).isoformat()})
+            )
+        except OSError:
+            pass  # deployment without a writable clone still functions
     try:
         r = requests.post(
             f"{API_URL}/api/mihari/reground",
@@ -583,6 +692,7 @@ def process_repo(repo: dict, key_row: dict) -> None:
                 # Prose staleness moves when briefings regenerate, not only
                 # when the branch does — keep the freshness row current.
                 refresh_sections(clone, repo, git_env(kf.name), force_guide=True)
+                maybe_reground_holistic(clone, repo, git_env(kf.name))
                 compute_freshness(clone, repo, git_env(kf.name))
             record({"last_error": None})
             return
@@ -697,7 +807,7 @@ def force_refresh(repo: dict, key_row: dict, target: str) -> None:
             raise RuntimeError("Code indexing failed; check mihari logs")
     elif target == "sections":
         log(f"{name}: force sections")
-        refresh_sections(clone, repo, plain_env, strict=True, force_guide=True)
+        refresh_sections(clone, repo, plain_env, strict=True, force_all=True)
         maybe_reground_holistic(clone, repo, plain_env, force=True)
     compute_freshness(clone, repo, plain_env)
 
