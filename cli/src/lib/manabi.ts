@@ -12,7 +12,7 @@ import {
   chmodSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -155,6 +155,26 @@ export function stageManabiBinary(
   return executable;
 }
 
+// Keep a package-manager's stable symlink instead of its disposable version path.
+export function manabiNodeExecutable(
+  source = process.execPath,
+  searchPath = process.env.PATH ?? "",
+  platform = process.platform
+): string {
+  const resolved = realpathSync(source);
+  const name = platform === "win32" ? "node.exe" : "node";
+  for (const directory of searchPath.split(delimiter)) {
+    if (!isAbsolute(directory)) continue;
+    const candidate = join(directory, name);
+    try {
+      if (realpathSync(candidate) === resolved) return candidate;
+    } catch {
+      /* Not this Node installation. */
+    }
+  }
+  return resolved;
+}
+
 export async function withManabiLock<T>(
   root: string,
   action: () => Promise<T>
@@ -231,7 +251,7 @@ async function installManabi(): Promise<void> {
     : stageManabiRuntime(dirname(path));
   const executable = standaloneManabi
     ? stageManabiBinary(dirname(path))
-    : realpathSync(process.execPath);
+    : manabiNodeExecutable();
   // No shell interpolation: executable and argument paths remain separate values.
   installManabiService({
     platform: process.platform,

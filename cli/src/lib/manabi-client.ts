@@ -45,6 +45,8 @@ interface Options {
   heartbeatMs?: number;
   timeoutMs?: number;
   stableMs?: number;
+  monotonicNow?: () => number;
+  wallNow?: () => number;
   delay?: (attempt: number) => number;
 }
 
@@ -57,13 +59,15 @@ export async function runManabi(options: Options): Promise<void> {
     try {
       const config = readConnection();
       if (config) stable = await connectOnce(config, options);
+      else options.status?.("signed_out");
     } catch {
       options.status?.("connection_unavailable");
       log("Manabi connection unavailable; retrying.");
     }
     if (signal.aborted) break;
     if (stable) attempt = 0;
-    const delay = (options.delay ?? reconnectDelay)(attempt++);
+    const delay = (options.delay ?? reconnectDelay)(attempt);
+    attempt = Math.min(attempt + 1, 6);
     log(`Manabi reconnecting in ${Math.round(delay / 1000)}s.`);
     try {
       await sleep(delay, undefined, { signal });
@@ -102,13 +106,25 @@ function connectOnce(
         options.status?.("inventory_unavailable");
       }
     };
+    const now = options.monotonicNow ?? (() => performance.now());
+    const wall = options.wallNow ?? Date.now;
     let readyAt = 0;
-    let lastAck = Date.now();
+    let lastAck = now();
+    let lastCheck = now();
+    let lastWall = wall();
     let authenticated = false;
     let acknowledgedHeartbeat = false;
     const stop = () => socket.terminate();
     options.signal.addEventListener("abort", stop, { once: true });
     const check = setInterval(() => {
+      const checkedAt = now();
+      const wallAt = wall();
+      // Resume from suspension or a clock jump must not preserve a stale socket.
+      const interrupted =
+        checkedAt - lastCheck > timeoutMs ||
+        Math.abs(wallAt - lastWall - (checkedAt - lastCheck)) > timeoutMs;
+      lastCheck = checkedAt;
+      lastWall = wallAt;
       let current: ManabiConnection | null;
       try {
         current = options.readConnection();
@@ -118,7 +134,8 @@ function connectOnce(
       }
       if (
         JSON.stringify(current) !== JSON.stringify(config) ||
-        Date.now() - lastAck > timeoutMs
+        interrupted ||
+        checkedAt - lastAck > timeoutMs
       ) {
         stop();
         return;
@@ -154,7 +171,7 @@ function connectOnce(
         }
         if (message.type === "ready" && !authenticated) {
           authenticated = true;
-          readyAt = Date.now();
+          readyAt = now();
           options.log?.("Manabi connected.");
           options.status?.("connected");
           sendSnapshot();
@@ -162,8 +179,11 @@ function connectOnce(
           stop();
           return;
         }
-        if (message.type === "ack") acknowledgedHeartbeat = true;
-        lastAck = Date.now();
+        if (message.type === "ack") {
+          acknowledgedHeartbeat = true;
+          options.status?.("connected");
+        }
+        lastAck = now();
       } catch {
         stop();
       }
@@ -182,8 +202,8 @@ function connectOnce(
       resolve(
         authenticated &&
           acknowledgedHeartbeat &&
-          Date.now() - lastAck <= timeoutMs &&
-          Date.now() - readyAt >= (options.stableMs ?? 60_000)
+          now() - lastAck <= timeoutMs &&
+          now() - readyAt >= (options.stableMs ?? 60_000)
       );
     });
   });
@@ -191,6 +211,7 @@ function connectOnce(
 
 export async function runManabiDaemon(configPath: string): Promise<void> {
   if (!configPath) throw new Error("Missing Manabi configuration path");
+  const diagnostics = new ManabiDiagnostics(configPath);
   let inventoryWarnings: { code: string; observed_at: string }[] = [];
   const controller = new AbortController();
   const stop = () => controller.abort();
@@ -208,6 +229,7 @@ export async function runManabiDaemon(configPath: string): Promise<void> {
         return { ...machineInfo(), ...inventory };
       },
       status: (code) => {
+        diagnostics.record(code);
         try {
           const path = join(dirname(configPath), "status.json");
           const temp = `${path}.${process.pid}.tmp`;
@@ -234,10 +256,50 @@ export async function runManabiDaemon(configPath: string): Promise<void> {
           return null;
         }
       },
-      log: (message) => console.log(`${new Date().toISOString()} ${message}`),
+      // Connection history is bounded and contains codes only, never credentials.
+      log: () => {},
     });
   } finally {
     process.removeListener("SIGTERM", stop);
     process.removeListener("SIGINT", stop);
+  }
+}
+
+export class ManabiDiagnostics {
+  private events: { code: string; observed_at: string }[] = [];
+  private previous = "";
+  private path: string;
+  constructor(configPath: string) {
+    this.path = join(dirname(configPath), "diagnostics.json");
+    try {
+      const saved: unknown = JSON.parse(readFileSync(this.path, "utf8"));
+      if (Array.isArray(saved))
+        this.events = saved
+          .filter(
+            (event) =>
+              event &&
+              typeof event.code === "string" &&
+              /^[a-z_]{1,64}$/.test(event.code) &&
+              typeof event.observed_at === "string" &&
+              Number.isFinite(Date.parse(event.observed_at))
+          )
+          .slice(-50)
+          .map(({ code, observed_at }) => ({ code, observed_at }));
+    } catch {
+      /* New or damaged diagnostic file: current connection still runs. */
+    }
+  }
+  record(code: string): void {
+    if (code === this.previous || !/^[a-z_]{1,64}$/.test(code)) return;
+    this.previous = code;
+    this.events.push({ code, observed_at: new Date().toISOString() });
+    this.events = this.events.slice(-50);
+    try {
+      const temp = `${this.path}.${process.pid}.tmp`;
+      writeFileSync(temp, JSON.stringify(this.events), { mode: 0o600 });
+      renameSync(temp, this.path);
+    } catch {
+      /* Diagnostic storage must never stop reconnecting. */
+    }
   }
 }
