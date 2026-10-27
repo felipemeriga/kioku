@@ -463,28 +463,40 @@ def _run_loop_and_stream_final(
         return ("citations", json.dumps(citations.entries()))
 
     for round_num in range(max_rounds):
-        final_round = round_num == _MAX_TOOL_ROUNDS
+        final_round = round_num == _MAX_TOOL_ROUNDS or searches_used >= _MAX_SEARCHES_PER_TURN
         available_tools = [] if final_round else tools
-        if searches_used >= _MAX_SEARCHES_PER_TURN:
-            available_tools = [t for t in available_tools if t["name"] != "knowledge_base_search"]
+        round_messages = messages
+        if final_round:
+            round_messages = messages + [
+                {
+                    "role": "user",
+                    "content": (
+                        "Answer my original question now using the evidence you gathered. "
+                        "Give the actual answer, not a research plan or progress update. "
+                        "Cite supporting sources and say what remains uncertain."
+                    ),
+                }
+            ]
         phase = "thinking" if round_num == 0 and thinking_budget else "analyzing"
         detail = "Planning the investigation" if round_num == 0 else "Reviewing the evidence"
         if final_round:
             phase, detail = "generating", "Writing the answer from gathered evidence"
         yield ("progress", json.dumps({"stage": phase, "detail": detail}))
+        round_text = ""
         with stage(f"round {round_num + 1}: anthropic stream"):
             with stream_complete(
                 task=task,
-                max_tokens=max_tokens,
-                thinking_budget=thinking_budget,
+                max_tokens=4096 if final_round else max_tokens,
+                thinking_budget=None if final_round else thinking_budget,
                 system=system_prompt,
-                messages=messages,
+                messages=round_messages,
                 tools=available_tools,
             ) as stream:
                 # Anthropic's stream helper exposes text_stream (deltas) and
                 # get_final_message() (assembled). Yield deltas as they arrive.
                 for text in stream.text_stream:
                     if text:
+                        round_text += text
                         yield ("text_delta", text)
                 final = stream.get_final_message()
                 u = getattr(final, "usage", None)
@@ -498,6 +510,39 @@ def _run_loop_and_stream_final(
                     text = getattr(b, "thinking", "") or ""
                     if text:
                         debug_trace["reasoning"].append({"round": round_num + 1, "text": text})
+
+        if final_round and not round_text.strip():
+            logger.warning(
+                "rag final round had no answer text: stop_reason=%s content_types=%s",
+                final.stop_reason,
+                [getattr(block, "type", None) for block in final.content],
+            )
+            fallback = complete(
+                task=task,
+                max_tokens=4096,
+                thinking_budget=None,
+                system=system_prompt,
+                messages=round_messages,
+                tools=[],
+            )
+            fallback_text = "".join(
+                getattr(block, "text", "") or ""
+                for block in fallback.content
+                if getattr(block, "type", None) == "text"
+            )
+            if fallback_text.strip():
+                yield ("text_delta", fallback_text)
+            else:
+                yield ("text_delta", "I could not complete an answer from the available sources.")
+            u = getattr(fallback, "usage", None)
+            if u:
+                usage_in += getattr(u, "input_tokens", 0) or 0
+                usage_out += getattr(u, "output_tokens", 0) or 0
+            if debug_trace is not None:
+                yield ("debug", json.dumps(debug_trace, default=str))
+            yield _citations_event()
+            yield _usage_event()
+            return
 
         if final.stop_reason == "tool_use":
             messages.append({"role": "assistant", "content": final.content})
