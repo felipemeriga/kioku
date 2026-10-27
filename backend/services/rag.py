@@ -3,6 +3,7 @@
 import json
 import logging
 import queue as _queue
+import re
 import threading
 from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor
@@ -473,7 +474,9 @@ def _run_loop_and_stream_final(
                     "content": (
                         "Answer my original question now using the evidence you gathered. "
                         "Give the actual answer, not a research plan or progress update. "
-                        "Cite supporting sources and say what remains uncertain."
+                        "Do not print thinking, analysis, self-corrections, or <thinking> tags. "
+                        "Keep the answer under 500 words. Cite supporting sources and briefly "
+                        "say what remains uncertain."
                     ),
                 }
             ]
@@ -486,7 +489,7 @@ def _run_loop_and_stream_final(
         with stage(f"round {round_num + 1}: anthropic stream"):
             with stream_complete(
                 task=task,
-                max_tokens=4096 if final_round else max_tokens,
+                max_tokens=2500 if final_round else max_tokens,
                 thinking_budget=None if final_round else thinking_budget,
                 system=system_prompt,
                 messages=round_messages,
@@ -497,7 +500,6 @@ def _run_loop_and_stream_final(
                 for text in stream.text_stream:
                     if text:
                         round_text += text
-                        yield ("text_delta", text)
                 final = stream.get_final_message()
                 u = getattr(final, "usage", None)
                 if u:
@@ -519,7 +521,7 @@ def _run_loop_and_stream_final(
             )
             fallback = complete(
                 task=task,
-                max_tokens=4096,
+                max_tokens=2500,
                 thinking_budget=None,
                 system=system_prompt,
                 messages=round_messages,
@@ -624,7 +626,14 @@ def _run_loop_and_stream_final(
             )
             continue
 
-        # No tool_use → the answer streamed above; loop is done.
+        # Tool rounds often contain research narration; show only the final
+        # answer. Some models also put literal <thinking> text in the final
+        # text block, which must not be shown or persisted as an answer.
+        answer_text = re.sub(r"(?is)^.*?</thinking>\s*", "", round_text).strip()
+        if answer_text:
+            yield ("text_delta", answer_text)
+        else:
+            yield ("text_delta", "I could not complete an answer from the available sources.")
         if debug_trace is not None:
             yield ("debug", json.dumps(debug_trace, default=str))
         yield _citations_event()
