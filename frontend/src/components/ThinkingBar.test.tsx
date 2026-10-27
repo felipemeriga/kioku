@@ -20,15 +20,22 @@ describe("ThinkingBar", () => {
   });
 
   it("renders the searching stage", () => {
-    renderWithProviders(<ThinkingBar stage={{ stage: "searching" }} />);
+    renderWithProviders(
+      <ThinkingBar
+        stage={{ stage: "searching", detail: "Checking project sources" }}
+      />,
+    );
     // 探索 = Searching
     expect(screen.getByText("探索")).toBeInTheDocument();
     expect(screen.getByText(/Searching/)).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Checking project sources · 0:00",
+    );
   });
 
   it("renders the analyzing stage with its doc-count detail", () => {
     renderWithProviders(
-      <ThinkingBar stage={{ stage: "analyzing", docs: 4 }} />
+      <ThinkingBar stage={{ stage: "analyzing", docs: 4 }} />,
     );
     // 分析 = Analyzing; the active tab appends the doc count as detail.
     expect(screen.getByText("分析")).toBeInTheDocument();
