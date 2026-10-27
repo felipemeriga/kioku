@@ -67,6 +67,33 @@ def test_index_status_includes_generation_timestamps():
     assert out["detailed_doc_at"] == "2026-10-05T00:00:00+00:00"
 
 
+def test_index_status_separates_review_from_content_change():
+    sb = _SB(
+        {
+            "repo_graph_meta": [],
+            "code_chunks": [],
+            "repo_documentation": [{"generated_at": "2026-09-01T00:00:00+00:00"}],
+        }
+    )
+    marker = {"reviewed_at": "2026-10-27T12:00:00+00:00", "head_sha": "a" * 40}
+    fresh = {
+        "section_reviews": {"architecture": marker, "overview": marker, "documentation": marker}
+    }
+    latest = {
+        "content": {
+            "sections": {
+                "architecture": {"updated_at": "2026-09-01T00:00:00+00:00"},
+                "overview": {"updated_at": "2026-09-01T00:00:00+00:00"},
+            }
+        }
+    }
+    out = briefing._index_status(sb, "f1", "u1", fresh, latest)
+    assert out["briefing_reviewed_at"] == marker["reviewed_at"]
+    assert out["briefing_reviewed_sha"] == marker["head_sha"]
+    assert out["architecture_at"] == "2026-09-01T00:00:00+00:00"
+    assert out["detailed_doc_at"] == "2026-09-01T00:00:00+00:00"
+
+
 def test_index_status_reads_architecture_from_content_sections_only():
     """architecture lives ONLY in content.sections — top-level sections lacks it."""
     sb = _SB(

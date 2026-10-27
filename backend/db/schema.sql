@@ -1275,6 +1275,7 @@ CREATE TABLE IF NOT EXISTS "public"."repo_freshness" (
     "index_refresh_error" text,
     "sections_refresh_finished_at" timestamp with time zone,
     "sections_refresh_error" text,
+    "section_reviews" jsonb DEFAULT '{}'::jsonb NOT NULL,
     CONSTRAINT "repo_freshness_pkey" PRIMARY KEY ("folder_id"),
     CONSTRAINT "repo_freshness_folder_id_fkey" FOREIGN KEY ("folder_id")
         REFERENCES "public"."folders"("id") ON DELETE CASCADE,

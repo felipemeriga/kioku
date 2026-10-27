@@ -13,7 +13,6 @@ import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
 import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
 import CodeIcon from "@mui/icons-material/Code";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
-import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import { messageFromError } from "./ToastProvider";
@@ -106,14 +105,14 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
     (anyRunning
       ? "Refresh requested. Waiting for Mihari to finish."
       : latestState === "failed"
-      ? `Refresh failed. ${
-          latestError || "Mihari did not report diagnostic details."
-        } Retry when the issue is resolved.`
-      : latestState === "timed-out"
-      ? "Refresh timed out or was interrupted. Please retry."
-      : latestState === "completed"
-      ? "Refresh completed. Unchanged content keeps its original timestamp."
-      : "");
+        ? `Refresh failed. ${
+            latestError || "Mihari did not report diagnostic details."
+          } Retry when the issue is resolved.`
+        : latestState === "timed-out"
+          ? "Refresh timed out or was interrupted. Please retry."
+          : latestState === "completed"
+            ? "Refresh completed. Unchanged content keeps its original timestamp."
+            : "");
 
   const start = async (target: "index" | "sections") => {
     if (anyRunning) return;
@@ -144,22 +143,14 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
     }
   };
 
-  const attribution = (value: string | null | undefined): string | null => {
-    if (!value) return null;
-    if (
-      [
-        "watcher",
-        "kioku-watcher",
-        "cloud-watcher",
-        "cloud_watcher",
-        "mihari",
-      ].includes(value.trim().toLowerCase())
-    )
-      return "by Mihari";
-    if (value === "agent_mcp") return "Updated by an agent";
-    if (/^[0-9a-f-]{36}$/i.test(value)) return "Updated in Kioku";
-    return `by ${value}`;
-  };
+  const briefingChangedAt = [
+    status?.architecture_at,
+    status?.overview_at,
+    status?.detailed_doc_at,
+  ].filter((value): value is string => Boolean(value));
+  const lastBriefingChange = briefingChangedAt.length
+    ? briefingChangedAt.reduce((latest, at) => (at > latest ? at : latest))
+    : null;
 
   const cards = [
     {
@@ -187,25 +178,14 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
       color: brand.violet2,
     },
     {
-      icon: InfoOutlinedIcon,
-      label: "Architecture",
-      at: status?.architecture_at ?? null,
-      sub: attribution(status?.architecture_by),
-      color: brand.cyan,
-    },
-    {
-      icon: InfoOutlinedIcon,
-      label: "Overview",
-      at: status?.overview_at ?? null,
-      sub: attribution(status?.overview_by),
-      color: brand.magenta,
-    },
-    {
       icon: DescriptionOutlinedIcon,
-      label: "Detailed docs",
-      at: status?.detailed_doc_at ?? null,
-      sub: null,
+      label: "Briefing",
+      at: status?.briefing_reviewed_at ?? lastBriefingChange,
+      sub: status?.briefing_reviewed_at
+        ? `Architecture, overview, and detailed docs reviewed at ${status.briefing_reviewed_sha?.slice(0, 7) ?? "current HEAD"} · Content changed ${timeAgo(lastBriefingChange)}`
+        : "Architecture, overview, and detailed docs · Awaiting Mihari review",
       color: brand.violet2,
+      reviewed: Boolean(status?.briefing_reviewed_at),
     },
   ];
 
@@ -289,13 +269,13 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
                 {anyRunning
                   ? "Refreshing repository context"
                   : requestError ||
-                    latestState === "failed" ||
-                    latestState === "timed-out"
-                  ? "Refresh needs attention"
-                  : "Repository context"}
+                      latestState === "failed" ||
+                      latestState === "timed-out"
+                    ? "Refresh needs attention"
+                    : "Repository context"}
               </Typography>
               <Typography sx={{ mt: 0.5, color: brand.muted, fontSize: 14 }}>
-                Index and briefing timestamps reported by Mihari.
+                Index and briefing checks reported by Mihari.
               </Typography>
             </Box>
             <Stack
@@ -330,7 +310,7 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
                   )
                 }
               >
-                {sectionsRunning ? "Refreshing…" : "Refresh detail sections"}
+                {sectionsRunning ? "Reviewing…" : "Review briefing"}
               </Button>
             </Stack>
           </Box>
@@ -347,8 +327,8 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
                 requestError || latestState === "failed"
                   ? "error"
                   : latestState === "timed-out"
-                  ? "warning"
-                  : "info"
+                    ? "warning"
+                    : "info"
               }
               sx={{ mt: 2, fontSize: 13, overflowWrap: "anywhere" }}
             >
@@ -406,7 +386,12 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
                           fontSize: 13,
                         }}
                       >
-                        {glyph.glyph} {c.at ? "Recorded" : "Not available"}
+                        {glyph.glyph}{" "}
+                        {c.at
+                          ? "reviewed" in c && c.reviewed
+                            ? "Reviewed"
+                            : "Recorded"
+                          : "Not available"}
                       </Typography>
                       <Typography
                         sx={{ color: brand.muted, fontSize: 13, mt: 0.5 }}

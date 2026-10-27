@@ -74,6 +74,29 @@ const staleBriefingFixture: BriefingResponse = {
 describe("BriefingPanel", () => {
   beforeEach(() => vi.restoreAllMocks());
 
+  it("renders Markdown headings and commands in briefing sections", async () => {
+    vi.spyOn(api, "fetchBriefing").mockResolvedValue({
+      ...staleBriefingFixture,
+      sections: {
+        ...staleBriefingFixture.sections,
+        how_it_runs: {
+          ...staleBriefingFixture.sections.how_it_runs,
+          content: {
+            requirements: [],
+            local_dev: "### Run locally\n\nUse `npm run dev`.",
+          },
+        },
+      },
+    });
+    renderWithProviders(<BriefingPanel folderId="f1" />);
+    await screen.findByText(/BRIEFING/i);
+    fireEvent.click(screen.getAllByText("How it runs").at(-1)!);
+    expect(
+      await screen.findByRole("heading", { name: "Run locally" })
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/### Run locally/)).not.toBeInTheDocument();
+  });
+
   it("renders the briefing title", async () => {
     vi.spyOn(api, "fetchBriefing").mockResolvedValue(staleBriefingFixture);
     renderWithProviders(<BriefingPanel folderId="f1" />);

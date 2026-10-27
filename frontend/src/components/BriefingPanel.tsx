@@ -10,6 +10,8 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { qk } from "../lib/queryKeys";
 import {
   Alert,
@@ -1015,19 +1017,7 @@ function SectionReader({ content }: { content: unknown }) {
   if (content == null) return <Empty />;
   if (typeof content === "string") {
     if (!content.trim()) return <Empty />;
-    return (
-      <Typography
-        sx={{
-          fontFamily: fonts.body,
-          fontSize: "0.9rem",
-          color: brand.text,
-          whiteSpace: "pre-wrap",
-          lineHeight: 1.55,
-        }}
-      >
-        {content}
-      </Typography>
-    );
+    return <BriefingMarkdown content={content} />;
   }
   if (Array.isArray(content)) {
     if (content.length === 0) return <Empty />;
@@ -1051,6 +1041,54 @@ function SectionReader({ content }: { content: unknown }) {
     );
   }
   return <Empty />;
+}
+
+function BriefingMarkdown({ content }: { content: string }) {
+  return (
+    <Box
+      sx={{
+        fontFamily: fonts.body,
+        fontSize: "0.9rem",
+        color: brand.text,
+        lineHeight: 1.65,
+        overflowWrap: "anywhere",
+        "& p": { my: 1.25 },
+        "& h2, & h3, & h4": {
+          color: brand.text,
+          mt: 2.5,
+          mb: 1,
+          lineHeight: 1.3,
+        },
+        "& h2": { fontSize: "1.15rem" },
+        "& h3": { fontSize: "1.03rem" },
+        "& h4": { fontSize: "0.95rem" },
+        "& ul, & ol": { pl: 3, my: 1.25 },
+        "& li": { mb: 0.5 },
+        "& pre": {
+          overflowX: "auto",
+          p: 1.5,
+          border: `1px solid ${brand.line}`,
+          borderRadius: 1,
+          bgcolor: brand.ink,
+          fontFamily: fonts.mono,
+          fontSize: "0.82rem",
+        },
+        "& :not(pre) > code": {
+          color: brand.cyan,
+          fontFamily: fonts.mono,
+          fontSize: "0.84em",
+        },
+        "& table": {
+          display: "block",
+          overflowX: "auto",
+          borderCollapse: "collapse",
+        },
+        "& th, & td": { border: `1px solid ${brand.line}`, px: 1, py: 0.5 },
+      }}
+    >
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+    </Box>
+  );
 }
 
 function ArrayItem({ item }: { item: unknown }) {
@@ -1159,16 +1197,7 @@ function ObjectField({ label, value }: { label: string; value: unknown }) {
         >
           {label === "local_dev" ? "Run locally" : label}
         </Typography>
-        <Typography
-          sx={{
-            fontSize: "0.9rem",
-            color: brand.text,
-            lineHeight: 1.6,
-            whiteSpace: "pre-wrap",
-          }}
-        >
-          {str}
-        </Typography>
+        <BriefingMarkdown content={str} />
       </Box>
     );
   }

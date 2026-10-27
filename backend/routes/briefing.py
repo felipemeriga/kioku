@@ -196,6 +196,18 @@ def _index_status(
     sections = {**top_sections, **content_sections}
     arch = sections.get("architecture") or {}
     over = sections.get("overview") or {}
+    reviews = (fresh or {}).get("section_reviews") or {}
+    briefing_reviews = [
+        reviews[name]
+        for name in ("architecture", "overview", "documentation")
+        if isinstance(reviews.get(name), dict) and reviews[name].get("reviewed_at")
+    ]
+    review_shas = {item.get("head_sha") for item in briefing_reviews}
+    briefing_reviewed_at = (
+        min(item["reviewed_at"] for item in briefing_reviews)
+        if len(briefing_reviews) == 3 and len(review_shas) == 1
+        else None
+    )
     return {
         "git_updates_at": (fresh or {}).get("checked_at"),
         "head_sha": (fresh or {}).get("head_sha"),
@@ -209,6 +221,9 @@ def _index_status(
         "overview_at": over.get("updated_at"),
         "overview_by": over.get("updated_by"),
         "detailed_doc_at": doc[0]["generated_at"] if doc else None,
+        "section_reviews": reviews,
+        "briefing_reviewed_at": briefing_reviewed_at,
+        "briefing_reviewed_sha": next(iter(review_shas)) if briefing_reviewed_at else None,
         "index_refresh_started_at": (fresh or {}).get("index_refresh_started_at"),
         "sections_refresh_started_at": (fresh or {}).get("sections_refresh_started_at"),
         "index_refresh_finished_at": (fresh or {}).get("index_refresh_finished_at"),

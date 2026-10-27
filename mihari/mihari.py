@@ -1,6 +1,6 @@
 """kioku-mihari — multi-user repo poller.
 
-Twice a day, for every row in watched_repos:
+On each scheduled pass, for every row in watched_repos:
   1. decrypt the owner's git key, ls-remote the principal branch
   2. if the SHA moved: clone/fetch the repo, seed the CLI bindings
      (.mcp.json + .claude/kioku-state.json) and run `kioku index`
@@ -19,7 +19,7 @@ Env: SUPABASE_URL, SUPABASE_SERVICE_KEY, SECRETS_ENCRYPTION_KEY
 Two run modes:
   - one-shot (default): run a single pass and exit — for manual runs.
   - service: set MIHARI_SCHEDULE to comma-separated UTC times
-    ("06:00,18:00") and the process runs a pass at startup, then sleeps
+    ("06:00,18:00") or a minute interval ("*/15"). The process runs at startup, then sleeps
     until each scheduled time, forever. This is how the Dokploy-managed
     kioku-mihari container runs it.
 """
@@ -62,6 +62,7 @@ _pass_lock = threading.Lock()
 # section's changed files back into it (auto-maintained, like activity); the
 # holistic sections (architecture/overview) are only warned about, never folded.
 SECTION_PATH_RULES: dict[str, list[str]] = {
+    "preferences": ["agents.md", "claude.md", "contributing", ".editorconfig", "codeowners"],
     "deployment": [".github/workflows/", "deploy/", "dockerfile"],
     "how_it_runs": [
         "readme",
@@ -226,10 +227,21 @@ def compute_freshness(clone: Path, repo: dict, env: dict) -> None:
     code, head, _ = run_git(["rev-parse", "HEAD"], env, cwd=str(clone))
     if code != 0:
         return
+    review_rows = rest_get(
+        "repo_freshness",
+        {
+            "folder_id": f"eq.{repo['folder_id']}",
+            "select": "section_reviews",
+            "limit": "1",
+        },
+    )
+    reviews = (review_rows[0].get("section_reviews") or {}) if review_rows else {}
     code, behind, _ = run_git(
         ["rev-list", "--count", f"--since={generated_at}", "HEAD"], env, cwd=str(clone)
     )
     commits_behind = int(behind or 0) if code == 0 else 0
+    if reviews and all((item or {}).get("head_sha") == head for item in reviews.values()):
+        commits_behind = 0  # inspected at HEAD; unchanged prose is not stale
 
     stale: list[str] = []
     changed_total = 0
@@ -239,6 +251,8 @@ def compute_freshness(clone: Path, repo: dict, env: dict) -> None:
 
     # Architecture/overview: stale on broad source churn since their update.
     for section in ("architecture", "overview"):
+        if (reviews.get(section) or {}).get("head_sha") == head:
+            continue
         since = ((sections or {}).get(section) or {}).get("updated_at") or generated_at
         code, out, _ = run_git(
             ["log", f"--since={since}", "--name-only", "--pretty=format:"],
@@ -278,7 +292,9 @@ def compute_freshness(clone: Path, repo: dict, env: dict) -> None:
         )
 
 
-def refresh_activity(clone: Path, repo: dict, old_sha: str | None, new_sha: str, env: dict) -> None:
+def refresh_activity(
+    clone: Path, repo: dict, old_sha: str | None, new_sha: str, env: dict, strict: bool = False
+) -> None:
     """Fold the new commit range into the briefing's activity section via the
     backend (Haiku) — the one auto-maintained section."""
     if not API_URL or not repo.get("api_key_encrypted"):
@@ -319,12 +335,18 @@ def refresh_activity(clone: Path, repo: dict, old_sha: str | None, new_sha: str,
             },
             timeout=120,
         )
-        if r.ok and (r.json() or {}).get("updated"):
+        r.raise_for_status()
+        body = r.json() or {}
+        if strict and str(body.get("reason", "")).endswith("failed quality check"):
+            raise RuntimeError(body["reason"])
+        if body.get("updated"):
             log(f"{repo['remote_url']}: activity section refreshed ({len(commits)} commits)")
         else:
             log(f"{repo['remote_url']}: activity refresh skipped — {r.text[:150]}")
     except Exception as exc:  # noqa: BLE001 — activity is best-effort
         log(f"{repo['remote_url']}: activity refresh failed — {exc}")
+        if strict:
+            raise RuntimeError("Activity refresh failed") from exc
 
 
 def refresh_sections(
@@ -334,6 +356,7 @@ def refresh_sections(
     strict: bool = False,
     force_guide: bool = False,
     force_all: bool = False,
+    selected_sections: set[str] | None = None,
 ) -> None:
     """Fold changed path-driven files into their concrete briefing sections
     (deployment/how_it_runs) via the backend (cheap Haiku) — the
@@ -359,6 +382,8 @@ def refresh_sections(
     key = decrypt(repo["api_key_encrypted"])
 
     for section, rules in SECTION_PATH_RULES.items():
+        if selected_sections is not None and section not in selected_sections:
+            continue
         sec = sections.get(section) or {}
         if sec.get("status") in ("pinned", "hybrid") or sec.get("provenance") == "user_ui":
             continue
@@ -385,7 +410,11 @@ def refresh_sections(
             candidates = (
                 ("README.md", "readme.md", "Makefile", "pyproject.toml", "package.json")
                 if section == "how_it_runs"
-                else ("Dockerfile", "docker-compose.yml", ".github/workflows/deploy.yml")
+                else (
+                    ("AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md", ".editorconfig")
+                    if section == "preferences"
+                    else ("Dockerfile", "docker-compose.yml", ".github/workflows/deploy.yml")
+                )
             )
             matched = [path for path in candidates if (clone / path).is_file()]
             if section == "deployment" and not matched:
@@ -446,6 +475,8 @@ def refresh_sections(
                 except OSError:
                     continue
         if not files:
+            if strict:
+                raise RuntimeError(f"No source files available for {section} review")
             continue
         try:
             r = requests.post(
@@ -462,7 +493,10 @@ def refresh_sections(
                 timeout=120,
             )
             r.raise_for_status()
-            if r.ok and (r.json() or {}).get("updated"):
+            body = r.json() or {}
+            if body.get("reason", "").endswith("failed quality check"):
+                raise RuntimeError(body["reason"])
+            if body.get("updated"):
                 log(f"{repo['remote_url']}: {section} section refreshed ({len(files)} file(s))")
         except Exception as exc:  # noqa: BLE001 — best-effort
             log(f"{repo['remote_url']}: {section} refresh failed — {exc}")
@@ -477,7 +511,13 @@ HOLISTIC_REGROUND_DAYS = 14
 HOLISTIC_COMMITS_FLOOR = 3
 
 
-def maybe_reground_holistic(clone: Path, repo: dict, env: dict, force: bool = False) -> None:
+def maybe_reground_holistic(
+    clone: Path,
+    repo: dict,
+    env: dict,
+    force: bool = False,
+    selected_sections: list[str] | None = None,
+) -> None:
     """Re-ground architecture/overview from key files and the indexed graph.
     Thin old auto sections get a one-time upgrade; later passes need both age
     and commit churn. A seven-day same-head attempt cooldown prevents costly
@@ -612,6 +652,8 @@ def maybe_reground_holistic(clone: Path, repo: dict, env: dict, force: bool = Fa
         except OSError:
             continue
     if not files:
+        if force:
+            raise RuntimeError("No source files available for holistic briefing review")
         return
 
     # Compact structure: top-two-level paths from the tracked tree.
@@ -640,11 +682,14 @@ def maybe_reground_holistic(clone: Path, repo: dict, env: dict, force: bool = Fa
                 "folder_id": repo["folder_id"],
                 "files": files,
                 "structure": structure,
+                "selected": selected_sections or ["architecture", "overview"],
             },
             timeout=180,
         )
         r.raise_for_status()
         body = r.json() if r.ok else {}
+        if force and str(body.get("reason", "")).endswith("failed quality check"):
+            raise RuntimeError(body["reason"])
         if (body or {}).get("updated"):
             log(
                 f"{repo['remote_url']}: re-grounded "
@@ -654,6 +699,86 @@ def maybe_reground_holistic(clone: Path, repo: dict, env: dict, force: bool = Fa
         log(f"{repo['remote_url']}: reground failed — {exc}")
         if force:
             raise RuntimeError("Architecture refresh failed") from exc
+
+
+def review_new_commits(clone: Path, repo: dict, old_sha: str | None, head: str, env: dict) -> None:
+    """Selectively maintain all initialized briefing areas for a new principal HEAD."""
+    if not API_URL or not repo.get("api_key_encrypted"):
+        raise RuntimeError("Mihari API or repository key is unavailable")
+    base = old_sha if old_sha and old_sha != head else f"{head}^"
+    code, paths, _ = run_git(["diff", "--name-only", base, head], env, cwd=str(clone))
+    if code != 0:
+        paths = ""
+    code, patch, _ = run_git(["diff", base, head], env, cwd=str(clone))
+    if code != 0:
+        patch = ""
+    code, subjects, _ = run_git(
+        ["log", f"{base}..{head}", "--no-merges", "--pretty=format:%h %s", "-50"],
+        env,
+        cwd=str(clone),
+    )
+    if code != 0:
+        subjects = ""
+    key = decrypt(repo["api_key_encrypted"])
+    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    r = requests.post(
+        f"{API_URL}/api/mihari/review-plan",
+        headers=headers,
+        json={
+            "folder_id": repo["folder_id"],
+            "head_sha": head,
+            "changed_paths": paths.splitlines()[:300],
+            "commits": subjects.splitlines()[:50],
+            "patch": patch[:18000],
+        },
+        timeout=120,
+    )
+    r.raise_for_status()
+    plan = r.json()
+    selected = set(plan.get("selected") or [])
+    reviewed = plan.get("reviewed") or []
+    log(f"{repo['remote_url']}: briefing review selected {sorted(selected)}")
+
+    if "activity" in selected:
+        refresh_activity(clone, repo, old_sha, head, env, strict=True)
+    concrete = selected & set(SECTION_PATH_RULES)
+    if concrete:
+        refresh_sections(clone, repo, env, strict=True, force_all=True, selected_sections=concrete)
+    holistic = sorted(selected & {"architecture", "overview"})
+    if holistic:
+        maybe_reground_holistic(clone, repo, env, force=True, selected_sections=holistic)
+    if "documentation" in selected:
+        current_paths = list(dict.fromkeys([*paths.splitlines(), "README.md"]))[:12]
+        files = []
+        for path in current_paths:
+            source = clone / path
+            try:
+                if source.is_file() and source.stat().st_size < 100_000:
+                    files.append(
+                        {"path": path, "content": source.read_text(errors="replace")[:2500]}
+                    )
+            except OSError:
+                continue
+        r = requests.post(
+            f"{API_URL}/api/mihari/documentation",
+            headers=headers,
+            json={
+                "folder_id": repo["folder_id"],
+                "head_sha": head,
+                "files": files,
+                "patch": patch[:12000],
+            },
+            timeout=240,
+        )
+        r.raise_for_status()
+    if reviewed:
+        r = requests.post(
+            f"{API_URL}/api/mihari/review-complete",
+            headers=headers,
+            json={"folder_id": repo["folder_id"], "head_sha": head, "reviewed": reviewed},
+            timeout=30,
+        )
+        r.raise_for_status()
 
 
 def process_repo(repo: dict, key_row: dict) -> None:
@@ -691,10 +816,36 @@ def process_repo(repo: dict, key_row: dict) -> None:
             log(f"{name}: up-to-date ({remote_sha[:10]})")
             clone = DATA / repo["user_id"] / repo["folder_id"]
             if (clone / ".git").exists():
-                # Prose staleness moves when briefings regenerate, not only
-                # when the branch does — keep the freshness row current.
-                refresh_sections(clone, repo, git_env(kf.name), force_guide=True)
-                maybe_reground_holistic(clone, repo, git_env(kf.name))
+                review_rows = rest_get(
+                    "repo_freshness",
+                    {
+                        "folder_id": f"eq.{repo['folder_id']}",
+                        "select": "section_reviews",
+                        "limit": "1",
+                    },
+                )
+                review = (review_rows[0].get("section_reviews") or {}) if review_rows else {}
+                latest = rest_get(
+                    "folder_summaries",
+                    {
+                        "folder_id": f"eq.{repo['folder_id']}",
+                        "select": "generated_at",
+                        "order": "generated_at.desc",
+                        "limit": "1",
+                    },
+                )
+                newest_review = max(
+                    (item.get("reviewed_at") or "" for item in review.values()), default=""
+                )
+                briefing_changed = bool(
+                    latest and latest[0].get("generated_at", "") > newest_review
+                )
+                if (
+                    not review
+                    or briefing_changed
+                    or any(item.get("head_sha") != remote_sha for item in review.values())
+                ):
+                    review_new_commits(clone, repo, remote_sha, remote_sha, git_env(kf.name))
                 compute_freshness(clone, repo, git_env(kf.name))
             record({"last_error": None})
             return
@@ -737,10 +888,14 @@ def process_repo(repo: dict, key_row: dict) -> None:
     }
     if ok:
         log(f"{name}: indexed {remote_sha[:10]}")
+        try:
+            review_new_commits(clone, repo, repo.get("last_sha"), remote_sha, plain_env)
+        except Exception as exc:  # noqa: BLE001 — retain SHA so the next pass retries
+            log(f"ERROR {name}: briefing review failed — {exc}")
+            record({"last_error": f"briefing review: {str(exc)[:220]}"})
+            compute_freshness(clone, repo, plain_env)
+            return
         record({"last_sha": remote_sha, "last_error": None})
-        refresh_activity(clone, repo, repo.get("last_sha"), remote_sha, plain_env)
-        refresh_sections(clone, repo, plain_env)
-        maybe_reground_holistic(clone, repo, plain_env)
     else:
         log(f"ERROR {name}: kioku index failed — {tail[-200:]}")
         record({"last_error": f"index: {tail[-300:]}"})
@@ -798,19 +953,18 @@ def force_refresh(repo: dict, key_row: dict, target: str) -> None:
         ok, tail = kioku_index(clone)
         if ok:
             log(f"{name}: force index -> {remote_sha[:10]}")
+            review_new_commits(clone, repo, repo.get("last_sha"), remote_sha, plain_env)
             rest_patch(
                 "watched_repos",
                 {"id": f"eq.{rid}"},
                 {"last_run_at": now, "last_sha": remote_sha, "last_error": None},
             )
-            refresh_activity(clone, repo, repo.get("last_sha"), remote_sha, plain_env)
         else:
             log(f"ERROR force index {name}: {tail[-200:]}")
             raise RuntimeError("Code indexing failed; check mihari logs")
     elif target == "sections":
         log(f"{name}: force sections")
-        refresh_sections(clone, repo, plain_env, strict=True, force_all=True)
-        maybe_reground_holistic(clone, repo, plain_env, force=True)
+        review_new_commits(clone, repo, repo.get("last_sha"), remote_sha, plain_env)
     compute_freshness(clone, repo, plain_env)
 
 
@@ -971,16 +1125,28 @@ def main() -> int:
     return 1 if failures else 0
 
 
+def parse_schedule(schedule_raw: str) -> list[tuple[int, int]]:
+    if schedule_raw.startswith("*/"):
+        minutes = int(schedule_raw[2:])
+        if minutes < 1 or minutes > 60 or 60 % minutes:
+            raise ValueError("MIHARI_SCHEDULE interval must divide 60 minutes")
+        return [(hour, minute) for hour in range(24) for minute in range(0, 60, minutes)]
+    times = sorted(
+        (int(h), int(m)) for h, m in (t.strip().split(":") for t in schedule_raw.split(","))
+    )
+    if any(h < 0 or h > 23 or m < 0 or m > 59 for h, m in times):
+        raise ValueError("MIHARI_SCHEDULE must contain valid UTC times")
+    return times
+
+
 def run_service(schedule_raw: str) -> None:
     """Run a pass now, then at each MIHARI_SCHEDULE time (UTC), forever.
 
     A crashed pass is logged and the loop keeps going — the container's
     restart policy only matters for crashes outside a pass (e.g. bad env).
     """
-    times = sorted(
-        (int(h), int(m)) for h, m in (t.strip().split(":") for t in schedule_raw.split(","))
-    )
-    log(f"service mode — schedule (UTC): {', '.join(f'{h:02d}:{m:02d}' for h, m in times)}")
+    times = parse_schedule(schedule_raw)
+    log(f"service mode — schedule: {schedule_raw} UTC")
     while True:
         try:
             with _pass_lock:
