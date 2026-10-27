@@ -23,7 +23,7 @@ async function fetchJson(url: string, headers: Record<string, string>) {
  *  defined in one place (the backend). */
 export function generateInstruction(
   sectionOrder: string[],
-  folder?: string
+  folder?: string,
 ): string {
   // A single MCP key can span several repos (the Codex surface uses one global
   // key scoped to the whole root), so every WRITE must name THIS repo. `folder`
@@ -38,30 +38,33 @@ export function generateInstruction(
       ]
     : [];
   return [
-    "Generate the COMPLETE kioku knowledge for THIS repository: the concise",
-    "briefing AND a detailed architecture document. Both are grounded in the",
-    "real code (not generic) and injected/available in future Claude Code",
-    "sessions here, so accuracy matters.",
+    "Generate practical Kioku knowledge for THIS repository: a descriptive",
+    "briefing for session starts and a focused architecture/operations document.",
+    "Ground both in real code. Help a developer understand and work in this",
+    "repo quickly; do not write an exhaustive research report.",
     ...folderNote,
     "",
     "Do this:",
     "1. Call the `get_folder_briefing_schema` MCP tool to get the exact expected",
     "   shape + authoring notes for each section.",
-    "2. Call the `read_folder_documents` MCP tool. If this folder already has",
-    "   uploaded documents (external docs, specs, architecture notes), they",
-    "   describe the broader ecosystem this repo is part of — treat them as",
-    "   authoritative context and fold relevant details into BOTH the briefing",
-    "   and the detailed doc. The repo's code alone often doesn't capture the",
-    "   whole ecosystem. (It returns a short 'nothing to fold in' note if empty.)",
-    "3. Explore the repository thoroughly. Fan out subagents in parallel to cover",
-    "   distinct areas: entry points & configuration; the core components/modules",
-    "   and their responsibilities; data flow and key control paths; how it",
-    "   builds/runs/tests; and how it deploys (CI/CD). Reuse this exploration for",
-    "   both the briefing and the detailed doc below.",
-    `4. Write these ${sectionOrder.length} concise sections, each grounded in the`,
+    "2. Call the `read_folder_documents` MCP tool once. Use uploaded documents",
+    "   only where they clarify this repo's behavior or a direct interface it",
+    "   implements. Prefer current source when docs conflict. Do not expand into",
+    "   a tour of parent-folder systems or reproduce documents wholesale.",
+    "3. Explore the repository's entry points, owned components, main data",
+    "   flow, run/test commands, and deployment. For a large repo, parallelize",
+    "   those distinct areas, then synthesize the findings without repeating",
+    "   each investigator's notes.",
+    `4. Write these ${sectionOrder.length} descriptive sections, grounded in the`,
     `   actual code with REAL file paths, following the schema shapes: ${sectionOrder.join(
-      ", "
+      ", ",
     )}.`,
+    "   Keep each section focused on what a developer needs at session start:",
+    "   purpose, responsibilities, key paths, and actionable commands. Explain",
+    "   why the important pieces matter instead of merely naming them.",
+    "   Give architecture a concrete component map and data flow; give",
+    "   deployment the real environments and release path. Use readable prose",
+    "   with enough detail to orient a new contributor, not one-line labels.",
     "   In `how_it_runs`, be useful to a developer opening this repo for the",
     "   first time. Explain prerequisites and why they matter; give the real",
     "   setup, start, and test commands for each distinct service/application",
@@ -79,19 +82,26 @@ export function generateInstruction(
     "   Group related commits into themes; do NOT paste a raw commit list. (Claude",
     "   Code sessions still get live git activity separately — this is the stored",
     "   web-UI section.)",
-    "6. Save the concise sections + activity in ONE call to",
+    "6. Save the briefing sections + activity in ONE call to",
     `   \`replace_folder_briefing(sections=<json>${f})\` — a JSON object mapping`,
     "   each section name to its content.",
-    "7. Then produce the DETAILED documentation — a comprehensive, structured",
-    "   markdown architecture document: a COMPLETE overview of the whole repo",
-    "   (purpose; subsystems/crates and their responsibilities; data & control",
-    "   flows; key files with their roles; build/run/test; deployment & CI; and",
-    "   notable risks/gotchas), grounded in REAL file paths. Save it with",
+    "7. Then produce a focused markdown architecture/operations document for",
+    "   this repository. Cover its purpose and boundaries, owned subsystems and",
+    "   their responsibilities, main data/control flow, key paths, how to run",
+    "   and test it, deployment/CI, and a few important gotchas. For a large",
+    "   repo aim for 1,000–1,600 words; use less for a small repo. Explain the",
+    "   important mechanisms well, but do not inventory every module, commit,",
+    "   external service, timestamp, or configuration field. Mention external",
+    "   systems only to explain a direct input/output boundary of this repo.",
+    "   Do not include a scope/evidence diary (branch, HEAD, sources read, tool",
+    "   calls, schema retrieval, caveats about what you did not inspect), long",
+    "   historical comparisons, or speculative ecosystem architecture. Put",
+    "   short source paths beside claims where useful. Save the document with",
     `   \`save_repo_documentation(content=<the full markdown>, abstract=<a short`,
-    `   3–8 line summary>${f})\`. This is the 'complete overview' large document.`,
+    `   3–8 line summary>${f})\`. This is the focused reference document.`,
     "",
-    "Be dense and grounded. Do not ask questions; produce and save BOTH the",
-    "briefing (with activity) and the detailed documentation.",
+    "Be clear, specific, and selective. Do not ask questions; produce and save",
+    "BOTH the briefing (with activity) and the focused documentation.",
   ].join("\n");
 }
 
@@ -100,7 +110,7 @@ export function generateInstruction(
  *  surface (the global ~/.codex/config.toml). Returns null if neither is wired,
  *  so the hook can exit silently in a non-kioku session. */
 function resolveKeyAndUrl(
-  repoRoot: string
+  repoRoot: string,
 ): { apiKey: string; mcpUrl: string } | null {
   const mcpPath = join(repoRoot, ".mcp.json");
   if (existsSync(mcpPath)) {
@@ -151,7 +161,7 @@ export async function sessionStart(): Promise<void> {
   let folderId: string | undefined;
   try {
     const st = JSON.parse(
-      readFileSync(join(repoRoot, ".claude", "kioku-state.json"), "utf8")
+      readFileSync(join(repoRoot, ".claude", "kioku-state.json"), "utf8"),
     ) as { folder_id?: string };
     folderId = st.folder_id;
   } catch {
@@ -166,9 +176,9 @@ export async function sessionStart(): Promise<void> {
   try {
     const s = (await fetchJson(
       `${base}/api/cli/folder-summary?folder_id=${encodeURIComponent(
-        folderId
+        folderId,
       )}`,
-      H
+      H,
     )) as {
       needs_generation: boolean;
       sections: Record<string, { content: unknown }> | null;
@@ -182,7 +192,7 @@ export async function sessionStart(): Promise<void> {
         // A launcher (e.g. `kioku init`) already handed this session the
         // generation instruction as its first task — don't duplicate it here.
         console.log(
-          "This repo has no kioku briefing yet — generating it now as the first task."
+          "This repo has no kioku briefing yet — generating it now as the first task.",
         );
       } else {
         // No background/detached generation: make it the session's FIRST task by
@@ -190,7 +200,7 @@ export async function sessionStart(): Promise<void> {
         // doc are produced in this session before anything else.
         console.log(
           "This repo has no kioku briefing yet. Generate it now as your FIRST " +
-            "task, before responding to anything else:\n"
+            "task, before responding to anything else:\n",
         );
         console.log(generateInstruction(s.section_order, folderId));
       }
@@ -220,7 +230,7 @@ export async function sessionStart(): Promise<void> {
           "\nThis repo's deep documentation is missing or over 30 days old. When you're " +
             'ready, say "generate the docs" and I\'ll scan the repository — fanning out ' +
             "subagents across its main areas — write a structured architecture document, " +
-            "and save it via the `save_repo_documentation` MCP tool."
+            "and save it via the `save_repo_documentation` MCP tool.",
         );
       }
     }
@@ -240,12 +250,12 @@ export async function sessionStart(): Promise<void> {
     const msg = err instanceof Error ? err.message : String(err);
     const unreachable =
       /fetch failed|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|getaddrinfo|network|timed? ?out/i.test(
-        msg
+        msg,
       );
     console.error(
       unreachable
         ? "kioku: backend unreachable — skipping briefing this session (your session is unaffected)."
-        : `kioku: ${msg}`
+        : `kioku: ${msg}`,
     );
   }
 }
