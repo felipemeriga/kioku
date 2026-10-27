@@ -154,7 +154,6 @@ export default function ChatPage() {
         convId,
         content,
         (token) => {
-          setCurrentStage(null);
           streamingRef.current += token;
           setStreamingContent(streamingRef.current);
         },
