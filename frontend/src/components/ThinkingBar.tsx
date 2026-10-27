@@ -1,6 +1,8 @@
 // frontend/src/components/ThinkingBar.tsx
-import { Box } from "@mui/material";
+import { useEffect, useState } from "react";
+import { Box, Typography } from "@mui/material";
 import type { StageEvent } from "../lib/api";
+import { brand, fonts } from "../theme";
 import StageTabs from "./neo/StageTabs";
 import type { Stage } from "./neo/StageTabs";
 
@@ -23,6 +25,15 @@ const toStageTabsKey = (s: string): Stage => {
 };
 
 export default function ThinkingBar({ stage }: ThinkingBarProps) {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    const started = Date.now();
+    const timer = window.setInterval(() => {
+      setElapsed(Math.floor((Date.now() - started) / 1000));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   if (!stage) return null;
 
   const activeKey = toStageTabsKey(stage.stage);
@@ -43,6 +54,14 @@ export default function ThinkingBar({ stage }: ThinkingBarProps) {
       }}
     >
       <StageTabs active={activeKey} detail={docDetail} />
+      <Typography
+        role="status"
+        aria-live="polite"
+        sx={{ mt: 1, fontFamily: fonts.body, fontSize: 13, color: brand.muted }}
+      >
+        {stage.detail ?? "Working on your answer"} · {Math.floor(elapsed / 60)}:
+        {String(elapsed % 60).padStart(2, "0")}
+      </Typography>
     </Box>
   );
 }

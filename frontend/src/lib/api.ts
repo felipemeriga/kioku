@@ -376,6 +376,7 @@ export type ChatMode = "plain" | "agentic" | "deep";
 export interface StageEvent {
   stage: ChatStage;
   docs?: number;
+  detail?: string;
 }
 
 export async function streamChat(
@@ -504,7 +505,7 @@ export async function streamChat(
             return;
           }
           if (data.stage && onStage) {
-            onStage({ stage: data.stage, docs: data.docs });
+            onStage({ stage: data.stage, docs: data.docs, detail: data.detail });
           }
           if (data.debug && onDebug) {
             onDebug(data.debug as DebugTrace);

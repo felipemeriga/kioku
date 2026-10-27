@@ -25,8 +25,7 @@ cross-check, and verify. Do NOT answer from the first thing you retrieve.
 ## Tools
 - knowledge_base_search — hybrid vector + keyword search over the user's documents AND their \
 indexed source code (real code chunks, not just prose). It performs internal query expansion, so \
-pass ONE clear question per call — but you may call it several times across rounds: if results are \
-weak, off-target, or thin, reformulate and search again.
+pass ONE clear question per call. Search again only when the returned evidence has a specific gap.
 - code_graph_lookup — exact structural lookups in the code graph across every repo in scope: where \
 a symbol is defined, who references/calls it, its blast radius (impact), or an outline of a \
 file/directory. Use it for precise "where is X defined / who calls X / what depends on X" \
@@ -40,8 +39,8 @@ work" questions — semantic search shows the CURRENT state, not the delta.
 
 ## How to work (agentic)
 - PLAN: decide what you need and where it lives (docs? code? code graph? web?) before acting.
-- ACT & OBSERVE: retrieve, then actually read what came back. You may use multiple tools and \
-search multiple times across rounds — iterate until you have enough. Do not stop at the first hit.
+- ACT & OBSERVE: retrieve, then actually read what came back. Search again only for a concrete \
+missing fact; otherwise move to the answer.
 - EVALUATE: after retrieving, judge whether the results are relevant, complete, consistent, and \
 current. If they are thin, conflicting, or stale, dig further — reformulate, switch tools, or go \
 read the actual code.
@@ -86,6 +85,8 @@ guess or rely on outside knowledge."""
 # Extended-thinking budget for deep-mode turns. < max_tokens so thinking and the
 # answer share the ceiling.
 _DEEP_THINKING_BUDGET = 2048
+_MAX_SEARCHES_PER_TURN = 4
+_MAX_TOOL_ROUNDS = 5
 
 
 def _agent_params(model: str, mode: str) -> tuple[Task, int, int | None]:
@@ -378,12 +379,19 @@ def stream_rag_response(
     # stops being iterated; the thread keeps running and saves the full answer.
     gen_started = False
     while True:
-        item = events.get()
+        try:
+            item = events.get(timeout=10)
+        except _queue.Empty:
+            # Keep proxies and browsers connected during long model/tool calls.
+            yield ": keepalive\n\n"
+            continue
         if item is _END:
             break
         kind, payload = item
         if kind == "stage":
             yield f"data: {json.dumps({'stage': payload})}\n\n"
+        elif kind == "progress":
+            yield f"data: {payload}\n\n"
         elif kind == "debug":
             yield f"data: {json.dumps({'debug': json.loads(payload)})}\n\n"
         elif kind == "citations":
@@ -420,9 +428,13 @@ def _run_loop_and_stream_final(
     end-to-end generation time (~10s).
     """
     messages = list(history or []) + [{"role": "user", "content": user_message}]
-    max_rounds = 10
+    # A final model call without tools guarantees a synthesis instead of an
+    # unbounded series of increasingly similar searches.
+    max_rounds = _MAX_TOOL_ROUNDS + 1
     task, max_tokens, thinking_budget = _agent_params(model, mode)
     system_prompt, tools = _mode_config(mode)
+    searches_used = 0
+    searches_lock = threading.Lock()
     # Debug trace for the UI's Inspect card (reasoning, tool calls, retrieval).
     debug_trace: dict | None = (
         {"model": model, "reasoning": [], "tool_calls": [], "retrieval": []} if debug else None
@@ -451,9 +463,15 @@ def _run_loop_and_stream_final(
         return ("citations", json.dumps(citations.entries()))
 
     for round_num in range(max_rounds):
-        # Tell the UI what's happening before the (possibly long) model call:
-        # deep mode reasons first, fast mode goes straight to searching.
-        yield ("stage", "thinking" if thinking_budget else "searching")
+        final_round = round_num == _MAX_TOOL_ROUNDS
+        available_tools = [] if final_round else tools
+        if searches_used >= _MAX_SEARCHES_PER_TURN:
+            available_tools = [t for t in available_tools if t["name"] != "knowledge_base_search"]
+        phase = "thinking" if round_num == 0 and thinking_budget else "analyzing"
+        detail = "Planning the investigation" if round_num == 0 else "Reviewing the evidence"
+        if final_round:
+            phase, detail = "generating", "Writing the answer from gathered evidence"
+        yield ("progress", json.dumps({"stage": phase, "detail": detail}))
         with stage(f"round {round_num + 1}: anthropic stream"):
             with stream_complete(
                 task=task,
@@ -461,7 +479,7 @@ def _run_loop_and_stream_final(
                 thinking_budget=thinking_budget,
                 system=system_prompt,
                 messages=messages,
-                tools=tools,
+                tools=available_tools,
             ) as stream:
                 # Anthropic's stream helper exposes text_stream (deltas) and
                 # get_final_message() (assembled). Yield deltas as they arrive.
@@ -484,15 +502,31 @@ def _run_loop_and_stream_final(
         if final.stop_reason == "tool_use":
             messages.append({"role": "assistant", "content": final.content})
             tool_uses = [b for b in final.content if b.type == "tool_use"]
-            yield ("stage", "searching")
+            yield (
+                "progress",
+                json.dumps({"stage": "searching", "detail": "Checking project sources"}),
+            )
 
             def _run_tool(block, _indent: int = 1) -> dict:
+                nonlocal searches_used
                 # Wrap execute_tool so a failing tool (Voyage 429, upstream outage,
                 # bad SQL) returns an is_error tool_result the model can
                 # gracefully compose an apology around, instead of the
                 # exception bubbling out of the generator and 500ing the SSE.
                 with stage(f"tool: {block.name}", indent=_indent):
                     try:
+                        if block.name == "knowledge_base_search":
+                            with searches_lock:
+                                if searches_used >= _MAX_SEARCHES_PER_TURN:
+                                    return {
+                                        "type": "tool_result",
+                                        "tool_use_id": block.id,
+                                        "content": (
+                                            "Search limit reached. Answer from the evidence "
+                                            "already gathered."
+                                        ),
+                                    }
+                                searches_used += 1
                         result_text = execute_tool(
                             block.name,
                             block.input,
@@ -539,6 +573,10 @@ def _run_loop_and_stream_final(
                     )
 
             messages.append({"role": "user", "content": tool_results})
+            yield (
+                "progress",
+                json.dumps({"stage": "analyzing", "detail": "Reviewing the evidence"}),
+            )
             continue
 
         # No tool_use → the answer streamed above; loop is done.
