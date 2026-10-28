@@ -28,7 +28,9 @@ router = APIRouter()
 
 
 def _user_edited(section: dict) -> bool:
-    return section.get("status") in ("pinned", "hybrid") or section.get("provenance") == "user_ui"
+    # Older `kioku init --force` clients pinned agent-generated sections.
+    # Provenance, not the legacy pin flag, identifies a deliberate UI edit.
+    return section.get("provenance") == "user_ui"
 
 
 REVIEWED_SECTIONS = (

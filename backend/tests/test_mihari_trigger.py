@@ -148,8 +148,16 @@ def test_reground_never_posts_when_both_sections_are_user_edited(monkeypatch):
                 "generated_at": _recent_iso(),
                 "content": {
                     "sections": {
-                        "architecture": {"status": "pinned", "updated_at": _recent_iso()},
-                        "overview": {"status": "hybrid", "updated_at": _recent_iso()},
+                        "architecture": {
+                            "status": "pinned",
+                            "provenance": "user_ui",
+                            "updated_at": _recent_iso(),
+                        },
+                        "overview": {
+                            "status": "hybrid",
+                            "provenance": "user_ui",
+                            "updated_at": _recent_iso(),
+                        },
                     }
                 },
             }

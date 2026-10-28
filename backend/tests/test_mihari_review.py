@@ -7,6 +7,11 @@ from main import app
 from routes import mihari
 
 
+def test_legacy_force_init_pin_is_watcher_writable():
+    assert not mihari._user_edited({"status": "pinned", "provenance": "agent_mcp"})
+    assert mihari._user_edited({"status": "pinned", "provenance": "user_ui"})
+
+
 class Query:
     def __init__(self, data, writes=None):
         self.data = data

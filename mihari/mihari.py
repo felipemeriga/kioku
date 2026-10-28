@@ -385,7 +385,7 @@ def refresh_sections(
         if selected_sections is not None and section not in selected_sections:
             continue
         sec = sections.get(section) or {}
-        if sec.get("status") in ("pinned", "hybrid") or sec.get("provenance") == "user_ui":
+        if sec.get("provenance") == "user_ui":
             continue
         if not sec.get("content"):
             continue  # never generated — needs a full regen, not a diff fold
@@ -540,13 +540,11 @@ def maybe_reground_holistic(
     sections = content.get("sections") if isinstance(content.get("sections"), dict) else content
     sections = sections or {}
 
-    # Watermark from the newest writable holistic section. A pinned section
-    # must never keep the expensive refresh due forever.
+    # Legacy init pinned agent-generated sections. Only UI edits block the watcher.
     writable = [
         sections.get(name) or {}
         for name in ("architecture", "overview")
-        if (sections.get(name) or {}).get("status") not in ("pinned", "hybrid")
-        and (sections.get(name) or {}).get("provenance") != "user_ui"
+        if (sections.get(name) or {}).get("provenance") != "user_ui"
     ]
     if not writable:
         return
@@ -563,8 +561,7 @@ def maybe_reground_holistic(
         and len(json.dumps((sections.get(name) or {}).get("content") or {}))
         < (450 if name == "architecture" else 300)
         for name in ("architecture", "overview")
-        if (sections.get(name) or {}).get("status") not in ("pinned", "hybrid")
-        and (sections.get(name) or {}).get("provenance") != "user_ui"
+        if (sections.get(name) or {}).get("provenance") != "user_ui"
     )
     if (
         not force

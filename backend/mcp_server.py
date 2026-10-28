@@ -1058,7 +1058,7 @@ def get_folder_briefing(folder: str | None = None) -> str:
 @mcp.tool()
 def replace_folder_briefing(
     sections: str,
-    pin_all: bool = True,
+    pin_all: bool = False,
     folder: str | None = None,
 ) -> str:
     """Replace the ENTIRE briefing in one call — all the stable sections at once
@@ -1074,9 +1074,8 @@ def replace_folder_briefing(
             the list + each section's content shape) and each value is that
             section's content shape. Partial replaces are allowed — missing
             keys are left alone and merge with the existing briefing.
-        pin_all: If True (default), every provided section is marked
-            pinned so auto-regen won't overwrite the changes. Set False
-            for 'suggestion' behavior.
+        pin_all: If True, every provided section is marked pinned. The
+            default keeps agent-generated content available to Mihari.
         folder: Same resolver as get_folder_briefing (name / slash-path /
             UUID). Omit to target the API key's scope folder.
 
