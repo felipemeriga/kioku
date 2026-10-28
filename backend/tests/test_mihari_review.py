@@ -142,8 +142,7 @@ def test_documentation_refresh_collects_streamed_response(monkeypatch):
 
     @contextmanager
     def streamed_response(**_kwargs):
-        payload = json.dumps({"content": guide, "abstract": abstract})
-        yield SimpleNamespace(text_stream=iter([payload[:50], payload[50:]]))
+        yield SimpleNamespace(text_stream=iter([guide[:50], guide[50:]]))
 
     monkeypatch.setattr(mihari, "_api_key_auth", lambda _request: ("u1", "f1", "rag_test"))
     monkeypatch.setattr(mihari, "get_supabase", DocumentationDB)
