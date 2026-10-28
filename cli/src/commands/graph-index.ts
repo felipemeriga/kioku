@@ -23,6 +23,7 @@ import { headSha } from "../lib/git.js";
 import { section, ok, info, warn, bad } from "../lib/banner.js";
 import { mcpUrlToRestBase } from "../lib/urls.js";
 import { uploadCodeChunks } from "../lib/code-chunks.js";
+import { supplementTopLevelCalls } from "../lib/graph-call-edges.js";
 
 interface GraphNode {
   id: string;
@@ -73,7 +74,7 @@ function stampState(repoRoot: string, patch: Record<string, unknown>): void {
   mkdirSync(dirname(p), { recursive: true });
   writeFileSync(
     p,
-    JSON.stringify({ ...readState(repoRoot), ...patch }, null, 2) + "\n"
+    JSON.stringify({ ...readState(repoRoot), ...patch }, null, 2) + "\n",
   );
 }
 
@@ -86,7 +87,7 @@ async function fetchServerWatermark(repoRoot: string): Promise<string | null> {
   try {
     const res = await fetch(
       `${base}/api/cli/repo-graph?folder_id=${encodeURIComponent(folderId)}`,
-      { headers: { Authorization: `Bearer ${mcp.key}` } }
+      { headers: { Authorization: `Bearer ${mcp.key}` } },
     );
     if (!res.ok) return null;
     const body = (await res.json()) as { last_indexed_sha?: string | null };
@@ -109,7 +110,40 @@ export function graphifyAvailable(): boolean {
   return !r.error && r.status === 0;
 }
 
+const MIN_GRAPHIFY_VERSION = [0, 9, 96];
+
+function graphifyVersion(): number[] | null {
+  const installed = spawnSync("graphify", ["--version"], { encoding: "utf8" });
+  if (installed.status !== 0) return null;
+  const match = (installed.stdout || installed.stderr || "").match(
+    /(\d+)\.(\d+)\.(\d+)/,
+  );
+  return match?.slice(1).map(Number) ?? null;
+}
+
+function graphifyCurrent(version: number[] | null): boolean {
+  if (!version) return false;
+  for (let i = 0; i < MIN_GRAPHIFY_VERSION.length; i++) {
+    if (version[i] > MIN_GRAPHIFY_VERSION[i]) return true;
+    if (version[i] < MIN_GRAPHIFY_VERSION[i]) return false;
+  }
+  return true;
+}
+
+/** Keep the uv-managed extractor current; old installs do not auto-upgrade. */
+export function ensureGraphify(): boolean {
+  const version = graphifyVersion();
+  if (graphifyCurrent(version)) return true;
+  const args = version
+    ? ["tool", "upgrade", "graphifyy"]
+    : ["tool", "install", "graphifyy>=0.9.96"];
+  info(`${version ? "Upgrading" : "Installing"} graphify via uv…`);
+  const result = spawnSync("uv", args, { stdio: "inherit" });
+  return result.status === 0 && graphifyCurrent(graphifyVersion());
+}
+
 const LOCK_STALE_MS = 10 * 60 * 1000;
+const GRAPH_INDEX_VERSION = 2;
 
 /** Serialize indexing per-repo: init and the on-push detached index (or two
  *  quick pushes) must not run `graphify` on the same graphify-out/ at once —
@@ -170,10 +204,10 @@ export async function graphIndex(repoRootArg?: string): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  if (!graphifyAvailable()) {
+  if (!ensureGraphify()) {
     warn(
-      "`graphify` isn't on PATH — skipping code-graph index.",
-      "Install it (e.g. `uv tool install graphifyy`), then re-run `kioku index`."
+      "Graphify 0.9.96 or newer isn't available — skipping code-graph index.",
+      "Install it (`uv tool install 'graphifyy>=0.9.96'`), then re-run `kioku index`.",
     );
     return;
   }
@@ -185,7 +219,10 @@ export async function graphIndex(repoRootArg?: string): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  const lastSha = state.last_indexed_sha as string | undefined;
+  const schemaCurrent = state.graph_index_version === GRAPH_INDEX_VERSION;
+  const lastSha = schemaCurrent
+    ? (state.last_indexed_sha as string | undefined)
+    : undefined;
   const norm = makeNorm(repoRoot);
 
   // The watermark is only usable as a diff base if it's a commit in THIS clone.
@@ -261,7 +298,7 @@ interface UploadCtx {
 
 async function runExtractionAndUpload(
   repoRoot: string,
-  { mcp, folderId, head, isFirst, changedFiles, deletedFiles, norm }: UploadCtx
+  { mcp, folderId, head, isFirst, changedFiles, deletedFiles, norm }: UploadCtx,
 ): Promise<void> {
   info("Extracting AST graph (graphify, no LLM)…");
   const ext = spawnSync("graphify", ["update", repoRoot, "--no-cluster"], {
@@ -290,7 +327,7 @@ async function runExtractionAndUpload(
   } catch (err) {
     bad(
       "graph.json was unreadable (partial/concurrent write?).",
-      err instanceof Error ? err.message : String(err)
+      err instanceof Error ? err.message : String(err),
     );
     process.exitCode = 1;
     return;
@@ -305,6 +342,10 @@ async function runExtractionAndUpload(
   const edges = isFirst
     ? allEdges
     : allEdges.filter((e) => changedSet.has(norm(e.source_file)));
+  const uploadedEdges = [
+    ...edges,
+    ...supplementTopLevelCalls(repoRoot, nodes, edges),
+  ];
 
   // First run: the "changed" set is every file present in the graph.
   const filesForDelta = isFirst
@@ -312,7 +353,7 @@ async function runExtractionAndUpload(
     : changedFiles;
 
   const base = mcpUrlToRestBase(mcp.entry.url);
-  info(`Uploading ${nodes.length} symbols, ${edges.length} edges…`);
+  info(`Uploading ${nodes.length} symbols, ${uploadedEdges.length} edges…`);
 
   // Upload is best-effort: a transient network/backend hiccup must fail
   // gracefully (clear message, no throw) so a caller like `kioku init` never
@@ -340,7 +381,7 @@ async function runExtractionAndUpload(
           changed_files: filesForDelta,
           deleted_files: deletedFiles,
           nodes,
-          edges,
+          edges: uploadedEdges,
         }),
       });
       if (!res.ok) {
@@ -354,7 +395,7 @@ async function runExtractionAndUpload(
       if (attempt === 2) {
         bad(
           "Couldn't reach the kioku backend to upload the graph.",
-          err instanceof Error ? err.message : String(err)
+          err instanceof Error ? err.message : String(err),
         );
         process.exitCode = 1;
         return;
@@ -363,14 +404,17 @@ async function runExtractionAndUpload(
   }
   if (!body) return;
 
-  stampState(repoRoot, { last_indexed_sha: head });
+  stampState(repoRoot, {
+    last_indexed_sha: head,
+    graph_index_version: GRAPH_INDEX_VERSION,
+  });
   ok(
     `Indexed ${body.nodes_upserted} symbols, ${body.edges_upserted} edges ` +
-      `(repo total: ${body.node_count} symbols / ${body.edge_count} edges).`
+      `(repo total: ${body.node_count} symbols / ${body.edge_count} edges).`,
   );
   if (body.skipped_shrink?.length) {
     warn(
-      `Skipped ${body.skipped_shrink.length} file(s) with a suspicious empty re-extraction (kept existing).`
+      `Skipped ${body.skipped_shrink.length} file(s) with a suspicious empty re-extraction (kept existing).`,
     );
   }
 

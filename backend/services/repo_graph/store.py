@@ -16,6 +16,17 @@ from services.repo_graph.mapping import files_from_nodes, map_edge, map_node
 
 _INSERT_CHUNK = 500
 _IN_CHUNK = 100
+_DEPENDENCY_RELATIONS = [
+    "calls",
+    "indirect_call",
+    "references",
+    "uses",
+    "imports",
+    "imports_from",
+    "re_exports",
+    "inherits",
+    "extends",
+]
 
 
 def _chunks(seq: list, size: int):
@@ -158,36 +169,84 @@ def _existing_node_ids(sb, folder_id: str, node_ids: list[str]) -> set[str]:
     return found
 
 
+def _incoming_edges(sb, folder_id: str, target_ids: list[str], fields: str):
+    """Page edges explicitly: PostgREST defaults to at most 1,000 rows."""
+    for batch in _chunks(target_ids, _IN_CHUNK):
+        offset = 0
+        while True:
+            rows = (
+                sb.table("repo_edges")
+                .select(fields)
+                .eq("folder_id", folder_id)
+                .in_("dst_node_id", batch)
+                .in_("relation", _DEPENDENCY_RELATIONS)
+                .order("ref_file")
+                .order("ref_line")
+                .range(offset, offset + _INSERT_CHUNK - 1)
+                .execute()
+                .data
+            ) or []
+            yield rows
+            if len(rows) < _INSERT_CHUNK:
+                break
+            offset += _INSERT_CHUNK
+
+
 def find_references(sb, *, folder_id: str, symbol: str, limit: int = 100) -> list[dict]:
     """Edges pointing AT the symbol (who calls/references it). Fail-closed:
     only edges whose source node still exists are returned."""
-    targets = find_definition(sb, folder_id=folder_id, symbol=symbol, limit=50)
+    targets = _exact_targets(sb, folder_id=folder_id, symbol=symbol)
     target_ids = [t["node_id"] for t in targets]
     if not target_ids:
         return []
     edges: list[dict] = []
-    for batch in _chunks(target_ids, _IN_CHUNK):
+    for rows in _incoming_edges(
+        sb, folder_id, target_ids, "src_node_id,dst_node_id,relation,ref_file,ref_line"
+    ):
+        live = _existing_node_ids(sb, folder_id, [e["src_node_id"] for e in rows])
+        edges.extend(e for e in rows if e["src_node_id"] in live)
+        if len(edges) >= limit:
+            break
+    return edges[:limit]
+
+
+def _exact_targets(sb, *, folder_id: str, symbol: str) -> list[dict]:
+    """Navigation requires exact symbols; a fuzzy match can return unrelated callers."""
+    matches: list[dict] = []
+    candidates = (symbol,) if symbol.endswith("()") else (symbol, f"{symbol}()", f".{symbol}()")
+    for candidate in candidates:
         rows = (
-            sb.table("repo_edges")
-            .select("src_node_id,dst_node_id,relation,ref_file,ref_line")
+            sb.table("repo_symbols")
+            .select("node_id")
             .eq("folder_id", folder_id)
-            .in_("dst_node_id", batch)
-            .limit(limit)
+            .eq("symbol", candidate)
+            .limit(100)
             .execute()
             .data
         ) or []
-        edges.extend(rows)
-    live = _existing_node_ids(sb, folder_id, [e["src_node_id"] for e in edges])
-    return [e for e in edges if e["src_node_id"] in live][:limit]
+        matches.extend(rows)
+    return matches
 
 
 def outline(sb, *, folder_id: str, path: str, limit: int = 500) -> list[dict]:
     """All symbols under a file or directory prefix, ordered by file then line."""
+    path = path.removeprefix("./").rstrip("/")
+
+    def base_query():
+        return (
+            sb.table("repo_symbols")
+            .select("node_id,symbol,kind,file,start_line,updated_at")
+            .eq("folder_id", folder_id)
+        )
+
+    if path not in ("", "."):
+        exact = base_query().eq("file", path).order("start_line").limit(limit).execute().data or []
+        if exact:
+            return exact
+    prefix = "%" if path in ("", ".") else f"{path}/%"
     return (
-        sb.table("repo_symbols")
-        .select("node_id,symbol,kind,file,start_line,updated_at")
-        .eq("folder_id", folder_id)
-        .ilike("file", f"{path}%")
+        base_query()
+        .ilike("file", prefix)
         .order("file")
         .order("start_line")
         .limit(limit)
@@ -201,7 +260,7 @@ def impact_of(
 ) -> list[dict]:
     """Backward blast-radius: transitive callers/referencers up to `depth`.
     Bounded BFS over repo_edges (fail-closed on existing nodes)."""
-    seeds = find_definition(sb, folder_id=folder_id, symbol=symbol, limit=50)
+    seeds = _exact_targets(sb, folder_id=folder_id, symbol=symbol)
     frontier = {s["node_id"] for s in seeds}
     seen = set(frontier)
     hits: list[dict] = []
@@ -209,15 +268,9 @@ def impact_of(
         if not frontier or len(seen) >= max_nodes:
             break
         callers: list[dict] = []
-        for batch in _chunks(list(frontier), _IN_CHUNK):
-            rows = (
-                sb.table("repo_edges")
-                .select("src_node_id,dst_node_id,relation")
-                .eq("folder_id", folder_id)
-                .in_("dst_node_id", batch)
-                .execute()
-                .data
-            ) or []
+        for rows in _incoming_edges(
+            sb, folder_id, list(frontier), "src_node_id,dst_node_id,relation,ref_file,ref_line"
+        ):
             callers.extend(rows)
         next_ids = {c["src_node_id"] for c in callers} - seen
         if not next_ids:
