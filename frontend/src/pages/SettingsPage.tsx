@@ -19,6 +19,7 @@ import {
   FormControl,
   Tab,
   Tabs,
+  Skeleton,
 } from "@mui/material";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import { qk } from "../lib/queryKeys";
@@ -177,8 +178,8 @@ export default function SettingsPage() {
       } catch (err) {
         setError(
           `Couldn't copy — clipboard access denied. Copy the key manually: ${messageFromError(
-            err
-          )}`
+            err,
+          )}`,
         );
       }
     }
@@ -203,11 +204,11 @@ export default function SettingsPage() {
   const totalCost = monthly.reduce((sum, item) => sum + item.cost_usd, 0);
   const totalTokens = monthly.reduce(
     (sum, item) => sum + item.input_tokens + item.output_tokens,
-    0
+    0,
   );
   const maxMonthCost = Math.max(0, ...monthly.map((item) => item.cost_usd));
   const local = ["localhost", "127.0.0.1", "::1"].includes(
-    window.location.hostname
+    window.location.hostname,
   );
   const mcpUrl =
     import.meta.env.VITE_MCP_URL ||
@@ -225,7 +226,7 @@ export default function SettingsPage() {
       },
     },
     null,
-    2
+    2,
   );
   const copyConfiguration = async () => {
     try {
@@ -730,19 +731,30 @@ export default function SettingsPage() {
                 <Typography sx={{ fontSize: 13, color: brand.muted }}>
                   {item.label}
                 </Typography>
-                <Typography
-                  sx={{
-                    fontSize: 30,
-                    lineHeight: 1.3,
-                    fontWeight: 500,
-                    letterSpacing: "-0.6px",
-                    mt: "8px",
-                    mb: "2px",
-                    "@media(max-width:780px)": { fontSize: 25 },
-                  }}
-                >
-                  {item.value}
-                </Typography>
+                {(item.label === "Conversations" && usageByConv.isPending) ||
+                (item.label !== "Conversations" && usageByMonth.isPending) ? (
+                  <Skeleton
+                    role="status"
+                    aria-label={`Loading ${item.label.toLowerCase()}`}
+                    width={95}
+                    height={39}
+                    sx={{ mt: "8px", mb: "2px" }}
+                  />
+                ) : (
+                  <Typography
+                    sx={{
+                      fontSize: 30,
+                      lineHeight: 1.3,
+                      fontWeight: 500,
+                      letterSpacing: "-0.6px",
+                      mt: "8px",
+                      mb: "2px",
+                      "@media(max-width:780px)": { fontSize: 25 },
+                    }}
+                  >
+                    {item.value}
+                  </Typography>
+                )}
                 <Typography sx={{ fontSize: 13, color: brand.muted }}>
                   {item.note}
                 </Typography>
@@ -785,7 +797,7 @@ export default function SettingsPage() {
                 <Box
                   role="img"
                   aria-label={`${monthName(month.month)}: ${fmtCost(
-                    month.cost_usd
+                    month.cost_usd,
                   )}`}
                   sx={{
                     flex: 1,
@@ -864,7 +876,7 @@ export default function SettingsPage() {
                     <td>{conversation.title}</td>
                     <td>
                       {fmtTokens(
-                        conversation.input_tokens + conversation.output_tokens
+                        conversation.input_tokens + conversation.output_tokens,
                       )}
                     </td>
                     <td>{fmtCost(conversation.cost_usd)}</td>

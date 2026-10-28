@@ -1,9 +1,15 @@
 // frontend/src/pages/LoginPage.test.tsx
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "../test/renderWithProviders";
 import LoginPage from "./LoginPage";
+
+const mockUseAuth = vi.fn(() => ({ session: null, loading: false }));
+vi.mock("../hooks/useAuth", () => ({ useAuth: () => mockUseAuth() }));
+beforeEach(() => {
+  mockUseAuth.mockReturnValue({ session: null, loading: false });
+});
 
 // Mock supabase
 vi.mock("../lib/supabase", () => ({
@@ -19,6 +25,14 @@ vi.mock("../lib/supabase", () => ({
 }));
 
 describe("LoginPage", () => {
+  it("shows a session check before the sign-in form", () => {
+    mockUseAuth.mockReturnValue({ session: null, loading: true });
+    renderWithProviders(<LoginPage />, { initialEntries: ["/login"] });
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Checking your session…",
+    );
+    expect(screen.queryByLabelText("Email")).not.toBeInTheDocument();
+  });
   it("renders sign in form by default", () => {
     renderWithProviders(<LoginPage />, { initialEntries: ["/login"] });
     expect(screen.getByText("kioku")).toBeInTheDocument();
@@ -42,7 +56,7 @@ describe("LoginPage", () => {
     await user.type(screen.getByLabelText("Password"), "password123");
     await user.click(screen.getByRole("button", { name: "Sign up" }));
     expect(
-      await screen.findByText(/confirmation link to new@example.com/i)
+      await screen.findByText(/confirmation link to new@example.com/i),
     ).toBeInTheDocument();
   });
 

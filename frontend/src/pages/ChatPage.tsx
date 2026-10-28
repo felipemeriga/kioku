@@ -32,6 +32,7 @@ export default function ChatPage() {
   const toast = useToast();
   const {
     selectedId,
+    conversationsLoading,
     messages,
     messagesLoading,
     messagesError,
@@ -48,7 +49,7 @@ export default function ChatPage() {
   const streamingRef = useRef("");
 
   const [scopes, setScopes] = useState<Record<string, ChatScope>>(() =>
-    readScopes()
+    readScopes(),
   );
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -76,7 +77,7 @@ export default function ChatPage() {
       : null;
 
   const scope: ChatScope | null = selectedId
-    ? urlScope ?? scopes[selectedId] ?? null
+    ? (urlScope ?? scopes[selectedId] ?? null)
     : urlScope;
 
   const applyScope = (conversationId: string, next: ChatScope | null) => {
@@ -100,7 +101,7 @@ export default function ChatPage() {
     filters?: ChatFilters,
     model?: ChatModel,
     mode?: ChatMode,
-    debug?: boolean
+    debug?: boolean,
   ) => {
     if (isStreaming) return;
 
@@ -184,7 +185,7 @@ export default function ChatPage() {
         undefined,
         (cites) => {
           citations = cites;
-        }
+        },
       );
     } catch (err) {
       // Preserve any partial content the assistant already streamed by
@@ -216,7 +217,9 @@ export default function ChatPage() {
     <>
       <ChatArea
         messages={messages}
-        messagesLoading={messagesLoading}
+        messagesLoading={
+          messagesLoading || (conversationsLoading && !selectedId)
+        }
         messagesError={messagesError}
         onRetryMessages={retryMessages}
         streamingContent={streamingContent}

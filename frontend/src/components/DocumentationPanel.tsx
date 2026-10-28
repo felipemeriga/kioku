@@ -1,5 +1,12 @@
 import { useState } from "react";
-import { Box, Button, Typography, Collapse, alpha } from "@mui/material";
+import {
+  Box,
+  Button,
+  Typography,
+  Collapse,
+  Skeleton,
+  alpha,
+} from "@mui/material";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useQuery } from "@tanstack/react-query";
@@ -14,7 +21,27 @@ export default function DocumentationPanel({ folderId }: { folderId: string }) {
     queryFn: () => fetchDocumentation(folderId),
   });
   const doc = data?.documentation;
-  if (isPending || isError || !doc) return null;
+  if (isPending) {
+    return (
+      <Box
+        role="status"
+        aria-label="Loading detailed documentation"
+        sx={{
+          border: `1px solid ${brand.line}`,
+          borderRadius: "8px",
+          bgcolor: brand.surface,
+          mb: 3,
+          ml: { xs: 0, lg: "210px" },
+          p: 3,
+        }}
+      >
+        <Skeleton variant="text" width="40%" height={30} />
+        <Skeleton variant="text" width="85%" />
+        <Skeleton variant="text" width="65%" />
+      </Box>
+    );
+  }
+  if (isError || !doc) return null;
   return (
     <Box
       id="briefing-documentation"

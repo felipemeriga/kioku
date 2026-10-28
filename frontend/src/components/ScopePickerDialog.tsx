@@ -19,6 +19,7 @@ import {
   ListItemText,
   Box,
   Typography,
+  CircularProgress,
   alpha,
 } from "@mui/material";
 import FolderIcon from "@mui/icons-material/Folder";
@@ -61,6 +62,7 @@ export default function ScopePickerDialog({
     foldersQuery.isError || docsQuery.isError
       ? messageFromError(foldersQuery.error ?? docsQuery.error)
       : null;
+  const loading = foldersQuery.isPending || docsQuery.isPending;
 
   const handleOpen = useCallback(() => {
     setCurrentId(null);
@@ -199,14 +201,37 @@ export default function ScopePickerDialog({
             </Typography>
           )}
 
-          {!loadError && folders.length === 0 && docs.length === 0 && (
-            <Typography
-              variant="body2"
-              sx={{ color: alpha("#ffffff", 0.3), textAlign: "center", py: 2 }}
+          {loading && (
+            <Box
+              role="status"
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 1,
+                py: 2,
+                color: brand.muted,
+              }}
             >
-              Empty folder
-            </Typography>
+              <CircularProgress size={18} color="inherit" /> Loading folders and
+              files…
+            </Box>
           )}
+          {!loading &&
+            !loadError &&
+            folders.length === 0 &&
+            docs.length === 0 && (
+              <Typography
+                variant="body2"
+                sx={{
+                  color: alpha("#ffffff", 0.3),
+                  textAlign: "center",
+                  py: 2,
+                }}
+              >
+                Empty folder
+              </Typography>
+            )}
         </List>
       </DialogContent>
       <DialogActions>
