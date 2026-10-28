@@ -47,7 +47,7 @@ import { brand, fonts } from "../theme";
 import SectionRail, { type RailItem } from "./neo/SectionRail";
 import PillChain from "./neo/PillChain";
 import { type GlyphStatus } from "./neo/StatusGlyph";
-import { gradientRule, hudLabel } from "./neo/sx";
+import { gradientRule } from "./neo/sx";
 
 interface Props {
   folderId: string;
@@ -546,6 +546,11 @@ export default function BriefingPanel({ folderId }: Props) {
                               />
                             ) : key === "how_it_runs" ? (
                               <HowItRunsContent content={section.content} />
+                            ) : key === "deployment" || key === "activity" ? (
+                              <ReadingSection
+                                content={section.content}
+                                section={key}
+                              />
                             ) : (
                               <SectionReader content={section.content} />
                             )}
@@ -699,7 +704,7 @@ function OverviewContent({ section }: { section: BriefingSection }) {
       dotIdx > 0 ? trimmed.slice(0, dotIdx + 1) : trimmed.slice(0, 200);
     const rest = dotIdx > 0 ? trimmed.slice(dotIdx + 2) : "";
     return (
-      <>
+      <Stack spacing={1.5} sx={{ maxWidth: "78ch" }}>
         <Typography
           sx={{
             fontSize: 17,
@@ -710,18 +715,8 @@ function OverviewContent({ section }: { section: BriefingSection }) {
         >
           {lead}
         </Typography>
-        {rest && (
-          <Typography
-            sx={{
-              fontSize: 15,
-              lineHeight: 1.7,
-              color: "#CFC6E6",
-            }}
-          >
-            {rest}
-          </Typography>
-        )}
-      </>
+        {rest && <BriefingMarkdown content={rest} />}
+      </Stack>
     );
   }
 
@@ -850,23 +845,26 @@ function ArchitectureContent({ section }: { section: BriefingSection }) {
     }
   }
 
-  const hasStructured = dataFlows || components;
+  const hasStructured = Boolean(
+    dataFlows?.length || components?.length || dataFlowProse,
+  );
 
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", gap: 2.25 }}>
+    <Box
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 3,
+        maxWidth: "78ch",
+      }}
+    >
       {/* Paragraph */}
-      {paragraph ? (
-        <Typography sx={{ fontSize: 15, lineHeight: 1.7, color: "#CFC6E6" }}>
-          {paragraph}
-        </Typography>
-      ) : !hasStructured ? (
-        <SectionReader content={content} />
-      ) : null}
+      {paragraph ? <BriefingMarkdown content={paragraph} /> : null}
 
       {/* DATA FLOW pill chains */}
       {dataFlows && dataFlows.length > 0 && (
         <Box sx={{ display: "flex", flexDirection: "column", gap: 1.25 }}>
-          <Typography sx={{ ...hudLabel }}>DATA FLOW</Typography>
+          <ReadingHeading>Data flow</ReadingHeading>
           {dataFlows.map((f, i) => (
             <PillChain
               key={i}
@@ -879,7 +877,7 @@ function ArchitectureContent({ section }: { section: BriefingSection }) {
       )}
       {dataFlowProse && (
         <Box>
-          <Typography sx={{ ...hudLabel, mb: 1 }}>DATA FLOW</Typography>
+          <ReadingHeading>Data flow</ReadingHeading>
           <BriefingMarkdown content={dataFlowProse} />
         </Box>
       )}
@@ -887,7 +885,7 @@ function ArchitectureContent({ section }: { section: BriefingSection }) {
       {/* COMPONENTS table */}
       {components && components.length > 0 && (
         <Box sx={{ display: "flex", flexDirection: "column", gap: 1.25 }}>
-          <Typography sx={{ ...hudLabel }}>COMPONENTS</Typography>
+          <ReadingHeading>Components</ReadingHeading>
           <Box
             sx={{
               border: `1px solid ${brand.line}`,
@@ -909,9 +907,9 @@ function ArchitectureContent({ section }: { section: BriefingSection }) {
                 color: brand.magentaGlow,
               }}
             >
-              <span>NAME</span>
-              <span>ROLE</span>
-              <span>PATH</span>
+              <span>Name</span>
+              <span>Role</span>
+              <span>Path</span>
             </Box>
             {components.map((c, i) => (
               <Box
@@ -1065,6 +1063,64 @@ function SectionReader({ content }: { content: unknown }) {
   return <Empty />;
 }
 
+function ReadingHeading({ children }: { children: string }) {
+  return (
+    <Typography
+      component="h3"
+      sx={{
+        fontSize: 15,
+        fontWeight: 700,
+        color: brand.text,
+        borderLeft: `2px solid ${brand.magenta}`,
+        bgcolor: alpha(brand.magenta, 0.06),
+        px: 1.75,
+        py: 1,
+        mb: 1.5,
+      }}
+    >
+      {children}
+    </Typography>
+  );
+}
+
+function ReadingSection({
+  content,
+  section,
+}: {
+  content: unknown;
+  section: "deployment" | "activity";
+}) {
+  if (!content || typeof content !== "object" || Array.isArray(content)) {
+    return <SectionReader content={content} />;
+  }
+  const fields = Object.entries(content as Record<string, unknown>).filter(
+    ([, value]) =>
+      value != null &&
+      value !== "" &&
+      (!Array.isArray(value) || value.length > 0),
+  );
+  if (!fields.length) return <Empty />;
+  const order =
+    section === "deployment"
+      ? ["environments", "how_to_deploy", "ci_cd_notes"]
+      : ["summary", "highlights"];
+  fields.sort(([a], [b]) => {
+    const ai = order.indexOf(a);
+    const bi = order.indexOf(b);
+    return (ai < 0 ? order.length : ai) - (bi < 0 ? order.length : bi);
+  });
+  return (
+    <Stack spacing={3.5} sx={{ maxWidth: "76ch" }}>
+      {fields.map(([label, value]) => (
+        <Box key={label} component="section">
+          <ReadingHeading>{fieldHeading(label)}</ReadingHeading>
+          <ObjectField label={label} value={value} hideHeading />
+        </Box>
+      ))}
+    </Stack>
+  );
+}
+
 function HowItRunsContent({ content }: { content: unknown }) {
   if (!content || typeof content !== "object" || Array.isArray(content)) {
     return <SectionReader content={content} />;
@@ -1208,7 +1264,7 @@ function ArrayItem({ item }: { item: unknown }) {
           lineHeight: 1.5,
         }}
       >
-        {item}
+        <BriefingMarkdown content={item} />
       </Box>
     );
   }
@@ -1241,7 +1297,7 @@ function ArrayItem({ item }: { item: unknown }) {
   return null;
 }
 
-function ObjectField({ label, value }: { label: string; value: unknown }) {
+function fieldHeading(label: string): string {
   const headings: Record<string, string> = {
     requirements: "Before you start",
     local_dev: "Run and verify",
@@ -1251,25 +1307,42 @@ function ObjectField({ label, value }: { label: string; value: unknown }) {
     summary: "Summary",
     highlights: "Recent highlights",
   };
-  const heading = headings[label] ?? label.replaceAll("_", " ");
+  return (
+    headings[label] ??
+    label.replaceAll("_", " ").replace(/^./, (c) => c.toUpperCase())
+  );
+}
+
+function ObjectField({
+  label,
+  value,
+  hideHeading = false,
+}: {
+  label: string;
+  value: unknown;
+  hideHeading?: boolean;
+}) {
+  const heading = fieldHeading(label);
   if (value == null || (typeof value === "string" && !value.trim())) {
     return null;
   }
   if (Array.isArray(value)) {
     return (
       <Box>
-        <Typography
-          sx={{
-            fontSize: "0.75rem",
-            fontFamily: fonts.mono,
-            color: brand.muted,
-            textTransform: "none",
-            letterSpacing: "0.08em",
-            mb: 0.4,
-          }}
-        >
-          {heading}
-        </Typography>
+        {!hideHeading && (
+          <Typography
+            sx={{
+              fontSize: "0.75rem",
+              fontFamily: fonts.mono,
+              color: brand.muted,
+              textTransform: "none",
+              letterSpacing: "0.08em",
+              mb: 0.4,
+            }}
+          >
+            {heading}
+          </Typography>
+        )}
         <Stack spacing={0.4}>
           {value.map((v, i) => (
             <ArrayItem key={i} item={v} />
@@ -1294,18 +1367,20 @@ function ObjectField({ label, value }: { label: string; value: unknown }) {
   if (PROSE_KEYS.has(label) || str.length > 80) {
     return (
       <Box>
-        <Typography
-          sx={{
-            fontSize: "0.8125rem",
-            fontFamily: fonts.mono,
-            color: brand.muted,
-            textTransform: "none",
-            letterSpacing: "0.08em",
-            mb: 0.4,
-          }}
-        >
-          {heading}
-        </Typography>
+        {!hideHeading && (
+          <Typography
+            sx={{
+              fontSize: "0.8125rem",
+              fontFamily: fonts.mono,
+              color: brand.muted,
+              textTransform: "none",
+              letterSpacing: "0.08em",
+              mb: 0.4,
+            }}
+          >
+            {heading}
+          </Typography>
+        )}
         <BriefingMarkdown content={str} />
       </Box>
     );
@@ -1314,19 +1389,21 @@ function ObjectField({ label, value }: { label: string; value: unknown }) {
     <Typography
       sx={{ fontSize: "0.88rem", color: brand.text, lineHeight: 1.5 }}
     >
-      <Box
-        component="span"
-        sx={{
-          fontFamily: fonts.mono,
-          color: brand.cyan,
-          fontSize: "0.75rem",
-          mr: 0.75,
-          textTransform: "none",
-          letterSpacing: "0.08em",
-        }}
-      >
-        {label}
-      </Box>
+      {!hideHeading && (
+        <Box
+          component="span"
+          sx={{
+            fontFamily: fonts.mono,
+            color: brand.cyan,
+            fontSize: "0.75rem",
+            mr: 0.75,
+            textTransform: "none",
+            letterSpacing: "0.08em",
+          }}
+        >
+          {label}
+        </Box>
+      )}
       {str}
     </Typography>
   );

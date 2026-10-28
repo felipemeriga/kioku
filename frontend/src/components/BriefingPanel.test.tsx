@@ -121,6 +121,40 @@ describe("BriefingPanel", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows deployment and activity as readable sections without duplicate field labels", async () => {
+    vi.spyOn(api, "fetchBriefing").mockResolvedValue({
+      ...staleBriefingFixture,
+      sections: {
+        ...staleBriefingFixture.sections,
+        deployment: {
+          ...staleBriefingFixture.sections.deployment,
+          content: {
+            environments: ["Production on Dokploy"],
+            how_to_deploy: "Run `release.yml` after CI passes.",
+            ci_cd_notes: "CI runs tests before release.",
+          },
+        },
+        activity: {
+          ...staleBriefingFixture.sections.activity,
+          content: { summary: "Recent work", highlights: ["Fixed indexing"] },
+        },
+      },
+    });
+    renderWithProviders(<BriefingPanel folderId="f1" />);
+    await screen.findByText(/Repository briefing/i);
+    fireEvent.click(screen.getAllByText("Deployment").at(-1)!);
+    expect(
+      screen.getByRole("heading", { name: "Release steps" }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("Release steps")).toHaveLength(1);
+    expect(screen.getByText("Production on Dokploy")).toBeInTheDocument();
+    fireEvent.click(screen.getAllByText("Activity").at(-1)!);
+    expect(
+      screen.getByRole("heading", { name: "Recent highlights" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Fixed indexing")).toBeInTheDocument();
+  });
+
   it("renders the briefing title", async () => {
     vi.spyOn(api, "fetchBriefing").mockResolvedValue(staleBriefingFixture);
     renderWithProviders(<BriefingPanel folderId="f1" />);
