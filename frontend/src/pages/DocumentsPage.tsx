@@ -81,14 +81,14 @@ export default function DocumentsPage() {
   const [viewMode, setViewMode] = useState<"grid" | "list">(() =>
     localStorage.getItem("kioku.documents.viewMode") === "grid"
       ? "grid"
-      : "list"
+      : "list",
   );
   useEffect(() => {
     localStorage.setItem("kioku.documents.viewMode", viewMode);
   }, [viewMode]);
   const queryClient = useQueryClient();
   const [folderTab, setFolderTab] = useState<"files" | "briefing" | "status">(
-    "files"
+    "files",
   );
   const [viewerFile, setViewerFile] = useState<string | null>(null);
 
@@ -101,7 +101,7 @@ export default function DocumentsPage() {
       if (id === currentFolderId) return;
       setSearchParams(id ? { folder: id } : {});
     },
-    [currentFolderId, setSearchParams]
+    [currentFolderId, setSearchParams],
   );
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -181,7 +181,7 @@ export default function DocumentsPage() {
   // Refresh document list when ingestion tasks complete
   useEffect(() => {
     const completedCount = ingestionTasks.filter(
-      (t) => t.stage === "completed"
+      (t) => t.stage === "completed",
     ).length;
     if (completedCount > 0) {
       loadDocuments();
@@ -204,11 +204,11 @@ export default function DocumentsPage() {
       } catch (err) {
         toast.show(
           `Upload failed for “${file.name}”: ${messageFromError(err)}`,
-          "error"
+          "error",
         );
       }
     },
-    [upload, currentFolderId, toast]
+    [upload, currentFolderId, toast],
   );
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -230,7 +230,7 @@ export default function DocumentsPage() {
         void uploadOne(file);
       }
     },
-    [uploadOne]
+    [uploadOne],
   );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -245,6 +245,7 @@ export default function DocumentsPage() {
   // Subfolders of the current directory for the grid. keepPreviousData keeps
   // the previous folder's children on screen while the new folder loads.
   const subFoldersQuery = useQuery(folderOptions(currentFolderId));
+  const contentLoading = docsLoading || subFoldersQuery.isPending;
   const subFolders = useMemo(
     () =>
       (subFoldersQuery.data ?? []).map((f) => ({
@@ -252,7 +253,7 @@ export default function DocumentsPage() {
         name: f.name,
         kind: f.kind,
       })),
-    [subFoldersQuery.data]
+    [subFoldersQuery.data],
   );
 
   // Breadcrumbs for the current folder (empty at root). keepPreviousData so the
@@ -337,7 +338,7 @@ export default function DocumentsPage() {
     (folderId: string, folderName: string) => {
       setDeleteConfirm({ type: "folder", id: folderId, name: folderName });
     },
-    [setDeleteConfirm]
+    [setDeleteConfirm],
   );
 
   const handleConfirmDelete = async () => {
@@ -362,7 +363,7 @@ export default function DocumentsPage() {
         if (failed.length > 0) {
           toast.show(
             `Couldn't delete ${failed.length} of ${filenames.length} files (${failed[0]})`,
-            "error"
+            "error",
           );
         }
         clearSelection();
@@ -383,7 +384,7 @@ export default function DocumentsPage() {
     } catch (err) {
       toast.show(
         `Couldn't download “${filename}”: ${messageFromError(err)}`,
-        "error"
+        "error",
       );
     }
   };
@@ -478,7 +479,9 @@ export default function DocumentsPage() {
                     badgeContent={
                       ingestionTasks.filter(
                         (t) =>
-                          !["completed", "error", "duplicate"].includes(t.stage)
+                          !["completed", "error", "duplicate"].includes(
+                            t.stage,
+                          ),
                       ).length || undefined
                     }
                     color="primary"
@@ -559,9 +562,9 @@ export default function DocumentsPage() {
           </Typography>
         </Stack>
 
-        {error && (
+        {(error || subFoldersQuery.isError) && (
           <Alert severity="error" sx={{ mb: 2 }}>
-            {error}
+            {error || "Couldn’t load folders. Please try again."}
           </Alert>
         )}
 
@@ -709,7 +712,7 @@ export default function DocumentsPage() {
                         e.preventDefault();
                         e.stopPropagation();
                         setDragOverFolderId((prev) =>
-                          prev === folder.id ? null : prev
+                          prev === folder.id ? null : prev,
                         );
                       }}
                       onDrop={(e: React.DragEvent) => {
@@ -718,7 +721,7 @@ export default function DocumentsPage() {
                         setDragOverFolderId(null);
                         setDragOver(false);
                         const docFilename = e.dataTransfer.getData(
-                          "application/x-document-filename"
+                          "application/x-document-filename",
                         );
                         if (docFilename) {
                           move(docFilename, folder.id);
@@ -776,7 +779,7 @@ export default function DocumentsPage() {
                           e.stopPropagation();
                           navigate(
                             `/?scope_folder=${folder.id}` +
-                              `&scope_name=${encodeURIComponent(folder.name)}`
+                              `&scope_name=${encodeURIComponent(folder.name)}`,
                           );
                         }}
                       >
@@ -974,7 +977,7 @@ export default function DocumentsPage() {
                           `/?scope_file=${encodeURIComponent(filename)}` +
                             (currentFolderId
                               ? `&scope_folder=${currentFolderId}`
-                              : "")
+                              : ""),
                         )
                       }
                       variant={viewMode}
@@ -994,7 +997,7 @@ export default function DocumentsPage() {
             this folder's data is fetched for the first time (a revisit hits the
             cache and skips this entirely). */}
         {(!currentFolderIsRepo || folderTab === "files") &&
-          docsLoading &&
+          contentLoading &&
           documents.length === 0 &&
           subFolders.length === 0 && (
             <Box
@@ -1021,7 +1024,9 @@ export default function DocumentsPage() {
 
         {(!currentFolderIsRepo || folderTab === "files") &&
           isEmpty &&
-          !docsLoading && (
+          !contentLoading &&
+          !error &&
+          !subFoldersQuery.isError && (
             <Stack
               alignItems="center"
               spacing={2}
@@ -1097,6 +1102,7 @@ export default function DocumentsPage() {
         {(!currentFolderIsRepo || folderTab === "files") &&
           !isEmpty &&
           searchQuery &&
+          !contentLoading &&
           filteredFolders.length === 0 &&
           filteredDocs.length === 0 && (
             <Stack

@@ -11,6 +11,7 @@ import {
   Collapse,
   Tooltip,
   Typography,
+  CircularProgress,
   alpha,
 } from "@mui/material";
 import FolderIcon from "@mui/icons-material/Folder";
@@ -38,7 +39,7 @@ interface FolderTreeNodeProps extends FolderDropOps {
   onRequestIntegrations: (
     folderId: string,
     folderName: string,
-    kind?: "folder" | "repo"
+    kind?: "folder" | "repo",
   ) => void;
 }
 
@@ -111,7 +112,7 @@ function FolderTreeNode({
           e.stopPropagation();
           setDragOver(false);
           const inAppFile = e.dataTransfer.getData(
-            "application/x-document-filename"
+            "application/x-document-filename",
           );
           if (inAppFile && onFileDropped) {
             onFileDropped(folder.id, inAppFile);
@@ -166,7 +167,12 @@ function FolderTreeNode({
           )}
         </ListItemIcon>
         <ListItemText
-          primary={<>{folder.name}<NotionFolderIndicator folderId={folder.id} /></>}
+          primary={
+            <>
+              {folder.name}
+              <NotionFolderIndicator folderId={folder.id} />
+            </>
+          }
           primaryTypographyProps={{
             noWrap: true,
             sx: {
@@ -227,6 +233,30 @@ function FolderTreeNode({
         </Box>
       </ListItemButton>
       <Collapse in={open} timeout="auto">
+        {childrenQuery.isPending && (
+          <Box
+            role="status"
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 1,
+              pl: 3 + depth * 1.75,
+              py: 1.5,
+              color: brand.muted,
+              fontSize: 13,
+            }}
+          >
+            <CircularProgress size={14} color="inherit" /> Loading folders…
+          </Box>
+        )}
+        {childrenQuery.isError && (
+          <Typography
+            role="alert"
+            sx={{ pl: 3 + depth * 1.75, py: 1, color: brand.red, fontSize: 13 }}
+          >
+            Couldn’t load subfolders.
+          </Typography>
+        )}
         {children.map((child) => (
           <FolderTreeNode
             key={child.id}
@@ -252,7 +282,7 @@ interface FolderTreeProps extends FolderDropOps {
   onRequestIntegrations: (
     folderId: string,
     folderName: string,
-    kind?: "folder" | "repo"
+    kind?: "folder" | "repo",
   ) => void;
 }
 
@@ -267,9 +297,10 @@ export default function FolderTree({
   const [rootDragOver, setRootDragOver] = useState(false);
 
   // Root folders; refetched when a folder mutation invalidates ['folders'].
-  const { data: rootFolders = [] } = useQuery({
+  const rootQuery = useQuery({
     ...folderOptions(null),
   });
+  const rootFolders = rootQuery.data ?? [];
 
   return (
     <Box sx={{ py: 1 }}>
@@ -286,7 +317,7 @@ export default function FolderTree({
           e.preventDefault();
           setRootDragOver(false);
           const inAppFile = e.dataTransfer.getData(
-            "application/x-document-filename"
+            "application/x-document-filename",
           );
           if (inAppFile && onFileDropped) {
             onFileDropped(null, inAppFile);
@@ -348,6 +379,30 @@ export default function FolderTree({
       )}
 
       <List disablePadding dense>
+        {rootQuery.isPending && (
+          <Box
+            role="status"
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 1,
+              px: 2,
+              py: 2,
+              color: brand.muted,
+              fontSize: 13,
+            }}
+          >
+            <CircularProgress size={15} color="inherit" /> Loading folders…
+          </Box>
+        )}
+        {rootQuery.isError && (
+          <Typography
+            role="alert"
+            sx={{ px: 2, py: 1, color: brand.red, fontSize: 13 }}
+          >
+            Couldn’t load folders.
+          </Typography>
+        )}
         {rootFolders.map((folder) => (
           <FolderTreeNode
             key={folder.id}

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { screen } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { renderWithProviders } from "../test/renderWithProviders";
@@ -67,15 +67,32 @@ describe("folder browser history", () => {
       setItem: vi.fn(),
     });
     vi.spyOn(api, "fetchFolders").mockImplementation(async (id) =>
-      !id ? [parent] : id === "parent" ? [child] : []
+      !id ? [parent] : id === "parent" ? [child] : [],
     );
     vi.spyOn(api, "fetchDocuments").mockResolvedValue([]);
     vi.spyOn(api, "fetchBreadcrumbs").mockImplementation(async (id) =>
-      id === "child" ? [parent, child] : [parent]
+      id === "child" ? [parent, child] : [parent],
     );
   });
 
   afterEach(() => vi.unstubAllGlobals());
+
+  it("waits for folders before showing the empty corpus state", async () => {
+    let finishFolders!: (folders: (typeof parent)[]) => void;
+    vi.spyOn(api, "fetchFolders").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishFolders = resolve;
+        }),
+    );
+    renderWithProviders(<Navigation surface="grid" />, {
+      initialEntries: ["/documents"],
+    });
+    expect(screen.queryByText("Your corpus is empty")).not.toBeInTheDocument();
+    await waitFor(() => expect(finishFolders).toBeTypeOf("function"));
+    act(() => finishFolders([]));
+    expect(await screen.findByText("Your corpus is empty")).toBeInTheDocument();
+  });
 
   it.each(["grid", "tree"] as const)(
     "Back/Forward restores every %s folder before leaving Documents",
@@ -86,11 +103,11 @@ describe("folder browser history", () => {
       });
       await user.click(await screen.findByText("Parent"));
       expect(screen.getByTestId("location")).toHaveTextContent(
-        "/documents?folder=parent"
+        "/documents?folder=parent",
       );
       await user.click(await screen.findByText("Child"));
       expect(screen.getByTestId("location")).toHaveTextContent(
-        "/documents?folder=child"
+        "/documents?folder=child",
       );
       if (surface === "tree") await user.click(screen.getByText("Child"));
 
@@ -107,7 +124,7 @@ describe("folder browser history", () => {
         await user.click(screen.getByText("Browser Forward"));
         expect(screen.getByTestId("location").textContent).toBe(path);
       }
-    }
+    },
   );
 
   it("records breadcrumb and root navigation without duplicate current-folder entries", async () => {
@@ -119,17 +136,17 @@ describe("folder browser history", () => {
     await user.click(await screen.findByText("Child"));
     await user.click(await screen.findByRole("button", { name: "Parent" }));
     expect(screen.getByTestId("location").textContent).toBe(
-      "/documents?folder=parent"
+      "/documents?folder=parent",
     );
     await user.click(screen.getByRole("button", { name: "Root" }));
     await user.click(screen.getByRole("button", { name: "Root" }));
     await user.click(screen.getByText("Browser Back"));
     expect(screen.getByTestId("location").textContent).toBe(
-      "/documents?folder=parent"
+      "/documents?folder=parent",
     );
     await user.click(screen.getByText("Browser Back"));
     expect(screen.getByTestId("location").textContent).toBe(
-      "/documents?folder=child"
+      "/documents?folder=child",
     );
   });
 
@@ -141,7 +158,7 @@ describe("folder browser history", () => {
       kind: "repo" as const,
     };
     vi.spyOn(api, "fetchFolders").mockImplementation(async (id) =>
-      id ? [] : [repo]
+      id ? [] : [repo],
     );
     vi.spyOn(api, "fetchBreadcrumbs").mockResolvedValue([repo]);
     renderWithProviders(<Navigation surface="grid" />, {
@@ -149,16 +166,18 @@ describe("folder browser history", () => {
     });
 
     expect(
-      await screen.findByText("Drop files into this folder, or use Upload.")
+      await screen.findByText("Drop files into this folder, or use Upload."),
     ).toBeInTheDocument();
-    expect(await screen.findByRole("tab", { name: "Files" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("tab", { name: "Files" }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Briefing" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Status" })).toBeInTheDocument();
     expect(
-      screen.queryByRole("tab", { name: "History" })
+      screen.queryByRole("tab", { name: "History" }),
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Record audio" })
+      screen.queryByRole("button", { name: "Record audio" }),
     ).not.toBeInTheDocument();
   });
 });

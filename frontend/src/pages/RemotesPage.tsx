@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
   Button,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -45,27 +46,27 @@ function OperatingSystem({ machine }: { machine: RemoteMachine }) {
     (machine.platform.startsWith("darwin")
       ? "macos"
       : machine.platform.startsWith("win32")
-      ? "windows"
-      : machine.platform.startsWith("linux")
-      ? "linux"
-      : "unknown");
+        ? "windows"
+        : machine.platform.startsWith("linux")
+          ? "linux"
+          : "unknown");
   const label =
     machine.os_name ??
     (id === "macos"
       ? "macOS"
       : id === "windows"
-      ? "Windows"
-      : id === "linux"
-      ? "Linux"
-      : machine.platform);
+        ? "Windows"
+        : id === "linux"
+          ? "Linux"
+          : machine.platform);
   const logo =
     id === "macos"
       ? appleLogo
       : id === "windows"
-      ? windowsLogo
-      : ["linux", "ubuntu"].includes(id)
-      ? linuxLogo
-      : undefined;
+        ? windowsLogo
+        : ["linux", "ubuntu"].includes(id)
+          ? linuxLogo
+          : undefined;
   return (
     <span className="remote-os">
       {logo && <img src={logo} alt="" aria-hidden="true" />}
@@ -115,7 +116,7 @@ export default function RemotesPage() {
   const matches = all.filter((machine) =>
     `${machine.name} ${machine.platform}`
       .toLowerCase()
-      .includes(query.trim().toLowerCase())
+      .includes(query.trim().toLowerCase()),
   );
   const selected =
     matches.find((machine) => machine.id === selectedId) ?? matches[0];
@@ -145,7 +146,12 @@ export default function RemotesPage() {
         </Alert>
       )}
       <div className="remotes-fleet">
-        {machines.isError ? (
+        {machines.isPending ? (
+          <span role="status" className="remotes-loading-label">
+            <CircularProgress size={15} color="inherit" /> Loading machine
+            status…
+          </span>
+        ) : machines.isError ? (
           <span>
             <i className="remote-dot offline" />
             Status unavailable
@@ -172,9 +178,11 @@ export default function RemotesPage() {
           </>
         )}
         <span>
-          {machines.isError && all.length === 0
-            ? "Machine list unavailable"
-            : `${all.length} ${all.length === 1 ? "machine" : "machines"}`}
+          {machines.isPending
+            ? "Loading machines…"
+            : machines.isError && all.length === 0
+              ? "Machine list unavailable"
+              : `${all.length} ${all.length === 1 ? "machine" : "machines"}`}
         </span>
       </div>
       <div className="remotes-workspace">
@@ -188,6 +196,25 @@ export default function RemotesPage() {
             slotProps={{ htmlInput: { "aria-label": "Find a machine" } }}
           />
           <div className="remotes-machine-list">
+            {machines.isPending && (
+              <div
+                role="status"
+                className="remotes-machine-loading"
+                aria-label="Loading machines"
+              >
+                {[0, 1, 2].map((index) => (
+                  <div
+                    className="remote-machine-skeleton"
+                    key={index}
+                    aria-hidden="true"
+                  >
+                    <span />
+                    <span />
+                    <span />
+                  </div>
+                ))}
+              </div>
+            )}
             {matches.map((machine) => (
               <button
                 key={machine.id}
@@ -226,8 +253,8 @@ export default function RemotesPage() {
               {machines.isError
                 ? "Machine list unavailable."
                 : query
-                ? `No machines match “${query}”.`
-                : "No machines connected yet."}
+                  ? `No machines match “${query}”.`
+                  : "No machines connected yet."}
             </p>
           )}
           <p className="remotes-machine-help">
@@ -323,7 +350,7 @@ export default function RemotesPage() {
                     <div className="remote-repo-identity">
                       <Link
                         to={`/documents?folder=${encodeURIComponent(
-                          repo.folder_id
+                          repo.folder_id,
                         )}`}
                       >
                         {repo.name}
@@ -385,17 +412,26 @@ export default function RemotesPage() {
           </section>
         ) : (
           <div className="remote-detail remotes-empty">
+            {machines.isPending && (
+              <CircularProgress
+                size={24}
+                color="secondary"
+                aria-label="Loading machine details"
+              />
+            )}
             <h2>
               {machines.isPending
                 ? "Loading machines…"
                 : machines.isError
-                ? "Machines unavailable"
-                : query
-                ? "No matching machines"
-                : "Connect your first machine"}
+                  ? "Machines unavailable"
+                  : query
+                    ? "No matching machines"
+                    : "Connect your first machine"}
             </h2>
             <p>
-              {machines.isError ? (
+              {machines.isPending ? (
+                "Your connected machines will appear here."
+              ) : machines.isError ? (
                 "Retry when Kioku is reachable. Manabi keeps reconnecting automatically."
               ) : query ? (
                 "Clear your search to see connected machines."

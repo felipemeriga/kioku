@@ -1,6 +1,48 @@
 .remotes-page * {
   box-sizing: border-box;
 }
+.remotes-loading-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--remote-muted);
+}
+.remotes-machine-loading {
+  display: grid;
+  gap: 10px;
+}
+.remote-machine-skeleton {
+  display: grid;
+  gap: 10px;
+  min-height: 104px;
+  padding: 16px;
+  border: 1px solid var(--remote-line);
+  border-radius: 8px;
+  background: var(--remote-surface);
+}
+.remote-machine-skeleton span {
+  height: 11px;
+  width: 62%;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--remote-line) 55%, transparent);
+  animation: remote-loading-pulse 1.4s ease-in-out infinite alternate;
+}
+.remote-machine-skeleton span:nth-child(2) {
+  width: 42%;
+}
+.remote-machine-skeleton span:nth-child(3) {
+  width: 76%;
+}
+@keyframes remote-loading-pulse {
+  to {
+    opacity: 0.4;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .remote-machine-skeleton span {
+    animation: none;
+  }
+}
 .remotes-preview-note {
   margin-top: 24px;
   color: var(--remote-muted);

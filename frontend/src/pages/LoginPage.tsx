@@ -30,6 +30,31 @@ export default function LoginPage() {
   if (!authLoading && session) {
     return <Navigate to={dest} replace />;
   }
+  if (authLoading) {
+    return (
+      <Box
+        component="main"
+        role="status"
+        sx={{
+          minHeight: "100dvh",
+          display: "grid",
+          placeItems: "center",
+          bgcolor: brand.ink,
+          position: "relative",
+        }}
+      >
+        <NeoAtmosphere login />
+        <Stack
+          alignItems="center"
+          spacing={2}
+          sx={{ position: "relative", zIndex: 1, color: brand.text }}
+        >
+          <CircularProgress size={28} sx={{ color: brand.cyan }} />
+          <Typography>Checking your session…</Typography>
+        </Stack>
+      </Box>
+    );
+  }
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -54,7 +79,7 @@ export default function LoginPage() {
           // go confirm (otherwise the screen just sat there with no feedback).
           setNotice(
             `Almost there — we sent a confirmation link to ${email}. ` +
-              "Open it (check spam too), then come back and sign in."
+              "Open it (check spam too), then come back and sign in.",
           );
         }
         // If a session exists (confirmations disabled), the auth listener
@@ -75,7 +100,7 @@ export default function LoginPage() {
       setError(
         err instanceof Error && err.message
           ? `${err.message} — check your internet connection.`
-          : "Couldn't reach the sign-in service. Check your internet connection."
+          : "Couldn't reach the sign-in service. Check your internet connection.",
       );
     } finally {
       setLoading(false);

@@ -12,6 +12,7 @@ import {
   ListItemText,
   Box,
   Typography,
+  CircularProgress,
   alpha,
 } from "@mui/material";
 import FolderIcon from "@mui/icons-material/Folder";
@@ -158,7 +159,22 @@ export default function MoveDialog({
             </Typography>
           )}
 
-          {!loadError && folders.length === 0 && (
+          {foldersQuery.isPending && (
+            <Box
+              role="status"
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 1,
+                py: 2,
+                color: brand.muted,
+              }}
+            >
+              <CircularProgress size={18} color="inherit" /> Loading folders…
+            </Box>
+          )}
+          {!foldersQuery.isPending && !loadError && folders.length === 0 && (
             <Typography
               variant="body2"
               sx={{ color: alpha("#ffffff", 0.3), textAlign: "center", py: 2 }}
