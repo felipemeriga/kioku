@@ -25,7 +25,7 @@ function cachePath(): string {
   const dir = xdg ? join(xdg, "kioku") : join(homedir(), ".cache", "kioku");
   return join(
     dir,
-    standalone ? "update-check-binary.json" : "update-check.json",
+    standalone ? "update-check-binary.json" : "update-check.json"
   );
 }
 
@@ -52,12 +52,28 @@ function writeCache(c: Cache): void {
  */
 export async function checkForUpdate(currentVersion: string): Promise<void> {
   if (process.env.KIOKU_NO_UPDATE_CHECK) return;
+  const latest = await latestVersion();
+  maybeNotify(currentVersion, latest);
+}
+
+/** Return a newer published version, or null. Used before interactive init. */
+export async function availableUpdate(
+  currentVersion: string
+): Promise<string | null> {
+  if (process.env.KIOKU_NO_UPDATE_CHECK) return null;
+  const latest = await latestVersion();
+  return latest && compareSemver(latest, currentVersion) > 0 ? latest : null;
+}
+
+export function isStandalone(): boolean {
+  return standalone;
+}
+
+async function latestVersion(): Promise<string | null> {
   const cached = readCache();
   const now = Date.now();
   if (cached && now - cached.checked_at < CACHE_TTL_MS) {
-    // Use cached result — still notify but don't hit the network.
-    maybeNotify(currentVersion, cached.latest_version);
-    return;
+    return cached.latest_version;
   }
   try {
     const ctrl = new AbortController();
@@ -68,11 +84,11 @@ export async function checkForUpdate(currentVersion: string): Promise<void> {
         : `https://registry.npmjs.org/${encodeURIComponent(PKG_NAME)}/latest`,
       {
         signal: ctrl.signal,
-        headers: { Accept: "application/json" },
-      },
+        headers: { Accept: "application/json" }
+      }
     );
     clearTimeout(timeout);
-    if (!res.ok) return;
+    if (!res.ok) return null;
     const body = await res.json();
     const latest = standalone
       ? ((body as { tag_name: string; draft: boolean; prerelease: boolean }[])
@@ -80,15 +96,15 @@ export async function checkForUpdate(currentVersion: string): Promise<void> {
             (r) =>
               !r.draft &&
               !r.prerelease &&
-              /^cli-v\d+\.\d+\.\d+$/.test(r.tag_name),
+              /^cli-v\d+\.\d+\.\d+$/.test(r.tag_name)
           )
           .map((r) => r.tag_name.slice(5))
           .sort((a, b) => compareSemver(b, a))[0] ?? null)
       : ((body as { version?: string }).version ?? null);
     writeCache({ checked_at: now, latest_version: latest });
-    maybeNotify(currentVersion, latest);
+    return latest;
   } catch {
-    // Silent — the check must never block or annoy.
+    return null;
   }
 }
 
@@ -106,8 +122,8 @@ function maybeNotify(current: string, latest: string | null): void {
     `  ${kleur.yellow("⇧")} ${kleur.dim(
       standalone
         ? `Update available: ${current} → ${latest}. Installer: https://github.com/felipemeriga/kioku/releases/tag/cli-v${latest}`
-        : `Update available: ${current} → ${latest}. Run: npm install -g ${PKG_NAME}`,
-    )}`,
+        : `Update available: ${current} → ${latest}. Run: npm install -g ${PKG_NAME}`
+    )}`
   );
 }
 
