@@ -13,14 +13,18 @@ test("init-generated briefing remains available for Mihari maintenance", () => {
   );
 });
 
-test("initial briefing requires local, semantic, and graph evidence", () => {
+test("initial briefing uses available code search and checks uncertainty", () => {
   const instruction = generateInstruction(
     ["overview", "architecture", "preferences", "how_it_runs", "deployment"],
     "repo-id",
   );
-  assert.match(instruction, /local grep\/search tool/);
-  assert.match(instruction, /`code_search` semantic/);
+  assert.match(instruction, /normal local search\/grep tool/);
+  assert.match(instruction, /`code_search` \(semantic search\)/);
   assert.match(instruction, /`find_references`/);
+  assert.match(instruction, /you do not need to call every tool/);
+  assert.match(instruction, /compare it with/);
+  assert.match(instruction, /Never invent a fact/);
+  assert.match(instruction, /Omit unsupported/);
   assert.match(instruction, /\.github\/workflows\//);
   assert.match(instruction, /distinct supported run mode/);
   assert.doesNotMatch(instruction, /following the schema shapes:.*preferences/);
