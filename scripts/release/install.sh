@@ -27,4 +27,23 @@ mkdir -p "$bin"
 cp "$tmp/$asset" "$bin/.kioku-install-$$"
 chmod 755 "$bin/.kioku-install-$$"
 mv -f "$bin/.kioku-install-$$" "$bin/kioku"
-printf 'Installed Kioku %s to %s/kioku\nEnsure %s is on PATH.\n' "$version" "$bin" "$bin"
+printf 'Installed Kioku %s to %s/kioku\n' "$version" "$bin"
+case ":$PATH:" in
+  *":$bin:"*) ;;
+  *)
+    if [ "$bin" = "$HOME/.local/bin" ]; then
+      case "${SHELL:-}" in
+        */zsh) profile="$HOME/.zshrc" ;;
+        */bash) profile="$HOME/.bashrc" ;;
+        *) profile="$HOME/.profile" ;;
+      esac
+      path_line='export PATH="$HOME/.local/bin:$PATH"'
+      if ! [ -f "$profile" ] || ! grep -Fqx "$path_line" "$profile"; then
+        printf '\n# Kioku CLI\n%s\n' "$path_line" >> "$profile"
+      fi
+      printf 'Added %s to PATH in %s. Open a new terminal, then run kioku --version.\n' "$bin" "$profile"
+    else
+      printf 'Add %s to PATH to run kioku from a new terminal.\n' "$bin" >&2
+    fi
+    ;;
+esac
