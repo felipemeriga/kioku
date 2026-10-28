@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 class InstallerTests(unittest.TestCase):
-    def install(self, valid, version="1.2.3"):
+    def install(self, valid, version="1.2.3", install_dir=True):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             tools = root / "tools"
@@ -38,14 +38,19 @@ class InstallerTests(unittest.TestCase):
                 p.chmod(0o755)
             env = {
                 **os.environ,
+                "HOME": str(root),
+                "SHELL": "/bin/zsh",
                 "PATH": str(tools) + os.pathsep + os.environ["PATH"],
                 "KIOKU_VERSION": version,
                 "FIXTURE_REQUESTS": str(requests),
                 "FIXTURE_RELEASES": '[\n{"tag_name": "cli-v1.2.4-e2e.123"},\n{"tag_name": "cli-v1.2.3"}\n]',
-                "KIOKU_INSTALL_DIR": str(root / "install dir"),
                 "FIXTURE_SUMS": str(sums),
                 "FIXTURE_PAYLOAD": str(payload),
             }
+            if install_dir:
+                env["KIOKU_INSTALL_DIR"] = str(root / "install dir")
+            else:
+                env.pop("KIOKU_INSTALL_DIR", None)
             result = subprocess.run(
                 ["sh", str(Path(__file__).with_name("install.sh"))],
                 env=env,
@@ -54,16 +59,24 @@ class InstallerTests(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(marker.exists(), valid)
-            self.assertEqual((root / "install dir/kioku").exists(), valid)
+            installed = root / ("install dir" if install_dir else ".local/bin") / "kioku"
+            self.assertEqual(installed.exists(), valid)
             self.assertEqual(result.returncode == 0, valid, result.stderr)
             if valid:
                 expected_version = version or "1.2.3"
                 self.assertIn("/cli-v" + expected_version + "/", requests.read_text())
             if any(char in version for char in ("/", "?", ";", "\n", "\r")):
                 self.assertFalse(requests.exists())
+            if valid and not install_dir:
+                profile = root / ".zshrc"
+                self.assertEqual(profile.exists(), True)
+                self.assertIn('export PATH="$HOME/.local/bin:$PATH"', profile.read_text())
 
     def test_verified_download_installs_to_path_with_spaces(self):
         self.install(True)
+
+    def test_default_install_adds_bin_to_zsh_path(self):
+        self.install(True, install_dir=False)
 
     def test_explicit_prerelease_pin_is_supported(self):
         self.install(True, "1.2.3-e2e.20261024")

@@ -9,17 +9,23 @@ CLI that wires a local repo to your **kioku** second-brain — installs the MCP 
 
 ## Install
 
-Pick one:
+Install the standalone binary on macOS or Linux (no Node.js or npm required):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/felipemeriga/kioku/main/scripts/release/install.sh | sh
+```
+
+The installer selects the latest stable CLI release for your OS and architecture,
+verifies its SHA-256 checksum, and installs `kioku` to `~/.local/bin`. If needed,
+it adds that directory to your shell's `PATH`; open a new terminal afterward.
+Set `KIOKU_VERSION` to install a specific release or `KIOKU_INSTALL_DIR` to
+choose another directory. On Windows x64, run `install.ps1` from the latest
+[CLI release](https://github.com/felipemeriga/kioku/releases) in PowerShell;
+it installs `kioku.exe` and updates the user `PATH`.
+
+To build from source:
 
 ```bash
-# via npx (no install, always latest)
-npx kioku@latest login
-
-# global install
-npm install -g kioku
-kioku login
-
-# from source (until first npm publish)
 git clone <this-repo>
 cd kioku/cli && npm install && npm run build && npm link
 ```
