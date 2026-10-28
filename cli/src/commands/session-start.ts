@@ -54,15 +54,14 @@ export function generateInstruction(
     "   only where they clarify this repo's behavior or a direct interface it",
     "   implements. Prefer current source when docs conflict. Do not expand into",
     "   a tour of parent-folder systems or reproduce documents wholesale.",
-    "3. Explore the repository's entry points, owned components, main data",
-    "   flow, run/test commands, and deployment. Use your local grep/search tool",
-    "   (for example `rg`) on current files, the Kioku `code_search` semantic",
-    "   code index, and graph tools (`outline`, `find_definition`,",
-    "   `find_references`, `impact_of`) to trace architecture and implementation.",
-    "   The graph and embeddings are already built by init when available; if",
-    "   an indexed result is missing or stale, verify against local source.",
-    "   For a large repo, parallelize distinct areas, then synthesize findings.",
-    "   Do not paste a tool-use diary into the briefing or documentation.",
+    "3. Explore entry points, owned components, data flow, run commands, and",
+    "   deployment. Find code with Kioku `code_search` (semantic search), graph",
+    "   tools (`outline`, `find_definition`, `find_references`, `impact_of`),",
+    "   or your normal local search/grep tool (such as `rg`). Use whichever",
+    "   gives the clearest path; you do not need to call every tool. When a",
+    "   result is missing, stale, contradictory, or uncertain, compare it with",
+    "   current local source using grep or another independent search method.",
+    "   For a large repo, parallelize distinct areas, then synthesize briefly.",
     `4. Write these ${activeSections.length} descriptive sections, grounded in the`,
     `   actual code with REAL file paths, following the schema shapes: ${activeSections.join(
       ", ",
@@ -76,8 +75,7 @@ export function generateInstruction(
     "   writing deployment or CI claims. State verified triggers, jobs, image",
     "   build/publish steps, and deploy targets with their source paths. If the",
     "   repository has no evidence for a step, omit it; do not infer a pipeline.",
-    "   Use readable prose with enough detail to orient a new contributor,",
-    "   not one-line labels.",
+    "   Use short, readable prose; avoid repeating the same fact across sections.",
     "   In `how_it_runs`, be useful to a developer opening this repo for the",
     "   first time. Explain prerequisites and why they matter; give the real",
     "   setup, start, and test commands for every distinct supported run mode",
@@ -105,11 +103,10 @@ export function generateInstruction(
     "   this repository. Cover its purpose and boundaries, owned subsystems and",
     "   their responsibilities, main data/control flow, key paths, how to run",
     "   and test it, deployment/CI, and a few important gotchas. For a large",
-    "   repo aim for 1,000–1,600 words; use less for a small repo. Build its",
-    "   architecture and detailed explanations from local grep, semantic code",
-    "   search, and graph traces, resolving conflicts in current source.",
-    "   Explain the",
-    "   important mechanisms well, but do not inventory every module, commit,",
+    "   repo aim for about 800–1,200 words; use less for a small repo. Ground",
+    "   architecture and detailed explanations in retrieved code or documents,",
+    "   checking uncertain claims against current source. Explain the important",
+    "   mechanisms without inventorying every module, commit,",
     "   external service, timestamp, or configuration field. Mention external",
     "   systems only to explain a direct input/output boundary of this repo.",
     "   Do not include a scope/evidence diary (branch, HEAD, sources read, tool",
@@ -119,7 +116,9 @@ export function generateInstruction(
     `   \`save_repo_documentation(content=<the full markdown>, abstract=<a short`,
     `   3–8 line summary>${f})\`. This is the focused reference document.`,
     "",
-    "Be clear, specific, and selective. Do not ask questions; produce and save",
+    "Never invent a fact, command, dependency, or behavior that Kioku or another",
+    "search method did not retrieve and that you cannot verify. Omit unsupported",
+    "claims. Be clear and concise. Do not ask questions; produce and save",
     "BOTH the briefing (with activity) and the focused documentation.",
   ].join("\n");
 }
@@ -188,8 +187,9 @@ export async function sessionStart(): Promise<void> {
   }
   if (!folderId) return;
 
-  const { readLastSessionAt, stampLastSessionAt } =
-    await import("../lib/claude.js");
+  const { readLastSessionAt, stampLastSessionAt } = await import(
+    "../lib/claude.js"
+  );
   const { composeActivity } = await import("../lib/git-activity.js");
 
   try {
