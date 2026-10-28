@@ -95,6 +95,32 @@ describe("BriefingPanel", () => {
     expect(screen.queryByText("Run and verify")).not.toBeInTheDocument();
   });
 
+  it("collapses repeated requirements when the guide already has setup", async () => {
+    vi.spyOn(api, "fetchBriefing").mockResolvedValue({
+      ...staleBriefingFixture,
+      sections: {
+        ...staleBriefingFixture.sections,
+        how_it_runs: {
+          ...staleBriefingFixture.sections.how_it_runs,
+          content: {
+            requirements: ["Rust toolchain"],
+            local_dev: "### Prerequisites and setup\n\nInstall Rust.",
+          },
+        },
+      },
+    });
+    renderWithProviders(<BriefingPanel folderId="f1" />);
+    await screen.findByText(/Repository briefing/i);
+    fireEvent.click(screen.getAllByText("How it runs").at(-1)!);
+    expect(
+      screen.getByText("Requirements at a glance (1)"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Before you start")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Prerequisites and setup" }),
+    ).toBeInTheDocument();
+  });
+
   it("renders the briefing title", async () => {
     vi.spyOn(api, "fetchBriefing").mockResolvedValue(staleBriefingFixture);
     renderWithProviders(<BriefingPanel folderId="f1" />);

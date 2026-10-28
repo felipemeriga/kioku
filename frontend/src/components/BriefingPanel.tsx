@@ -1077,11 +1077,14 @@ function HowItRunsContent({ content }: { content: unknown }) {
       )
     : [];
   const localDev = typeof guide.local_dev === "string" ? guide.local_dev : "";
+  const setupAlreadyCovered =
+    /^#{1,4}\s*(prerequisites|requirements|before you start)/im.test(localDev);
 
   return (
     <Stack spacing={3.5} sx={{ maxWidth: "76ch" }}>
       {requirements.length > 0 && (
         <Box
+          component={setupAlreadyCovered ? "details" : "div"}
           sx={{
             borderLeft: `2px solid ${brand.cyan}`,
             bgcolor: alpha(brand.cyan, 0.04),
@@ -1089,12 +1092,21 @@ function HowItRunsContent({ content }: { content: unknown }) {
             py: 1.5,
           }}
         >
-          <Typography
-            component="h3"
-            sx={{ fontSize: 14, fontWeight: 700, color: brand.cyan, mb: 1 }}
-          >
-            Before you start
-          </Typography>
+          {setupAlreadyCovered ? (
+            <Box
+              component="summary"
+              sx={{ color: brand.cyan, cursor: "pointer", fontWeight: 700 }}
+            >
+              Requirements at a glance ({requirements.length})
+            </Box>
+          ) : (
+            <Typography
+              component="h3"
+              sx={{ fontSize: 14, fontWeight: 700, color: brand.cyan, mb: 1 }}
+            >
+              Before you start
+            </Typography>
+          )}
           <Box component="ul" sx={{ pl: 2.5, my: 0 }}>
             {requirements.map((requirement, index) => (
               <Box
