@@ -22,6 +22,7 @@ export default function DocumentationPanel({ folderId }: { folderId: string }) {
         borderRadius: "8px",
         bgcolor: brand.surface,
         mb: 3,
+        ml: { xs: 0, lg: "210px" },
         overflow: "hidden",
       }}
     >

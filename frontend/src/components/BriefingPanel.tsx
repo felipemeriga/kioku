@@ -544,6 +544,8 @@ export default function BriefingPanel({ folderId }: Props) {
                                 }}
                                 onCancel={() => setEditingSection(null)}
                               />
+                            ) : key === "how_it_runs" ? (
+                              <HowItRunsContent content={section.content} />
                             ) : (
                               <SectionReader content={section.content} />
                             )}
@@ -1063,7 +1065,73 @@ function SectionReader({ content }: { content: unknown }) {
   return <Empty />;
 }
 
-function BriefingMarkdown({ content }: { content: string }) {
+function HowItRunsContent({ content }: { content: unknown }) {
+  if (!content || typeof content !== "object" || Array.isArray(content)) {
+    return <SectionReader content={content} />;
+  }
+
+  const guide = content as Record<string, unknown>;
+  const requirements = Array.isArray(guide.requirements)
+    ? guide.requirements.filter(
+        (item): item is string => typeof item === "string",
+      )
+    : [];
+  const localDev = typeof guide.local_dev === "string" ? guide.local_dev : "";
+  const setupAlreadyCovered =
+    /^#{1,4}\s*(prerequisites|requirements|before you start)/im.test(localDev);
+
+  return (
+    <Stack spacing={3.5} sx={{ maxWidth: "76ch" }}>
+      {requirements.length > 0 && (
+        <Box
+          component={setupAlreadyCovered ? "details" : "div"}
+          sx={{
+            borderLeft: `2px solid ${brand.cyan}`,
+            bgcolor: alpha(brand.cyan, 0.04),
+            px: 2,
+            py: 1.5,
+          }}
+        >
+          {setupAlreadyCovered ? (
+            <Box
+              component="summary"
+              sx={{ color: brand.cyan, cursor: "pointer", fontWeight: 700 }}
+            >
+              Requirements at a glance ({requirements.length})
+            </Box>
+          ) : (
+            <Typography
+              component="h3"
+              sx={{ fontSize: 14, fontWeight: 700, color: brand.cyan, mb: 1 }}
+            >
+              Before you start
+            </Typography>
+          )}
+          <Box component="ul" sx={{ pl: 2.5, my: 0 }}>
+            {requirements.map((requirement, index) => (
+              <Box
+                component="li"
+                key={index}
+                sx={{ mb: 0.75, color: brand.text }}
+              >
+                {requirement}
+              </Box>
+            ))}
+          </Box>
+        </Box>
+      )}
+      {localDev ? <BriefingMarkdown content={localDev} guide /> : <Empty />}
+    </Stack>
+  );
+}
+
+function BriefingMarkdown({
+  content,
+  guide = false,
+}: {
+  content: string;
+  guide?: boolean;
+}) {
   return (
     <Box
       sx={{
@@ -1082,6 +1150,19 @@ function BriefingMarkdown({ content }: { content: string }) {
         "& h2": { fontSize: "1.15rem" },
         "& h3": { fontSize: "1.03rem" },
         "& h4": { fontSize: "0.95rem" },
+        ...(guide && {
+          "& h2, & h3": {
+            color: brand.text,
+            borderLeft: `2px solid ${brand.magenta}`,
+            bgcolor: alpha(brand.magenta, 0.06),
+            px: 1.75,
+            py: 1,
+            mt: 3.5,
+            mb: 1.75,
+            lineHeight: 1.4,
+          },
+          "& h2:first-of-type, & h3:first-of-type": { mt: 0 },
+        }),
         "& ul, & ol": { pl: 3, my: 1.5 },
         "& li": { mb: 0.5 },
         "& pre": {
@@ -1097,6 +1178,10 @@ function BriefingMarkdown({ content }: { content: string }) {
           color: brand.cyan,
           fontFamily: fonts.mono,
           fontSize: "0.84em",
+          bgcolor: alpha(brand.cyan, 0.07),
+          px: 0.4,
+          py: 0.15,
+          borderRadius: 0.5,
         },
         "& table": {
           display: "block",
