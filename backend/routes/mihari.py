@@ -12,7 +12,9 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
 import os
+import re
 import stat
 import subprocess
 import tempfile
@@ -25,6 +27,7 @@ from db.client import get_supabase
 from services.crypto import decrypt_secret, encrypt_secret
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _user_edited(section: dict) -> bool:
@@ -111,14 +114,18 @@ async def review_plan(body: ReviewPlanRequest, request: Request):
         messages=[{"role": "user", "content": prompt}],
     )
     text = "".join(block.text for block in response.content if hasattr(block, "text")).strip()
-    if text.startswith("```"):
-        text = text.strip("`").removeprefix("json").strip()
     try:
-        selected = json.loads(text)["selected"]
-    except (ValueError, KeyError, TypeError) as exc:
-        raise HTTPException(status_code=502, detail="review model returned invalid JSON") from exc
-    if not isinstance(selected, list) or any(name not in REVIEWED_SECTIONS for name in selected):
-        raise HTTPException(status_code=502, detail="review model selected invalid sections")
+        match = re.search(r"\{.*?\}", text, flags=re.DOTALL)
+        selected = json.loads(match.group() if match else text)["selected"]
+        if not isinstance(selected, list) or any(
+            name not in REVIEWED_SECTIONS for name in selected
+        ):
+            raise ValueError("invalid section selection")
+    except (ValueError, KeyError, TypeError):
+        # A malformed model reply must not leave the watcher stuck on this commit.
+        # Rechecking every area is more expensive, but preserves correctness.
+        logger.warning("Mihari review plan was invalid; reviewing all briefing areas")
+        selected = list(REVIEWED_SECTIONS)
     selected = list(dict.fromkeys(["activity", *selected]))
     return {"ok": True, "selected": selected, "reviewed": reviewed}
 
