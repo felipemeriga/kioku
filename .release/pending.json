@@ -1,17 +1,17 @@
 {
-  "source_sha": "9c0683f9e1d3d2566a9c4818d19b7f1646cc1708",
+  "source_sha": "7757ff0f502d4f5be5a7172051120715ef7a6ce6",
   "release_branch": "main",
   "versions": {
-    "frontend": "0.3.12"
+    "frontend": "0.3.13"
   },
   "images": [
     {
       "package": "frontend",
-      "version": "0.3.12",
+      "version": "0.3.13",
       "image": "felipemeriga1/kioku-frontend",
       "context": "frontend",
       "dockerfile": "frontend/Dockerfile",
-      "tag": "0.3.12-9c0683f9e1d3"
+      "tag": "0.3.13-7757ff0f502d"
     }
   ],
   "cli": false,
