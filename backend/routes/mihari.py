@@ -804,7 +804,7 @@ async def refresh_documentation(body: DocumentationRefreshRequest, request: Requ
         "details; change only facts affected by these commits. Explain owned components, "
         "interfaces, run/test/deploy steps and major gotchas in readable Markdown. "
         "Avoid an evidence diary, commit history, speculative claims, and excessive length. "
-        "Return only JSON with keys content (Markdown) and abstract (3-8 line summary).\n\n"
+        "Start with a short plain-language summary, then the guide. Return Markdown only.\n\n"
         f"CURRENT GUIDE:\n{old['content'][:18000]}\n\n"
         f"CURRENT ABSTRACT:\n{(old.get('abstract') or '')[:1200]}\n\n"
         f"CHANGED PATCH:\n{body.patch[:10000]}\n\n"
@@ -813,32 +813,21 @@ async def refresh_documentation(body: DocumentationRefreshRequest, request: Requ
     with stream_complete(
         task=Task.FOLDER_SUMMARY_REGROUND,
         max_tokens=4000,
-        system="Maintain concise, source-grounded repository documentation. Output JSON only.",
+        system="Maintain concise, source-grounded repository documentation. Output Markdown only.",
         messages=[{"role": "user", "content": prompt}],
     ) as stream:
-        text = "".join(stream.text_stream).strip()
-    if text.startswith("```"):
-        text = text.strip("`").removeprefix("json").strip()
-    try:
-        result = json.loads(text)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=502, detail="documentation model returned invalid JSON"
-        ) from exc
-    content = result.get("content") if isinstance(result, dict) else None
-    abstract = result.get("abstract") if isinstance(result, dict) else None
-    if (
-        not isinstance(content, str)
-        or not isinstance(abstract, str)
-        or len(content.strip()) < max(400, min(len(old["content"]) // 2, 5000))
-        or not abstract.strip()
-    ):
+        content = "".join(stream.text_stream).strip()
+    if content.startswith("```markdown") and content.endswith("```"):
+        content = content[len("```markdown") : -3].strip()
+    if len(content) < max(400, min(len(old["content"]) // 2, 5000)):
         raise HTTPException(status_code=502, detail="documentation failed quality check")
-    if (
-        content.strip() == old["content"].strip()
-        and abstract.strip() == (old.get("abstract") or "").strip()
-    ):
+    if content == old["content"].strip():
         return {"ok": True, "updated": False, "reason": "content unchanged"}
+    abstract = "\n".join(
+        line.strip()
+        for line in content.splitlines()
+        if line.strip() and not line.lstrip().startswith(("#", "```"))
+    )[:900]
     sb.table("repo_documentation").insert(
         {"folder_id": body.folder_id, "user_id": user_id, "content": content, "abstract": abstract}
     ).execute()
