@@ -169,20 +169,14 @@ def _existing_node_ids(sb, folder_id: str, node_ids: list[str]) -> set[str]:
     return found
 
 
-def find_references(sb, *, folder_id: str, symbol: str, limit: int = 100) -> list[dict]:
-    """Edges pointing AT the symbol (who calls/references it). Fail-closed:
-    only edges whose source node still exists are returned."""
-    targets = _exact_targets(sb, folder_id=folder_id, symbol=symbol)
-    target_ids = [t["node_id"] for t in targets]
-    if not target_ids:
-        return []
-    edges: list[dict] = []
+def _incoming_edges(sb, folder_id: str, target_ids: list[str], fields: str):
+    """Page edges explicitly: PostgREST defaults to at most 1,000 rows."""
     for batch in _chunks(target_ids, _IN_CHUNK):
         offset = 0
-        while len(edges) < limit:
+        while True:
             rows = (
                 sb.table("repo_edges")
-                .select("src_node_id,dst_node_id,relation,ref_file,ref_line")
+                .select(fields)
                 .eq("folder_id", folder_id)
                 .in_("dst_node_id", batch)
                 .in_("relation", _DEPENDENCY_RELATIONS)
@@ -192,18 +186,34 @@ def find_references(sb, *, folder_id: str, symbol: str, limit: int = 100) -> lis
                 .execute()
                 .data
             ) or []
-            live = _existing_node_ids(sb, folder_id, [e["src_node_id"] for e in rows])
-            edges.extend(e for e in rows if e["src_node_id"] in live)
+            yield rows
             if len(rows) < _INSERT_CHUNK:
                 break
             offset += _INSERT_CHUNK
+
+
+def find_references(sb, *, folder_id: str, symbol: str, limit: int = 100) -> list[dict]:
+    """Edges pointing AT the symbol (who calls/references it). Fail-closed:
+    only edges whose source node still exists are returned."""
+    targets = _exact_targets(sb, folder_id=folder_id, symbol=symbol)
+    target_ids = [t["node_id"] for t in targets]
+    if not target_ids:
+        return []
+    edges: list[dict] = []
+    for rows in _incoming_edges(
+        sb, folder_id, target_ids, "src_node_id,dst_node_id,relation,ref_file,ref_line"
+    ):
+        live = _existing_node_ids(sb, folder_id, [e["src_node_id"] for e in rows])
+        edges.extend(e for e in rows if e["src_node_id"] in live)
+        if len(edges) >= limit:
+            break
     return edges[:limit]
 
 
 def _exact_targets(sb, *, folder_id: str, symbol: str) -> list[dict]:
     """Navigation requires exact symbols; a fuzzy match can return unrelated callers."""
     matches: list[dict] = []
-    candidates = (symbol,) if symbol.endswith("()") else (symbol, f"{symbol}()")
+    candidates = (symbol,) if symbol.endswith("()") else (symbol, f"{symbol}()", f".{symbol}()")
     for candidate in candidates:
         rows = (
             sb.table("repo_symbols")
@@ -220,17 +230,19 @@ def _exact_targets(sb, *, folder_id: str, symbol: str) -> list[dict]:
 
 def outline(sb, *, folder_id: str, path: str, limit: int = 500) -> list[dict]:
     """All symbols under a file or directory prefix, ordered by file then line."""
-    return (
+    path = path.removeprefix("./").rstrip("/")
+    query = (
         sb.table("repo_symbols")
         .select("node_id,symbol,kind,file,start_line,updated_at")
         .eq("folder_id", folder_id)
-        .ilike("file", f"{path}%")
-        .order("file")
-        .order("start_line")
-        .limit(limit)
-        .execute()
-        .data
-    ) or []
+    )
+    if path in ("", "."):
+        query = query.ilike("file", "%")
+    elif "." in path.rsplit("/", 1)[-1]:
+        query = query.eq("file", path)
+    else:
+        query = query.ilike("file", f"{path}/%")
+    return (query.order("file").order("start_line").limit(limit).execute().data) or []
 
 
 def impact_of(
@@ -246,16 +258,9 @@ def impact_of(
         if not frontier or len(seen) >= max_nodes:
             break
         callers: list[dict] = []
-        for batch in _chunks(list(frontier), _IN_CHUNK):
-            rows = (
-                sb.table("repo_edges")
-                .select("src_node_id,dst_node_id,relation")
-                .eq("folder_id", folder_id)
-                .in_("dst_node_id", batch)
-                .in_("relation", _DEPENDENCY_RELATIONS)
-                .execute()
-                .data
-            ) or []
+        for rows in _incoming_edges(
+            sb, folder_id, list(frontier), "src_node_id,dst_node_id,relation,ref_file,ref_line"
+        ):
             callers.extend(rows)
         next_ids = {c["src_node_id"] for c in callers} - seen
         if not next_ids:

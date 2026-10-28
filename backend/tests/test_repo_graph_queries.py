@@ -141,6 +141,80 @@ def test_definition_and_outline():
         "one"
     ]
     assert [r["node_id"] for r in store.outline(db, folder_id="f", path="src/")] == ["one", "two"]
+    assert [r["node_id"] for r in store.outline(db, folder_id="f", path="src/a.ts")] == ["one"]
+
+
+def test_exact_method_name_and_directory_boundary():
+    symbols = [
+        {
+            "folder_id": "f",
+            "node_id": "method",
+            "symbol": ".save()",
+            "file": "src/foo/a.ts",
+            "start_line": 1,
+        },
+        {
+            "folder_id": "f",
+            "node_id": "caller",
+            "symbol": "caller()",
+            "file": "src/foo/a.ts",
+            "start_line": 2,
+        },
+        {
+            "folder_id": "f",
+            "node_id": "sibling",
+            "symbol": "sibling()",
+            "file": "src/fooBar/b.ts",
+            "start_line": 1,
+        },
+    ]
+    edges = [
+        {
+            "folder_id": "f",
+            "src_node_id": "caller",
+            "dst_node_id": "method",
+            "relation": "calls",
+            "ref_file": "src/foo/a.ts",
+            "ref_line": 2,
+        }
+    ]
+    db = Database(symbols, edges)
+    assert [r["src_node_id"] for r in store.find_references(db, folder_id="f", symbol="save")] == [
+        "caller"
+    ]
+    assert [r["node_id"] for r in store.outline(db, folder_id="f", path="src/foo")] == [
+        "method",
+        "caller",
+    ]
+
+
+def test_impact_pages_high_fan_in():
+    symbols = [{"folder_id": "f", "node_id": "target", "symbol": "target()"}]
+    symbols.extend(
+        {
+            "folder_id": "f",
+            "node_id": f"c{i}",
+            "symbol": f"caller{i}()",
+            "file": "a.ts",
+            "start_line": i,
+        }
+        for i in range(501)
+    )
+    edges = [
+        {
+            "folder_id": "f",
+            "src_node_id": f"c{i}",
+            "dst_node_id": "target",
+            "relation": "calls",
+            "ref_file": "a.ts",
+            "ref_line": i,
+        }
+        for i in range(501)
+    ]
+    hits = store.impact_of(
+        Database(symbols, edges), folder_id="f", symbol="target", depth=1, max_nodes=600
+    )
+    assert len(hits) == 501
 
 
 def test_direct_agent_graph_lookup_dispatches_all_operations():
