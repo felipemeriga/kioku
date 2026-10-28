@@ -775,7 +775,7 @@ async def refresh_documentation(body: DocumentationRefreshRequest, request: Requ
     from mcp_server import _descendant_folder_ids
     from services.folder_summary.briefing_schema import new_section, snapshot_sections
     from services.folder_summary.repo import get_latest_summary
-    from services.llm import Task, complete
+    from services.llm import Task, stream_complete
 
     if body.folder_id not in _descendant_folder_ids(sb, scope_id, user_id):
         raise HTTPException(status_code=403, detail="folder_id not in api key scope")
@@ -810,13 +810,13 @@ async def refresh_documentation(body: DocumentationRefreshRequest, request: Requ
         f"CHANGED PATCH:\n{body.patch[:10000]}\n\n"
         f"CURRENT SOURCE FILES:\n{sources[:14000]}"
     )
-    response = complete(
+    with stream_complete(
         task=Task.FOLDER_SUMMARY_REGROUND,
         max_tokens=4000,
         system="Maintain concise, source-grounded repository documentation. Output JSON only.",
         messages=[{"role": "user", "content": prompt}],
-    )
-    text = "".join(block.text for block in response.content if hasattr(block, "text")).strip()
+    ) as stream:
+        text = "".join(stream.text_stream).strip()
     if text.startswith("```"):
         text = text.strip("`").removeprefix("json").strip()
     try:

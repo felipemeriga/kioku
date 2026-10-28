@@ -1,4 +1,5 @@
 import json
+from contextlib import contextmanager
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
@@ -128,3 +129,33 @@ def test_review_completion_preserves_other_markers(monkeypatch):
     assert db.writes[0]["section_reviews"]["activity"]["head_sha"] == "a" * 40
     assert db.writes[0]["section_reviews"]["documentation"]["head_sha"] == "b" * 40
     assert "checked_at" not in db.writes[0]
+
+
+def test_documentation_refresh_collects_streamed_response(monkeypatch):
+    guide = "Repository architecture and operations. " * 25
+    abstract = "API and worker architecture"
+
+    class DocumentationDB:
+        def table(self, name):
+            assert name == "repo_documentation"
+            return Query([{"content": guide, "abstract": abstract}])
+
+    @contextmanager
+    def streamed_response(**_kwargs):
+        payload = json.dumps({"content": guide, "abstract": abstract})
+        yield SimpleNamespace(text_stream=iter([payload[:50], payload[50:]]))
+
+    monkeypatch.setattr(mihari, "_api_key_auth", lambda _request: ("u1", "f1", "rag_test"))
+    monkeypatch.setattr(mihari, "get_supabase", DocumentationDB)
+    monkeypatch.setattr("mcp_server._descendant_folder_ids", lambda *_: ["f1"])
+    monkeypatch.setattr(
+        "services.folder_summary.repo.get_latest_summary",
+        lambda *_: {"content": {"sections": {"documentation": {"content": abstract}}}},
+    )
+    monkeypatch.setattr("services.llm.stream_complete", streamed_response)
+    response = TestClient(app).post(
+        "/api/mihari/documentation",
+        json={"folder_id": "f1", "head_sha": "a" * 40},
+    )
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "updated": False, "reason": "content unchanged"}
