@@ -135,6 +135,13 @@ def test_definition_and_outline():
             "file": "src/b.ts",
             "start_line": 2,
         },
+        {
+            "folder_id": "f",
+            "node_id": "three",
+            "symbol": "RUN",
+            "file": "Dockerfile",
+            "start_line": 1,
+        },
     ]
     db = Database(rows, [])
     assert [r["node_id"] for r in store.find_definition(db, folder_id="f", symbol="sample()")] == [
@@ -142,6 +149,7 @@ def test_definition_and_outline():
     ]
     assert [r["node_id"] for r in store.outline(db, folder_id="f", path="src/")] == ["one", "two"]
     assert [r["node_id"] for r in store.outline(db, folder_id="f", path="src/a.ts")] == ["one"]
+    assert [r["node_id"] for r in store.outline(db, folder_id="f", path="Dockerfile")] == ["three"]
 
 
 def test_exact_method_name_and_directory_boundary():
@@ -183,6 +191,10 @@ def test_exact_method_name_and_directory_boundary():
         "caller"
     ]
     assert [r["node_id"] for r in store.outline(db, folder_id="f", path="src/foo")] == [
+        "method",
+        "caller",
+    ]
+    assert [r["node_id"] for r in store.outline(db, folder_id="f", path="src/foo/a.ts")] == [
         "method",
         "caller",
     ]

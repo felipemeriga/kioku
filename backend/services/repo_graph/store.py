@@ -231,18 +231,28 @@ def _exact_targets(sb, *, folder_id: str, symbol: str) -> list[dict]:
 def outline(sb, *, folder_id: str, path: str, limit: int = 500) -> list[dict]:
     """All symbols under a file or directory prefix, ordered by file then line."""
     path = path.removeprefix("./").rstrip("/")
-    query = (
-        sb.table("repo_symbols")
-        .select("node_id,symbol,kind,file,start_line,updated_at")
-        .eq("folder_id", folder_id)
-    )
-    if path in ("", "."):
-        query = query.ilike("file", "%")
-    elif "." in path.rsplit("/", 1)[-1]:
-        query = query.eq("file", path)
-    else:
-        query = query.ilike("file", f"{path}/%")
-    return (query.order("file").order("start_line").limit(limit).execute().data) or []
+
+    def base_query():
+        return (
+            sb.table("repo_symbols")
+            .select("node_id,symbol,kind,file,start_line,updated_at")
+            .eq("folder_id", folder_id)
+        )
+
+    if path not in ("", "."):
+        exact = base_query().eq("file", path).order("start_line").limit(limit).execute().data or []
+        if exact:
+            return exact
+    prefix = "%" if path in ("", ".") else f"{path}/%"
+    return (
+        base_query()
+        .ilike("file", prefix)
+        .order("file")
+        .order("start_line")
+        .limit(limit)
+        .execute()
+        .data
+    ) or []
 
 
 def impact_of(
