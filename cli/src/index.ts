@@ -15,9 +15,13 @@ import { search } from "./commands/search.js";
 import { sessionStart } from "./commands/session-start.js";
 import { status } from "./commands/status.js";
 import { whoami } from "./commands/whoami.js";
-import { banner, printError } from "./lib/banner.js";
+import { banner, printError, warn } from "./lib/banner.js";
 import { readConfig } from "./lib/config.js";
-import { checkForUpdate } from "./lib/update-check.js";
+import {
+  availableUpdate,
+  checkForUpdate,
+  isStandalone
+} from "./lib/update-check.js";
 import { VERSION } from "./lib/version.js";
 
 // Verbose --version — intercept before commander shows the plain number.
@@ -143,6 +147,36 @@ Examples:
   .action(async (opts) => {
     banner();
     try {
+      const { isInteractive } = await import("./ui/theme.js");
+      if (isStandalone() && isInteractive() && !opts.yes) {
+        const latest = await availableUpdate(VERSION);
+        if (latest) {
+          const { confirm } = await import("@inquirer/prompts");
+          const accepted = await confirm({
+            message: `Kioku ${latest} is available (installed: ${VERSION}). Update now?`,
+            default: true
+          });
+          if (accepted) {
+            try {
+              const { installNativeUpdate } =
+                await import("./lib/native-update.js");
+              await installNativeUpdate(latest);
+              process.env.KIOKU_NO_UPDATE_CHECK = "1";
+              console.log(
+                process.platform === "win32"
+                  ? "Update will finish after Kioku exits. Run kioku init again shortly."
+                  : "Update complete. Run kioku init again with the new version."
+              );
+              return;
+            } catch (error) {
+              warn(
+                `Update failed: ${error instanceof Error ? error.message : String(error)}`
+              );
+              warn("Continuing init with the installed version.");
+            }
+          }
+        }
+      }
       await init(process.cwd(), opts);
     } catch (err) {
       printError(err);
@@ -369,6 +403,7 @@ if (process.argv.length <= 2) {
   program.parseAsync(process.argv).then(() => {
     // Fire-and-forget update check AFTER the main command finishes so
     // we don't add latency to hot-path commands.
-    if (!process.argv.includes("internal-manabi-run")) void checkForUpdate(VERSION);
+    if (!process.argv.includes("internal-manabi-run"))
+      void checkForUpdate(VERSION);
   });
 }

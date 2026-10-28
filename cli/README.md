@@ -23,6 +23,10 @@ choose another directory. On Windows x64, run `install.ps1` from the latest
 [CLI release](https://github.com/felipemeriga/kioku/releases) in PowerShell;
 it installs `kioku.exe` and updates the user `PATH`.
 
+On interactive `kioku init`, a standalone binary checks for a newer CLI release
+and offers to install it before wiring the repository. After accepting, re-run
+`kioku init` with the updated binary. `kioku init --yes` skips the prompt.
+
 To build from source:
 
 ```bash
