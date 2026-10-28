@@ -439,9 +439,7 @@ def refresh_sections(
         if section == "deployment":
             # Keep the actual CI workflow visible even when only a deploy
             # manifest changed. Missing workflows are evidence of nothing.
-            code, tracked, _ = run_git(
-                ["ls-files", ".github/workflows"], env, cwd=str(clone)
-            )
+            code, tracked, _ = run_git(["ls-files", ".github/workflows"], env, cwd=str(clone))
             seen = {entry["path"] for entry in files}
             if code == 0:
                 for path in tracked.splitlines():
