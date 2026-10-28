@@ -22,7 +22,6 @@ interface Opts {
 const SECTION_ORDER = [
   "overview",
   "architecture",
-  "preferences",
   "how_it_runs",
   "deployment",
   "activity",
@@ -32,7 +31,6 @@ const SECTION_ORDER = [
 const SECTION_TITLES: Record<string, string> = {
   overview: "Overview",
   architecture: "Architecture",
-  preferences: "Preferences",
   how_it_runs: "How it runs",
   deployment: "Deployment",
   activity: "Activity",

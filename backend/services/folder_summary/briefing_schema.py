@@ -14,7 +14,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-BRIEFING_SCHEMA_VERSION = 2
+BRIEFING_SCHEMA_VERSION = 3
 
 SectionStatus = Literal["auto", "pinned", "hybrid"]
 Provenance = Literal["auto", "user_ui", "agent_mcp"]
@@ -24,7 +24,6 @@ Provenance = Literal["auto", "user_ui", "agent_mcp"]
 SECTION_KEYS: list[str] = [
     "overview",
     "architecture",
-    "preferences",
     "how_it_runs",
     "deployment",
     "activity",
@@ -64,7 +63,6 @@ def empty_briefing() -> dict[str, dict]:
                 "data_flow": "",
             }
         ),
-        "preferences": new_section({"rules": []}),
         "how_it_runs": new_section(
             {
                 "requirements": [],

@@ -186,7 +186,6 @@ export interface BriefingSection<C = unknown> {
 export const BRIEFING_SECTIONS = [
   "overview",
   "architecture",
-  "preferences",
   "how_it_runs",
   "deployment",
   "activity",

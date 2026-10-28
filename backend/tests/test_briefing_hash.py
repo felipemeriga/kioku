@@ -33,4 +33,4 @@ class TestBriefingHash(unittest.TestCase):
         cur = empty_briefing()
         cur["overview"] = new_section({"purpose": "p", "description": ""})
         self.assertIn("overview", changed_sections(None, cur))
-        self.assertNotIn("preferences", changed_sections(None, cur))  # still empty
+        self.assertNotIn("preferences", cur)  # retired from new briefings

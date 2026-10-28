@@ -97,16 +97,13 @@ async def briefing_schema():
                 },
                 "notes": "How the system fits together — subsystems, boundaries, data flow.",
             },
-            "preferences": {
-                "shape": {"rules": ["str"]},
-                "notes": ("Repository conventions maintained through briefing section updates."),
-            },
             "how_it_runs": {
                 "shape": {"requirements": ["str"], "local_dev": "str (multi-line ok)"},
                 "notes": (
                     "A readable, grounded guide: prerequisites, setup, distinct run modes or "
                     "services, and verification commands. Explain what each command does; "
-                    "use real repo paths and avoid a terse command dump."
+                    "use real repo paths and avoid a terse command dump. Cover every distinct "
+                    "supported way to run the application, worker, CLI, and tests."
                 ),
             },
             "deployment": {
@@ -115,7 +112,11 @@ async def briefing_schema():
                     "how_to_deploy": "str",
                     "ci_cd_notes": "str",
                 },
-                "notes": "Where it runs in production + how deploys happen.",
+                "notes": (
+                    "Read .github/workflows and deployment files before describing CI/CD. "
+                    "Name verified jobs, triggers, images, environments, and deploy steps. "
+                    "If evidence is absent, omit the claim rather than infer it."
+                ),
             },
             "activity": {
                 "shape": {"summary": "str", "highlights": ["str"]},

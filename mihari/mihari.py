@@ -62,7 +62,6 @@ _pass_lock = threading.Lock()
 # section's changed files back into it (auto-maintained, like activity); the
 # holistic sections (architecture/overview) are only warned about, never folded.
 SECTION_PATH_RULES: dict[str, list[str]] = {
-    "preferences": ["agents.md", "claude.md", "contributing", ".editorconfig", "codeowners"],
     "deployment": [".github/workflows/", "deploy/", "dockerfile"],
     "how_it_runs": [
         "readme",
@@ -410,11 +409,7 @@ def refresh_sections(
             candidates = (
                 ("README.md", "readme.md", "Makefile", "pyproject.toml", "package.json")
                 if section == "how_it_runs"
-                else (
-                    ("AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md", ".editorconfig")
-                    if section == "preferences"
-                    else ("Dockerfile", "docker-compose.yml", ".github/workflows/deploy.yml")
-                )
+                else ("Dockerfile", "docker-compose.yml", ".github/workflows/deploy.yml")
             )
             matched = [path for path in candidates if (clone / path).is_file()]
             if section == "deployment" and not matched:
@@ -428,7 +423,7 @@ def refresh_sections(
         if not matched:
             continue
         files = []
-        for f in matched[: 5 if section == "how_it_runs" else 8]:
+        for f in matched[:5]:
             p = clone / f
             try:
                 if p.is_file() and p.stat().st_size < 60_000:
@@ -441,6 +436,31 @@ def refresh_sections(
                     )
             except OSError:
                 continue
+        if section == "deployment":
+            # Keep the actual CI workflow visible even when only a deploy
+            # manifest changed. Missing workflows are evidence of nothing.
+            code, tracked, _ = run_git(
+                ["ls-files", ".github/workflows"], env, cwd=str(clone)
+            )
+            seen = {entry["path"] for entry in files}
+            if code == 0:
+                for path in tracked.splitlines():
+                    if len(files) >= 8:
+                        break
+                    candidate = clone / path
+                    if path in seen or not candidate.is_file():
+                        continue
+                    try:
+                        files.append(
+                            {
+                                "path": path,
+                                "content": candidate.read_text(errors="replace")[:2500],
+                                "role": "context",
+                            }
+                        )
+                        seen.add(path)
+                    except OSError:
+                        continue
         if section == "how_it_runs":
             # A diff alone rarely explains how a large repo runs. Include a
             # bounded amount of stable setup context from the same checkout.
