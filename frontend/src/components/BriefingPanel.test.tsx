@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen, waitFor, fireEvent } from "@testing-library/react";
+import { screen, waitFor, fireEvent, within } from "@testing-library/react";
 import { renderWithProviders } from "../test/renderWithProviders";
 import BriefingPanel from "./BriefingPanel";
 import * as api from "../lib/api";
@@ -153,6 +153,26 @@ describe("BriefingPanel", () => {
       screen.getByRole("heading", { name: "Recent highlights" }),
     ).toBeInTheDocument();
     expect(screen.getByText("Fixed indexing")).toBeInTheDocument();
+  });
+
+  it("adds the detailed document to the section navigation when one exists", async () => {
+    vi.spyOn(api, "fetchBriefing").mockResolvedValue(staleBriefingFixture);
+    vi.spyOn(api, "fetchDocumentation").mockResolvedValue({
+      documentation: {
+        content: "# Guide",
+        abstract: "Guide summary",
+        generated_at: "2026-01-01T00:00:00Z",
+      },
+    } as Awaited<ReturnType<typeof api.fetchDocumentation>>);
+    renderWithProviders(<BriefingPanel folderId="f1" />);
+    const rail = await screen.findByRole("complementary", {
+      name: "Briefing sections",
+    });
+    expect(
+      await within(rail).findByRole("button", {
+        name: /Detailed documentation/i,
+      }),
+    ).toBeInTheDocument();
   });
 
   it("renders the briefing title", async () => {

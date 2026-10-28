@@ -38,6 +38,7 @@ import {
   BRIEFING_SECTIONS,
   clearBriefing,
   fetchBriefing,
+  fetchDocumentation,
   updateBriefingSection,
   type BriefingSection,
   type BriefingSectionKey,
@@ -112,6 +113,11 @@ export default function BriefingPanel({ folderId }: Props) {
     },
   });
   const data = briefingQuery.data ?? null;
+  const documentationQuery = useQuery({
+    queryKey: qk.documentation(folderId),
+    queryFn: () => fetchDocumentation(folderId),
+    enabled: Boolean(data?.last_generated_at),
+  });
   const loading = briefingQuery.isPending;
   const error = briefingQuery.isError
     ? messageFromError(briefingQuery.error)
@@ -169,6 +175,13 @@ export default function BriefingPanel({ folderId }: Props) {
 
   const scrollToSection = (i: number) => {
     setActiveRailIndex(i);
+    if (i === presentKeys.length) {
+      document.getElementById("briefing-documentation")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+      return;
+    }
     sectionRefs.current[i]?.scrollIntoView({
       behavior: "smooth",
       block: "start",
@@ -199,6 +212,13 @@ export default function BriefingPanel({ folderId }: Props) {
   }));
 
   const presentKeys = BRIEFING_SECTIONS.filter((key) => data.sections[key]);
+  if (documentationQuery.data?.documentation) {
+    railItems.push({
+      n: String(presentKeys.length + 1).padStart(2, "0"),
+      title: "Detailed documentation",
+      status: "auto",
+    });
+  }
 
   return (
     <Box

@@ -17,6 +17,7 @@ export default function DocumentationPanel({ folderId }: { folderId: string }) {
   if (isPending || isError || !doc) return null;
   return (
     <Box
+      id="briefing-documentation"
       sx={{
         border: `1px solid ${brand.line}`,
         borderRadius: "8px",
@@ -24,6 +25,7 @@ export default function DocumentationPanel({ folderId }: { folderId: string }) {
         mb: 3,
         ml: { xs: 0, lg: "210px" },
         overflow: "hidden",
+        scrollMarginTop: 24,
       }}
     >
       <Box
@@ -61,6 +63,12 @@ export default function DocumentationPanel({ folderId }: { folderId: string }) {
             fontSize: 16,
             lineHeight: 1.75,
             maxWidth: "78ch",
+            ...(!expanded && {
+              display: "-webkit-box",
+              WebkitBoxOrient: "vertical",
+              WebkitLineClamp: 3,
+              overflow: "hidden",
+            }),
           }}
         >
           {doc.abstract || "Generated repository documentation."}
@@ -102,9 +110,11 @@ export default function DocumentationPanel({ folderId }: { folderId: string }) {
                 fontFamily: fonts.mono,
                 fontSize: "0.86em",
                 color: brand.cyan,
-                bgcolor: alpha(brand.cyan, 0.07),
-                px: 0.4,
-                py: 0.15,
+                bgcolor: alpha(brand.cyan, 0.15),
+                boxShadow: `inset 0 -1px 0 ${alpha(brand.cyan, 0.55)}`,
+                px: 0.35,
+                py: 0.1,
+                borderRadius: 0.5,
               },
               "& table": {
                 display: "block",
