@@ -18,7 +18,7 @@ import { mcpUrlToRestBase } from "../lib/urls.js";
 import { registerWithMihari } from "../lib/mihari.js";
 import {
   graphIndex,
-  graphifyAvailable,
+  ensureGraphify,
   seedWatermarkFromServer,
 } from "./graph-index.js";
 import {
@@ -508,13 +508,7 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
   //         watermark from the server (so a fresh machine doesn't re-index an
   //         already-current graph), then indexes. Best-effort — never fails init.
   try {
-    if (!graphifyAvailable()) {
-      const { spawnSync } = await import("node:child_process");
-      info("Installing graphify (code-graph extractor) via uv…");
-      // PyPI package is `graphifyy`; it provides the `graphify` command.
-      spawnSync("uv", ["tool", "install", "graphifyy"], { stdio: "inherit" });
-    }
-    if (graphifyAvailable()) {
+    if (ensureGraphify()) {
       await seedWatermarkFromServer(repoRoot);
       await graphIndex(repoRoot);
     } else {
