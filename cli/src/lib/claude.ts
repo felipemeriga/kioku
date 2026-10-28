@@ -530,31 +530,39 @@ Persist it. It'll survive the session, the PC, the team:
 
 ### When you need info you don't have in this window
 
-- \`knowledge_base_search(query)\` — searches documents across the
-  scope subtree. Grounded, cited.
+- \`knowledge_base_search(query)\` — searches indexed documents and code
+  across the scope subtree. Useful for questions spanning sources, with citations.
+  Example: \`knowledge_base_search("What does the deployment guide say about rollback?")\`.
 - \`query_documents_metadata(question)\` — structured questions about
   what documents exist ("show me all PDFs added this week").
 - \`read_folder_documents()\` — full text of every doc already uploaded to
   this folder (specs, architecture, ecosystem context beyond the code).
 
-### Navigating the code — query the index, don't grep
+### Navigating the code
 
-This repo is indexed into a code graph plus a semantic code index. Prefer
-these over \`grep\`/\`glob\` to locate and trace code — they return exact
-\`file:line\` answers:
+Use the source that fits the task. Read current local files for exact behavior
+and edits; use \`rg\`/\`grep\` to find names, paths, and literal text. Kioku's
+code graph and semantic index help explore symbols and unfamiliar concepts
+across the repository. Neither is a required first step or the only source.
 
-- \`find_definition(symbol)\` — where a function/type/method is defined.
-- \`find_references(symbol)\` — who calls/uses it (all sites).
+- \`find_definition(symbol)\` — locate a function/type/method, e.g.
+  \`find_definition("ensureManabi")\`.
+- \`find_references(symbol)\` — explore known uses or callers, e.g.
+  \`find_references("ensureManabi")\`.
 - \`outline(path)\` — the symbols under a file or directory.
-- \`impact_of(symbol)\` — blast radius: what transitively depends on it.
-- \`code_search(query)\` — semantic search over the source itself. Use it
-  when you don't know the symbol name — concept queries like "where do
-  we retry failed uploads" or "recency decay scoring". It searches every
-  indexed repo in scope, so it can also cross-reference sibling repos.
+- \`impact_of(symbol)\` — explore transitive dependents before a change.
+- \`code_search(query)\` — find code by behavior when you do not know a
+  symbol, e.g. \`code_search("where are failed uploads retried?")\`.
+  It can also find matches in other indexed repos in scope.
+
+For an exact local check, try \`rg -n "ensureManabi" cli/src\` and read the
+matching file. The index can lag local edits or omit a reference. Compare it
+with current source when a result is unclear, stale, or important to a change;
+routine lookups do not need duplicate searches.
 
 The index refreshes automatically after merges to the principal branch
 (a server-side Mihari polls twice daily) or on demand via \`kioku index\`.
-If a lookup returns nothing, fall back to a normal search.
+An empty index result does not prove the code is absent; search local files.
 
 ### Convention
 

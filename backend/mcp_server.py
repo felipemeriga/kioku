@@ -1736,10 +1736,10 @@ class ApiKeyAuthMiddleware:
         await self.app(scope, receive, send)
 
 
-# ── Code graph tools (query structure instead of grepping) ───────────
+# ── Code graph tools ────────────────────────────────────────────────
 #
 # Backed by the repo_symbols/repo_edges tables populated by `kioku index`.
-# Prefer these over grep/glob for locating and tracing code.
+# Complement local source reads and text search; indexed edges may be incomplete.
 
 
 def _resolve_repo(sb, user_id, folder):
@@ -1820,8 +1820,8 @@ def code_search(
 
 @mcp.tool()
 def find_definition(symbol: str, folder: str | None = None) -> str:
-    """Find where a symbol (function/type/method) is DEFINED — use instead of
-    grepping for a definition.
+    """Find indexed definitions of a function, type, or method. Read the
+    current local file for exact behavior or when the index may be stale.
 
     Args:
         symbol: name to look up, e.g. 'PrefetchCore' or '.has_audio()'.
@@ -1851,8 +1851,8 @@ def find_definition(symbol: str, folder: str | None = None) -> str:
 
 @mcp.tool()
 def find_references(symbol: str, folder: str | None = None) -> str:
-    """Find where a symbol is USED / who calls it — use instead of grepping for
-    call sites.
+    """Find indexed uses and callers of a symbol. Results may omit sites;
+    use local source search when completeness matters.
 
     Args:
         symbol: the referenced name.
@@ -1879,8 +1879,8 @@ def find_references(symbol: str, folder: str | None = None) -> str:
 
 @mcp.tool()
 def outline(path: str, folder: str | None = None) -> str:
-    """List the symbols defined under a file or directory — use instead of
-    reading/globbing a file just to see what's in it.
+    """List indexed symbols under a file or directory. Read the local file
+    when its current contents matter.
 
     Args:
         path: repo-relative file or directory prefix, e.g. 'ses/ingester/'.
