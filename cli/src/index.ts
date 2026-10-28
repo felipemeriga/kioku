@@ -206,9 +206,7 @@ program
 
 program
   .command("index")
-  .description(
-    "Extract this repo's code graph and upload it so agents query it instead of grepping"
-  )
+  .description("Extract and upload this repo's code graph for agent navigation")
   .action(async () => {
     try {
       await graphIndex();

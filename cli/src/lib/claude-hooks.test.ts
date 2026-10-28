@@ -102,6 +102,16 @@ test("agent instructions only advertise available knowledge tools", () => {
   const snippet = secondBrainSnippet();
   assert.doesNotMatch(snippet, /Mem0|save_memory|search_memory|Stop hook/);
   assert.match(snippet, /update_folder_briefing_section/);
+  assert.doesNotMatch(snippet, /don't grep|Prefer these over/);
+  assert.match(snippet, /Read current local files/);
+  assert.match(snippet, /routine lookups do not need duplicate searches/);
+  assert.match(
+    snippet,
+    /knowledge_base_search\("What does the deployment guide/
+  );
+  assert.match(snippet, /find_definition\("ensureManabi"\)/);
+  assert.match(snippet, /find_references\("ensureManabi"\)/);
+  assert.match(snippet, /code_search\("where are failed uploads retried\?"\)/);
 });
 
 test("capture migration only matches Kioku commands including installed absolute paths", () => {

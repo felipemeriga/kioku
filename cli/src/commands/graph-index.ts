@@ -1,7 +1,7 @@
 /**
  * `kioku index` — extract this repo's code graph (Graphify AST, no LLM) and
  * upload it to kioku as a per-file delta, so coding agents can query structure
- * (find_definition / find_references / outline / impact_of) instead of grepping.
+ * (find_definition / find_references / outline / impact_of) alongside local search.
  *
  * Incremental: tracks last_indexed_sha in .claude/kioku-state.json and only
  * ships the files changed since. First run ships the whole graph.
