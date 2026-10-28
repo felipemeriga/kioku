@@ -485,7 +485,6 @@ DOC_TTL_DAYS = 30
 STABLE_SECTION_ORDER = [
     "overview",
     "architecture",
-    "preferences",
     "how_it_runs",
     "deployment",
 ]

@@ -914,7 +914,7 @@ def list_folders_in_scope() -> str:
                 "get_folder_orientation(folder='<name>') to focus on any of these. "
                 "The 'folder' argument accepts a name ('c360-lead'), a slash-path "
                 "('cosm/c360-lead'), or a UUID. Repo folders have the strict "
-                "7-section briefing; regular folders have a freeform summary."
+                "6-section briefing; regular folders have a freeform summary."
             ),
         },
         indent=2,
@@ -945,12 +945,15 @@ def get_folder_briefing_schema() -> str:
                 "How the system fits together. summary (str), components "
                 "(list of {name, role, path}), data_flow (str)."
             ),
-            "preferences": ("Repository conventions maintained through briefing section updates."),
             "how_it_runs": (
                 "A grounded, readable guide to prerequisites, setup, distinct run modes, "
-                "and verification. Explain what real commands do, with repo paths."
+                "and verification. Cover every distinct supported run mode with real "
+                "commands and paths."
             ),
-            "deployment": "Environments list, how_to_deploy, ci_cd_notes.",
+            "deployment": (
+                "Environments list, how_to_deploy, ci_cd_notes. Inspect .github/workflows "
+                "and deployment files; omit claims without repository evidence."
+            ),
             "activity": (
                 "Injected LIVE from the local git clone by the CLI each session "
                 "(branch, recent commits, working state). Do NOT author or pin it here."
@@ -981,7 +984,7 @@ def get_folder_briefing(folder: str | None = None) -> str:
         # Focus on the repo you're working in
         get_folder_briefing(folder='c360-lead')
 
-    Returns the full 7-section briefing (status, content, provenance,
+    Returns the full 6-section briefing (status, content, provenance,
     updated_at, updated_by per section) plus a hint reminding you to
     call update_folder_briefing_section to write back new facts.
 
@@ -1410,7 +1413,7 @@ def update_folder_briefing_section(
     """Patch one section of a repo's briefing.
 
     Args:
-        section: One of 'overview', 'architecture', 'preferences',
+        section: One of 'overview', 'architecture',
             'how_it_runs', 'deployment', 'activity', 'documentation'.
         content: JSON string matching the section's shape (see
             get_folder_briefing_schema). String content is also accepted
@@ -1551,7 +1554,7 @@ def get_folder_orientation(
             - changes: files added/removed/modified in the KB since the previous summary
             - commits: recent GitHub activity (empty if no GitHub integration)
         - subfolders: (workspace_rollup folders only) structured index of children
-        - briefing: (repo folders only) the 7-section briefing
+        - briefing: (repo folders only) the 6-section briefing
         - metadata: last_generated_at, kind, doc_count
     """
     if not _current_user_id.get():
@@ -1650,7 +1653,7 @@ def get_folder_orientation(
         },
     }
 
-    # For repo folders, add the strict 7-section briefing so a coding
+    # For repo folders, add the strict 6-section briefing so a coding
     # agent has structured facts to work with immediately + can update
     # any section via update_folder_briefing_section.
     from services.folder_summary.briefing_schema import snapshot_sections

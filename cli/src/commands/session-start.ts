@@ -25,6 +25,9 @@ export function generateInstruction(
   sectionOrder: string[],
   folder?: string,
 ): string {
+  const activeSections = sectionOrder.filter(
+    (section) => section !== "preferences",
+  );
   // A single MCP key can span several repos (the Codex surface uses one global
   // key scoped to the whole root), so every WRITE must name THIS repo. `folder`
   // is this repo's folder id/name; thread it into the write calls below.
@@ -52,22 +55,33 @@ export function generateInstruction(
     "   implements. Prefer current source when docs conflict. Do not expand into",
     "   a tour of parent-folder systems or reproduce documents wholesale.",
     "3. Explore the repository's entry points, owned components, main data",
-    "   flow, run/test commands, and deployment. For a large repo, parallelize",
-    "   those distinct areas, then synthesize the findings without repeating",
-    "   each investigator's notes.",
-    `4. Write these ${sectionOrder.length} descriptive sections, grounded in the`,
-    `   actual code with REAL file paths, following the schema shapes: ${sectionOrder.join(
+    "   flow, run/test commands, and deployment. Use your local grep/search tool",
+    "   (for example `rg`) on current files, the Kioku `code_search` semantic",
+    "   code index, and graph tools (`outline`, `find_definition`,",
+    "   `find_references`, `impact_of`) to trace architecture and implementation.",
+    "   The graph and embeddings are already built by init when available; if",
+    "   an indexed result is missing or stale, verify against local source.",
+    "   For a large repo, parallelize distinct areas, then synthesize findings.",
+    "   Do not paste a tool-use diary into the briefing or documentation.",
+    `4. Write these ${activeSections.length} descriptive sections, grounded in the`,
+    `   actual code with REAL file paths, following the schema shapes: ${activeSections.join(
       ", ",
     )}.`,
     "   Keep each section focused on what a developer needs at session start:",
     "   purpose, responsibilities, key paths, and actionable commands. Explain",
     "   why the important pieces matter instead of merely naming them.",
     "   Give architecture a concrete component map and data flow; give",
-    "   deployment the real environments and release path. Use readable prose",
-    "   with enough detail to orient a new contributor, not one-line labels.",
+    "   deployment the real environments and release path. Inspect tracked",
+    "   `.github/workflows/` files, release scripts, and deploy manifests before",
+    "   writing deployment or CI claims. State verified triggers, jobs, image",
+    "   build/publish steps, and deploy targets with their source paths. If the",
+    "   repository has no evidence for a step, omit it; do not infer a pipeline.",
+    "   Use readable prose with enough detail to orient a new contributor,",
+    "   not one-line labels.",
     "   In `how_it_runs`, be useful to a developer opening this repo for the",
     "   first time. Explain prerequisites and why they matter; give the real",
-    "   setup, start, and test commands for each distinct service/application",
+    "   setup, start, and test commands for every distinct supported run mode",
+    "   (for example local development, containers, CLI, workers, and tests)",
     "   and the order they run. Use short headed paragraphs, not a compressed",
     "   semicolon-separated command dump. For a large repo, cover the important",
     "   run modes and packages without repeating every script. Do not invent",
@@ -91,7 +105,10 @@ export function generateInstruction(
     "   this repository. Cover its purpose and boundaries, owned subsystems and",
     "   their responsibilities, main data/control flow, key paths, how to run",
     "   and test it, deployment/CI, and a few important gotchas. For a large",
-    "   repo aim for 1,000–1,600 words; use less for a small repo. Explain the",
+    "   repo aim for 1,000–1,600 words; use less for a small repo. Build its",
+    "   architecture and detailed explanations from local grep, semantic code",
+    "   search, and graph traces, resolving conflicts in current source.",
+    "   Explain the",
     "   important mechanisms well, but do not inventory every module, commit,",
     "   external service, timestamp, or configuration field. Mention external",
     "   systems only to explain a direct input/output boundary of this repo.",
@@ -209,7 +226,10 @@ export async function sessionStart(): Promise<void> {
     } else if (s.sections) {
       // Inject the stable sections + the `documentation` abstract (the full
       // deep doc stays out of the prompt — fetched on demand via MCP).
-      for (const key of [...s.section_order, "documentation"]) {
+      for (const key of [
+        ...s.section_order.filter((key) => key !== "preferences"),
+        "documentation",
+      ]) {
         const sec = s.sections[key];
         if (!sec) continue;
         const body =

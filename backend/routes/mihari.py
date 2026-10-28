@@ -39,7 +39,6 @@ def _user_edited(section: dict) -> bool:
 REVIEWED_SECTIONS = (
     "overview",
     "architecture",
-    "preferences",
     "how_it_runs",
     "deployment",
     "activity",
@@ -96,7 +95,7 @@ async def review_plan(body: ReviewPlanRequest, request: Request):
         "Review the new principal-branch commits against EVERY current briefing area. "
         "Select an area only when its factual content must change. Routine fixes, "
         "refactors, and performance improvements belong in activity alone unless "
-        "they change architecture, operational commands, deployment, conventions, "
+        "they change architecture, operational commands, deployment, "
         "or the detailed documentation's durable explanation. Prefer a false negative "
         "only when the diff is clearly irrelevant; when uncertain, select the area. "
         "The documentation area means the full detailed architecture/operations document. "
@@ -422,7 +421,7 @@ async def refresh_activity(body: ActivityRefreshRequest, request: Request):
 
 # Concrete sections Mihari maintains from changed files. Holistic sections
 # use the separate, much less frequent re-grounding path below.
-MIHARI_MAINTAINED_SECTIONS = {"deployment", "how_it_runs", "preferences"}
+MIHARI_MAINTAINED_SECTIONS = {"deployment", "how_it_runs"}
 
 
 class SectionFile(BaseModel):
@@ -483,26 +482,22 @@ async def refresh_section(body: SectionRefreshRequest, request: Request):
 
     file_blobs = "\n\n".join(f"--- {f.role.upper()}: {f.path} ---\n{f.content}" for f in body.files)
     writing_guide = (
-        "For preferences, maintain a concise list of repository-specific working "
-        "conventions. Preserve still-valid items; add or revise only conventions "
-        "established by source. "
-        if body.section == "preferences"
+        "For how_it_runs, write a useful human-readable operating guide for this actual "
+        "repository, within the existing {requirements, local_dev} shape. Use requirements "
+        "for concrete prerequisites with a short reason for each. In local_dev, explain "
+        "setup, every distinct supported run mode or application, their run commands, "
+        "and how to verify or test them. Group related commands into short paragraphs "
+        "with plain headings; "
+        "explain what each command starts. Aim for roughly 250-450 words when the files "
+        "support it. Preserve verified details in the current section when changed files "
+        "do not contradict them. Do not invent commands, environment values, or services. "
+        if body.section == "how_it_runs"
         else (
-            "For how_it_runs, write a useful human-readable operating guide for this actual "
-            "repository, within the existing {requirements, local_dev} shape. Use requirements "
-            "for concrete prerequisites with a short reason for each. In local_dev, explain "
-            "setup, distinct services or applications, their run commands, and how to verify "
-            "or test them. Group related commands into short paragraphs with plain headings; "
-            "explain what each command starts. Aim for roughly 250-450 words when the files "
-            "support it. Preserve verified details in the current section when changed files "
-            "do not contradict them. Do not invent commands, environment values, or services. "
-            if body.section == "how_it_runs"
-            else (
-                "For deployment, explain the environments, release entry points, CI/CD "
-                "sequence, and verification or rollback steps only where source files "
-                "support them. Prefer short headed prose to a list of filenames or raw "
-                "workflow YAML. Preserve still-valid details in the current section. "
-            )
+            "For deployment, inspect supplied .github/workflows files, release scripts, "
+            "and deploy manifests. Explain verified triggers, jobs, image publishing, "
+            "environments, deploy steps, and verification or rollback only where files "
+            "support them. Omit unevidenced claims. Prefer short headed prose to a "
+            "list of filenames or raw workflow YAML. Preserve still-valid details. "
         )
     )
     prompt = (
@@ -556,10 +551,6 @@ async def refresh_section(body: SectionRefreshRequest, request: Request):
             or not (new_content["how_to_deploy"].strip() or new_content["ci_cd_notes"].strip())
         ):
             return {"ok": True, "updated": False, "reason": "deployment failed quality check"}
-    if body.section == "preferences" and (
-        not isinstance(new_content, list) or any(not isinstance(item, str) for item in new_content)
-    ):
-        return {"ok": True, "updated": False, "reason": "preferences failed quality check"}
 
     if new_content == current:
         return {"ok": True, "updated": False, "reason": "content unchanged"}

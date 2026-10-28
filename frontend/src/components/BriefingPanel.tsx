@@ -56,7 +56,6 @@ interface Props {
 const SECTION_TITLES: Record<BriefingSectionKey, string> = {
   overview: "Overview",
   architecture: "Architecture",
-  preferences: "Preferences",
   how_it_runs: "How it runs",
   deployment: "Deployment",
   activity: "Activity",
@@ -66,7 +65,6 @@ const SECTION_DESCRIPTIONS: Record<BriefingSectionKey, string> = {
   overview: "One-line purpose and a short what/why.",
   architecture:
     "How the system fits together — subsystems, boundaries, data flow.",
-  preferences: "Repository working conventions and preferences.",
   how_it_runs: "Prerequisites, setup, run modes, and checks.",
   deployment: "Environments, deploy steps, CI/CD notes.",
   activity: "Recent repository activity from git history.",
@@ -76,7 +74,6 @@ const SECTION_DESCRIPTIONS: Record<BriefingSectionKey, string> = {
 const SECTION_COLORS: Record<BriefingSectionKey, string> = {
   overview: brand.cyan,
   architecture: brand.magenta,
-  preferences: brand.violet2,
   how_it_runs: brand.magenta,
   deployment: brand.violet2,
   activity: brand.magenta,
@@ -130,7 +127,6 @@ export default function BriefingPanel({ folderId }: Props) {
 
   // Collapsed state for sections after the overview and architecture.
   const COLLAPSIBLE_KEYS: BriefingSectionKey[] = [
-    "preferences",
     "how_it_runs",
     "deployment",
     "activity",
@@ -140,12 +136,12 @@ export default function BriefingPanel({ folderId }: Props) {
       Object.fromEntries(COLLAPSIBLE_KEYS.map((k) => [k, true])) as Record<
         string,
         boolean
-      >
+      >,
   );
 
   // Refs for scrolling into view
   const sectionRefs = useRef<Array<HTMLElement | null>>(
-    Array(BRIEFING_SECTIONS.length).fill(null)
+    Array(BRIEFING_SECTIONS.length).fill(null),
   );
 
   const handleClear = async () => {
@@ -155,7 +151,7 @@ export default function BriefingPanel({ folderId }: Props) {
       setConfirmClear(false);
       toast.show(
         "Briefing cleared. Run `kioku init` in this repo to regenerate it.",
-        "info"
+        "info",
       );
       // Clearing the briefing also deletes the detailed doc — refresh both.
       await Promise.all([
@@ -195,7 +191,7 @@ export default function BriefingPanel({ folderId }: Props) {
 
   // Build rail items from available sections
   const railItems: RailItem[] = BRIEFING_SECTIONS.filter(
-    (key) => data.sections[key]
+    (key) => data.sections[key],
   ).map((key, i) => ({
     n: String(i + 1).padStart(2, "0"),
     title: SECTION_TITLES[key],
@@ -333,7 +329,7 @@ export default function BriefingPanel({ folderId }: Props) {
                       ? setEditingSection(key)
                       : toast.show(
                           `${SECTION_TITLES[key]} is auto-populated — use Suggest to refresh.`,
-                          "info"
+                          "info",
                         )
                   }
                 />
@@ -347,7 +343,7 @@ export default function BriefingPanel({ folderId }: Props) {
                           folderId,
                           key,
                           content,
-                          status
+                          status,
                         );
                         toast.showSuccess(`${SECTION_TITLES[key]} saved.`);
                         setEditingSection(null);
@@ -355,7 +351,7 @@ export default function BriefingPanel({ folderId }: Props) {
                       } catch (err) {
                         toast.showError(
                           err,
-                          `Couldn't save ${SECTION_TITLES[key]}.`
+                          `Couldn't save ${SECTION_TITLES[key]}.`,
                         );
                       }
                     }}
@@ -510,13 +506,19 @@ export default function BriefingPanel({ folderId }: Props) {
                                 ? setEditingSection(key)
                                 : toast.show(
                                     `${SECTION_TITLES[key]} is auto-populated — use Suggest to refresh.`,
-                                    "info"
+                                    "info",
                                   )
                             }
                           >
                             Edit
                           </Button>
-                          <Box sx={{ mt: 1.75 }}>
+                          <Box
+                            sx={{
+                              mt: 1.75,
+                              px: { xs: 2, md: 3 },
+                              maxWidth: 900,
+                            }}
+                          >
                             {editingSection === key ? (
                               <SectionEditor
                                 section={section}
@@ -526,17 +528,17 @@ export default function BriefingPanel({ folderId }: Props) {
                                       folderId,
                                       key,
                                       content,
-                                      status
+                                      status,
                                     );
                                     toast.showSuccess(
-                                      `${SECTION_TITLES[key]} saved.`
+                                      `${SECTION_TITLES[key]} saved.`,
                                     );
                                     setEditingSection(null);
                                     await refresh();
                                   } catch (err) {
                                     toast.showError(
                                       err,
-                                      `Couldn't save ${SECTION_TITLES[key]}.`
+                                      `Couldn't save ${SECTION_TITLES[key]}.`,
                                     );
                                   }
                                 }}
@@ -729,23 +731,27 @@ function OverviewContent({ section }: { section: BriefingSection }) {
   ) {
     const obj = content as Record<string, unknown>;
     const lead =
-      typeof obj.summary === "string"
-        ? obj.summary
-        : typeof obj.description === "string"
-          ? obj.description
-          : null;
+      typeof obj.purpose === "string" && obj.purpose.trim()
+        ? obj.purpose
+        : typeof obj.summary === "string"
+          ? obj.summary
+          : typeof obj.description === "string"
+            ? obj.description
+            : null;
+    const description =
+      typeof obj.description === "string" && obj.description !== lead
+        ? obj.description
+        : null;
     if (lead) {
       return (
-        <Typography
-          sx={{
-            fontSize: 17,
-            fontWeight: 400,
-            lineHeight: 1.75,
-            color: brand.text,
-          }}
-        >
-          {lead}
-        </Typography>
+        <Stack spacing={1.5} sx={{ maxWidth: "78ch" }}>
+          <Typography
+            sx={{ fontSize: 17, lineHeight: 1.65, color: brand.text }}
+          >
+            {lead}
+          </Typography>
+          {description && <BriefingMarkdown content={description} />}
+        </Stack>
       );
     }
   }
@@ -762,6 +768,7 @@ function ArchitectureContent({ section }: { section: BriefingSection }) {
 
   // Extract typed fields if content is an object
   let paragraph: string | null = null;
+  let dataFlowProse: string | null = null;
   let dataFlows: Array<{ label: string; steps: string[] }> | null = null;
   let components: Array<{ name: string; role: string; path?: string }> | null =
     null;
@@ -816,13 +823,15 @@ function ArchitectureContent({ section }: { section: BriefingSection }) {
           steps: obj.data_flow.split("->").map((s: string) => s.trim()),
         },
       ];
+    } else if (typeof obj.data_flow === "string") {
+      dataFlowProse = obj.data_flow;
     }
 
     // components: array of {name, role, path}
     if (Array.isArray(obj.components)) {
       components = (obj.components as Array<unknown>).filter(
         (c): c is { name: string; role: string; path?: string } =>
-          !!c && typeof c === "object" && "name" in (c as object)
+          !!c && typeof c === "object" && "name" in (c as object),
       );
     }
   } else if (typeof content === "string") {
@@ -866,6 +875,12 @@ function ArchitectureContent({ section }: { section: BriefingSection }) {
           ))}
         </Box>
       )}
+      {dataFlowProse && (
+        <Box>
+          <Typography sx={{ ...hudLabel, mb: 1 }}>DATA FLOW</Typography>
+          <BriefingMarkdown content={dataFlowProse} />
+        </Box>
+      )}
 
       {/* COMPONENTS table */}
       {components && components.length > 0 && (
@@ -882,7 +897,8 @@ function ArchitectureContent({ section }: { section: BriefingSection }) {
             <Box
               sx={{
                 display: "grid",
-                gridTemplateColumns: "180px minmax(0,1fr) 200px",
+                gridTemplateColumns:
+                  "minmax(110px, 1fr) minmax(0, 2fr) minmax(110px, 1fr)",
                 p: "8px 14px",
                 background: `${brand.magenta}12`,
                 fontFamily: fonts.mono,
@@ -900,7 +916,10 @@ function ArchitectureContent({ section }: { section: BriefingSection }) {
                 key={i}
                 sx={{
                   display: "grid",
-                  gridTemplateColumns: "180px minmax(0,1fr) 200px",
+                  gridTemplateColumns: {
+                    xs: "1fr",
+                    md: "minmax(110px, 1fr) minmax(0, 2fr) minmax(110px, 1fr)",
+                  },
                   gap: 1.5,
                   p: "10px 14px",
                   borderTop: `1px solid ${brand.line}`,
@@ -914,7 +933,7 @@ function ArchitectureContent({ section }: { section: BriefingSection }) {
                 >
                   {c.name}
                 </Box>
-                <Box component="span" sx={{ color: "#CFC6E6" }}>
+                <Box component="span" sx={{ color: brand.text, opacity: 0.9 }}>
                   {c.role}
                 </Box>
                 <Box
@@ -923,6 +942,7 @@ function ArchitectureContent({ section }: { section: BriefingSection }) {
                     fontFamily: fonts.mono,
                     fontSize: 12,
                     color: brand.cyan,
+                    overflowWrap: "anywhere",
                   }}
                 >
                   {c.path ?? "—"}
@@ -1033,7 +1053,7 @@ function SectionReader({ content }: { content: unknown }) {
     const obj = content as Record<string, unknown>;
     if (Object.keys(obj).length === 0) return <Empty />;
     return (
-      <Stack spacing={0.75}>
+      <Stack spacing={2.5} sx={{ maxWidth: "78ch" }}>
         {Object.entries(obj).map(([k, v]) => (
           <ObjectField key={k} label={k} value={v} />
         ))}
@@ -1048,11 +1068,11 @@ function BriefingMarkdown({ content }: { content: string }) {
     <Box
       sx={{
         fontFamily: fonts.body,
-        fontSize: "0.9rem",
+        fontSize: "0.94rem",
         color: brand.text,
-        lineHeight: 1.65,
+        lineHeight: 1.8,
         overflowWrap: "anywhere",
-        "& p": { my: 1.25 },
+        "& p": { my: 1.5 },
         "& h2, & h3, & h4": {
           color: brand.text,
           mt: 2.5,
@@ -1062,7 +1082,7 @@ function BriefingMarkdown({ content }: { content: string }) {
         "& h2": { fontSize: "1.15rem" },
         "& h3": { fontSize: "1.03rem" },
         "& h4": { fontSize: "0.95rem" },
-        "& ul, & ol": { pl: 3, my: 1.25 },
+        "& ul, & ol": { pl: 3, my: 1.5 },
         "& li": { mb: 0.5 },
         "& pre": {
           overflowX: "auto",
@@ -1137,14 +1157,18 @@ function ArrayItem({ item }: { item: unknown }) {
 }
 
 function ObjectField({ label, value }: { label: string; value: unknown }) {
+  const headings: Record<string, string> = {
+    requirements: "Before you start",
+    local_dev: "Run and verify",
+    environments: "Environments",
+    how_to_deploy: "Release steps",
+    ci_cd_notes: "CI and delivery",
+    summary: "Summary",
+    highlights: "Recent highlights",
+  };
+  const heading = headings[label] ?? label.replaceAll("_", " ");
   if (value == null || (typeof value === "string" && !value.trim())) {
-    return (
-      <Typography
-        sx={{ fontSize: "0.82rem", color: brand.muted, fontStyle: "italic" }}
-      >
-        {label}: (not set)
-      </Typography>
-    );
+    return null;
   }
   if (Array.isArray(value)) {
     return (
@@ -1159,7 +1183,7 @@ function ObjectField({ label, value }: { label: string; value: unknown }) {
             mb: 0.4,
           }}
         >
-          {label === "requirements" ? "Before you start" : label}
+          {heading}
         </Typography>
         <Stack spacing={0.4}>
           {value.map((v, i) => (
@@ -1195,7 +1219,7 @@ function ObjectField({ label, value }: { label: string; value: unknown }) {
             mb: 0.4,
           }}
         >
-          {label === "local_dev" ? "Run locally" : label}
+          {heading}
         </Typography>
         <BriefingMarkdown content={str} />
       </Box>

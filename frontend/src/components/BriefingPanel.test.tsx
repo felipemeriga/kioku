@@ -24,13 +24,6 @@ const staleBriefingFixture: BriefingResponse = {
       updated_at: "2026-01-01T00:00:00Z",
       updated_by: null,
     },
-    preferences: {
-      content: null,
-      status: "auto",
-      provenance: "auto",
-      updated_at: "2026-01-01T00:00:00Z",
-      updated_by: null,
-    },
     how_it_runs: {
       content: null,
       status: "auto",
@@ -92,7 +85,7 @@ describe("BriefingPanel", () => {
     await screen.findByText(/BRIEFING/i);
     fireEvent.click(screen.getAllByText("How it runs").at(-1)!);
     expect(
-      await screen.findByRole("heading", { name: "Run locally" })
+      await screen.findByRole("heading", { name: "Run locally" }),
     ).toBeInTheDocument();
     expect(screen.queryByText(/### Run locally/)).not.toBeInTheDocument();
   });
@@ -102,7 +95,7 @@ describe("BriefingPanel", () => {
     renderWithProviders(<BriefingPanel folderId="f1" />);
     // New design: overline is "BRIEFING" (all-caps hudLabel)
     await waitFor(() =>
-      expect(screen.getByText(/BRIEFING/i)).toBeInTheDocument()
+      expect(screen.getByText(/BRIEFING/i)).toBeInTheDocument(),
     );
   });
 
@@ -111,7 +104,7 @@ describe("BriefingPanel", () => {
     renderWithProviders(<BriefingPanel folderId="f1" />);
     // Wait for load to complete
     await waitFor(() =>
-      expect(screen.getByText(/BRIEFING/i)).toBeInTheDocument()
+      expect(screen.getByText(/BRIEFING/i)).toBeInTheDocument(),
     );
     expect(screen.queryByText(/kioku init --force/)).not.toBeInTheDocument();
   });
@@ -120,7 +113,7 @@ describe("BriefingPanel", () => {
     vi.spyOn(api, "fetchBriefing").mockResolvedValue(staleBriefingFixture);
     renderWithProviders(<BriefingPanel folderId="f1" />);
     await waitFor(() =>
-      expect(screen.getByText(/BRIEFING/i)).toBeInTheDocument()
+      expect(screen.getByText(/BRIEFING/i)).toBeInTheDocument(),
     );
     expect(screen.queryByText("Git updates")).not.toBeInTheDocument();
   });
@@ -130,7 +123,7 @@ describe("BriefingPanel", () => {
       ...staleBriefingFixture,
       sections: {
         ...staleBriefingFixture.sections,
-        preferences: {
+        how_it_runs: {
           content: "Prefer uv over pip for Python packages.",
           status: "auto",
           provenance: "auto",
@@ -144,21 +137,21 @@ describe("BriefingPanel", () => {
 
     // Wait for the panel to load
     await waitFor(() =>
-      expect(screen.getByText(/BRIEFING/i)).toBeInTheDocument()
+      expect(screen.getByText(/BRIEFING/i)).toBeInTheDocument(),
     );
 
-    // The preferences content should NOT be visible initially (collapsed)
+    // The operating guide should NOT be visible initially (collapsed)
     expect(
-      screen.queryByText("Prefer uv over pip for Python packages.")
+      screen.queryByText("Prefer uv over pip for Python packages."),
     ).not.toBeInTheDocument();
 
-    // The collapsed row button for "Preferences" should be visible
+    // The collapsed row button for "How it runs" should be visible
     // (aria-expanded="false" distinguishes it from the SectionRail nav button)
     const allPrefsButtons = screen.getAllByRole("button", {
-      name: /preferences/i,
+      name: /how it runs/i,
     });
     const prefsRow = allPrefsButtons.find(
-      (btn) => btn.getAttribute("aria-expanded") === "false"
+      (btn) => btn.getAttribute("aria-expanded") === "false",
     );
     expect(prefsRow).toBeDefined();
 
@@ -168,8 +161,28 @@ describe("BriefingPanel", () => {
     // Now the content should be visible
     await waitFor(() =>
       expect(
-        screen.getByText("Prefer uv over pip for Python packages.")
-      ).toBeInTheDocument()
+        screen.getByText("Prefer uv over pip for Python packages."),
+      ).toBeInTheDocument(),
     );
+  });
+
+  it("keeps legacy preferences out of the briefing navigation", async () => {
+    vi.spyOn(api, "fetchBriefing").mockResolvedValue({
+      ...staleBriefingFixture,
+      sections: {
+        ...staleBriefingFixture.sections,
+        preferences: {
+          content: ["Legacy preference"],
+          status: "auto",
+          provenance: "auto",
+          updated_at: "2026-01-01T00:00:00Z",
+          updated_by: null,
+        },
+      } as BriefingResponse["sections"],
+    });
+    renderWithProviders(<BriefingPanel folderId="f1" />);
+    await screen.findByText(/Repository briefing/i);
+    expect(screen.queryByText("Preferences")).not.toBeInTheDocument();
+    expect(screen.queryByText("Legacy preference")).not.toBeInTheDocument();
   });
 });
