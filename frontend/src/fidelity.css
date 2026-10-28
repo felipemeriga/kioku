@@ -323,7 +323,6 @@
   }
 }
 #root .briefing-layout {
-  flex-direction: row;
   padding-bottom: 28px;
 }
 #root .briefing-section h2 {

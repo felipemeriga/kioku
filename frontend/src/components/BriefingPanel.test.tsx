@@ -75,7 +75,7 @@ describe("BriefingPanel", () => {
         how_it_runs: {
           ...staleBriefingFixture.sections.how_it_runs,
           content: {
-            requirements: [],
+            requirements: ["Node.js is required for the web client."],
             local_dev: "### Run locally\n\nUse `npm run dev`.",
           },
         },
@@ -88,6 +88,11 @@ describe("BriefingPanel", () => {
       await screen.findByRole("heading", { name: "Run locally" }),
     ).toBeInTheDocument();
     expect(screen.queryByText(/### Run locally/)).not.toBeInTheDocument();
+    expect(screen.getByText("Before you start")).toBeInTheDocument();
+    expect(
+      screen.getByText("Node.js is required for the web client."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Run and verify")).not.toBeInTheDocument();
   });
 
   it("renders the briefing title", async () => {
