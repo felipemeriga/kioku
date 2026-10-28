@@ -90,6 +90,27 @@ def test_review_plan_can_choose_activity_only_and_still_review_full_briefing(mon
     assert set(response.json()["reviewed"]) == {"architecture", "overview", "documentation"}
 
 
+def test_review_plan_recovers_from_invalid_model_reply(monkeypatch):
+    db = DB()
+    monkeypatch.setattr(mihari, "_api_key_auth", lambda _request: ("u1", "f1", "rag_test"))
+    monkeypatch.setattr(mihari, "get_supabase", lambda: db)
+    monkeypatch.setattr("mcp_server._descendant_folder_ids", lambda *_: ["f1"])
+    monkeypatch.setattr(
+        "services.folder_summary.repo.get_latest_summary",
+        lambda *_: {"content": {"sections": {"overview": {"content": "Repository memory"}}}},
+    )
+    monkeypatch.setattr(
+        "services.llm.complete",
+        lambda **_kwargs: SimpleNamespace(content=[SimpleNamespace(text="Not valid JSON")]),
+    )
+    response = TestClient(app).post(
+        "/api/mihari/review-plan",
+        json={"folder_id": "f1", "head_sha": "a" * 40},
+    )
+    assert response.status_code == 200
+    assert set(response.json()["selected"]) == set(mihari.REVIEWED_SECTIONS)
+
+
 def test_review_completion_preserves_other_markers(monkeypatch):
     db = DB()
     monkeypatch.setattr(mihari, "_api_key_auth", lambda _request: ("u1", "f1", "rag_test"))
