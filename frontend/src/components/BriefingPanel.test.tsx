@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen, waitFor, fireEvent } from "@testing-library/react";
+import { screen, waitFor, fireEvent, within } from "@testing-library/react";
 import { renderWithProviders } from "../test/renderWithProviders";
 import BriefingPanel from "./BriefingPanel";
 import * as api from "../lib/api";
@@ -118,6 +118,60 @@ describe("BriefingPanel", () => {
     expect(screen.queryByText("Before you start")).not.toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: "Prerequisites and setup" }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows deployment and activity as readable sections without duplicate field labels", async () => {
+    vi.spyOn(api, "fetchBriefing").mockResolvedValue({
+      ...staleBriefingFixture,
+      sections: {
+        ...staleBriefingFixture.sections,
+        deployment: {
+          ...staleBriefingFixture.sections.deployment,
+          content: {
+            environments: ["Production on Dokploy"],
+            how_to_deploy: "Run `release.yml` after CI passes.",
+            ci_cd_notes: "CI runs tests before release.",
+          },
+        },
+        activity: {
+          ...staleBriefingFixture.sections.activity,
+          content: { summary: "Recent work", highlights: ["Fixed indexing"] },
+        },
+      },
+    });
+    renderWithProviders(<BriefingPanel folderId="f1" />);
+    await screen.findByText(/Repository briefing/i);
+    fireEvent.click(screen.getAllByText("Deployment").at(-1)!);
+    expect(
+      screen.getByRole("heading", { name: "Release steps" }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("Release steps")).toHaveLength(1);
+    expect(screen.getByText("Production on Dokploy")).toBeInTheDocument();
+    fireEvent.click(screen.getAllByText("Activity").at(-1)!);
+    expect(
+      screen.getByRole("heading", { name: "Recent highlights" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Fixed indexing")).toBeInTheDocument();
+  });
+
+  it("adds the detailed document to the section navigation when one exists", async () => {
+    vi.spyOn(api, "fetchBriefing").mockResolvedValue(staleBriefingFixture);
+    vi.spyOn(api, "fetchDocumentation").mockResolvedValue({
+      documentation: {
+        content: "# Guide",
+        abstract: "Guide summary",
+        generated_at: "2026-01-01T00:00:00Z",
+      },
+    } as Awaited<ReturnType<typeof api.fetchDocumentation>>);
+    renderWithProviders(<BriefingPanel folderId="f1" />);
+    const rail = await screen.findByRole("complementary", {
+      name: "Briefing sections",
+    });
+    expect(
+      await within(rail).findByRole("button", {
+        name: /Detailed documentation/i,
+      }),
     ).toBeInTheDocument();
   });
 

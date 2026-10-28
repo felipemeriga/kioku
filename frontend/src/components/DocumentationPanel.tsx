@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { Box, Button, Typography, Collapse } from "@mui/material";
+import { Box, Button, Typography, Collapse, alpha } from "@mui/material";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useQuery } from "@tanstack/react-query";
-import { brand } from "../theme";
+import { brand, fonts } from "../theme";
 import { fetchDocumentation } from "../lib/api";
 import { qk } from "../lib/queryKeys";
 
@@ -17,6 +17,7 @@ export default function DocumentationPanel({ folderId }: { folderId: string }) {
   if (isPending || isError || !doc) return null;
   return (
     <Box
+      id="briefing-documentation"
       sx={{
         border: `1px solid ${brand.line}`,
         borderRadius: "8px",
@@ -24,6 +25,7 @@ export default function DocumentationPanel({ folderId }: { folderId: string }) {
         mb: 3,
         ml: { xs: 0, lg: "210px" },
         overflow: "hidden",
+        scrollMarginTop: 24,
       }}
     >
       <Box
@@ -54,18 +56,66 @@ export default function DocumentationPanel({ folderId }: { folderId: string }) {
           {expanded ? "Close documentation" : "Read documentation"}
         </Button>
       </Box>
-      <Box sx={{ p: 3 }}>
-        <Typography sx={{ color: brand.muted, fontSize: 16, lineHeight: 1.75 }}>
+      <Box sx={{ p: { xs: 2, md: 3 } }}>
+        <Typography
+          sx={{
+            color: brand.text,
+            fontSize: 16,
+            lineHeight: 1.75,
+            maxWidth: "78ch",
+            ...(!expanded && {
+              display: "-webkit-box",
+              WebkitBoxOrient: "vertical",
+              WebkitLineClamp: 3,
+              overflow: "hidden",
+            }),
+          }}
+        >
           {doc.abstract || "Generated repository documentation."}
         </Typography>
         <Collapse in={expanded}>
           <Box
             sx={{
               pt: 3,
+              maxWidth: "78ch",
               fontSize: 16,
-              lineHeight: 1.75,
+              lineHeight: 1.8,
               overflowWrap: "anywhere",
-              "& pre": { overflow: "auto", p: 2, bgcolor: brand.ink },
+              "& h1, & h2, & h3": {
+                color: brand.text,
+                lineHeight: 1.35,
+                mt: 4,
+                mb: 1.5,
+              },
+              "& h1": { fontSize: "1.5rem" },
+              "& h2": {
+                fontSize: "1.2rem",
+                borderLeft: `2px solid ${brand.magenta}`,
+                bgcolor: alpha(brand.magenta, 0.06),
+                px: 1.75,
+                py: 1,
+              },
+              "& h3": { fontSize: "1.05rem" },
+              "& p": { my: 1.5 },
+              "& ul, & ol": { pl: 3, my: 1.5 },
+              "& li": { mb: 0.5 },
+              "& pre": {
+                overflow: "auto",
+                p: 2,
+                bgcolor: brand.ink,
+                border: `1px solid ${brand.line}`,
+                borderRadius: 1,
+              },
+              "& :not(pre) > code": {
+                fontFamily: fonts.mono,
+                fontSize: "0.86em",
+                color: brand.cyan,
+                bgcolor: alpha(brand.cyan, 0.15),
+                boxShadow: `inset 0 -1px 0 ${alpha(brand.cyan, 0.55)}`,
+                px: 0.35,
+                py: 0.1,
+                borderRadius: 0.5,
+              },
               "& table": {
                 display: "block",
                 overflow: "auto",
