@@ -18,7 +18,7 @@ describe("StatusPanel", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "SANITIZED_TEST_FAILURE"
     );
-    expect(screen.getAllByText("by Mihari")).toHaveLength(2);
+    expect(screen.getByText("Briefing")).toBeInTheDocument();
     expect(screen.queryByText("by watcher")).toBeNull();
     const actions = screen.getByTestId("status-actions");
     expect(
@@ -93,7 +93,7 @@ describe("StatusPanel", () => {
     }
   );
 
-  it("renders the six status cards", async () => {
+  it("groups the briefing status into one row", async () => {
     vi.spyOn(api, "getFolderStatus").mockResolvedValue({
       git_updates_at: null,
       head_sha: null,
@@ -112,10 +112,29 @@ describe("StatusPanel", () => {
     });
     renderWithProviders(<StatusPanel folderId="f1" />);
     await waitFor(() =>
-      expect(screen.getByText("Architecture")).toBeInTheDocument()
+      expect(screen.getByText("Briefing")).toBeInTheDocument()
     );
-    expect(screen.getByText("Detailed docs")).toBeInTheDocument();
+    expect(screen.queryByText("Architecture")).not.toBeInTheDocument();
+    expect(screen.queryByText("Detailed docs")).not.toBeInTheDocument();
     expect(screen.getByText("Semantic code")).toBeInTheDocument();
+  });
+
+  it("shows a fresh briefing review without changing old content dates", async () => {
+    vi.spyOn(api, "getFolderStatus").mockResolvedValue({
+      architecture_at: "2026-09-01T00:00:00Z",
+      overview_at: "2026-09-01T00:00:00Z",
+      detailed_doc_at: "2026-09-01T00:00:00Z",
+      briefing_reviewed_at: new Date().toISOString(),
+      briefing_reviewed_sha: "a".repeat(40),
+    } as api.FolderStatus);
+    renderWithProviders(<StatusPanel folderId="f1" />);
+    expect(await screen.findByText("Briefing")).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        /Architecture, overview, and detailed docs reviewed at aaaaaaa/
+      )
+    ).toHaveTextContent("Content changed");
+    expect(screen.getByText(/Reviewed/)).toBeInTheDocument();
   });
 
   it("calls refreshFolder with 'sections' when the detail button is clicked", async () => {
@@ -140,9 +159,9 @@ describe("StatusPanel", () => {
       .mockResolvedValue({ started: true });
     renderWithProviders(<StatusPanel folderId="f1" />);
     await waitFor(() =>
-      expect(screen.getByText("Refresh detail sections")).toBeEnabled()
+      expect(screen.getByText("Review briefing")).toBeEnabled()
     );
-    fireEvent.click(screen.getByText("Refresh detail sections"));
+    fireEvent.click(screen.getByText("Review briefing"));
     await waitFor(() => expect(spy).toHaveBeenCalledWith("f1", "sections"));
   });
 

@@ -926,6 +926,9 @@ export interface FolderStatus {
   overview_at: string | null;
   overview_by: string | null;
   detailed_doc_at: string | null;
+  section_reviews?: Record<string, { reviewed_at: string; head_sha: string }>;
+  briefing_reviewed_at?: string | null;
+  briefing_reviewed_sha?: string | null;
   index_refresh_started_at: string | null;
   sections_refresh_started_at: string | null;
   index_refresh_finished_at?: string | null;

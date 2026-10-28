@@ -18,6 +18,55 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "mihari"))
 import mihari  # noqa: E402
 
 
+def test_quarter_hour_schedule_covers_every_day():
+    times = mihari.parse_schedule("*/15")
+    assert len(times) == 96
+    assert times[:4] == [(0, 0), (0, 15), (0, 30), (0, 45)]
+    assert times[-1] == (23, 45)
+
+
+def test_activity_only_review_skips_expensive_briefing_generation(monkeypatch):
+    monkeypatch.setattr(mihari, "API_URL", "http://api")
+    monkeypatch.setattr(mihari, "decrypt", lambda _cipher: "key")
+    monkeypatch.setattr(mihari, "run_git", lambda *_a, **_k: (0, "search.py", ""))
+    calls = []
+
+    class Response:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self.payload
+
+    def post(url, **kwargs):
+        calls.append((url, kwargs["json"]))
+        if url.endswith("/review-plan"):
+            return Response(
+                {
+                    "selected": ["activity"],
+                    "reviewed": ["architecture", "overview", "documentation"],
+                }
+            )
+        return Response({"ok": True})
+
+    monkeypatch.setattr(mihari.requests, "post", post)
+    activity = []
+    monkeypatch.setattr(mihari, "refresh_activity", lambda *_a, **_k: activity.append(True))
+    mihari.review_new_commits(
+        Path("/clone"),
+        {"folder_id": "f1", "remote_url": "repo", "api_key_encrypted": "encrypted"},
+        "a" * 40,
+        "b" * 40,
+        {},
+    )
+    assert activity == [True]
+    assert [url.rsplit("/", 1)[-1] for url, _ in calls] == ["review-plan", "review-complete"]
+    assert calls[-1][1]["reviewed"] == ["architecture", "overview", "documentation"]
+
+
 def _recent_iso():
     return (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
 
@@ -99,8 +148,16 @@ def test_reground_never_posts_when_both_sections_are_user_edited(monkeypatch):
                 "generated_at": _recent_iso(),
                 "content": {
                     "sections": {
-                        "architecture": {"status": "pinned", "updated_at": _recent_iso()},
-                        "overview": {"status": "hybrid", "updated_at": _recent_iso()},
+                        "architecture": {
+                            "status": "pinned",
+                            "provenance": "user_ui",
+                            "updated_at": _recent_iso(),
+                        },
+                        "overview": {
+                            "status": "hybrid",
+                            "provenance": "user_ui",
+                            "updated_at": _recent_iso(),
+                        },
                     }
                 },
             }
@@ -309,7 +366,7 @@ def test_section_refresh_no_change_after_upgrade_makes_no_model_call(monkeypatch
     )
 
 
-def test_force_refresh_sections_calls_reground_forced(monkeypatch, tmp_path):
+def test_force_refresh_sections_uses_selective_review(monkeypatch, tmp_path):
     seen = {}
 
     class _CM:
@@ -337,18 +394,15 @@ def test_force_refresh_sections_calls_reground_forced(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(mihari, "seed_bindings", lambda *a, **k: None)
     monkeypatch.setattr(mihari, "kioku_index", lambda clone: (True, ""))
-    monkeypatch.setattr(  # noqa: E501
-        mihari, "refresh_sections", lambda *a, **k: seen.__setitem__("sections", k)
+    monkeypatch.setattr(
+        mihari,
+        "review_new_commits",
+        lambda _clone, _repo, old, new, _env: seen.__setitem__("range", (old, new)),
     )
-    monkeypatch.setattr(mihari, "refresh_activity", lambda *a, **k: None)
     monkeypatch.setattr(  # noqa: E501
         mihari, "compute_freshness", lambda *a, **k: seen.__setitem__("fresh", True)
     )
 
-    def fake_reground(clone, repo, env, force=False):
-        seen["reground_force"] = force
-
-    monkeypatch.setattr(mihari, "maybe_reground_holistic", fake_reground)
     # Pretend the clone exists so the fetch/reset branch is taken.
     monkeypatch.setattr(mihari.Path, "exists", lambda self: True)
 
@@ -363,8 +417,7 @@ def test_force_refresh_sections_calls_reground_forced(monkeypatch, tmp_path):
     }
     mihari.force_refresh(repo, {"private_key_encrypted": "enc"}, "sections")
 
-    assert seen["sections"]["force_all"] is True
-    assert seen.get("reground_force") is True
+    assert seen["range"] == ("deadbeef0000", "deadbeef0000")
     assert seen.get("fresh") is True
 
 

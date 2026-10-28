@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import os
 import stat
 import subprocess
@@ -27,7 +28,135 @@ router = APIRouter()
 
 
 def _user_edited(section: dict) -> bool:
-    return section.get("status") in ("pinned", "hybrid") or section.get("provenance") == "user_ui"
+    # Older `kioku init --force` clients pinned agent-generated sections.
+    # Provenance, not the legacy pin flag, identifies a deliberate UI edit.
+    return section.get("provenance") == "user_ui"
+
+
+REVIEWED_SECTIONS = (
+    "overview",
+    "architecture",
+    "preferences",
+    "how_it_runs",
+    "deployment",
+    "activity",
+    "documentation",
+)
+
+
+class ReviewPlanRequest(BaseModel):
+    folder_id: str
+    head_sha: str = Field(min_length=40, max_length=64)
+    changed_paths: list[str] = Field(default_factory=list, max_length=300)
+    commits: list[str] = Field(default_factory=list, max_length=50)
+    patch: str = Field(default="", max_length=18000)
+
+
+@router.post("/review-plan")
+async def review_plan(body: ReviewPlanRequest, request: Request):
+    """Inspect new commits once and select only briefing areas with factual changes."""
+    user_id, scope_id, _ = _api_key_auth(request)
+    sb = get_supabase()
+    from mcp_server import _descendant_folder_ids
+    from services.folder_summary.briefing_schema import snapshot_sections
+    from services.folder_summary.repo import get_latest_summary
+
+    if body.folder_id not in _descendant_folder_ids(sb, scope_id, user_id):
+        raise HTTPException(status_code=403, detail="folder_id not in api key scope")
+    latest = get_latest_summary(sb, body.folder_id, user_id)
+    if not latest:
+        return {"ok": True, "selected": ["activity"], "reviewed": []}
+    sections = snapshot_sections(latest)
+    doc_rows = (
+        sb.table("repo_documentation")
+        .select("abstract")
+        .eq("folder_id", body.folder_id)
+        .eq("user_id", user_id)
+        .order("generated_at", desc=True)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    reviewed = [name for name in REVIEWED_SECTIONS if (sections.get(name) or {}).get("content")]
+    if doc_rows and "documentation" not in reviewed:
+        reviewed.append("documentation")
+    current = {
+        name: json.dumps((sections.get(name) or {}).get("content"), ensure_ascii=False)[:900]
+        for name in REVIEWED_SECTIONS
+        if name != "documentation" and (sections.get(name) or {}).get("content")
+    }
+    current["documentation"] = (doc_rows[0].get("abstract") or "")[:900] if doc_rows else ""
+    from services.llm import Task, complete
+
+    prompt = (
+        "Review the new principal-branch commits against EVERY current briefing area. "
+        "Select an area only when its factual content must change. Routine fixes, "
+        "refactors, and performance improvements belong in activity alone unless "
+        "they change architecture, operational commands, deployment, conventions, "
+        "or the detailed documentation's durable explanation. Prefer a false negative "
+        "only when the diff is clearly irrelevant; when uncertain, select the area. "
+        "The documentation area means the full detailed architecture/operations document. "
+        'Return only JSON: {"selected": [area names]}. Valid area names: '
+        f"{', '.join(REVIEWED_SECTIONS)}. Always include activity.\n\n"
+        f"CURRENT AREAS: {json.dumps(current, ensure_ascii=False)[:7000]}\n\n"
+        f"CHANGED PATHS: {json.dumps(body.changed_paths)[:6000]}\n\n"
+        f"COMMITS: {json.dumps(body.commits)[:3500]}\n\n"
+        f"PATCH:\n{body.patch[:12000]}"
+    )
+    response = complete(
+        task=Task.FOLDER_SUMMARY_ROLLUP,
+        max_tokens=350,
+        system="Select only repository briefing areas whose facts need revision. Output JSON only.",
+        messages=[{"role": "user", "content": prompt}],
+    )
+    text = "".join(block.text for block in response.content if hasattr(block, "text")).strip()
+    if text.startswith("```"):
+        text = text.strip("`").removeprefix("json").strip()
+    try:
+        selected = json.loads(text)["selected"]
+    except (ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(status_code=502, detail="review model returned invalid JSON") from exc
+    if not isinstance(selected, list) or any(name not in REVIEWED_SECTIONS for name in selected):
+        raise HTTPException(status_code=502, detail="review model selected invalid sections")
+    selected = list(dict.fromkeys(["activity", *selected]))
+    return {"ok": True, "selected": selected, "reviewed": reviewed}
+
+
+class ReviewCompleteRequest(BaseModel):
+    folder_id: str
+    head_sha: str = Field(min_length=40, max_length=64)
+    reviewed: list[str] = Field(default_factory=list, max_length=len(REVIEWED_SECTIONS))
+
+
+@router.post("/review-complete")
+async def review_complete(body: ReviewCompleteRequest, request: Request):
+    """Record inspection separately from content changes and generation dates."""
+    user_id, scope_id, _ = _api_key_auth(request)
+    sb = get_supabase()
+    from mcp_server import _descendant_folder_ids
+
+    if body.folder_id not in _descendant_folder_ids(sb, scope_id, user_id):
+        raise HTTPException(status_code=403, detail="folder_id not in api key scope")
+    if any(name not in REVIEWED_SECTIONS for name in body.reviewed):
+        raise HTTPException(status_code=422, detail="invalid section")
+    existing = (
+        sb.table("repo_freshness")
+        .select("section_reviews")
+        .eq("folder_id", body.folder_id)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    reviews = (existing[0].get("section_reviews") or {}) if existing else {}
+    marker = {"reviewed_at": datetime.now(timezone.utc).isoformat(), "head_sha": body.head_sha}
+    reviews.update({name: marker for name in body.reviewed})
+    sb.table("repo_freshness").upsert(
+        {"folder_id": body.folder_id, "user_id": user_id, "section_reviews": reviews},
+        on_conflict="folder_id",
+    ).execute()
+    return {"ok": True, "reviewed": body.reviewed}
 
 
 def _api_key_auth(request: Request) -> tuple[str, str, str]:
@@ -263,6 +392,8 @@ async def refresh_activity(body: ActivityRefreshRequest, request: Request):
         or not new_activity["summary"].strip()
     ):
         return {"ok": True, "updated": False, "reason": "activity failed quality check"}
+    if new_activity == current_activity:
+        return {"ok": True, "updated": False, "reason": "content unchanged"}
 
     from services.folder_summary.briefing_schema import new_section
 
@@ -284,7 +415,7 @@ async def refresh_activity(body: ActivityRefreshRequest, request: Request):
 
 # Concrete sections Mihari maintains from changed files. Holistic sections
 # use the separate, much less frequent re-grounding path below.
-MIHARI_MAINTAINED_SECTIONS = {"deployment", "how_it_runs"}
+MIHARI_MAINTAINED_SECTIONS = {"deployment", "how_it_runs", "preferences"}
 
 
 class SectionFile(BaseModel):
@@ -345,20 +476,26 @@ async def refresh_section(body: SectionRefreshRequest, request: Request):
 
     file_blobs = "\n\n".join(f"--- {f.role.upper()}: {f.path} ---\n{f.content}" for f in body.files)
     writing_guide = (
-        "For how_it_runs, write a useful human-readable operating guide for this actual "
-        "repository, within the existing {requirements, local_dev} shape. Use requirements "
-        "for concrete prerequisites with a short reason for each. In local_dev, explain "
-        "setup, distinct services or applications, their run commands, and how to verify "
-        "or test them. Group related commands into short paragraphs with plain headings; "
-        "explain what each command starts. Aim for roughly 250-450 words when the files "
-        "support it. Preserve verified details in the current section when changed files "
-        "do not contradict them. Do not invent commands, environment values, or services. "
-        if body.section == "how_it_runs"
+        "For preferences, maintain a concise list of repository-specific working "
+        "conventions. Preserve still-valid items; add or revise only conventions "
+        "established by source. "
+        if body.section == "preferences"
         else (
-            "For deployment, explain the environments, release entry points, CI/CD "
-            "sequence, and verification or rollback steps only where source files "
-            "support them. Prefer short headed prose to a list of filenames or raw "
-            "workflow YAML. Preserve still-valid details in the current section. "
+            "For how_it_runs, write a useful human-readable operating guide for this actual "
+            "repository, within the existing {requirements, local_dev} shape. Use requirements "
+            "for concrete prerequisites with a short reason for each. In local_dev, explain "
+            "setup, distinct services or applications, their run commands, and how to verify "
+            "or test them. Group related commands into short paragraphs with plain headings; "
+            "explain what each command starts. Aim for roughly 250-450 words when the files "
+            "support it. Preserve verified details in the current section when changed files "
+            "do not contradict them. Do not invent commands, environment values, or services. "
+            if body.section == "how_it_runs"
+            else (
+                "For deployment, explain the environments, release entry points, CI/CD "
+                "sequence, and verification or rollback steps only where source files "
+                "support them. Prefer short headed prose to a list of filenames or raw "
+                "workflow YAML. Preserve still-valid details in the current section. "
+            )
         )
     )
     prompt = (
@@ -412,6 +549,13 @@ async def refresh_section(body: SectionRefreshRequest, request: Request):
             or not (new_content["how_to_deploy"].strip() or new_content["ci_cd_notes"].strip())
         ):
             return {"ok": True, "updated": False, "reason": "deployment failed quality check"}
+    if body.section == "preferences" and (
+        not isinstance(new_content, list) or any(not isinstance(item, str) for item in new_content)
+    ):
+        return {"ok": True, "updated": False, "reason": "preferences failed quality check"}
+
+    if new_content == current:
+        return {"ok": True, "updated": False, "reason": "content unchanged"}
 
     from services.folder_summary.briefing_schema import new_section
 
@@ -444,6 +588,7 @@ class RegroundRequest(BaseModel):
     head_sha: str = Field(default="", max_length=64)
     files: list[RegroundFile] = Field(default_factory=list, max_length=14)
     structure: str = Field(default="", max_length=4000)
+    selected: list[str] = Field(default_factory=lambda: ["architecture", "overview"])
 
 
 @router.post("/reground")
@@ -455,6 +600,8 @@ async def reground_holistic(body: RegroundRequest, request: Request):
     files and regenerates the prose with Sonnet, so it never drifts."""
     if not body.files:
         return {"ok": True, "updated": False, "reason": "no files"}
+    if not body.selected or any(name not in ("architecture", "overview") for name in body.selected):
+        raise HTTPException(status_code=422, detail="invalid holistic selection")
 
     user_id, scope_id, _raw = _api_key_auth(request)
     sb = get_supabase()
@@ -503,9 +650,18 @@ async def reground_holistic(body: RegroundRequest, request: Request):
     from services.llm import Task, complete
 
     file_blobs = "\n\n".join(f"--- {f.path} ---\n{f.content}" for f in body.files)
+    output_shape = {
+        "architecture": {
+            "summary": "str",
+            "components": [{"name": "str", "role": "str", "path": "str"}],
+            "data_flow": "str",
+        },
+        "overview": {"purpose": "str", "description": "str"},
+    }
+    selected_shape = _json.dumps({name: output_shape[name] for name in body.selected})
     prompt = (
-        "You maintain a repository briefing. Regenerate the `architecture` and "
-        "`overview` sections, RE-GROUNDED in the current key files and structure "
+        f"You maintain these repository briefing areas: {', '.join(body.selected)}. "
+        "Regenerate only those areas, RE-GROUNDED in the current key files and structure "
         "below (do not just copy the stale versions). Write for a developer who "
         "needs to understand this repository: describe its purpose, principal "
         "applications and packages, their responsibilities, and the actual data "
@@ -513,10 +669,7 @@ async def reground_holistic(body: RegroundRequest, request: Request):
         "Prefer several connected sentences over terse labels; avoid a raw file "
         "inventory. State uncertainty if the supplied files do not establish a "
         "relationship. Do not invent runtime behavior. Return EXACTLY this JSON "
-        "object and nothing else:\n"
-        '{"architecture": {"summary": "str", "components": '
-        '[{"name": "str", "role": "str", "path": "str"}], "data_flow": "str"}, '
-        '"overview": {"purpose": "str", "description": "str"}}\n\n'
+        f"shape and nothing else:\n{selected_shape}\n\n"
         f"FILE STRUCTURE:\n{body.structure[:3000]}\n\n"
         f"KEY FILES:\n{file_blobs[:30000]}\n\n"
         f"INDEXED SYMBOL SAMPLE:\n{_json.dumps(symbols)[:8000]}\n\n"
@@ -528,7 +681,7 @@ async def reground_holistic(body: RegroundRequest, request: Request):
     )
     response = complete(
         task=Task.FOLDER_SUMMARY_REGROUND,
-        max_tokens=3200,
+        max_tokens=3200 if "architecture" in body.selected else 1000,
         system=(
             "You write accurate, concise repo architecture/overview from source. "
             "Output only valid JSON."
@@ -546,7 +699,7 @@ async def reground_holistic(body: RegroundRequest, request: Request):
     from services.folder_summary.briefing_schema import new_section
 
     validated: dict[str, dict] = {}
-    for sec in ("architecture", "overview"):
+    for sec in body.selected:
         if _user_edited(sections.get(sec) or {}):
             continue
         value = data.get(sec)
@@ -581,7 +734,8 @@ async def reground_holistic(body: RegroundRequest, request: Request):
             valid = False  # do not replace a detailed agent briefing with a thin summary
         if not valid:
             return {"ok": True, "updated": False, "reason": f"{sec} failed quality check"}
-        validated[sec] = value
+        if value != old_content:
+            validated[sec] = value
     updated: list[str] = []
     for sec, value in validated.items():
         sb.rpc(
@@ -597,6 +751,106 @@ async def reground_holistic(body: RegroundRequest, request: Request):
         ).execute()
         updated.append(sec)
     return {"ok": True, "updated": bool(updated), "sections": updated}
+
+
+class DocumentationRefreshRequest(BaseModel):
+    folder_id: str
+    head_sha: str = Field(min_length=40, max_length=64)
+    files: list[RegroundFile] = Field(default_factory=list, max_length=12)
+    patch: str = Field(default="", max_length=12000)
+
+
+@router.post("/documentation")
+async def refresh_documentation(body: DocumentationRefreshRequest, request: Request):
+    """Revise the durable detailed guide only when commit review selected it."""
+    user_id, scope_id, _ = _api_key_auth(request)
+    sb = get_supabase()
+    from mcp_server import _descendant_folder_ids
+    from services.folder_summary.briefing_schema import new_section, snapshot_sections
+    from services.folder_summary.repo import get_latest_summary
+    from services.llm import Task, complete
+
+    if body.folder_id not in _descendant_folder_ids(sb, scope_id, user_id):
+        raise HTTPException(status_code=403, detail="folder_id not in api key scope")
+    rows = (
+        sb.table("repo_documentation")
+        .select("content,abstract")
+        .eq("folder_id", body.folder_id)
+        .eq("user_id", user_id)
+        .order("generated_at", desc=True)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows:
+        return {"ok": True, "updated": False, "reason": "no detailed documentation yet"}
+    latest = get_latest_summary(sb, body.folder_id, user_id)
+    section = (snapshot_sections(latest).get("documentation") or {}) if latest else {}
+    if _user_edited(section):
+        return {"ok": True, "updated": False, "reason": "documentation edited by user"}
+    old = rows[0]
+    sources = "\n\n".join(f"--- {f.path} ---\n{f.content}" for f in body.files)
+    prompt = (
+        "Revise this repository's focused architecture and operations guide using the "
+        "new principal-branch changes and current source files. Preserve all still-valid "
+        "details; change only facts affected by these commits. Explain owned components, "
+        "interfaces, run/test/deploy steps and major gotchas in readable Markdown. "
+        "Avoid an evidence diary, commit history, speculative claims, and excessive length. "
+        "Return only JSON with keys content (Markdown) and abstract (3-8 line summary).\n\n"
+        f"CURRENT GUIDE:\n{old['content'][:18000]}\n\n"
+        f"CURRENT ABSTRACT:\n{(old.get('abstract') or '')[:1200]}\n\n"
+        f"CHANGED PATCH:\n{body.patch[:10000]}\n\n"
+        f"CURRENT SOURCE FILES:\n{sources[:14000]}"
+    )
+    response = complete(
+        task=Task.FOLDER_SUMMARY_REGROUND,
+        max_tokens=4000,
+        system="Maintain concise, source-grounded repository documentation. Output JSON only.",
+        messages=[{"role": "user", "content": prompt}],
+    )
+    text = "".join(block.text for block in response.content if hasattr(block, "text")).strip()
+    if text.startswith("```"):
+        text = text.strip("`").removeprefix("json").strip()
+    try:
+        result = json.loads(text)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=502, detail="documentation model returned invalid JSON"
+        ) from exc
+    content = result.get("content") if isinstance(result, dict) else None
+    abstract = result.get("abstract") if isinstance(result, dict) else None
+    if (
+        not isinstance(content, str)
+        or not isinstance(abstract, str)
+        or len(content.strip()) < max(400, min(len(old["content"]) // 2, 5000))
+        or not abstract.strip()
+    ):
+        raise HTTPException(status_code=502, detail="documentation failed quality check")
+    if (
+        content.strip() == old["content"].strip()
+        and abstract.strip() == (old.get("abstract") or "").strip()
+    ):
+        return {"ok": True, "updated": False, "reason": "content unchanged"}
+    sb.table("repo_documentation").insert(
+        {"folder_id": body.folder_id, "user_id": user_id, "content": content, "abstract": abstract}
+    ).execute()
+    sb.rpc(
+        "set_briefing_section",
+        {
+            "p_folder_id": body.folder_id,
+            "p_user_id": user_id,
+            "p_section": "documentation",
+            "p_value": new_section(
+                abstract.strip()
+                + "\n\nFull architecture docs available — call get_repo_documentation.",
+                status="auto",
+                provenance="auto",
+                updated_by="mihari",
+            ),
+        },
+    ).execute()
+    return {"ok": True, "updated": True}
 
 
 class RegisterRepoRequest(BaseModel):

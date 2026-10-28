@@ -13,11 +13,17 @@ def _authorize(monkeypatch):
     monkeypatch.setattr("mcp_server._descendant_folder_ids", lambda *_: ["f1"])
 
 
-def test_activity_does_not_call_model_for_pinned_section(monkeypatch):
+def test_activity_does_not_call_model_for_user_ui_section(monkeypatch):
     _authorize(monkeypatch)
     monkeypatch.setattr(
         "services.folder_summary.repo.get_latest_summary",
-        lambda *_: {"content": {"sections": {"activity": {"status": "pinned", "content": {}}}}},
+        lambda *_: {
+            "content": {
+                "sections": {
+                    "activity": {"status": "pinned", "provenance": "user_ui", "content": {}}
+                }
+            }
+        },
     )
     monkeypatch.setattr(
         "services.llm.complete", lambda **_kwargs: (_ for _ in ()).throw(AssertionError())
@@ -30,12 +36,20 @@ def test_activity_does_not_call_model_for_pinned_section(monkeypatch):
     assert response.json() == {"ok": True, "updated": False, "reason": "section edited by user"}
 
 
-def test_section_does_not_call_model_for_hybrid_section(monkeypatch):
+def test_section_does_not_call_model_for_user_ui_hybrid_section(monkeypatch):
     _authorize(monkeypatch)
     monkeypatch.setattr(
         "services.folder_summary.repo.get_latest_summary",
         lambda *_: {
-            "content": {"sections": {"how_it_runs": {"status": "hybrid", "content": "Run it"}}}
+            "content": {
+                "sections": {
+                    "how_it_runs": {
+                        "status": "hybrid",
+                        "provenance": "user_ui",
+                        "content": "Run it",
+                    }
+                }
+            }
         },
     )
     monkeypatch.setattr(
@@ -116,7 +130,11 @@ def test_reground_preserves_pinned_overview(monkeypatch):
         lambda *_: {
             "content": {
                 "sections": {
-                    "overview": {"status": "pinned", "content": {"purpose": "Human"}},
+                    "overview": {
+                        "status": "pinned",
+                        "provenance": "user_ui",
+                        "content": {"purpose": "Human"},
+                    },
                     "architecture": {"status": "auto", "content": {"summary": "Old"}},
                 }
             }

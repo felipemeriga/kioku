@@ -16,7 +16,7 @@ services:
       - SECRETS_ENCRYPTION_KEY=${KIOKU_NOTION_TOKEN_ENCRYPTION_KEY}
       - KIOKU_MCP_URL=https://kioku.mcp.${DOMAIN}/sse
       - KIOKU_API_URL=https://kioku.api.${DOMAIN}
-      - MIHARI_SCHEDULE=06:00,18:00
+      - MIHARI_SCHEDULE=*/15
     volumes:
       - ${MIHARI_DATA_PATH:-/root/kioku-mihari/data}:/data
     networks:
