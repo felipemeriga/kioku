@@ -130,6 +130,13 @@
   font-size: 13px;
   font-variant-numeric: tabular-nums;
   margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.learnings-session-id {
+  color: #beb0d7;
+  font-family: "IBM Plex Mono", Menlo, monospace;
+  font-size: 11px;
+  overflow-wrap: anywhere;
 }
 .learnings-markdown {
   max-width: 78ch;
