@@ -5,7 +5,7 @@ Run the worker with:
 
 Env vars:
     REDIS_URL (default redis://localhost:6379/0)
-    INGEST_WORKER_CONCURRENCY (default 10)
+    INGEST_WORKER_CONCURRENCY (default 3)
 """
 
 from __future__ import annotations
@@ -72,6 +72,7 @@ class WorkerSettings:
     # Also reap every 5 minutes so a job that goes stale while the worker is up
     # (no restart, no new enqueue) still self-heals.
     cron_jobs = [cron(_reap_stale_jobs, minute=set(range(0, 60, 5)), run_at_startup=False)]
-    max_jobs: int = int(os.environ.get("INGEST_WORKER_CONCURRENCY", "10"))
+    # Keep bulk indexing from saturating the database used by interactive reads.
+    max_jobs: int = int(os.environ.get("INGEST_WORKER_CONCURRENCY", "3"))
     job_timeout: int = 60 * 60  # 1 hour hard cap per task
     keep_result: int = 60 * 60 * 24  # 24h result retention

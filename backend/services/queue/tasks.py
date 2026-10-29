@@ -53,8 +53,8 @@ async def _insert_rows_concurrent(table: str, rows: list[dict], insert_size: int
     Each sub-batch is capped at `insert_size` because up to 128 rows of
     1024-dim vectors is a multi-MB PostgREST payload that can overrun the
     client read timeout (the #86 guard). But the sub-batches are independent
-    network round-trips — and inserts dominate a batch task's wall-clock — so
-    we issue them concurrently instead of serially (~2.4x faster per batch).
+    network round-trips. Limit parallel inserts so a large code index does not
+    overwhelm the shared database and delay interactive reads.
 
     Each insert runs in its own worker thread and fetches THAT thread's
     Supabase client: the cached singleton is not safe to share across threads
@@ -63,11 +63,14 @@ async def _insert_rows_concurrent(table: str, rows: list[dict], insert_size: int
     if not rows:
         return
 
+    insert_slots = asyncio.Semaphore(2)
+
     async def _insert(sub: list[dict]) -> None:
         def _do() -> None:
             get_supabase_thread_safe().table(table).insert(sub).execute()
 
-        await asyncio.to_thread(_do)
+        async with insert_slots:
+            await asyncio.to_thread(_do)
 
     await asyncio.gather(
         *(_insert(rows[i : i + insert_size]) for i in range(0, len(rows), insert_size))
