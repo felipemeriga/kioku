@@ -568,7 +568,7 @@ Persist it. It'll survive the session, the PC, the team:
 
 ### Agent journal and current learnings
 
-The Stop hook captures a short journal entry after each turn. The daily
+Kioku captures a short journal entry after each turn. The daily
 Markdown is the history; Mihari maintains a smaller set of current learnings.
 
 - \`list_agent_journal_days(folder, year)\` — find dates with recorded agent
