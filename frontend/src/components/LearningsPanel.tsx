@@ -42,6 +42,8 @@ type Entry = {
   time: string;
   markdown: string;
 };
+const SESSION_UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function entriesFromMarkdown(markdown: string): Entry[] {
   const sections = markdown.split(/^## (\d\d:\d\d) — ([^\n]+)\n/gm);
@@ -60,7 +62,11 @@ function entriesFromMarkdown(markdown: string): Entry[] {
       entries.push({
         id: meta.id,
         agent: meta.agent,
-        sessionId: meta.session_id || meta.id.split(":")[1] || "",
+        sessionId:
+          typeof meta.session_id === "string" &&
+          SESSION_UUID.test(meta.session_id)
+            ? meta.session_id
+            : "",
         time: sections[i],
         markdown: sections[i + 2].replace(marker[0], "").trim(),
       });
@@ -340,7 +346,7 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
                       {entry.sessionId && (
                         <span
                           className="learnings-session-id"
-                          title={`Session ID: ${entry.sessionId}`}
+                          title={`Resume with: ${entry.agent === "codex" ? "codex resume" : "claude --resume"} ${entry.sessionId}`}
                           aria-label={`Session ID: ${entry.sessionId}`}
                         >
                           Session {entry.sessionId.slice(0, 8)}
