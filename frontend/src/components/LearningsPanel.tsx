@@ -231,6 +231,9 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
     const next = new Date(year, month + step, 1);
     setYear(next.getFullYear());
     setMonth(next.getMonth());
+    setSelectedDate(null);
+    setSelectedSession(null);
+    setRaw(false);
   };
   const openSource = async (day: string, entryId: string) => {
     let viewerDay = day;
