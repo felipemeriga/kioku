@@ -12,7 +12,11 @@ BUCKET = "agent-journals"
 MAX_BYTES = 5 * 1024 * 1024
 ENTRY_RE = re.compile(r"^<!-- kioku-entry: (\{[^\n]*\}) -->$", re.MULTILINE)
 ALLOWED_AGENTS = {"claude_code", "codex"}
-HEADING_RE = re.compile(r"^## (?:\d\d:\d\d|\d{13}) — [^\n]+\n", re.MULTILINE)
+ENTRY_HEADING_RE = re.compile(r"^#{2,3} (?:\d\d:\d\d|\d{13}) — [^\n]+\n")
+BLOCK_HEADING_RE = re.compile(
+    r"^## (?:Codex|Claude Code) session [^\n]+\n|^#{2,3} (?:\d\d:\d\d|\d{13}) — [^\n]+\n",
+    re.MULTILINE,
+)
 
 
 def entry_instant(entry: dict) -> datetime:
@@ -30,9 +34,11 @@ def entry_instant(entry: dict) -> datetime:
 
 
 def journal_entries(markdown: str) -> list[dict]:
-    headings = list(HEADING_RE.finditer(markdown))
+    headings = list(BLOCK_HEADING_RE.finditer(markdown))
     entries = []
     for index, heading in enumerate(headings):
+        if not ENTRY_HEADING_RE.match(heading.group()):
+            continue
         end = headings[index + 1].start() if index + 1 < len(headings) else len(markdown)
         block = markdown[heading.start() : end]
         marker = ENTRY_RE.search(block)
@@ -224,13 +230,27 @@ def local_journal_day(journals: list[dict], tz: ZoneInfo, target: date) -> dict:
         for item in journal_entries(journal["markdown"]):
             instant = entry_instant(item["metadata"])
             if instant.astimezone(tz).date() == target:
-                selected.append((instant, item["block"], journal["revision"]))
+                selected.append((instant, item, journal["revision"]))
     if not selected:
         return {"status": "absent", "revision": 0, "markdown": "", "sessions": []}
-    selected.sort(key=lambda item: (item[0], item[1]))
-    markdown = f"# Kioku agent journal — {target.isoformat()}\n\n" + "".join(
-        block for _, block, _ in selected
-    )
+    selected.sort(key=lambda item: (item[0], item[1]["metadata"]["id"]))
+    groups: dict[tuple[str, str], list[dict]] = {}
+    for _, item, _ in selected:
+        entry = item["metadata"]
+        groups.setdefault((entry["agent"], entry["session_id"]), []).append(item)
+    sections = []
+    for (agent, session_id), items in groups.items():
+        latest = items[-1]["metadata"]
+        label = "Claude Code" if agent == "claude_code" else "Codex"
+        title = latest.get("session_title") or "Untitled session"
+        summary = latest.get("session_summary") or "No session summary captured yet."
+        marker = json.dumps({"agent": agent, "session_id": session_id}, separators=(",", ":"))
+        sections.append(
+            f"## {label} session `{session_id}`\n<!-- kioku-session: {marker} -->\n\n"
+            f"**About:** {title}\n\n**Done so far:** {summary}\n\n"
+            + "".join(re.sub(r"^## ", "### ", item["block"], count=1) for item in items)
+        )
+    markdown = f"# Kioku agent journal — {target.isoformat()}\n\n" + "".join(sections)
     return {
         "status": "ok",
         "revision": max(revision for _, _, revision in selected),

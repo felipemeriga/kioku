@@ -4,18 +4,17 @@ import json
 import re
 from datetime import datetime, timezone
 
-from services.agent_journal import ENTRY_RE, read_journal
+from services.agent_journal import journal_entries as parsed_journal_entries
+from services.agent_journal import read_journal
 from services.llm import Task, complete
 
 
 def journal_entries(markdown: str, journal_date: str) -> list[dict]:
     """Keep the exact source ID and text; never infer facts from a day label."""
-    markers = list(ENTRY_RE.finditer(markdown))
     entries = []
-    for index, match in enumerate(markers):
-        metadata = json.loads(match.group(1))
-        end = markers[index + 1].start() if index + 1 < len(markers) else len(markdown)
-        text = markdown[match.end() : end].strip()[:3500]
+    for item in parsed_journal_entries(markdown):
+        metadata = item["metadata"]
+        text = item["block"].split(" -->\n", 1)[-1].strip()[:3500]
         # Production E2E fixtures are intentionally visible in Storage; they
         # must never become repository facts.
         if "simulação e2e" in text.lower() or "simulation e2e" in text.lower():

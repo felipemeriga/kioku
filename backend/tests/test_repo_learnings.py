@@ -33,6 +33,26 @@ def test_synthetic_journals_are_excluded():
     assert journal_entries(markdown, "2026-10-29") == []
 
 
+def test_session_header_is_not_in_learning_evidence():
+    meta = {
+        "id": "codex:session:1",
+        "agent": "codex",
+        "session_id": "session",
+        "captured_at": 1793278800000,
+    }
+    markdown = (
+        "# Kioku agent journal — 2026-10-29\n\n"
+        "## Codex session `session`\n"
+        '<!-- kioku-session: {"agent":"codex","session_id":"session"} -->\n\n'
+        "**About:** Investigate retry paths\n\n**Done so far:** Checked old attempts.\n\n"
+        f"### 1793278800000 — Codex\n<!-- kioku-entry: {json.dumps(meta)} -->\n\n"
+        "- Fixed retry handling.\n\n"
+    )
+    result = journal_entries(markdown, "2026-10-29")
+    assert len(result) == 1
+    assert result[0]["text"] == "- Fixed retry handling."
+
+
 def test_agent_implementation_claim_without_main_sha_stays_reported():
     sb = database()
     item = entry("codex:session:turn", "- Implementamos o filtro e validamos a sintaxe.")

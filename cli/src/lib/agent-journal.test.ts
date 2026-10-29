@@ -44,7 +44,35 @@ test("daily merge keeps both agents and ignores replay", () => {
   });
   assert.equal(parseJournal(sessionEntry)[0].metadata.session_title, "Build session timeline");
   const olderLocal = first.replace("Started task", "Tarefa iniciada");
-  assert.equal(mergeJournals(day, first, olderLocal), first);
+  assert.equal(parseJournal(mergeJournals(day, first, olderLocal))[0].block.includes("Started task"), true);
+});
+
+test("one daily session header precedes its turns and follows the latest summary", () => {
+  const turn = { agent: "codex" as const, sessionId: "session-42", turnId: "one", user: "a", assistant: "b" };
+  const first = renderEntry(turn, "- Started investigation\n- Checked logs", timestamp, {
+    title: "Investigate retries", summary: "Checked the logs.",
+  });
+  const second = renderEntry({ ...turn, turnId: "two" }, "- Fixed retry\n- Tests passed", timestamp + 60_000, {
+    title: "Fix retry handling", summary: "Checked the logs, fixed retry handling, and passed tests.",
+  });
+  const markdown = mergeJournals(day, journalHeader(day) + first, journalHeader(day) + second);
+  assert.equal((markdown.match(/^## Codex session /gm) ?? []).length, 1);
+  assert.match(markdown, /\*\*About:\*\* Fix retry handling/);
+  assert.match(markdown, /\*\*Done so far:\*\* Checked the logs, fixed retry handling, and passed tests/);
+  assert.ok(markdown.indexOf("## Codex session") < markdown.indexOf("### "));
+  assert.deepEqual(parseJournal(markdown).map((entry) => entry.metadata.turn_id), ["one", "two"]);
+  const olderWriterTurn = renderEntry({ ...turn, turnId: "old-cli" }, "- Follow-up\n- No summary", timestamp + 120_000);
+  const withOlderWriter = mergeJournals(day, markdown, journalHeader(day) + olderWriterTurn);
+  assert.match(withOlderWriter, /\*\*Done so far:\*\* Checked the logs, fixed retry handling, and passed tests/);
+
+  const nextDay = "2026-10-30";
+  const continuation = renderEntry({ ...turn, turnId: "three" }, "- Reviewed fix\n- No regression", timestamp + 86_400_000, {
+    title: "Fix retry handling", summary: "Checked logs, fixed retry handling, and confirmed no regression.",
+  });
+  const continuationMarkdown = mergeJournals(nextDay, journalHeader(nextDay), journalHeader(nextDay) + continuation);
+  assert.match(markdown, /"session_id":"session-42"/);
+  assert.match(continuationMarkdown, /"session_id":"session-42"/);
+  assert.equal(parseJournal(continuationMarkdown).length, 1);
 });
 
 test("UTC journal date and mixed legacy entries preserve instant ordering", () => {
