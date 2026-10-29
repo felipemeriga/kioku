@@ -251,6 +251,9 @@ export async function refreshInstalledManabi(): Promise<boolean> {
 }
 
 export function pauseInstalledManabi(): boolean {
+  // A service created by Kioku always has this connection file. Fresh installs
+  // must not depend on a platform service manager being available.
+  if (!existsSync(manabiConfigPath())) return false;
   return pauseManabiService({
     platform: process.platform,
     home: homedir(),
