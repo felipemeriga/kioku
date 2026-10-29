@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from auth import get_current_user
-from db.client import get_supabase
+from db.client import get_supabase_thread_safe as get_supabase
 from routes._validation import require_uuid
 
 router = APIRouter(prefix="/api/conversations")
@@ -13,7 +13,7 @@ class RenameConversationRequest(BaseModel):
 
 
 @router.get("")
-async def list_conversations(user_id: str = Depends(get_current_user)):
+def list_conversations(user_id: str = Depends(get_current_user)):
     sb = get_supabase()
     result = (
         sb.table("conversations")
@@ -26,14 +26,14 @@ async def list_conversations(user_id: str = Depends(get_current_user)):
 
 
 @router.post("")
-async def create_conversation(user_id: str = Depends(get_current_user)):
+def create_conversation(user_id: str = Depends(get_current_user)):
     sb = get_supabase()
     result = sb.table("conversations").insert({"user_id": user_id}).execute()
     return result.data[0]
 
 
 @router.get("/{conversation_id}")
-async def get_conversation(conversation_id: str, user_id: str = Depends(get_current_user)):
+def get_conversation(conversation_id: str, user_id: str = Depends(get_current_user)):
     require_uuid(conversation_id, "Conversation not found")
     sb = get_supabase()
     conv = (
@@ -56,7 +56,7 @@ async def get_conversation(conversation_id: str, user_id: str = Depends(get_curr
 
 
 @router.patch("/{conversation_id}")
-async def rename_conversation(
+def rename_conversation(
     conversation_id: str,
     body: RenameConversationRequest,
     user_id: str = Depends(get_current_user),
@@ -80,7 +80,7 @@ async def rename_conversation(
 
 
 @router.delete("/{conversation_id}")
-async def delete_conversation(conversation_id: str, user_id: str = Depends(get_current_user)):
+def delete_conversation(conversation_id: str, user_id: str = Depends(get_current_user)):
     require_uuid(conversation_id, "Conversation not found")
     sb = get_supabase()
     sb.table("conversations").delete().eq("id", conversation_id).eq("user_id", user_id).execute()
