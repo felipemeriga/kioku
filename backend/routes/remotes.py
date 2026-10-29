@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Literal
 from uuid import UUID, uuid4
@@ -212,6 +213,13 @@ async def connect(socket: WebSocket):
         secret = hello.get("secret")
         if hello.get("type") != "hello" or not isinstance(secret, str) or len(secret) != 64:
             raise ValueError("Invalid hello")
+        version = hello.get("version")
+        if version is not None and (
+            not isinstance(version, str)
+            or len(version) > 40
+            or not re.fullmatch(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?", version)
+        ):
+            raise ValueError("Invalid Manabi version")
 
         def authenticate():
             return (
@@ -235,16 +243,15 @@ async def connect(socket: WebSocket):
                 query = query.eq("connection_id", connection_id)
             return query.execute().data
 
-        await asyncio.to_thread(
-            update,
-            {
-                "connection_id": connection_id,
-                "connected": True,
-                "connected_at": now_iso(),
-                "last_seen": now_iso(),
-            },
-            False,
-        )
+        connection_values = {
+            "connection_id": connection_id,
+            "connected": True,
+            "connected_at": now_iso(),
+            "last_seen": now_iso(),
+        }
+        if version is not None:
+            connection_values["version"] = version
+        await asyncio.to_thread(update, connection_values, False)
         await socket.send_json({"type": "ready", "heartbeat_seconds": HEARTBEAT_SECONDS})
         while True:
             message = await receive_small_json(socket, HEARTBEAT_SECONDS * 2 + 10, 256_000)

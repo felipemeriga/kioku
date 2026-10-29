@@ -110,6 +110,7 @@ export function stageManabiRuntime(root: string): string {
     join(dist, "lib/manabi-client.js"),
     join(dist, "lib/manabi-inventory.js"),
     join(dist, "lib/manabi-machine.js"),
+    join(dist, "lib/version.js"),
   ];
   const digest = createHash("sha256");
   for (const file of files) digest.update(readFileSync(file));

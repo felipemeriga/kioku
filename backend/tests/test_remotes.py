@@ -133,6 +133,39 @@ def test_socket_authentication_heartbeat_and_disconnect_presence(setup):
     assert listing(client)[0]["last_seen"] is not None
 
 
+def test_authenticated_reconnect_updates_reported_version(setup):
+    client, _ = setup
+    machine = register(client)
+    with client.websocket_connect("/api/remotes/connect") as socket:
+        socket.send_json(
+            {
+                "type": "hello",
+                "id": machine["id"],
+                "secret": machine["secret"],
+                "version": "0.6.13",
+            }
+        )
+        assert socket.receive_json()["type"] == "ready"
+        assert listing(client)[0]["version"] == "0.6.13"
+
+
+def test_invalid_secret_cannot_change_reported_version(setup):
+    client, _ = setup
+    machine = register(client)
+    with client.websocket_connect("/api/remotes/connect") as socket:
+        socket.send_json(
+            {
+                "type": "hello",
+                "id": machine["id"],
+                "secret": "b" * 64,
+                "version": "9.9.9",
+            }
+        )
+        with pytest.raises(WebSocketDisconnect):
+            socket.receive_json()
+    assert listing(client)[0]["version"] == "0.4.0"
+
+
 def test_invalid_credentials_do_not_claim_presence(setup):
     client, _ = setup
     machine = register(client)

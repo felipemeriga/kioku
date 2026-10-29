@@ -1,6 +1,7 @@
 import WebSocket from "ws";
 import { readInventory, inventoryPath } from "./manabi-inventory.js";
 import { machineInfo } from "./manabi-machine.js";
+import { VERSION } from "./version.js";
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import { writeFileSync, renameSync } from "node:fs";
@@ -151,7 +152,7 @@ function connectOnce(
         return;
       }
       socket.send(
-        JSON.stringify({ type: "hello", id: config.id, secret: config.secret })
+        JSON.stringify({ type: "hello", id: config.id, secret: config.secret, version: VERSION })
       );
     });
     socket.on("message", (raw) => {
