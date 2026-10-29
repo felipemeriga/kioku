@@ -68,6 +68,12 @@ def test_journal_sessions_groups_turns_and_uses_latest_summary():
     assert sessions[0]["summary"] == "Checked retry paths and fixed NotFound recovery."
 
 
+def test_journal_accepts_detailed_session_overview():
+    detailed = "The user wants to understand and improve the repository. " * 22
+    assert len(detailed) > 800
+    assert inspect_journal(journal({**META, "session_summary": detailed}), DAY)["entry_count"] == 1
+
+
 def test_grouped_session_header_is_not_part_of_turn_entries():
     first_ms = 1793278800000
     meta = {

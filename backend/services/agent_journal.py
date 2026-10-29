@@ -122,7 +122,7 @@ def inspect_journal(markdown: str, journal_date: str) -> dict:
             raise ValueError("Missing session or source reference")
         for field, limit in (
             ("session_title", 120),
-            ("session_summary", 800),
+            ("session_summary", 1600),
             ("computer_name", 120),
         ):
             value = entry.get(field)

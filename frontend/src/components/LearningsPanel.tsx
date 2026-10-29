@@ -497,13 +497,21 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
                   {activeSession.title}
                 </Typography>
                 {activeSession.summary && (
-                  <div className="learnings-session-card-summary">
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm, decorateJournalMarkdown]}
+                  <section aria-label="Session overview">
+                    <Typography
+                      variant="caption"
+                      sx={{ color: "text.secondary" }}
                     >
-                      {activeSession.summary}
-                    </ReactMarkdown>
-                  </div>
+                      Session overview · updated as the session develops
+                    </Typography>
+                    <div className="learnings-session-card-summary">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm, decorateJournalMarkdown]}
+                      >
+                        {activeSession.summary}
+                      </ReactMarkdown>
+                    </div>
+                  </section>
                 )}
                 <div className="learnings-timeline-track">
                   {visibleEntries.map((entry) => (
