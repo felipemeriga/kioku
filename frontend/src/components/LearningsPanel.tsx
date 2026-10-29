@@ -42,7 +42,7 @@ type Entry = {
   sessionId: string;
   sessionKey: string;
   computerName: string;
-  time: string;
+  time: number;
   markdown: string;
 };
 type JournalSession = {
@@ -52,14 +52,14 @@ type JournalSession = {
   summary: string;
   computer_name: string;
   entry_count: number;
-  first_time: string;
-  last_time: string;
+  first_time: number;
+  last_time: number;
 };
 const SESSION_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function entriesFromMarkdown(markdown: string): Entry[] {
-  const sections = markdown.split(/^## (\d\d:\d\d) — ([^\n]+)\n/gm);
+  const sections = markdown.split(/^## (\d\d:\d\d|\d{13}) — ([^\n]+)\n/gm);
   const entries: Entry[] = [];
   for (let i = 1; i + 2 < sections.length; i += 3) {
     const marker = sections[i + 2].match(
@@ -72,7 +72,13 @@ function entriesFromMarkdown(markdown: string): Entry[] {
         agent: string;
         session_id?: string;
         computer_name?: string;
+        captured_at?: number | string;
       };
+      const time =
+        typeof meta.captured_at === "number"
+          ? meta.captured_at
+          : Date.parse(meta.captured_at ?? "");
+      if (!Number.isFinite(time)) continue;
       entries.push({
         id: meta.id,
         agent: meta.agent,
@@ -82,7 +88,7 @@ function entriesFromMarkdown(markdown: string): Entry[] {
           SESSION_UUID.test(meta.session_id)
             ? meta.session_id
             : "",
-        time: sections[i],
+        time,
         computerName:
           typeof meta.computer_name === "string" ? meta.computer_name : "",
         markdown: sections[i + 2].replace(marker[0], "").trim(),
@@ -91,7 +97,19 @@ function entriesFromMarkdown(markdown: string): Entry[] {
       /* An invalid entry stays visible in raw Markdown. */
     }
   }
-  return entries.sort((a, b) => a.time.localeCompare(b.time));
+  return entries.sort((a, b) => a.time - b.time);
+}
+
+function localDay(epochMs: number) {
+  const date = new Date(epochMs);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function localTime(epochMs: number) {
+  return new Intl.DateTimeFormat("en", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(epochMs));
 }
 
 function dateLabel(day: string) {
@@ -105,6 +123,7 @@ function dateLabel(day: string) {
 }
 
 export default function LearningsPanel({ folderId }: { folderId: string }) {
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
   const [view, setView] = useState<"journal" | "learnings">("journal");
   const [month, setMonth] = useState(() => new Date().getMonth());
   const [year, setYear] = useState(() => new Date().getFullYear());
@@ -116,10 +135,12 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
   } | null>(null);
 
   const daysQuery = useQuery({
-    queryKey: ["learning-days", folderId, year],
+    queryKey: ["learning-days", folderId, year, month, timezone],
     queryFn: async () =>
       (await (
-        await apiFetch(`/api/folders/${folderId}/learning-days?year=${year}`)
+        await apiFetch(
+          `/api/folders/${folderId}/learning-days?year=${year}&month=${month + 1}&timezone=${encodeURIComponent(timezone)}`,
+        )
       ).json()) as { days: JournalDay[] },
     staleTime: 60_000,
   });
@@ -133,10 +154,12 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
   const activeDate =
     selectedDate ?? daysQuery.data?.days[0]?.journal_date ?? null;
   const dayQuery = useQuery({
-    queryKey: ["learning-day", folderId, activeDate],
+    queryKey: ["learning-day", folderId, activeDate, timezone],
     queryFn: async () =>
       (await (
-        await apiFetch(`/api/folders/${folderId}/learning-days/${activeDate}`)
+        await apiFetch(
+          `/api/folders/${folderId}/learning-days/${activeDate}?timezone=${encodeURIComponent(timezone)}`,
+        )
       ).json()) as {
         status: string;
         markdown: string;
@@ -209,11 +232,24 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
     setYear(next.getFullYear());
     setMonth(next.getMonth());
   };
-  const openSource = (day: string) => {
-    const [y, m] = day.split("-").map(Number);
+  const openSource = async (day: string, entryId: string) => {
+    let viewerDay = day;
+    try {
+      const response = await apiFetch(
+        `/api/folders/${folderId}/learning-days/${day}`,
+      );
+      const source = (await response.json()) as { markdown?: string };
+      const entry = entriesFromMarkdown(source.markdown ?? "").find(
+        (item) => item.id === entryId,
+      );
+      if (entry) viewerDay = localDay(entry.time);
+    } catch {
+      /* The original source day remains navigable if lookup fails. */
+    }
+    const [y, m] = viewerDay.split("-").map(Number);
     setYear(y);
     setMonth(m - 1);
-    setSelectedDate(day);
+    setSelectedDate(viewerDay);
     setSelectedSession(null);
     setRaw(false);
     setView("journal");
@@ -359,7 +395,7 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
                 {activeDate && dayMap.get(activeDate) && (
                   <Typography sx={{ color: brand.muted, fontSize: 13 }}>
                     {dayMap.get(activeDate)?.entry_count} entries ·{" "}
-                    {sessions.length} sessions
+                    {sessions.length} sessions · {timezone}
                   </Typography>
                 )}
               </Box>
@@ -420,7 +456,8 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
                         <span>{session.computer_name}</span>
                       )}
                       <span>
-                        {session.first_time} · {session.entry_count} entries
+                        {localTime(session.first_time)} · {session.entry_count}{" "}
+                        entries
                       </span>
                     </span>
                     <strong>{session.title}</strong>
@@ -464,7 +501,9 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
                         className={`learnings-entry-dot ${entry.agent === "codex" ? "codex" : "claude"}`}
                       />
                       <div className="learnings-entry-heading">
-                        <time>{entry.time}</time>
+                        <time dateTime={new Date(entry.time).toISOString()}>
+                          {localTime(entry.time)}
+                        </time>
                         <Chip
                           size="small"
                           label={
@@ -562,7 +601,7 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
                       <Button
                         key={source.id}
                         size="small"
-                        onClick={() => openSource(source.date)}
+                        onClick={() => void openSource(source.date, source.id)}
                       >
                         {source.date} ·{" "}
                         {source.agent === "codex" ? "Codex" : "Claude"}

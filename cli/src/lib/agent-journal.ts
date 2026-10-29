@@ -30,7 +30,7 @@ export interface JournalEntry {
   agent: AgentName;
   session_id: string;
   turn_id: string;
-  captured_at: string;
+  captured_at: string | number;
   source_ref: string;
   computer_name?: string;
   session_title?: string;
@@ -121,15 +121,14 @@ export function parseTurn(
   };
 }
 
-export function localDateTime(now = new Date()): { day: string; timestamp: string } {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const day = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-  const offset = -now.getTimezoneOffset();
-  const tz = `${offset >= 0 ? "+" : "-"}${pad(Math.floor(Math.abs(offset) / 60))}:${pad(Math.abs(offset) % 60)}`;
-  return {
-    day,
-    timestamp: `${day}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}${tz}`,
-  };
+export function localDateTime(now = new Date()): { day: string; timestamp: number } {
+  return { day: now.toISOString().slice(0, 10), timestamp: now.getTime() };
+}
+
+export function entryEpochMs(entry: JournalEntry): number {
+  return typeof entry.captured_at === "number"
+    ? entry.captured_at
+    : Date.parse(entry.captured_at);
 }
 
 export function journalDir(repoRoot: string): string {
@@ -152,7 +151,7 @@ export function normalizeBullets(output: string): string {
   return redactJournalText(lines.join("\n"));
 }
 
-export function renderEntry(turn: CapturedTurn, bullets: string, timestamp: string, session?: { title: string; summary: string }): string {
+export function renderEntry(turn: CapturedTurn, bullets: string, timestamp: number, session?: { title: string; summary: string }): string {
   const id = `${turn.agent}:${turn.sessionId}:${turn.turnId}`;
   const metadata: JournalEntry = {
     id, agent: turn.agent, session_id: turn.sessionId, turn_id: turn.turnId,
@@ -161,7 +160,7 @@ export function renderEntry(turn: CapturedTurn, bullets: string, timestamp: stri
     ...(session ? { session_title: session.title, session_summary: session.summary } : {}),
   };
   const label = turn.agent === "claude_code" ? "Claude Code" : "Codex";
-  return `## ${timestamp.slice(11, 16)} — ${label}\n<!-- kioku-entry: ${JSON.stringify(metadata)} -->\n\n${bullets}\n\n`;
+  return `## ${timestamp} — ${label}\n<!-- kioku-entry: ${JSON.stringify(metadata)} -->\n\n${bullets}\n\n`;
 }
 
 export function parseJournal(markdown: string): Array<{ metadata: JournalEntry; block: string }> {
@@ -186,7 +185,7 @@ export function mergeJournals(day: string, remote: string, local: string): strin
   for (const entry of [...parseJournal(local), ...parseJournal(remote)])
     entries.set(entry.metadata.id, entry);
   return journalHeader(day) + [...entries.values()]
-    .sort((a, b) => a.metadata.captured_at.localeCompare(b.metadata.captured_at) || a.metadata.id.localeCompare(b.metadata.id))
+    .sort((a, b) => entryEpochMs(a.metadata) - entryEpochMs(b.metadata) || a.metadata.id.localeCompare(b.metadata.id))
     .map((entry) => entry.block)
     .join("");
 }
