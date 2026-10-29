@@ -197,6 +197,7 @@ test("real sockets reconnect after a dropped connection and reset only after sta
       const message = JSON.parse(raw.toString());
       if (message.type === "hello") {
         assert.equal(message.secret, config.secret);
+        assert.match(message.version, /^\d+\.\d+\.\d+$/);
         socket.send(JSON.stringify({ type: "ready" }));
         setTimeout(() => socket.terminate(), index < 3 ? 10 : 60);
       } else {
@@ -289,7 +290,9 @@ test("staged daemon runs independently from CLI package and exits on signal", as
   try {
     const [socket] = await once(wsServer, "connection");
     const [raw] = await once(socket, "message");
-    assert.equal(JSON.parse(raw.toString()).secret, config.secret);
+    const hello = JSON.parse(raw.toString());
+    assert.equal(hello.secret, config.secret);
+    assert.match(hello.version, /^\d+\.\d+\.\d+$/);
     const exited = once(child, "exit");
     child.kill("SIGTERM");
     const [code] = await exited;

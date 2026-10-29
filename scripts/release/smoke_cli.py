@@ -70,11 +70,12 @@ def smoke_manabi(binary, env, tmp):
                 self.wfile.flush()
                 self.connection.settimeout(8)
                 hello = client_message(self.rfile)
-                if hello != {
-                    "type": "hello",
-                    "id": machine_id,
-                    "secret": fixture_secret,
-                }:
+                if (
+                    hello.get("type") != "hello"
+                    or hello.get("id") != machine_id
+                    or hello.get("secret") != fixture_secret
+                    or not isinstance(hello.get("version"), str)
+                ):
                     raise ValueError("Incorrect Manabi hello")
                 ready = b'{"type":"ready"}'
                 self.wfile.write(bytes([0x81, len(ready)]) + ready)
