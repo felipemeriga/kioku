@@ -37,6 +37,8 @@ test("daily merge keeps both agents and ignores replay", () => {
   const merged = mergeJournals(day, first, second);
   assert.equal(parseJournal(merged).length, 2);
   assert.equal(mergeJournals(day, merged, first), merged);
+  const olderLocal = first.replace("Started task", "Tarefa iniciada");
+  assert.equal(mergeJournals(day, first, olderLocal), first);
 });
 
 test("journal lock serializes concurrent writers", async () => {

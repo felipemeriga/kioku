@@ -177,7 +177,7 @@ export function parseJournal(markdown: string): Array<{ metadata: JournalEntry; 
 
 export function mergeJournals(day: string, remote: string, local: string): string {
   const entries = new Map<string, { metadata: JournalEntry; block: string }>();
-  for (const entry of [...parseJournal(remote), ...parseJournal(local)])
+  for (const entry of [...parseJournal(local), ...parseJournal(remote)])
     entries.set(entry.metadata.id, entry);
   return journalHeader(day) + [...entries.values()]
     .sort((a, b) => a.metadata.captured_at.localeCompare(b.metadata.captured_at) || a.metadata.id.localeCompare(b.metadata.id))
