@@ -232,6 +232,23 @@ export async function ensureManabi(): Promise<void> {
   }
 }
 
+/** Refresh an existing service after a CLI replacement, without needing network access. */
+export async function refreshInstalledManabi(): Promise<boolean> {
+  const path = manabiConfigPath();
+  if (!existsSync(path)) return false;
+  await withManabiLock(dirname(path), async () => {
+    const state = JSON.parse(readFileSync(path, "utf8")) as State;
+    if (
+      !state.id ||
+      !state.api_base ||
+      !state.user_id ||
+      !/^[a-f0-9]{64}$/.test(state.secret)
+    ) throw new Error("Existing Manabi connection is invalid");
+    startManabiService(path, state);
+  });
+  return true;
+}
+
 async function installManabi(): Promise<void> {
   const cfg = readConfig();
   if (!cfg.user_id) throw new Error("Sign in before installing Manabi");
@@ -246,6 +263,10 @@ async function installManabi(): Promise<void> {
     platform: `${process.platform}-${process.arch}`,
     version: VERSION,
   });
+  startManabiService(path, state);
+}
+
+function startManabiService(path: string, state: State): void {
   const entry = standaloneManabi
     ? "internal-manabi-run"
     : stageManabiRuntime(dirname(path));

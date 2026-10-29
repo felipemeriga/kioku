@@ -27,6 +27,7 @@ mkdir -p "$bin"
 cp "$tmp/$asset" "$bin/.kioku-install-$$"
 chmod 755 "$bin/.kioku-install-$$"
 mv -f "$bin/.kioku-install-$$" "$bin/kioku"
+"$bin/kioku" internal-manabi-refresh
 printf 'Installed Kioku %s to %s/kioku\n' "$version" "$bin"
 case ":$PATH:" in
   *":$bin:"*) ;;
