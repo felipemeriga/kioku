@@ -32,10 +32,13 @@ test("daily merge keeps both agents and ignores replay", () => {
   const c = { agent: "claude_code" as const, sessionId: "c1", turnId: "t1", user: "a", assistant: "b" };
   const x = { agent: "codex" as const, sessionId: "x1", turnId: "t2", user: "a", assistant: "b" };
   const first = journalHeader(day) + renderEntry(c, "- Started task\n- Completed task", timestamp);
+  assert.ok(parseJournal(first)[0].metadata.computer_name);
   const second = journalHeader(day) + renderEntry(x, "- Found issue\n- Fixed issue", timestamp);
   const merged = mergeJournals(day, first, second);
   assert.equal(parseJournal(merged).length, 2);
   assert.equal(mergeJournals(day, merged, first), merged);
+  const olderLocal = first.replace("Started task", "Tarefa iniciada");
+  assert.equal(mergeJournals(day, first, olderLocal), first);
 });
 
 test("journal lock serializes concurrent writers", async () => {
