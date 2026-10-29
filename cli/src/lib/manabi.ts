@@ -111,6 +111,8 @@ export function stageManabiRuntime(root: string): string {
     join(dist, "lib/manabi-inventory.js"),
     join(dist, "lib/manabi-machine.js"),
     join(dist, "lib/manabi-memory-source.js"),
+    join(dist, "lib/manabi-memory-codex.js"),
+    join(dist, "lib/manabi-memory-files.js"),
     join(dist, "lib/manabi-memory-spool.js"),
     join(dist, "lib/version.js"),
   ];

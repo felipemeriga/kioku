@@ -25,12 +25,14 @@ class MemoryPost(BaseModel):
     content_hash: str = Field(pattern=HASH)
     folder_id: UUID
     session_id: str = Field(min_length=1, max_length=160)
-    source: Literal["claude_code"]
+    source: Literal["claude_code", "codex", "claude_memory", "codex_memory"]
     source_schema_version: Literal[1]
     record_position: int = Field(ge=0)
     event_time: datetime | None = None
     observed_at: datetime
-    provenance: Literal["user", "assistant", "tool_result", "external_text", "unknown"]
+    provenance: Literal[
+        "user", "assistant", "tool_result", "external_text", "agent_memory", "unknown"
+    ]
     sensitivity: Literal["normal", "redacted"]
     content: str = Field(min_length=1, max_length=60_000)
 

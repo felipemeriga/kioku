@@ -9,21 +9,25 @@ import {
 import { dirname } from "node:path";
 import type { InventoryRepo } from "./manabi-inventory.js";
 import {
-  discoverClaudeSessions,
-  readClaudeRecords,
+  claudeMemorySource,
+  type AgentMemorySource,
   type MemoryEvent,
 } from "./manabi-memory-source.js";
+import { codexMemorySource } from "./manabi-memory-codex.js";
+import { discoverAgentMemoryFiles, readAgentMemoryFile } from "./manabi-memory-files.js";
 
 interface State {
   initialized: boolean;
   offsets: Record<string, number>;
   pending: MemoryEvent[];
   blocked: string[];
+  memoryHashes?: Record<string, string>;
 }
 
 const MAX_SPOOL_BYTES = 10 * 1024 * 1024;
 const MAX_EVENTS = 1000;
 const MAX_FRAME_BYTES = 64 * 1024;
+const SOURCES: AgentMemorySource[] = [claudeMemorySource, codexMemorySource];
 
 export class ManabiMemorySpool {
   private state: State;
@@ -53,17 +57,19 @@ export class ManabiMemorySpool {
   }
 
   collect(repositories: InventoryRepo[]): "ok" | "full" | "oversized" {
-    const sessions = discoverClaudeSessions(this.home, repositories);
+    const sessions = SOURCES.flatMap((source) => source.discover(this.home, repositories)
+      .map((session) => ({ ...session, adapter: source })));
     if (!this.state.initialized) {
       for (const { file } of sessions) this.state.offsets[file] = statSync(file).size;
       this.state.initialized = true;
       this.save();
-      return "ok";
+      // Existing native memory files are imported; only old transcripts are skipped.
     }
     let result: "ok" | "full" | "oversized" = "ok";
-    for (const { file, folderId } of sessions) {
+    for (const session of sessions) {
+      const { file, folderId } = session;
       const offset = this.state.offsets[file] ?? 0;
-      const chunk = readClaudeRecords(file, folderId, offset, 48 * 1024);
+      const chunk = session.adapter.read(file, folderId, offset, 48 * 1024);
       if (chunk.oversized) {
         result = "oversized";
         continue;
@@ -88,7 +94,28 @@ export class ManabiMemorySpool {
           event.record_position + Buffer.byteLength(event.content) + 1;
         this.save();
       }
+      if (result === "ok" && this.state.offsets[file] !== chunk.nextOffset) {
+        this.state.offsets[file] = chunk.nextOffset;
+        this.save();
+      }
       if (result !== "ok") break;
+    }
+    if (result !== "ok") return result;
+    this.state.memoryHashes ??= {};
+    for (const item of discoverAgentMemoryFiles(this.home, repositories)) {
+      try {
+        const event = readAgentMemoryFile(item);
+        const key = `${item.source}:${item.folderId}:${item.file}`;
+        if (this.state.memoryHashes[key] === event.content_hash) continue;
+        const encoded = JSON.stringify(event);
+        if (Buffer.byteLength(encoded) > MAX_FRAME_BYTES) return "oversized";
+        if (this.state.pending.length >= MAX_EVENTS ||
+            Buffer.byteLength(JSON.stringify(this.state)) + Buffer.byteLength(encoded) > MAX_SPOOL_BYTES)
+          return "full";
+        this.state.pending.push(event);
+        this.state.memoryHashes[key] = event.content_hash;
+        this.save();
+      } catch { /* A changing or unavailable file is retried on the next scan. */ }
     }
     return result;
   }

@@ -18,20 +18,36 @@ export interface MemoryEvent {
   content_hash: string;
   folder_id: string;
   session_id: string;
-  source: "claude_code";
+  source: "claude_code" | "codex" | "claude_memory" | "codex_memory";
   source_schema_version: 1;
   record_position: number;
   event_time: string | null;
   observed_at: string;
-  provenance: "user" | "assistant" | "tool_result" | "external_text" | "unknown";
+  provenance: "user" | "assistant" | "tool_result" | "external_text" | "agent_memory" | "unknown";
   sensitivity: "normal";
   content: string;
 }
 
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 
+export interface AgentSession {
+  file: string;
+  folderId: string;
+  source: MemoryEvent["source"];
+}
+
+export interface AgentMemorySource {
+  source: MemoryEvent["source"];
+  discover(home: string, repositories: InventoryRepo[]): AgentSession[];
+  read(file: string, folderId: string, from: number, maxBytes?: number): {
+    events: MemoryEvent[];
+    nextOffset: number;
+    oversized: boolean;
+  };
+}
+
 function projectDirectory(home: string, path: string): string {
-  return join(home, ".claude", "projects", path.replace(/[\\/]/g, "-"));
+  return join(home, ".claude", "projects", path.replace(/[^A-Za-z0-9-]/g, "-"));
 }
 
 function belongsToRepo(file: string, repoPath: string): boolean {
@@ -171,3 +187,11 @@ export function readClaudeRecords(
   }
   return { events, nextOffset: start + complete + 1, oversized: false };
 }
+
+export const claudeMemorySource: AgentMemorySource = {
+  source: "claude_code",
+  discover: (home, repositories) => discoverClaudeSessions(home, repositories).map(
+    (session) => ({ ...session, source: "claude_code" })
+  ),
+  read: readClaudeRecords,
+};

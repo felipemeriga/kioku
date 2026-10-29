@@ -38,6 +38,15 @@ def test_memory_post_rejects_content_hash_mismatch():
         ingest.MemoryPost.model_validate(data)
 
 
+@pytest.mark.parametrize("source", ["claude_memory", "codex_memory", "codex"])
+def test_agent_sources_use_same_ingest_contract(source):
+    data = event()
+    data["source"] = source
+    if source.endswith("memory"):
+        data["provenance"] = "agent_memory"
+    assert ingest.MemoryPost.model_validate(data).source == source
+
+
 def test_envelope_encrypts_raw_and_binds_event_id(monkeypatch):
     key = bytes(range(32))
 

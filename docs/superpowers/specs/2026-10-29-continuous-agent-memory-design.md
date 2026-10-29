@@ -54,7 +54,7 @@ sequenceDiagram
 
 ### Fonte e checkpoint
 
-Criar `cli/src/lib/manabi-memory-source.ts` para descobrir somente os projetos Claude já vinculados ao inventário (`folder_id` autorizado), localizar seus arquivos de sessão JSONL e ler incrementalmente por arquivo. Não fazer varredura irrestrita do disco. O adaptador de fonte registra a identidade do arquivo, posição do registro, inode ou equivalente disponível, tamanho e hash; detecta truncamento e rotação. Se o formato do Claude variar, a linha bruta continua preservável e o parser atribui `source_schema_version`; campos não reconhecidos não viram afirmações por suposição.
+Criar uma interface de fonte em `cli/src/lib/manabi-memory-source.ts` e adaptadores para Claude Code e Codex. Cada adaptador descobre apenas sessões e memórias de repositórios vinculados ao inventário (`folder_id` autorizado), lê incrementalmente os registros de sessão e identifica o formato com `source_schema_version`. O Claude guarda memórias Markdown por projeto em `~/.claude/projects/<project>/memory/`; o Codex usa `~/.codex/memories/MEMORY.md` como índice global que aponta para `rollout_summaries/`. Para o Codex, selecionar somente resumos cujo `cwd` pertença ao repositório vinculado; não ingerir o índice global inteiro. Não fazer varredura irrestrita do disco nem inferir fatos de campos desconhecidos. Os dois adaptadores produzem o mesmo envelope de evento.
 
 Criar `cli/src/lib/manabi-memory-spool.ts` com fila local durável em `~/.config/kioku/manabi/` (permissão 0700 no diretório, 0600 nos arquivos). Uma gravação atômica associa cada evento ao checkpoint. O checkpoint de leitura pode avançar depois que a linha entra no spool; o checkpoint de entrega só avança após `memory_ack`. Reinício envia os itens pendentes. O spool tem limite configurável, retenção e diagnóstico visível; ao atingir o limite, a leitura pausa sem perder a posição. Um agente que troca de computador não duplica eventos porque o servidor deduplica pelo ID.
 
@@ -157,7 +157,7 @@ Habilitar por flags independentes por usuário: `capture`, `judge`, `retrieve`, 
 
 ## Fora do primeiro corte
 
-Fine-tuning, knowledge graph obrigatório para memórias, embeddings de descartadas/superadas, reprocessamento completo a cada atualização, suporte automático a todas as fontes de agente e promessa de ganho sem avaliação. O primeiro adaptador de captura é Claude Code; o contrato `source` permite adicionar Codex depois sem mudar lifecycle.
+Fine-tuning, knowledge graph obrigatório para memórias, embeddings de descartadas/superadas, reprocessamento completo a cada atualização, suporte automático a fontes ainda desconhecidas e promessa de ganho sem avaliação. O primeiro corte inclui adaptadores para Claude Code e Codex; outros agentes usam o mesmo contrato de fonte, envelope e lifecycle.
 
 ## Decisões de produto preservadas
 

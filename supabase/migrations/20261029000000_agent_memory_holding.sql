@@ -5,7 +5,7 @@ CREATE TABLE public.memory_raw_events (
     event_id text NOT NULL CHECK (event_id ~ '^[a-f0-9]{64}$'),
     folder_id uuid NOT NULL REFERENCES public.folders(id) ON DELETE CASCADE,
     machine_id uuid NOT NULL,
-    source text NOT NULL CHECK (source = 'claude_code'),
+    source text NOT NULL CHECK (source IN ('claude_code', 'codex', 'claude_memory', 'codex_memory')),
     source_schema_version integer NOT NULL CHECK (source_schema_version = 1),
     session_id text NOT NULL CHECK (length(session_id) BETWEEN 1 AND 160),
     record_position bigint NOT NULL CHECK (record_position >= 0),
@@ -17,7 +17,7 @@ CREATE TABLE public.memory_raw_events (
     event_time timestamptz,
     observed_at timestamptz NOT NULL,
     ingested_at timestamptz NOT NULL DEFAULT now(),
-    provenance text NOT NULL CHECK (provenance IN ('user', 'assistant', 'tool_result', 'external_text', 'unknown')),
+    provenance text NOT NULL CHECK (provenance IN ('user', 'assistant', 'tool_result', 'external_text', 'agent_memory', 'unknown')),
     sensitivity text NOT NULL CHECK (sensitivity IN ('normal', 'redacted')),
     PRIMARY KEY (user_id, event_id),
     FOREIGN KEY (user_id, machine_id) REFERENCES public.remote_machines(user_id, id) ON DELETE CASCADE
