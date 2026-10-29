@@ -83,7 +83,7 @@ async function resolveAgent(opts: InitOptions): Promise<Agent> {
   if (hasCodex && !hasClaude) return "codex";
   if (!hasClaude && !hasCodex) {
     throw new Error(
-      "Neither `claude` nor `codex` is on your PATH. Install one (or pass --agent) and re-run.",
+      "Neither `claude` nor `codex` is on your PATH. Install one (or pass --agent) and re-run."
     );
   }
   // Both installed.
@@ -118,7 +118,7 @@ async function createOrAttach(name: string, parentId: string): Promise<Folder> {
     if (err instanceof ApiError && err.status === 409) {
       const siblings = await listChildren(parentId);
       const hit = siblings.find(
-        (f) => f.name.toLowerCase() === name.toLowerCase(),
+        (f) => f.name.toLowerCase() === name.toLowerCase()
       );
       if (hit) return hit;
     }
@@ -147,7 +147,7 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
   if (!git.isRepo) {
     bad(
       "kioku init must be run inside a cloned git repository.",
-      "cd into your repo's working copy and re-run.",
+      "cd into your repo's working copy and re-run."
     );
     process.exitCode = 1;
     return;
@@ -155,7 +155,7 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
   info(
     git.remoteUrl
       ? `Detected remote: ${git.owner}/${git.repo}`
-      : "No remote configured.",
+      : "No remote configured."
   );
 
   // Step 1: pick a root folder.
@@ -175,11 +175,11 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
   if (opts.root) {
     const hit = w.root_folders.find(
       (f) =>
-        f.name.toLowerCase() === opts.root!.toLowerCase() || f.id === opts.root,
+        f.name.toLowerCase() === opts.root!.toLowerCase() || f.id === opts.root
     );
     if (!hit) {
       throw new Error(
-        `No root folder named "${opts.root}". Run without --root to pick from the list.`,
+        `No root folder named "${opts.root}". Run without --root to pick from the list.`
       );
     }
     rootId = hit.id;
@@ -228,7 +228,7 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
       info(
         ownerMatch
           ? `Using root "${pick.name}" (matches your GitHub owner)`
-          : `Using root "${pick.name}" (default — pass --root to choose another)`,
+          : `Using root "${pick.name}" (default — pass --root to choose another)`
       );
     } else {
       rootId = await select<string>({
@@ -275,7 +275,7 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
   const reposContainer = await createOrAttach("repositories", rootId!);
   const siblings = await listChildren(reposContainer.id);
   const existing = siblings.find(
-    (f) => f.name.toLowerCase() === desiredName.toLowerCase(),
+    (f) => f.name.toLowerCase() === desiredName.toLowerCase()
   );
 
   let repoFolder: Folder;
@@ -284,7 +284,7 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
     info(
       `Attaching to existing ${
         existing.kind === "repo" ? "repo" : "folder"
-      } "${rootName}/repositories/${desiredName}"`,
+      } "${rootName}/repositories/${desiredName}"`
     );
   } else {
     info(`Creating "${rootName}/repositories/${desiredName}"…`);
@@ -315,7 +315,7 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
 
   const probeKey = async (
     entry: McpEntry,
-    apiKey: string,
+    apiKey: string
   ): Promise<boolean> => {
     // A root-scoped key can reach every repo under the root; probing THIS repo
     // confirms the key both authenticates and covers us.
@@ -323,9 +323,9 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
       const base = mcpUrlToRestBase(entry.url);
       const res = await fetch(
         `${base}/api/cli/repo-graph?folder_id=${encodeURIComponent(
-          repoFolder.id,
+          repoFolder.id
         )}`,
-        { headers: { Authorization: `Bearer ${apiKey}` } },
+        { headers: { Authorization: `Bearer ${apiKey}` } }
       );
       return res.ok;
     } catch {
@@ -358,7 +358,7 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
       mintScopedApiKey({
         scope_folder_id: rootId!,
         name: `cli-${rootName}-${new Date().toISOString().slice(0, 10)}`,
-      }),
+      })
     );
     keyMintedAt = new Date().toISOString();
   }
@@ -401,13 +401,13 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
     const cx = writeCodexMcpConfig(mcpEntry);
     ok(
       `~/.codex/config.toml MCP entry ${cx.existed ? "updated" : "written"}  ` +
-        kleur.dim("(streamable-http)"),
+        kleur.dim("(streamable-http)")
     );
     const cxStart = installCodexSessionStartHook();
     ok(
       cxStart.addedHook
         ? "Codex SessionStart hook installed"
-        : "Codex SessionStart hook already present",
+        : "Codex SessionStart hook already present"
     );
   } else {
     const mcp = writeMcpConfig(repoRoot, mcpEntry);
@@ -418,7 +418,7 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
     ok(
       hook.addedHook
         ? "SessionStart hook installed"
-        : "SessionStart hook already present",
+        : "SessionStart hook already present"
     );
   }
 
@@ -426,16 +426,8 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
   // interactive briefing. Both Stop hooks share the same repo-local journal.
   const claudeCapture = installClaudeMemoryCaptureHook(repoRoot);
   const codexCapture = installCodexMemoryCaptureHook();
-  ok(
-    claudeCapture.addedHook
-      ? "Claude memory Stop hook installed"
-      : "Claude memory Stop hook already present",
-  );
-  ok(
-    codexCapture.addedHook
-      ? "Codex memory Stop hook installed"
-      : "Codex memory Stop hook already present",
-  );
+  ok(claudeCapture.addedHook ? "Claude memory Stop hook installed" : "Claude memory Stop hook already present");
+  ok(codexCapture.addedHook ? "Codex memory Stop hook installed" : "Codex memory Stop hook already present");
 
   // Step 6b.5: remove legacy push hooks (pre-v0.3.0 installed a Claude
   //             PostToolUse hook + a native git pre-push hook; Mihari
@@ -443,8 +435,7 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
   const legacy = removeLegacyPushHooks(repoRoot);
   if (legacy.removedSettingsHook || legacy.removedGitHook) {
     ok(
-      "Legacy push hooks removed  " +
-        kleur.dim("(Mihari handles indexing now)"),
+      "Legacy push hooks removed  " + kleur.dim("(Mihari handles indexing now)")
     );
   }
 
@@ -478,8 +469,8 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
     md.action === "created"
       ? `${mdName} created`
       : md.action === "appended"
-        ? `${mdName} — second-brain instructions appended`
-        : `${mdName} — second-brain instructions updated`,
+      ? `${mdName} — second-brain instructions appended`
+      : `${mdName} — second-brain instructions updated`
   );
 
   // Step 8: .gitignore
@@ -499,7 +490,7 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
     if (path === repoRoot) continue;
     try {
       const binding = JSON.parse(
-        readFileSync(resolve(path, ".claude", "kioku-state.json"), "utf8"),
+        readFileSync(resolve(path, ".claude", "kioku-state.json"), "utf8")
       );
       const agents = configuredAgents(path);
       if (
@@ -521,7 +512,7 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
   // One supervised Manabi connection per machine; every init repairs its setup.
   await step("Starting Manabi", ensureManabi);
   ok(
-    "Manabi installed for automatic startup. Connection status is in Remotes.",
+    "Manabi installed for automatic startup. Connection status is in Remotes."
   );
 
   // Step 9: initial code-graph index so agents query structure instead of
@@ -535,7 +526,7 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
     } else {
       warn(
         "Couldn't set up graphify — skipping code-graph index.",
-        "Install it (`uv tool install graphifyy`) then run `kioku index`.",
+        "Install it (`uv tool install graphifyy`) then run `kioku index`."
       );
     }
   } catch (err) {
@@ -552,12 +543,12 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
         kleur.dim(
           `  Scope: ${
             w.root_folders.find((f) => f.id === rootId)?.name ?? "(root)"
-          }`,
+          }`
         ),
         kleur.dim(`  Repo:  ${repoFolder.name}`),
       ].join("\n"),
       tone: "success",
-    }),
+    })
   );
   console.log();
 
@@ -571,9 +562,9 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
     const restBase = mcpUrlToRestBase(mcpEntry.url);
     const res = await fetch(
       `${restBase}/api/cli/folder-summary?folder_id=${encodeURIComponent(
-        repoFolder.id,
+        repoFolder.id
       )}`,
-      { headers: { Authorization: `Bearer ${key.key}` } },
+      { headers: { Authorization: `Bearer ${key.key}` } }
     );
     const summary = res.ok
       ? ((await res.json()) as {
@@ -604,13 +595,13 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
         // Briefing already exists — ask before spending tokens regenerating.
         shouldGenerate = await confirm({
           message: `This repo already has a briefing (generated ${relTime(
-            summary.generated_at!,
+            summary.generated_at!
           )}). Regenerate it?`,
           default: false,
         });
         if (!shouldGenerate) {
           info(
-            "Keeping the existing briefing. Re-run with --force to regenerate.",
+            "Keeping the existing briefing. Re-run with --force to regenerate."
           );
         }
       }
@@ -625,20 +616,20 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
     if (summary && !hasDocs && isTTY) {
       if (summary.has_notion) {
         info(
-          "💡 Notion is connected but no documents have synced to this folder yet.",
+          "💡 Notion is connected but no documents have synced to this folder yet."
         );
         info(
-          "   Wait for the sync to finish (or click Sync now in the web UI), then",
+          "   Wait for the sync to finish (or click Sync now in the web UI), then"
         );
         info(
-          "   re-run kioku init --force so the briefing includes your Notion content.",
+          "   re-run kioku init --force so the briefing includes your Notion content."
         );
       } else {
         info(
-          "💡 Seed this folder for a richer briefing — one that understands your whole",
+          "💡 Seed this folder for a richer briefing — one that understands your whole"
         );
         info(
-          "   ecosystem, not just the code: add docs or connect Notion in the web UI,",
+          "   ecosystem, not just the code: add docs or connect Notion in the web UI,"
         );
         info("   then re-run with kioku init --force.");
       }
@@ -664,7 +655,7 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
       console.log();
       const instruction = generateInstruction(
         summary?.section_order ?? [],
-        repoFolder.id,
+        repoFolder.id
       );
       // KIOKU_NO_AUTOGEN=1 tells the SessionStart hook this session is already
       // handling generation, so it doesn't inject the task twice.
@@ -682,7 +673,7 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
             "--dangerously-bypass-hook-trust",
             instruction,
           ],
-          { cwd: repoRoot, stdio: "inherit", env },
+          { cwd: repoRoot, stdio: "inherit", env }
         );
       } else {
         // Interactive Claude Code, generation as the first user message.
