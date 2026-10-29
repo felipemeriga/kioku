@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { parse as parseToml } from "smol-toml";
 import {
   installCodexSessionStartHook,
+  installCodexMemoryCaptureHook,
   removeCodexCaptureHooks,
   installCodexPostPushHook,
   readCodexMcpEntry,
@@ -98,6 +99,17 @@ test("hooks write the correct [[hooks.Event]] / [[hooks.Event.hooks]] nesting", 
   } finally {
     cleanup();
   }
+});
+
+test("memory Stop hook is idempotent and agent-specific", () => {
+  const { path, cleanup } = setup();
+  try {
+    installCodexMemoryCaptureHook();
+    installCodexMemoryCaptureHook();
+    const cfg = parseToml(readFileSync(path, "utf8")) as any;
+    assert.equal(cfg.hooks.Stop.length, 1);
+    assert.match(cfg.hooks.Stop[0].hooks[0].command, /memory-capture --agent codex$/);
+  } finally { cleanup(); }
 });
 
 test("PostToolUse push hook writes a Bash-matched group running on-push", () => {

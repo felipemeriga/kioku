@@ -19,6 +19,7 @@ import { homedir } from "node:os";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import {
   SUB_SESSION_START,
+  SUB_MEMORY_CAPTURE,
   isRetiredCaptureCommand,
   SUB_POST_PUSH,
   cliInvocation,
@@ -151,6 +152,8 @@ interface CommandHandler {
   type: "command";
   command: string;
   additionalContextLimit?: number;
+  async?: boolean;
+  timeout?: number;
 }
 interface MatcherGroup {
   matcher?: string;
@@ -194,7 +197,9 @@ function ensureCodexHook(
     if (!Array.isArray(g.hooks)) continue;
     const before = g.hooks.length;
     g.hooks = g.hooks.filter((h) => {
-      if (h?.command === command) {
+      if (h?.command === command && Object.entries(extra ?? {}).every(
+        ([key, value]) => (h as unknown as Record<string, unknown>)[key] === value
+      )) {
         hadExact = true;
         return true;
       }
@@ -231,6 +236,19 @@ export function installCodexSessionStartHook(): {
   const cfg = loadConfig(path);
   const changed = ensureCodexHook(cfg, "SessionStart", SUB_SESSION_START, {
     extra: { additionalContextLimit: SESSION_START_CONTEXT_LIMIT },
+  });
+  writeConfig(path, cfg);
+  return { path, addedHook: changed };
+}
+
+export function installCodexMemoryCaptureHook(): {
+  path: string;
+  addedHook: boolean;
+} {
+  const path = codexConfigPath();
+  const cfg = loadConfig(path);
+  const changed = ensureCodexHook(cfg, "Stop", "memory-capture --agent codex", {
+    extra: { timeout: 10 },
   });
   writeConfig(path, cfg);
   return { path, addedHook: changed };

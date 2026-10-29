@@ -1,7 +1,7 @@
 {
   "name": "@felipemeriga/kioku",
   "version": "0.6.14",
-  "description": "Kioku (\u8a18\u61b6) \u2014 second brain for your repos. Wires a local repo to your Kioku instance: MCP server, SessionStart hook, CLAUDE.md snippet.",
+  "description": "Kioku (記憶) — second brain for your repos. Wires a local repo to your Kioku instance: MCP server, SessionStart hook, CLAUDE.md snippet.",
   "type": "module",
   "license": "MIT",
   "author": "felipemeriga",
@@ -38,6 +38,7 @@
   },
   "dependencies": {
     "@inquirer/prompts": "^7.0.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "boxen": "^7.1.1",
     "cli-table3": "^0.6.5",
     "commander": "^12.1.0",

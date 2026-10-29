@@ -44,6 +44,16 @@ kioku init              # picks folder, wires MCP, installs hooks, done
 
 That's it. Open Claude Code in `~/repos/my-project` and the SessionStart hook loads your briefing automatically.
 
+`kioku init` also installs a Stop hook for Claude Code and Codex. After a turn,
+the hook starts a background summarizer and appends short free-topic bullets to
+`.kioku/memory/YYYY-MM-DD.md`. The full daily file is kept locally and synced
+to private Supabase Storage through the scoped Kioku MCP key. The index records
+its repository, user, date, revision, and checksum; journals are not embedded
+or added to document search. The hook never blocks an agent on summarization
+or upload. If the network is unavailable, run `kioku memory-sync` later from
+the repository to retry local files. Codex may ask you to trust a new hook
+before it runs.
+
 ## Environment
 
 The CLI defaults to `http://localhost:8000` for the backend REST API. Point it elsewhere:

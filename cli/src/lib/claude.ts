@@ -71,6 +71,8 @@ export function writeMcpConfig(
 interface HookEntry {
   type: "command";
   command: string;
+  async?: boolean;
+  timeout?: number;
 }
 interface HookGroup {
   matcher?: string;
@@ -88,6 +90,7 @@ interface ClaudeSettings {
 // whenever kioku is installed under nvm.
 export const SUB_SESSION_START = "session-start";
 export const SUB_POST_PUSH = "on-push";
+export const SUB_MEMORY_CAPTURE = "memory-capture --agent claude_code";
 const SUB_INDEX = "index";
 
 /** Single-quote a path for /bin/sh. */
@@ -115,6 +118,17 @@ export function cliInvocation(): string {
     entry = argv1; // keep as-is if it can't be resolved
   }
   return `${shQuote(process.execPath)} ${shQuote(entry)}`;
+}
+
+/** argv for detached self-invocation (Node package or standalone binary). */
+export function cliProcessArgs(subcommand: string[]): { command: string; args: string[] } {
+  if (typeof KIOKU_STANDALONE !== "undefined" && KIOKU_STANDALONE)
+    return { command: process.execPath, args: subcommand };
+  const entry = process.argv[1];
+  if (!entry) throw new Error("Cannot locate Kioku CLI entry point");
+  let resolved = entry;
+  try { resolved = realpathSync(entry); } catch { /* keep original path */ }
+  return { command: process.execPath, args: [resolved, ...subcommand] };
 }
 
 /** Build the full hook command for a subcommand. */
@@ -155,7 +169,8 @@ function ensureHook(
   event: string,
   command: string,
   subcommand: string,
-  matcher?: string
+  matcher?: string,
+  extra?: Partial<HookEntry>,
 ): boolean {
   if (!settings.hooks) settings.hooks = {};
   const bucket = settings.hooks;
@@ -174,7 +189,9 @@ function ensureHook(
   let removedStale = false;
   for (const g of groups) {
     g.hooks = g.hooks.filter((h) => {
-      if (h.command === command) {
+      if (h.command === command && Object.entries(extra ?? {}).every(
+        ([key, value]) => (h as unknown as Record<string, unknown>)[key] === value
+      )) {
         hadExact = true;
         return true;
       }
@@ -191,7 +208,7 @@ function ensureHook(
   if (!hadExact) {
     // Tool-scoped events (e.g. PostToolUse) need a matcher so the group only
     // fires for the intended tool; SessionStart/Stop take none.
-    const group: HookGroup = { hooks: [{ type: "command", command }] };
+    const group: HookGroup = { hooks: [{ type: "command", command, ...extra }] };
     if (matcher) group.matcher = matcher;
     kept.push(group);
   }
@@ -250,7 +267,8 @@ function installHook(
   repoRoot: string,
   event: string,
   subcommand: string,
-  matcher?: string
+  matcher?: string,
+  extra?: Partial<HookEntry>,
 ): { path: string; addedHook: boolean } {
   const dir = join(repoRoot, ".claude");
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
@@ -261,7 +279,8 @@ function installHook(
     event,
     hookCommand(subcommand),
     subcommand,
-    matcher
+    matcher,
+    extra,
   );
   writeFileSync(path, JSON.stringify(settings, null, 2) + "\n");
   // Migration: strip any old copy from the committed settings.json.
@@ -274,6 +293,15 @@ export function installSessionStartHook(repoRoot: string): {
   addedHook: boolean;
 } {
   return installHook(repoRoot, "SessionStart", SUB_SESSION_START);
+}
+
+export function installClaudeMemoryCaptureHook(repoRoot: string): {
+  path: string;
+  addedHook: boolean;
+} {
+  return installHook(repoRoot, "Stop", SUB_MEMORY_CAPTURE, undefined, {
+    timeout: 10,
+  });
 }
 
 /** Remove retired transcript-capture hooks without touching other handlers. */
@@ -627,6 +655,7 @@ export function updateGitignore(repoRoot: string): {
     ".claude/kioku-onpush.log",
     ".claude/kioku-autogen.lock",
     ".claude/kioku-autogen.log",
+    ".kioku/memory/",
     // Graphify's local extraction output + AST cache (used by `kioku index`).
     "graphify-out/",
   ];
