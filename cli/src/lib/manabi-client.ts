@@ -7,6 +7,9 @@ import { dirname, join } from "node:path";
 import { writeFileSync, renameSync } from "node:fs";
 import { readFileSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
+import { homedir } from "node:os";
+import { ManabiMemorySpool } from "./manabi-memory-spool.js";
+import type { MemoryEvent } from "./manabi-memory-source.js";
 
 export interface ManabiConnection {
   id: string;
@@ -49,6 +52,7 @@ interface Options {
   monotonicNow?: () => number;
   wallNow?: () => number;
   delay?: (attempt: number) => number;
+  memory?: { collect: () => void; next: () => MemoryEvent | undefined; acknowledge: (id: string) => void; block: (id: string) => void };
 }
 
 export async function runManabi(options: Options): Promise<void> {
@@ -91,6 +95,21 @@ function connectOnce(
       perMessageDeflate: false,
     });
     let acknowledgedSnapshot = "";
+    let memoryEnabled = false;
+    let memoryInFlight = "";
+    const sendPendingMemory = () => {
+      if (!memoryEnabled || !acknowledgedSnapshot || memoryInFlight || socket.readyState !== WebSocket.OPEN) return;
+      try {
+        options.memory?.collect();
+        const event = options.memory?.next();
+        if (event) {
+          memoryInFlight = event.event_id;
+          socket.send(JSON.stringify(event));
+        }
+      } catch {
+        options.status?.("memory_capture_unavailable");
+      }
+    };
     const sendSnapshot = () => {
       if (!options.snapshot || socket.readyState !== WebSocket.OPEN) return;
       try {
@@ -144,6 +163,7 @@ function connectOnce(
       if (authenticated && socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ type: "heartbeat" }));
         sendSnapshot();
+        sendPendingMemory();
       }
     }, heartbeatMs);
     socket.on("open", () => {
@@ -160,10 +180,29 @@ function connectOnce(
         const message = JSON.parse(raw.toString()) as {
           type?: string;
           revision?: string;
+          event_id?: string;
+          retryable?: boolean;
+          capabilities?: string[];
         };
         if (message.type === "inventory_ack" && authenticated) {
           acknowledgedSnapshot = message.revision ?? "";
           options.status?.("connected");
+          sendPendingMemory();
+          return;
+        }
+        if (message.type === "memory_ack" && authenticated) {
+          if (message.event_id !== memoryInFlight) return;
+          options.memory?.acknowledge(memoryInFlight);
+          memoryInFlight = "";
+          lastAck = now();
+          sendPendingMemory();
+          return;
+        }
+        if (message.type === "memory_nack" && authenticated) {
+          if (message.event_id !== memoryInFlight) return;
+          if (!message.retryable) options.memory?.block(memoryInFlight);
+          memoryInFlight = "";
+          options.status?.(message.retryable ? "memory_storage_unavailable" : "memory_event_rejected");
           return;
         }
         if (message.type === "inventory_error" && authenticated) {
@@ -172,6 +211,7 @@ function connectOnce(
         }
         if (message.type === "ready" && !authenticated) {
           authenticated = true;
+          memoryEnabled = message.capabilities?.includes("memory_post_v1") ?? false;
           readyAt = now();
           options.log?.("Manabi connected.");
           options.status?.("connected");
@@ -213,6 +253,19 @@ function connectOnce(
 export async function runManabiDaemon(configPath: string): Promise<void> {
   if (!configPath) throw new Error("Missing Manabi configuration path");
   const diagnostics = new ManabiDiagnostics(configPath);
+  const memorySpool = new ManabiMemorySpool(join(dirname(configPath), "memory-spool.json"), homedir());
+  const collectMemory = () => {
+    try {
+      const config = JSON.parse(readFileSync(configPath, "utf8")) as ManabiConnection;
+      const inventory = readInventory(inventoryPath(configPath), config);
+      const result = memorySpool.collect(inventory.repositories);
+      if (result !== "ok") diagnostics.record(`memory_spool_${result}`);
+    } catch {
+      diagnostics.record("memory_capture_unavailable");
+    }
+  };
+  collectMemory();
+  const memoryTimer = setInterval(collectMemory, 10_000);
   let inventoryWarnings: { code: string; observed_at: string }[] = [];
   const controller = new AbortController();
   const stop = () => controller.abort();
@@ -221,6 +274,12 @@ export async function runManabiDaemon(configPath: string): Promise<void> {
   try {
     await runManabi({
       signal: controller.signal,
+      memory: {
+        collect: collectMemory,
+        next: () => memorySpool.next(),
+        acknowledge: (id) => memorySpool.acknowledge(id),
+        block: (id) => memorySpool.block(id),
+      },
       snapshot: () => {
         const config = JSON.parse(
           readFileSync(configPath, "utf8")
@@ -261,6 +320,7 @@ export async function runManabiDaemon(configPath: string): Promise<void> {
       log: () => {},
     });
   } finally {
+    clearInterval(memoryTimer);
     process.removeListener("SIGTERM", stop);
     process.removeListener("SIGINT", stop);
   }
