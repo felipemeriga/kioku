@@ -5,7 +5,7 @@ Run the worker with:
 
 Env vars:
     REDIS_URL (default redis://localhost:6379/0)
-    INGEST_WORKER_CONCURRENCY (default 10)
+    INGEST_WORKER_CONCURRENCY (default 3)
 """
 
 from __future__ import annotations
