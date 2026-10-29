@@ -61,7 +61,7 @@ function prompt(turn: CapturedTurn, previousSummary?: string): string {
     "Wrap file paths, directory paths, filenames, function names, and commands in Markdown backticks for readability.",
     "Distinguish completed work from proposals and failures. Do not invent facts. Do not include credentials, tokens or private URLs.",
     "Return only valid JSON with keys title, summary, bullets. Title: a short descriptive name for this coding session today. Summary: a concise cumulative summary of this session today, retaining prior meaningful outcomes and incorporating only new confirmed information. Bullets: 2-10 short Markdown bullet strings for this turn, each starting with '- '. No code fence or other text.",
-    "PREVIOUS SUMMARY FOR THIS SESSION TODAY:\n" + (previousSummary || "None yet."),
+    "PREVIOUS SUMMARY FOR THIS SAME SESSION (POSSIBLY FROM AN EARLIER DAY):\n" + (previousSummary || "None yet."),
     "ARCHIVED USER:\n" + redact(turn.user),
     "ARCHIVED ASSISTANT:\n" + redact(turn.assistant),
   ].join("\n\n");
@@ -146,12 +146,13 @@ export async function memoryWorker(agent: AgentName): Promise<void> {
     existsSync(path) && parseJournal(readFileSync(path, "utf8"))
       .some((entry) => entry.metadata.id === id));
   if (alreadyCaptured) return;
-  const previousSummary = await withJournalLock(path, () => {
-    if (!existsSync(path)) return undefined;
-    return parseJournal(readFileSync(path, "utf8"))
+  let previousSummary: string | undefined;
+  for (const recordedDay of listJournalDays(root).filter((value) => value <= day).sort((a, b) => b.localeCompare(a))) {
+    previousSummary = parseJournal(readFileSync(journalPath(root, recordedDay), "utf8"))
       .filter((entry) => entry.metadata.agent === agent && entry.metadata.session_id === turn.sessionId)
       .at(-1)?.metadata.session_summary;
-  });
+    if (previousSummary) break;
+  }
   const { bullets, title, summary } = summarize(turn, previousSummary);
   await withJournalLock(path, () => {
     const current = existsSync(path) ? readFileSync(path, "utf8") : journalHeader(day);
