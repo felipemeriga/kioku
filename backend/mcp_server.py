@@ -1796,6 +1796,61 @@ def get_agent_journal(folder: str, date: str) -> str:
 
 
 @mcp.tool()
+def list_agent_journal_days(folder: str, year: int) -> str:
+    """List days with agent activity in a repository for a calendar year.
+
+    Use this before get_agent_journal when the user asks what happened on a
+    date. Confirm the year when the user's date is ambiguous.
+    """
+    sb = get_supabase()
+    folder_id, error = _agent_journal_repo(sb, folder)
+    if error:
+        return json.dumps({"status": "error", "error": error})
+    if year < 2000 or year > 2100:
+        return json.dumps({"status": "error", "error": "Invalid year"})
+    rows = (
+        sb.table("agent_journal_days")
+        .select("journal_date,entry_count,agents")
+        .eq("user_id", _current_user_id.get())
+        .eq("folder_id", folder_id)
+        .gte("journal_date", f"{year}-01-01")
+        .lte("journal_date", f"{year}-12-31")
+        .order("journal_date", desc=True)
+        .limit(366)
+        .execute()
+        .data
+        or []
+    )
+    return json.dumps({"status": "ok", "days": rows})
+
+
+@mcp.tool()
+def get_repo_learnings(folder: str) -> str:
+    """Read current source-linked learnings, excluding retired conclusions.
+
+    Agent reports are not proof of implementation. A committed learning has
+    an exact SHA from its journal source that is present on the principal branch.
+    """
+    sb = get_supabase()
+    folder_id, error = _agent_journal_repo(sb, folder)
+    if error:
+        return json.dumps({"status": "error", "error": error})
+    rows = (
+        sb.table("repo_learnings")
+        .select("topic_key,statement,status,source_entries,git_sha,updated_at")
+        .eq("user_id", _current_user_id.get())
+        .eq("folder_id", folder_id)
+        .neq("status", "retired")
+        .order("updated_at", desc=True)
+        .limit(100)
+        .execute()
+        .data
+        or []
+    )
+    return json.dumps({"status": "ok", "learnings": rows})
+
+
+@mcp.tool()
 def sync_agent_journal(
     folder: str, date: str, markdown: str, base_revision: int, content_sha256: str
 ) -> str:

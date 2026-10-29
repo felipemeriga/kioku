@@ -1116,6 +1116,38 @@ def start_trigger_server() -> None:
     log(f"trigger server on :{TRIGGER_PORT}")
 
 
+def refresh_repo_learnings(repo: dict) -> None:
+    """Distill new journal entries against the locally checked-out principal HEAD."""
+    if not API_URL or not repo.get("api_key_encrypted"):
+        return
+    clone = DATA / repo["user_id"] / repo["folder_id"]
+    if not (clone / ".git").exists():
+        return
+    plain_env = {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "HOME": os.environ.get("HOME", "/root"),
+    }
+    code, head, _ = run_git(["rev-parse", "HEAD"], plain_env, cwd=str(clone))
+    if code != 0 or len(head) != 40:
+        return
+    code, out, _ = run_git(["log", "-80", "--format=%H"], plain_env, cwd=str(clone))
+    if code != 0:
+        return
+    response = requests.post(
+        f"{API_URL}/api/mihari/learnings",
+        headers={"Authorization": f"Bearer {decrypt(repo['api_key_encrypted'])}"},
+        json={"folder_id": repo["folder_id"], "head_sha": head, "main_commits": out.splitlines()},
+        timeout=120,
+    )
+    response.raise_for_status()
+    result = response.json()
+    if result.get("processed_entries"):
+        log(
+            f"{repo['remote_url']}: reviewed {result['processed_entries']} journal entries; "
+            f"updated {result['updated_learnings']} learnings"
+        )
+
+
 def main() -> int:
     repos = rest_get("watched_repos", {"select": "*", "order": "created_at"})
     if not repos:
@@ -1137,6 +1169,13 @@ def main() -> int:
         except Exception as exc:  # noqa: BLE001 — one repo must never kill the run
             failures += 1
             log(f"ERROR {repo['remote_url']}: {exc}")
+        # Journal capture continues between Git pushes. Review it on every pass,
+        # independently of whether process_repo found a new principal commit.
+        try:
+            refresh_repo_learnings(repo)
+        except Exception as exc:  # noqa: BLE001 — retry on the next pass
+            failures += 1
+            log(f"ERROR {repo['remote_url']}: learning review failed — {exc}")
     return 1 if failures else 0
 
 

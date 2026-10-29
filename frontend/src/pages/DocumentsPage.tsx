@@ -56,6 +56,7 @@ import IngestionDrawer from "../components/IngestionDrawer";
 import BriefingPanel from "../components/BriefingPanel";
 import DocumentationPanel from "../components/DocumentationPanel";
 import StatusPanel from "../components/StatusPanel";
+import LearningsPanel from "../components/LearningsPanel";
 import FolderIntegrationsDialog from "../components/FolderIntegrationsDialog";
 import NotionFolderIndicator from "../components/NotionFolderIndicator";
 import { useToast, messageFromError } from "../components/ToastProvider";
@@ -87,9 +88,9 @@ export default function DocumentsPage() {
     localStorage.setItem("kioku.documents.viewMode", viewMode);
   }, [viewMode]);
   const queryClient = useQueryClient();
-  const [folderTab, setFolderTab] = useState<"files" | "briefing" | "status">(
-    "files",
-  );
+  const [folderTab, setFolderTab] = useState<
+    "files" | "briefing" | "status" | "learnings"
+  >("files");
   const [viewerFile, setViewerFile] = useState<string | null>(null);
 
   // Folder navigation via URL search params (shared with ContextPanel)
@@ -593,6 +594,7 @@ export default function DocumentsPage() {
             <Tab value="files" label="Files" />
             <Tab value="briefing" label="Briefing" />
             <Tab value="status" label="Status" />
+            <Tab value="learnings" label="Learnings" />
           </Tabs>
         )}
 
@@ -877,6 +879,11 @@ export default function DocumentsPage() {
         {currentFolderIsRepo && folderTab === "status" && currentFolderId && (
           <StatusPanel folderId={currentFolderId} />
         )}
+        {currentFolderIsRepo &&
+          folderTab === "learnings" &&
+          currentFolderId && (
+            <LearningsPanel key={currentFolderId} folderId={currentFolderId} />
+          )}
 
         {/* Documents grid */}
         {(!currentFolderIsRepo || folderTab === "files") &&
