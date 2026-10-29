@@ -99,6 +99,9 @@ describe("LearningsPanel", () => {
       screen.getByRole("button", { name: /Fix cache invalidation/ }),
     );
     expect(
+      screen.getByRole("region", { name: "Session overview" }),
+    ).toHaveTextContent("Found the cache invalidation issue.");
+    expect(
       screen.getByRole("button", { name: /3 journal entries/ }),
     ).toHaveAttribute("aria-pressed", "true");
     expect(

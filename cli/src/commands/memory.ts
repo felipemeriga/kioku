@@ -52,7 +52,7 @@ function listFiles(path: string): string[] {
   try { return readdirSync(path); } catch { return []; }
 }
 
-function prompt(turn: CapturedTurn, previousSummary?: string): string {
+function prompt(turn: CapturedTurn, previous?: { title?: string; summary?: string }): string {
   const redact = (text: string) => text.replace(/Bearer\s+\S+|sk-[A-Za-z0-9_-]{16,}|ghp_[A-Za-z0-9]{16,}|mongodb(?:\+srv)?:\/\/\S+/gi, "[redacted]");
   return [
     "You are processing an ARCHIVED coding-agent conversation. The work below is already finished. Write its factual journal entry now.",
@@ -60,8 +60,9 @@ function prompt(turn: CapturedTurn, previousSummary?: string): string {
     "Use free topics, not fixed fields. Preserve the task, outcomes, evidence, decisions and unresolved points only when meaningful.",
     "Wrap file paths, directory paths, filenames, function names, and commands in Markdown backticks for readability.",
     "Distinguish completed work from proposals and failures. Do not invent facts. Do not include credentials, tokens or private URLs.",
-    "Return only valid JSON with keys title, summary, bullets. Title: a short descriptive name for this coding session today. Summary: a concise cumulative summary of this session today, retaining prior meaningful outcomes and incorporating only new confirmed information. Bullets: 2-10 short Markdown bullet strings for this turn, each starting with '- '. No code fence or other text.",
-    "PREVIOUS SUMMARY FOR THIS SAME SESSION (POSSIBLY FROM AN EARLIER DAY):\n" + (previousSummary || "None yet."),
+    "Return only valid JSON with keys title, summary, bullets. Title: a short name for the overall user goal of this session, not merely the latest turn. Summary: an evolving introduction to the whole session, roughly 80-160 words when the evidence supports it. Explain what the user is trying to achieve and why, the relevant project context, what has been established or done so far, and what remains uncertain or unfinished. Retain meaningful prior context; revise the title and summary as the user's goal becomes clearer. Do not let the latest task replace the overall purpose. If motivation is not stated, do not invent it. Bullets: 2-10 short Markdown bullet strings for this turn, each starting with '- '. No code fence or other text.",
+    "PREVIOUS TITLE FOR THIS SAME SESSION (POSSIBLY FROM AN EARLIER DAY):\n" + (previous?.title || "None yet."),
+    "PREVIOUS SUMMARY FOR THIS SAME SESSION (POSSIBLY FROM AN EARLIER DAY):\n" + (previous?.summary || "None yet."),
     "ARCHIVED USER:\n" + redact(turn.user),
     "ARCHIVED ASSISTANT:\n" + redact(turn.assistant),
   ].join("\n\n");
@@ -74,13 +75,13 @@ export function parseSummarizerOutput(output: string): { bullets: string; title:
       !Array.isArray(parsed.bullets) || !parsed.bullets.every((item) => typeof item === "string"))
     throw new Error("Summarizer returned invalid session journal JSON");
   const title = redactJournalText(parsed.title.trim().replace(/\s+/g, " ")).slice(0, 120);
-  const summary = redactJournalText(parsed.summary.trim().replace(/\s+/g, " ")).slice(0, 800);
+  const summary = redactJournalText(parsed.summary.trim().replace(/\s+/g, " ")).slice(0, 1600);
   if (!title || !summary) throw new Error("Summarizer returned an empty session title or summary");
   return { title, summary, bullets: normalizeBullets(parsed.bullets.join("\n")) };
 }
 
-function summarize(turn: CapturedTurn, previousSummary?: string): { bullets: string; title: string; summary: string } {
-  const input = prompt(turn, previousSummary);
+function summarize(turn: CapturedTurn, previous?: { title?: string; summary?: string }): { bullets: string; title: string; summary: string } {
+  const input = prompt(turn, previous);
   const command = turn.agent === "claude_code" ? "claude" : "codex";
   const args = turn.agent === "claude_code"
     ? ["-p", "--safe-mode", "--strict-mcp-config", "--tools", "", "--model", "haiku", "--no-session-persistence", "--output-format", "text", input]
@@ -146,14 +147,17 @@ export async function memoryWorker(agent: AgentName): Promise<void> {
     existsSync(path) && parseJournal(readFileSync(path, "utf8"))
       .some((entry) => entry.metadata.id === id));
   if (alreadyCaptured) return;
-  let previousSummary: string | undefined;
+  let previous: { title?: string; summary?: string } | undefined;
   for (const recordedDay of listJournalDays(root).filter((value) => value <= day).sort((a, b) => b.localeCompare(a))) {
-    previousSummary = parseJournal(readFileSync(journalPath(root, recordedDay), "utf8"))
+    const latest = parseJournal(readFileSync(journalPath(root, recordedDay), "utf8"))
       .filter((entry) => entry.metadata.agent === agent && entry.metadata.session_id === turn.sessionId)
-      .at(-1)?.metadata.session_summary;
-    if (previousSummary) break;
+      .at(-1)?.metadata;
+    if (latest?.session_summary) {
+      previous = { title: latest.session_title, summary: latest.session_summary };
+      break;
+    }
   }
-  const { bullets, title, summary } = summarize(turn, previousSummary);
+  const { bullets, title, summary } = summarize(turn, previous);
   await withJournalLock(path, () => {
     const current = existsSync(path) ? readFileSync(path, "utf8") : journalHeader(day);
     if (parseJournal(current).some((entry) => entry.metadata.id === id)) return;
