@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 type Run = (
   command: string,
-  args: string[]
+  args: string[],
 ) => { status: number | null; stdout: string; stderr: string };
 interface ServiceOptions {
   platform: string;
@@ -20,9 +20,13 @@ const xml = (value: string) =>
   value.replace(
     /[&<>"']/g,
     (c) =>
-      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" }[
-        c
-      ]!)
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&apos;",
+      })[c]!,
   );
 const ps = (value: string) => `'${value.replace(/'/g, "''")}'`;
 const unitArg = (value: string) =>
@@ -45,7 +49,7 @@ export function installManabiService(options: ServiceOptions): void {
   const checked = (command: string, args: string[]) => {
     if (run(command, args).status !== 0)
       throw new Error(
-        `Manabi startup failed (${command}). Check your user service manager, then re-run kioku init.`
+        `Manabi startup failed (${command}). Check your user service manager, then re-run kioku init.`,
       );
   };
   mkdirSync(root, { recursive: true, mode: 0o700 });
@@ -83,7 +87,7 @@ export function installManabiService(options: ServiceOptions): void {
         if (result.status === 0) break;
         if (result.status !== 5 || attempt === 4)
           throw new Error(
-            "Manabi startup failed (launchctl). Re-run kioku init in a macOS login session."
+            "Manabi startup failed (launchctl). Re-run kioku init in a macOS login session.",
           );
         Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
       }
@@ -106,7 +110,7 @@ StandardOutput=null
 StandardError=null
 [Install]
 WantedBy=default.target
-`
+`,
     );
     beforeStart();
     checked("systemctl", ["--user", "daemon-reload"]);
@@ -120,7 +124,7 @@ $identity=[System.Security.Principal.WindowsIdentity]::GetCurrent()
 $user=$identity.Name
 $taskName='KiokuManabi-'+$identity.User.Value
 $action=New-ScheduledTaskAction -Execute ${ps(executable)} -Argument ${ps(
-      actionArgs
+      actionArgs,
     )}
 $trigger=New-ScheduledTaskTrigger -AtLogOn -User $user
 $watchdog=New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 1)
@@ -128,9 +132,9 @@ $principal=New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunL
 $settings=New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 $existing=Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
 if ($existing -and (($existing.Actions.Execute -ne ${ps(
-      executable
+      executable,
     )}) -or ($existing.Actions.Arguments -ne ${ps(
-      actionArgs
+      actionArgs,
     )}))) { Stop-ScheduledTask -TaskName $taskName }
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger @($trigger,$watchdog) -Principal $principal -Settings $settings -Force | Out-Null
 Start-ScheduledTask -TaskName $taskName
@@ -144,4 +148,64 @@ Start-ScheduledTask -TaskName $taskName
     ]);
   } else
     throw new Error(`Manabi automatic startup is not supported on ${platform}`);
+}
+
+/** Stop auto-start without deleting connection state or service definitions. */
+export function pauseManabiService(options: {
+  platform: string;
+  home: string;
+  uid?: number;
+  run: Run;
+}): boolean {
+  const { platform, home, run } = options;
+  if (platform === "darwin") {
+    if (options.uid === undefined) return false;
+    const service = `gui/${options.uid}/com.kioku.manabi`;
+    const plist = join(
+      home,
+      "Library",
+      "LaunchAgents",
+      "com.kioku.manabi.plist",
+    );
+    const loaded = run("launchctl", ["print", service]).status === 0;
+    if (!loaded && !existsSync(plist)) return false;
+    if (loaded && run("launchctl", ["bootout", service]).status !== 0)
+      throw new Error("Could not stop the installed Manabi service");
+    if (run("launchctl", ["disable", service]).status !== 0)
+      throw new Error("Could not disable the installed Manabi service");
+    return true;
+  }
+  if (platform === "linux") {
+    const unit = join(
+      home,
+      ".config",
+      "systemd",
+      "user",
+      "kioku-manabi.service",
+    );
+    if (!existsSync(unit)) return false;
+    if (
+      run("systemctl", ["--user", "disable", "--now", "kioku-manabi.service"])
+        .status !== 0
+    )
+      throw new Error("Could not stop the installed Manabi service");
+    return true;
+  }
+  if (platform === "win32") {
+    const script = `$taskName='KiokuManabi-'+[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$task=Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+if ($task) { Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue; Disable-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null }
+`;
+    if (
+      run("powershell.exe", [
+        "-NoProfile",
+        "-NonInteractive",
+        "-EncodedCommand",
+        Buffer.from(script, "utf16le").toString("base64"),
+      ]).status !== 0
+    )
+      throw new Error("Could not disable the installed Manabi task");
+    return true;
+  }
+  return false;
 }

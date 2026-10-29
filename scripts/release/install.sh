@@ -23,11 +23,11 @@ chmod 755 "$tmp/$asset"
 "$tmp/$asset" --version
 bin=${KIOKU_INSTALL_DIR:-"$HOME/.local/bin"}
 mkdir -p "$bin"
-# Replace atomically on the destination filesystem, preserving a running daemon.
+# Replace atomically on the destination filesystem.
 cp "$tmp/$asset" "$bin/.kioku-install-$$"
 chmod 755 "$bin/.kioku-install-$$"
 mv -f "$bin/.kioku-install-$$" "$bin/kioku"
-"$bin/kioku" internal-manabi-refresh
+"$bin/kioku" internal-manabi-pause
 printf 'Installed Kioku %s to %s/kioku\n' "$version" "$bin"
 case ":$PATH:" in
   *":$bin:"*) ;;

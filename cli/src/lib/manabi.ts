@@ -26,7 +26,7 @@ import {
 } from "./manabi-inventory.js";
 import { VERSION } from "./version.js";
 import { registerManabi } from "./api.js";
-import { installManabiService } from "./manabi-service.js";
+import { installManabiService, pauseManabiService } from "./manabi-service.js";
 import { websocketUrl, type ManabiConnection } from "./manabi-client.js";
 
 // Bun release builds define this constant; normal Node/npm execution leaves it absent.
@@ -248,6 +248,15 @@ export async function refreshInstalledManabi(): Promise<boolean> {
     startManabiService(path, state);
   });
   return true;
+}
+
+export function pauseInstalledManabi(): boolean {
+  return pauseManabiService({
+    platform: process.platform,
+    home: homedir(),
+    uid: process.getuid?.(),
+    run: (command, args) => spawnSync(command, args, { encoding: "utf8" }),
+  });
 }
 
 async function installManabi(): Promise<void> {

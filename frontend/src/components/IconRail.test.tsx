@@ -17,7 +17,7 @@ describe("IconRail", () => {
     renderWithProviders(<IconRail {...defaultProps} />);
     expect(screen.getByTestId("nav-chat")).toBeInTheDocument();
     expect(screen.getByTestId("nav-documents")).toBeInTheDocument();
-    expect(screen.getByTestId("nav-remotes")).toBeInTheDocument();
+    expect(screen.queryByTestId("nav-remotes")).not.toBeInTheDocument();
     expect(screen.getByTestId("nav-settings")).toBeInTheDocument();
   });
 
@@ -43,25 +43,10 @@ describe("IconRail", () => {
         {...defaultProps}
         activePage="/documents"
         onTogglePanel={onTogglePanel}
-      />
+      />,
     );
     await user.click(screen.getByTestId("nav-documents"));
     expect(onTogglePanel).toHaveBeenCalled();
-  });
-
-  it("navigates to Remotes and highlights its active state", async () => {
-    const user = userEvent.setup();
-    const onNavigate = vi.fn();
-    const { rerender } = renderWithProviders(
-      <IconRail {...defaultProps} onNavigate={onNavigate} />
-    );
-    await user.click(screen.getByTestId("nav-remotes"));
-    expect(onNavigate).toHaveBeenCalledWith("/remotes");
-    rerender(<IconRail {...defaultProps} activePage="/remotes" />);
-    expect(screen.getByTestId("nav-remotes")).toHaveAttribute(
-      "data-active",
-      "true"
-    );
   });
 
   it("renders user avatar with first letter of email", () => {
