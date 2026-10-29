@@ -299,6 +299,34 @@ export function removeCodexCaptureHooks(): boolean {
   return true;
 }
 
+/** Retire Kioku's old global PostToolUse push hook; Mihari handles indexing. */
+export function removeCodexLegacyPostPushHook(): boolean {
+  const path = codexConfigPath();
+  if (!existsSync(path)) return false;
+  const cfg = loadConfig(path);
+  const hooks = cfg.hooks as TomlTable | undefined;
+  if (!Array.isArray(hooks?.PostToolUse)) return false;
+  const before = JSON.stringify(hooks.PostToolUse);
+  hooks.PostToolUse = (hooks.PostToolUse as unknown[]).flatMap((group) => {
+    if (!group || typeof group !== "object") return [group];
+    const record = group as TomlTable;
+    if (!Array.isArray(record.hooks)) return [group];
+    const remaining = record.hooks.filter((handler: unknown) => {
+      if (!handler || typeof handler !== "object") return true;
+      const command = (handler as TomlTable).command;
+      return !(
+        typeof command === "string" &&
+        isSubcommand(command, SUB_POST_PUSH) &&
+        /kioku/i.test(command)
+      );
+    });
+    return remaining.length ? [{ ...record, hooks: remaining }] : [];
+  });
+  if (JSON.stringify(hooks.PostToolUse) === before) return false;
+  writeConfig(path, cfg);
+  return true;
+}
+
 /** PostToolUse hook scoped to the shell (Bash) tool. `kioku on-push` filters
  *  for a `git push` command and, when found, nudges the SAME Codex session to
  *  refresh the repo's stored `activity` briefing from the newly-pushed commits.

@@ -8,6 +8,7 @@ import {
   installCodexSessionStartHook,
   installCodexMemoryCaptureHook,
   removeCodexCaptureHooks,
+  removeCodexLegacyPostPushHook,
   installCodexPostPushHook,
   readCodexMcpEntry,
   toStreamableHttpUrl,
@@ -172,6 +173,27 @@ test("re-installing the push hook is idempotent (no duplicates)", () => {
     assert.equal(cfg.hooks.PostToolUse.length, 1);
     assert.equal(cfg.hooks.PostToolUse[0].hooks.length, 1);
     assert.equal(cfg.hooks.PostToolUse[0].matcher, "Bash");
+  } finally {
+    cleanup();
+  }
+});
+
+test("init removes only the retired Kioku Codex push hook", () => {
+  const { path, cleanup } = setup();
+  try {
+    writeFileSync(
+      path,
+      `[[hooks.PostToolUse]]\nmatcher = "Bash"\n[[hooks.PostToolUse.hooks]]\ntype = "command"\ncommand = "'/old/@felipemeriga/kioku/dist/index.js' on-push"\n[[hooks.PostToolUse.hooks]]\ntype = "command"\ncommand = "other-tool on-push"\n`,
+    );
+    assert.equal(removeCodexLegacyPostPushHook(), true);
+    assert.equal(removeCodexLegacyPostPushHook(), false);
+    const cfg = parseToml(readFileSync(path, "utf8")) as any;
+    assert.equal(cfg.hooks.PostToolUse.length, 1);
+    assert.equal(cfg.hooks.PostToolUse[0].hooks.length, 1);
+    assert.equal(
+      cfg.hooks.PostToolUse[0].hooks[0].command,
+      "other-tool on-push",
+    );
   } finally {
     cleanup();
   }
