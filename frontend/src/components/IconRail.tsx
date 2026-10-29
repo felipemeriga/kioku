@@ -14,7 +14,6 @@ import {
 } from "@mui/material";
 import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
 import FolderOpenIcon from "@mui/icons-material/FolderOpen";
-import DevicesIcon from "@mui/icons-material/Devices";
 import SettingsIcon from "@mui/icons-material/Settings";
 import LogoutIcon from "@mui/icons-material/Logout";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
@@ -42,12 +41,6 @@ const items = [
     testId: "nav-documents",
   },
   {
-    page: "/remotes",
-    icon: <DevicesIcon fontSize="small" />,
-    label: "Remotes",
-    testId: "nav-remotes",
-  },
-  {
     page: "/settings",
     icon: <SettingsIcon fontSize="small" />,
     label: "Settings",
@@ -67,7 +60,7 @@ export default function IconRail({
   const [userCollapsed, setCollapsed] = useState(
     () =>
       typeof localStorage !== "undefined" &&
-      localStorage.getItem("kioku:rail-collapsed") === "1"
+      localStorage.getItem("kioku:rail-collapsed") === "1",
   );
   const collapsed = compact || userCollapsed;
   const toggle = () =>

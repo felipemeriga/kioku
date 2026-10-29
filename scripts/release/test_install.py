@@ -70,7 +70,7 @@ class InstallerTests(unittest.TestCase):
                 self.assertIn("/cli-v" + expected_version + "/", requests.read_text())
                 self.assertEqual(
                     calls.read_text().splitlines(),
-                    ["--version", "internal-manabi-refresh"],
+                    ["--version", "internal-manabi-pause"],
                 )
             if any(char in version for char in ("/", "?", ";", "\n", "\r")):
                 self.assertFalse(requests.exists())

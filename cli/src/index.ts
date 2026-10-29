@@ -194,12 +194,12 @@ program
   });
 
 program
-  .command("internal-manabi-refresh", { hidden: true })
-  .description("Refresh an installed Manabi service after a CLI update")
+  .command("internal-manabi-pause", { hidden: true })
+  .description("Pause a previously installed Manabi service")
   .action(async () => {
     try {
-      const { refreshInstalledManabi } = await import("./lib/manabi.js");
-      await refreshInstalledManabi();
+      const { pauseInstalledManabi } = await import("./lib/manabi.js");
+      pauseInstalledManabi();
     } catch (error) {
       printError(error);
       process.exitCode = 1;
