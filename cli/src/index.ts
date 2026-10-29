@@ -193,6 +193,19 @@ program
   });
 
 program
+  .command("internal-manabi-refresh", { hidden: true })
+  .description("Refresh an installed Manabi service after a CLI update")
+  .action(async () => {
+    try {
+      const { refreshInstalledManabi } = await import("./lib/manabi.js");
+      await refreshInstalledManabi();
+    } catch (error) {
+      printError(error);
+      process.exitCode = 1;
+    }
+  });
+
+program
   .command("session-start")
   .description("Fetch a compact briefing (used by the SessionStart hook)")
   .action(async () => {

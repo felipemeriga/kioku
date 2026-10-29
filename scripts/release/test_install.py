@@ -14,9 +14,12 @@ class InstallerTests(unittest.TestCase):
             tools = root / "tools"
             tools.mkdir()
             marker = root / "executed"
+            calls = root / "calls"
             requests = root / "requests"
             payload = root / "payload"
-            payload.write_text(f'#!/bin/sh\ntouch "{marker}"\necho kioku-test\n')
+            payload.write_text(
+                f'#!/bin/sh\ntouch "{marker}"\necho "$1" >> "{calls}"\necho kioku-test\n'
+            )
             checksum = (
                 hashlib.sha256(payload.read_bytes()).hexdigest() if valid else "0" * 64
             )
@@ -65,6 +68,10 @@ class InstallerTests(unittest.TestCase):
             if valid:
                 expected_version = version or "1.2.3"
                 self.assertIn("/cli-v" + expected_version + "/", requests.read_text())
+                self.assertEqual(
+                    calls.read_text().splitlines(),
+                    ["--version", "internal-manabi-refresh"],
+                )
             if any(char in version for char in ("/", "?", ";", "\n", "\r")):
                 self.assertFalse(requests.exists())
             if valid and not install_dir:

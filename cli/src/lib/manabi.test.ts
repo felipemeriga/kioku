@@ -109,17 +109,18 @@ for (const platform of ["darwin", "linux", "win32"]) {
     try {
       installManabiService(options);
       installManabiService(options);
-      assert.equal(started, 2);
+      installManabiService({ ...options, executable: "/new/kioku" });
+      assert.equal(started, 3);
       if (platform === "darwin") {
         const plist = readFileSync(
           join(root, "Library/LaunchAgents/com.kioku.manabi.plist"),
           "utf8"
         );
         assert.match(plist, /KeepAlive/);
-        assert.match(plist, /node path/);
+        assert.match(plist, /\/new\/kioku/);
         assert.equal(
           calls.filter((call) => call.args[0] === "bootstrap").length,
-          1
+          2
         );
       } else if (platform === "linux") {
         const unit = readFileSync(
@@ -128,10 +129,10 @@ for (const platform of ["darwin", "linux", "win32"]) {
         );
         assert.match(unit, /Restart=always/);
         assert.match(unit, /StartLimitIntervalSec=0/);
-        assert.match(unit, /ExecStart="\/node path\/node"/);
+        assert.match(unit, /ExecStart="\/new\/kioku"/);
         assert.equal(
           calls.filter((call) => call.args.includes("restart")).length,
-          1
+          2
         );
       } else {
         const script = Buffer.from(calls[0].args.at(-1)!, "base64").toString(
