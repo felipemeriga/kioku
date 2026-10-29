@@ -11,7 +11,6 @@ import CliAuthPage from "./pages/CliAuthPage";
 import ChatPage from "./pages/ChatPage";
 import DocumentsPage from "./pages/DocumentsPage";
 import SettingsPage from "./pages/SettingsPage";
-import RemotesPage from "./pages/RemotesPage";
 
 function App() {
   return (
@@ -39,16 +38,6 @@ function App() {
                     <ProtectedRoute>
                       <AppLayout>
                         <DocumentsPage />
-                      </AppLayout>
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/remotes"
-                  element={
-                    <ProtectedRoute>
-                      <AppLayout>
-                        <RemotesPage />
                       </AppLayout>
                     </ProtectedRoute>
                   }

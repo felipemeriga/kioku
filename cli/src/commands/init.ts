@@ -4,7 +4,6 @@ import { confirm, input, select } from "@inquirer/prompts";
 import kleur from "kleur";
 import {
   ApiError,
-  ownsRepoBinding,
   createFolder,
   listChildren,
   mintScopedApiKey,
@@ -44,12 +43,7 @@ import { getRootKey, saveRootKey } from "../lib/root-keys.js";
 import { bad, info, ok, section, step, warn } from "../lib/banner.js";
 import { panel } from "../ui/panel.js";
 import { generateInstruction } from "./session-start.js";
-import {
-  knownProjectPaths,
-  configuredAgents,
-} from "../lib/manabi-discovery.js";
-import { readFileSync } from "node:fs";
-import { ensureManabi, registerManabiRepo } from "../lib/manabi.js";
+import { pauseInstalledManabi } from "../lib/manabi.js";
 import { openCmd } from "./open.js";
 
 type Agent = "claude" | "codex";
@@ -128,6 +122,8 @@ async function createOrAttach(name: string, parentId: string): Promise<Folder> {
 
 export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
   const repoRoot = resolve(cwd);
+  // Stop services installed by older releases even if this init exits early.
+  pauseInstalledManabi();
   if (!isLoggedIn()) {
     warn("Not signed in yet.", "Run: kioku login");
     process.exitCode = 1;
@@ -478,42 +474,6 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
   if (gi.changed) {
     ok(".gitignore updated (secrets excluded)");
   }
-
-  // Record only explicit Kioku bindings, including paths in provider project indexes.
-  await registerManabiRepo({
-    path: repoRoot,
-    folder_id: repoFolder.id,
-    name: repoFolder.name,
-    agents: [agent, ...configuredAgents(repoRoot)],
-  });
-  for (const path of knownProjectPaths()) {
-    if (path === repoRoot) continue;
-    try {
-      const binding = JSON.parse(
-        readFileSync(resolve(path, ".claude", "kioku-state.json"), "utf8")
-      );
-      const agents = configuredAgents(path);
-      if (
-        typeof binding.folder_id === "string" &&
-        agents.length &&
-        (await ownsRepoBinding(binding.folder_id))
-      )
-        await registerManabiRepo({
-          path,
-          folder_id: binding.folder_id,
-          name: binding.folder_name ?? basename(path),
-          agents,
-        });
-    } catch {
-      /* A provider project index is a hint, never proof of a Kioku binding. */
-    }
-  }
-
-  // One supervised Manabi connection per machine; every init repairs its setup.
-  await step("Starting Manabi", ensureManabi);
-  ok(
-    "Manabi installed for automatic startup. Connection status is in Remotes."
-  );
 
   // Step 9: initial code-graph index so agents query structure instead of
   //         grepping. Auto-installs the extractor if missing, seeds the

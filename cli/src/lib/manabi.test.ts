@@ -1,6 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+  rmSync,
+  mkdirSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -15,6 +21,34 @@ import {
   writeManabiConfig,
 } from "./manabi.js";
 import { installManabiService } from "./manabi-service.js";
+import { pauseManabiService } from "./manabi-service.js";
+
+test("pausing Manabi stops automatic startup while preserving service files", () => {
+  const home = mkdtempSync(join(tmpdir(), "manabi-pause-"));
+  const unit = join(home, ".config", "systemd", "user", "kioku-manabi.service");
+  const calls: string[] = [];
+  try {
+    mkdirSync(join(home, ".config", "systemd", "user"), { recursive: true });
+    writeFileSync(unit, "[Unit]\nDescription=Manabi\n");
+    assert.equal(
+      pauseManabiService({
+        platform: "linux",
+        home,
+        run: (command, args) => {
+          calls.push([command, ...args].join(" "));
+          return { status: 0, stdout: "", stderr: "" };
+        },
+      }),
+      true,
+    );
+    assert.deepEqual(calls, [
+      "systemctl --user disable --now kioku-manabi.service",
+    ]);
+    assert.ok(readFileSync(unit, "utf8").includes("Manabi"));
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
 import { reconnectDelay, runManabi, websocketUrl } from "./manabi-client.js";
 
 test("identity is reused across repositories and separated by account/backend", () => {
@@ -25,15 +59,15 @@ test("identity is reused across repositories and separated by account/backend", 
     writeManabiConfig(path, first);
     assert.deepEqual(
       loadOrCreateIdentity(path, first.api_base, "user-a"),
-      first
+      first,
     );
     assert.notEqual(
       loadOrCreateIdentity(path, first.api_base, "user-b").id,
-      first.id
+      first.id,
     );
     assert.notEqual(
       loadOrCreateIdentity(path, "https://other.example", "user-a").id,
-      first.id
+      first.id,
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -51,8 +85,8 @@ test("concurrent init installations are serialized", async () => {
           peak = Math.max(peak, ++active);
           await sleep(20);
           active--;
-        })
-      )
+        }),
+      ),
     );
     assert.equal(peak, 1);
   } finally {
@@ -63,23 +97,23 @@ test("concurrent init installations are serialized", async () => {
 test("reconnection delay grows exponentially, jitters and caps", () => {
   assert.equal(
     reconnectDelay(0, () => 0),
-    500
+    500,
   );
   assert.equal(
     reconnectDelay(1, () => 1),
-    2000
+    2000,
   );
   assert.equal(
     reconnectDelay(20, () => 1),
-    60_000
+    60_000,
   );
   assert.equal(
     reconnectDelay(1000, () => 0),
-    30_000
+    30_000,
   );
   assert.equal(
     websocketUrl("https://example.com"),
-    "wss://example.com/api/remotes/connect"
+    "wss://example.com/api/remotes/connect",
   );
   assert.throws(() => websocketUrl("http://example.com"));
   assert.throws(() => websocketUrl("https://user:secret@example.com"));
@@ -114,29 +148,29 @@ for (const platform of ["darwin", "linux", "win32"]) {
       if (platform === "darwin") {
         const plist = readFileSync(
           join(root, "Library/LaunchAgents/com.kioku.manabi.plist"),
-          "utf8"
+          "utf8",
         );
         assert.match(plist, /KeepAlive/);
         assert.match(plist, /\/new\/kioku/);
         assert.equal(
           calls.filter((call) => call.args[0] === "bootstrap").length,
-          2
+          2,
         );
       } else if (platform === "linux") {
         const unit = readFileSync(
           join(root, ".config/systemd/user/kioku-manabi.service"),
-          "utf8"
+          "utf8",
         );
         assert.match(unit, /Restart=always/);
         assert.match(unit, /StartLimitIntervalSec=0/);
         assert.match(unit, /ExecStart="\/new\/kioku"/);
         assert.equal(
           calls.filter((call) => call.args.includes("restart")).length,
-          2
+          2,
         );
       } else {
         const script = Buffer.from(calls[0].args.at(-1)!, "base64").toString(
-          "utf16le"
+          "utf16le",
         );
         assert.match(script, /IgnoreNew/);
         assert.match(script, /RepetitionInterval/);
@@ -165,7 +199,7 @@ test("service installation failure is surfaced instead of claiming Manabi starte
           beforeStart: () =>
             assert.fail("must not write config without user service manager"),
         }),
-      /startup failed/
+      /startup failed/,
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -373,10 +407,10 @@ test("inventory snapshots deduplicate until changed and resend after reconnect",
         assert.equal(message.revision.length, 64);
         assert.equal(
           JSON.stringify(message.data).includes(config.secret),
-          false
+          false,
         );
         socket.send(
-          JSON.stringify({ type: "inventory_ack", revision: message.revision })
+          JSON.stringify({ type: "inventory_ack", revision: message.revision }),
         );
         if (received === 2) socket.terminate();
         else if (received === 3) controller.abort();

@@ -26,8 +26,8 @@ try {
     $bin = if ($env:KIOKU_INSTALL_DIR) { $env:KIOKU_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'Programs\Kioku' }
     New-Item -ItemType Directory -Path $bin -Force | Out-Null
     Move-Item $binary (Join-Path $bin 'kioku.exe') -Force
-    & (Join-Path $bin 'kioku.exe') internal-manabi-refresh
-    if ($LASTEXITCODE -ne 0) { throw 'Kioku installed, but Manabi could not be refreshed. Run kioku init to repair it.' }
+    & (Join-Path $bin 'kioku.exe') internal-manabi-pause
+    if ($LASTEXITCODE -ne 0) { throw 'Kioku installed, but the old Manabi service could not be stopped.' }
     $path = [Environment]::GetEnvironmentVariable('Path', 'User')
     if (($path -split ';') -notcontains $bin) { [Environment]::SetEnvironmentVariable('Path', "$path;$bin", 'User') }
     Write-Host "Installed Kioku $version. Open a new terminal to use kioku."
