@@ -3,11 +3,11 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { journalHeader, mergeJournals, parseJournal, parseTurn, renderEntry, withJournalLock, writeJournalAtomic } from "./agent-journal.js";
+import { journalHeader, localDateTime, mergeJournals, parseJournal, parseTurn, renderEntry, withJournalLock, writeJournalAtomic } from "./agent-journal.js";
 import { installClaudeMemoryCaptureHook } from "./claude.js";
 
 const day = "2026-10-29";
-const timestamp = "2026-10-29T10:00:00-03:00";
+const timestamp = Date.parse("2026-10-29T10:00:00-03:00");
 
 test("Claude and Codex native transcript shapes produce identifiable turns", () => {
   const dir = mkdtempSync(join(tmpdir(), "kioku-journal-parser-"));
@@ -33,6 +33,7 @@ test("daily merge keeps both agents and ignores replay", () => {
   const x = { agent: "codex" as const, sessionId: "x1", turnId: "t2", user: "a", assistant: "b" };
   const first = journalHeader(day) + renderEntry(c, "- Started task\n- Completed task", timestamp);
   assert.ok(parseJournal(first)[0].metadata.computer_name);
+  assert.equal(parseJournal(first)[0].metadata.captured_at, timestamp);
   const second = journalHeader(day) + renderEntry(x, "- Found issue\n- Fixed issue", timestamp);
   const merged = mergeJournals(day, first, second);
   assert.equal(parseJournal(merged).length, 2);
@@ -44,6 +45,18 @@ test("daily merge keeps both agents and ignores replay", () => {
   assert.equal(parseJournal(sessionEntry)[0].metadata.session_title, "Build session timeline");
   const olderLocal = first.replace("Started task", "Tarefa iniciada");
   assert.equal(mergeJournals(day, first, olderLocal), first);
+});
+
+test("UTC journal date and mixed legacy entries preserve instant ordering", () => {
+  assert.deepEqual(localDateTime(new Date("2026-10-30T00:30:00+14:00")), {
+    day: "2026-10-29", timestamp: Date.parse("2026-10-30T00:30:00+14:00"),
+  });
+  const turn = { agent: "codex" as const, sessionId: "s", turnId: "new", user: "a", assistant: "b" };
+  const newEntry = renderEntry(turn, "- New task\n- Completed task", Date.parse("2026-10-29T02:00:00Z"));
+  const oldEntry = renderEntry({ ...turn, turnId: "old" }, "- Old task\n- Completed task", Date.parse("2026-10-29T01:00:00Z"))
+    .replace(/"captured_at":\d+/, '"captured_at":"2026-10-28T22:00:00-03:00"');
+  const merged = mergeJournals("2026-10-29", journalHeader(day) + newEntry, journalHeader(day) + oldEntry);
+  assert.deepEqual(parseJournal(merged).map((entry) => entry.metadata.turn_id), ["old", "new"]);
 });
 
 test("journal lock serializes concurrent writers", async () => {

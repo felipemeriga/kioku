@@ -2,11 +2,19 @@
 
 import hashlib
 import json
+from datetime import date
 from unittest.mock import MagicMock, patch
+from zoneinfo import ZoneInfo
 
 import pytest
 
-from services.agent_journal import inspect_journal, journal_sessions
+from services.agent_journal import (
+    inspect_journal,
+    journal_sessions,
+    local_journal_day,
+    local_journal_days,
+    read_journals_in_range,
+)
 
 DAY = "2026-10-29"
 META = {
@@ -57,6 +65,62 @@ def test_journal_sessions_groups_turns_and_uses_latest_summary():
     assert sessions[0]["entry_count"] == 2
     assert sessions[0]["title"] == "Fix retry handling"
     assert sessions[0]["summary"] == "Checked retry paths and fixed NotFound recovery."
+
+
+def test_epoch_journals_project_adjacent_utc_days_into_viewer_day():
+    first_ms = 1793316600000  # 2026-10-29 23:30 UTC
+    second_ms = 1793320200000  # 2026-10-30 00:30 UTC
+    first = {**META, "captured_at": first_ms}
+    second = {**META, "id": "codex:session:turn2", "turn_id": "turn2", "captured_at": second_ms}
+    journals = [
+        {
+            "journal_date": "2026-10-29",
+            "revision": 1,
+            "markdown": (
+                f"# Kioku agent journal — 2026-10-29\n\n## {first_ms} — Codex\n"
+                f"<!-- kioku-entry: {json.dumps(first)} -->\n\n- First\n\n"
+            ),
+        },
+        {
+            "journal_date": "2026-10-30",
+            "revision": 2,
+            "markdown": (
+                f"# Kioku agent journal — 2026-10-30\n\n## {second_ms} — Codex\n"
+                f"<!-- kioku-entry: {json.dumps(second)} -->\n\n- Second\n\n"
+            ),
+        },
+    ]
+    assert inspect_journal(journals[0]["markdown"], "2026-10-29")["entry_count"] == 1
+    assert inspect_journal(journals[1]["markdown"], "2026-10-30")["entry_count"] == 1
+    tz = ZoneInfo("America/Sao_Paulo")
+    days = local_journal_days(journals, tz, 2026, 10)
+    assert days == [
+        {"journal_date": "2026-10-29", "revision": 2, "entry_count": 2, "agents": ["codex"]}
+    ]
+    result = local_journal_day(journals, tz, date(2026, 10, 29))
+    assert result["status"] == "ok"
+    assert result["sessions"][0]["entry_count"] == 2
+    assert result["markdown"].index("- First") < result["markdown"].index("- Second")
+
+
+def test_legacy_writer_day_can_be_two_days_from_viewer_day():
+    old = {**META, "captured_at": "2026-10-29T23:30:00-12:00"}
+    source = journal(old)
+    journals = [{"journal_date": "2026-10-29", "revision": 1, "markdown": source}]
+    days = local_journal_days(journals, ZoneInfo("Pacific/Kiritimati"), 2026, 10)
+    assert [day["journal_date"] for day in days] == ["2026-10-31"]
+
+
+def test_local_day_lookup_includes_two_adjacent_source_dates():
+    sb = MagicMock()
+    chain = sb.table.return_value
+    for method in ("select", "eq", "eq"):
+        chain = getattr(chain, method).return_value
+    after_range = chain.gte.return_value.lte.return_value
+    after_range.order.return_value.limit.return_value.execute.return_value.data = []
+    read_journals_in_range(sb, "u", "repo", date(2026, 10, 31), date(2026, 10, 31))
+    chain.gte.assert_called_once_with("journal_date", "2026-10-29")
+    chain.gte.return_value.lte.assert_called_once_with("journal_date", "2026-11-02")
 
 
 @pytest.mark.parametrize(

@@ -12,7 +12,10 @@ const today = new Date();
 const day = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 const codexSession = "019a7150-5887-7000-8000-123456789abc";
 const claudeSession = "b9423292-d451-4d8c-a145-681df11a46d9";
-const markdown = `# Kioku agent journal — ${day}\n\n## 10:15 — Codex\n<!-- kioku-entry: {"id":"codex:${codexSession}:t","agent":"codex","session_id":"${codexSession}"} -->\n\n- Found the cache invalidation issue.\n\n## 09:20 — Claude Code\n<!-- kioku-entry: {"id":"claude_code:${claudeSession}:t","agent":"claude_code","session_id":"${claudeSession}"} -->\n\n- Claude checked the same folder.\n\n## 11:00 — Claude Code\n<!-- kioku-entry: {"id":"claude_code:kioku-e2e:t","agent":"claude_code","session_id":"kioku-e2e"} -->\n\n- Synthetic E2E entry.\n`;
+const codexTime = new Date(`${day}T10:15:00`).getTime();
+const claudeTime = new Date(`${day}T09:20:00`).getTime();
+const syntheticTime = new Date(`${day}T11:00:00`).getTime();
+const markdown = `# Kioku agent journal — ${day}\n\n## ${codexTime} — Codex\n<!-- kioku-entry: {"id":"codex:${codexSession}:t","agent":"codex","session_id":"${codexSession}","captured_at":${codexTime}} -->\n\n- Found the cache invalidation issue.\n\n## 09:20 — Claude Code\n<!-- kioku-entry: {"id":"claude_code:${claudeSession}:t","agent":"claude_code","session_id":"${claudeSession}","captured_at":"${new Date(claudeTime).toISOString()}"} -->\n\n- Claude checked the same folder.\n\n## 11:00 — Claude Code\n<!-- kioku-entry: {"id":"claude_code:kioku-e2e:t","agent":"claude_code","session_id":"kioku-e2e","captured_at":${syntheticTime}} -->\n\n- Synthetic E2E entry.\n`;
 
 describe("LearningsPanel", () => {
   beforeEach(() => {
@@ -48,8 +51,8 @@ describe("LearningsPanel", () => {
                   summary: "Found the cache invalidation issue.",
                   computer_name: "Felipe MacBook",
                   entry_count: 1,
-                  first_time: "10:15",
-                  last_time: "10:15",
+                  first_time: codexTime,
+                  last_time: codexTime,
                 },
                 {
                   agent: "claude_code",
@@ -58,8 +61,8 @@ describe("LearningsPanel", () => {
                   summary: "Checked the same folder.",
                   computer_name: "",
                   entry_count: 1,
-                  first_time: "09:20",
-                  last_time: "09:20",
+                  first_time: claudeTime,
+                  last_time: claudeTime,
                 },
                 {
                   agent: "claude_code",
@@ -68,8 +71,8 @@ describe("LearningsPanel", () => {
                   summary: "",
                   computer_name: "",
                   entry_count: 1,
-                  first_time: "11:00",
-                  last_time: "11:00",
+                  first_time: syntheticTime,
+                  last_time: syntheticTime,
                 },
               ],
             }

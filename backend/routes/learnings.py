@@ -1,12 +1,19 @@
 """Read-only repository journal and current-learning views for the web UI."""
 
+from calendar import monthrange
 from datetime import date
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from auth import get_current_user
 from db.client import get_supabase_thread_safe
-from services.agent_journal import read_journal
+from services.agent_journal import (
+    local_journal_day,
+    local_journal_days,
+    read_journal,
+    read_journals_in_range,
+)
 
 router = APIRouter(prefix="/api/folders", tags=["learnings"])
 
@@ -28,10 +35,25 @@ def _repo(sb, folder_id: str, user_id: str) -> None:
 
 @router.get("/{folder_id}/learning-days")
 def learning_days(
-    folder_id: str, year: int = Query(ge=2000, le=2100), user_id: str = Depends(get_current_user)
+    folder_id: str,
+    year: int = Query(ge=2000, le=2100),
+    month: int | None = Query(default=None, ge=1, le=12),
+    timezone: str | None = None,
+    user_id: str = Depends(get_current_user),
 ):
     sb = get_supabase_thread_safe()
     _repo(sb, folder_id, user_id)
+    if timezone is not None:
+        if month is None:
+            raise HTTPException(status_code=422, detail="Month is required with timezone")
+        try:
+            tz = ZoneInfo(timezone)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail="Invalid timezone") from exc
+        first = date(year, month, 1)
+        last = date(year, month, monthrange(year, month)[1])
+        journals = read_journals_in_range(sb, user_id, folder_id, first, last)
+        return {"days": local_journal_days(journals, tz, year, month)}
     rows = (
         sb.table("agent_journal_days")
         .select("journal_date,revision,entry_count,agents,first_entry_at,last_entry_at")
@@ -49,13 +71,25 @@ def learning_days(
 
 
 @router.get("/{folder_id}/learning-days/{journal_date}")
-def learning_day(folder_id: str, journal_date: str, user_id: str = Depends(get_current_user)):
+def learning_day(
+    folder_id: str,
+    journal_date: str,
+    timezone: str | None = None,
+    user_id: str = Depends(get_current_user),
+):
     try:
-        date.fromisoformat(journal_date)
+        target = date.fromisoformat(journal_date)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="Invalid date") from exc
     sb = get_supabase_thread_safe()
     _repo(sb, folder_id, user_id)
+    if timezone is not None:
+        try:
+            tz = ZoneInfo(timezone)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail="Invalid timezone") from exc
+        journals = read_journals_in_range(sb, user_id, folder_id, target, target)
+        return local_journal_day(journals, tz, target)
     return read_journal(sb, user_id, folder_id, journal_date)
 
 
