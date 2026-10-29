@@ -4,7 +4,7 @@ A successful **CI push run on main** starts Release when repository variable
 `KIOKU_RELEASE_ENABLED` is exactly `true`. Unset or `false` keeps production
 release preparation disabled, before any version commit, build, or Hive write.
 Pull requests cannot release.
-Release creates a patch version only for affected packages, commits their manifests
+Release versions only affected packages, commits their manifests
 and lockfiles, validates that exact commit through CI (and retrieval evaluation
 for backend changes), then builds container images on Docker Build Cloud. Native
 CLI executables are built and smoke-tested on their target operating systems.
@@ -83,9 +83,13 @@ Compose configuration are preserved.
 ## Versions and change detection
 
 Default policy: increment **patch** for each affected package on every main
-release. This avoids requiring a second release-PR merge. Intentional major/minor
-changes can update the package's manifest before merging; automation then applies
-the patch increment. Independent MCP/Mihari versions live in `.release/versions.json`;
+release. Label a PR `release:minor` for a backward compatible feature or
+`release:major` for a breaking change. The planner applies the highest level
+from merged PRs since the last successful deployment to each package touched
+by those PRs. Direct pushes and unlabeled PRs default to patch. A major plan
+waits for `felipemeriga` to approve the `major-release` GitHub environment
+before promotion; configure that environment with `felipemeriga` as a required
+reviewer. Independent MCP/Mihari versions live in `.release/versions.json`;
 frontend/CLI use package.json + package-lock.json, backend uses pyproject + uv.lock.
 The CLI's displayed version is kept in sync. No npm publishing token is needed.
 

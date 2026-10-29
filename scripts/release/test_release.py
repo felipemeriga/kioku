@@ -4,7 +4,15 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from release import affected, build_matrix, bump, bump_packages, prepare, update_hive
+from release import (
+    affected,
+    build_matrix,
+    bump,
+    bump_packages,
+    prepare,
+    release_levels,
+    update_hive,
+)
 
 
 class ReleaseTests(unittest.TestCase):
@@ -78,6 +86,66 @@ class ReleaseTests(unittest.TestCase):
     def test_invalid_version_rejected(self):
         with self.assertRaises(ValueError):
             bump("1.0.0-beta")
+
+    def test_release_levels_and_semver_bumps(self):
+        self.assertEqual(bump("1.2.3"), "1.2.4")
+        self.assertEqual(bump("1.2.3", "minor"), "1.3.0")
+        self.assertEqual(bump("1.2.3", "major"), "2.0.0")
+        with self.assertRaises(ValueError):
+            bump("1.2.3", "unknown")
+
+    def test_merged_pr_labels_apply_only_to_affected_packages(self):
+        commits = "a\tMerge pull request #42 from user/feature\nb\tDirect fix"
+        pr = {
+            "merge_commit_sha": "a",
+            "base": {"ref": "main"},
+            "labels": [{"name": "release:minor"}],
+        }
+        with (
+            patch.dict("release.os.environ", {"GITHUB_REPOSITORY": "owner/kioku"}),
+            patch(
+                "release.git",
+                side_effect=[commits, "frontend/src/App.tsx", "backend/api.py"],
+            ),
+            patch(
+                "release.subprocess.check_output", return_value=json.dumps(pr)
+            ) as api,
+        ):
+            levels = release_levels("deployed", "head", ["frontend", "backend", "mcp"])
+        self.assertEqual(
+            levels, {"frontend": "minor", "backend": "patch", "mcp": "patch"}
+        )
+        api.assert_called_once_with(
+            ["gh", "api", "repos/owner/kioku/pulls/42"], text=True
+        )
+
+    def test_major_wins_over_minor_for_same_package(self):
+        commits = (
+            "a\tMerge pull request #42 from user/feature\n"
+            "b\tMerge pull request #43 from user/breaking"
+        )
+        prs = [
+            {
+                "merge_commit_sha": sha,
+                "base": {"ref": "main"},
+                "labels": [{"name": label}],
+            }
+            for sha, label in (("a", "release:minor"), ("b", "release:major"))
+        ]
+        with (
+            patch.dict("release.os.environ", {"GITHUB_REPOSITORY": "owner/kioku"}),
+            patch(
+                "release.git", side_effect=[commits, "cli/src/index.ts", "cli/src/x.ts"]
+            ),
+            patch(
+                "release.subprocess.check_output",
+                side_effect=[json.dumps(pr) for pr in prs],
+            ),
+        ):
+            self.assertEqual(
+                release_levels("deployed", "head", ["cli", "mihari"]),
+                {"cli": "major", "mihari": "major"},
+            )
 
     def test_hive_updates_backend_and_worker_preserving_secrets_mounts(self):
         with tempfile.TemporaryDirectory() as tmp:
