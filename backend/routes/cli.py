@@ -797,11 +797,8 @@ def code_chunks_state(folder_id: str, request: Request):
     return {"files": files, "chunk_count": count}
 
 
-@router.post("/code-chunks")
-async def code_chunks_upload(body: CodeChunksDelta, request: Request):
-    """Replace the chunks of the given files (delete + re-embed via the queue).
-    Embedding runs in the arq worker with voyage-code-3 — the endpoint itself
-    only stages rows, so big uploads return fast."""
+def _delete_code_chunks_for_upload(body: CodeChunksDelta, request: Request) -> str:
+    """Run scoped authorization and the database delete off the event loop."""
     user_id = _code_chunks_scope(request, body.folder_id)
     sb = get_supabase()
 
@@ -815,6 +812,13 @@ async def code_chunks_upload(body: CodeChunksDelta, request: Request):
             .in_("file", doomed)
             .execute()
         )
+    return user_id
+
+
+@router.post("/code-chunks")
+async def code_chunks_upload(body: CodeChunksDelta, request: Request):
+    """Replace file chunks and queue embedding without blocking UI requests."""
+    user_id = await run_in_threadpool(_delete_code_chunks_for_upload, body, request)
 
     rows: list[dict] = []
     for f in body.files:

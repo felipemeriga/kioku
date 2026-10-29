@@ -26,7 +26,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from auth import get_current_user
-from db.client import get_supabase
+from db.client import get_supabase_thread_safe as get_supabase
 from services.folder_summary.briefing_schema import (
     BRIEFING_SCHEMA_VERSION,
     SECTION_KEYS,
@@ -73,7 +73,7 @@ def _current_briefing(sb, folder_id: str, user_id: str) -> dict:
 
 
 @router.get("/{folder_id}/briefing/schema")
-async def briefing_schema():
+def briefing_schema():
     """Canonical shape. Static — the frontend + coding agent can cache it.
 
     Handed back as {section_key: {content_shape, notes}} so a coding
@@ -135,7 +135,7 @@ async def briefing_schema():
 
 
 @router.get("/{folder_id}/briefing")
-async def read_briefing(folder_id: str, user_id: str = Depends(get_current_user)):
+def read_briefing(folder_id: str, user_id: str = Depends(get_current_user)):
     """Full current briefing state. Non-repo folders return 400."""
     sb = get_supabase()
     folder = _folder_must_be_repo(sb, folder_id, user_id)
@@ -235,7 +235,7 @@ def _index_status(
 
 
 @router.get("/{folder_id}/status")
-async def read_status(folder_id: str, user_id: str = Depends(get_current_user)):
+def read_status(folder_id: str, user_id: str = Depends(get_current_user)):
     """Freshness + last-generation timestamps for the Status tab (poll-friendly)."""
     sb = get_supabase()
     _folder_must_be_repo(sb, folder_id, user_id)
@@ -248,7 +248,7 @@ async def read_status(folder_id: str, user_id: str = Depends(get_current_user)):
 
 
 @router.get("/{folder_id}/documentation")
-async def read_documentation(folder_id: str, user_id: str = Depends(get_current_user)):
+def read_documentation(folder_id: str, user_id: str = Depends(get_current_user)):
     """The latest detailed architecture doc (the 'complete overview' deep-doc)
     for a repo folder. Returns {documentation: null} if none has been generated
     yet (or the table isn't migrated)."""
@@ -275,7 +275,7 @@ class RefreshRequest(BaseModel):
 
 
 @router.post("/{folder_id}/refresh")
-async def trigger_refresh(
+def trigger_refresh(
     folder_id: str,
     body: RefreshRequest,
     user_id: str = Depends(get_current_user),
@@ -317,7 +317,7 @@ async def trigger_refresh(
 
 
 @router.delete("/{folder_id}/briefing")
-async def clear_briefing(folder_id: str, user_id: str = Depends(get_current_user)):
+def clear_briefing(folder_id: str, user_id: str = Depends(get_current_user)):
     """Clear the entire briefing + detailed doc for a repo folder so it
     regenerates from scratch. Deletes every folder_summaries row for the folder
     and the stored repo_documentation. After this, `needs_generation` flips back
@@ -366,7 +366,7 @@ class ReplaceBriefingRequest(BaseModel):
 
 
 @router.put("/{folder_id}/briefing")
-async def replace_briefing(
+def replace_briefing(
     folder_id: str,
     body: ReplaceBriefingRequest,
     user_id: str = Depends(get_current_user),
@@ -407,7 +407,7 @@ async def replace_briefing(
 
 
 @router.patch("/{folder_id}/briefing/section/{section_name}")
-async def update_briefing_section(
+def update_briefing_section(
     folder_id: str,
     section_name: str,
     body: UpdateSectionRequest,
