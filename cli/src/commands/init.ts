@@ -23,6 +23,7 @@ import {
 } from "./graph-index.js";
 import {
   installSessionStartHook,
+  installClaudeMemoryCaptureHook,
   removeLegacyCaptureHooks,
   removeLegacyPushHooks,
   readRepoState,
@@ -33,6 +34,7 @@ import {
 } from "../lib/claude.js";
 import {
   installCodexSessionStartHook,
+  installCodexMemoryCaptureHook,
   removeCodexCaptureHooks,
   updateAgentsMd,
   writeCodexMcpConfig,
@@ -378,6 +380,11 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
     headers: mcpEntry.headers,
   });
 
+  // Retired `kioku capture` handlers must be removed before installing the
+  // new, distinctly named journal hook. Preserve every unrelated Stop hook.
+  removeLegacyCaptureHooks(repoRoot);
+  removeCodexCaptureHooks();
+
   if (agent === "codex") {
     // Codex surface: global ~/.codex/config.toml (MCP + SessionStart) +
     // AGENTS.md. The url is rewritten to the streamable-HTTP path (/mcp) inside
@@ -413,9 +420,12 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
     );
   }
 
-  // Remove retired capture hooks on both agent surfaces, including when switching agents.
-  removeLegacyCaptureHooks(repoRoot);
-  removeCodexCaptureHooks();
+  // Memory capture is agent-neutral even if this init chose one agent for the
+  // interactive briefing. Both Stop hooks share the same repo-local journal.
+  const claudeCapture = installClaudeMemoryCaptureHook(repoRoot);
+  const codexCapture = installCodexMemoryCaptureHook();
+  ok(claudeCapture.addedHook ? "Claude memory Stop hook installed" : "Claude memory Stop hook already present");
+  ok(codexCapture.addedHook ? "Codex memory Stop hook installed" : "Codex memory Stop hook already present");
 
   // Step 6b.5: remove legacy push hooks (pre-v0.3.0 installed a Claude
   //             PostToolUse hook + a native git pre-push hook; Mihari

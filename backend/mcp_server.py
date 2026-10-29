@@ -1753,6 +1753,82 @@ def _resolve_repo(sb, user_id, folder):
     return resolved_id, resolved_name
 
 
+def _agent_journal_repo(sb, folder: str | None) -> tuple[str | None, str | None]:
+    """Resolve an explicit repo inside the API key's user and folder scope."""
+    user_id = _current_user_id.get()
+    if not user_id or not folder:
+        return None, "Authentication and an explicit folder are required"
+    folder_id, _ = _resolve_repo(sb, user_id, folder)
+    if not folder_id:
+        return None, "Repository is outside this key's scope or does not exist"
+    rows = (
+        sb.table("folders")
+        .select("kind")
+        .eq("id", folder_id)
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows or rows[0].get("kind") != "repo":
+        return None, "Journal folder must be a repository"
+    return folder_id, None
+
+
+@mcp.tool()
+def get_agent_journal(folder: str, date: str) -> str:
+    """Read the private Markdown agent journal for one repository and local date.
+
+    Requires an explicit repository folder (UUID, name, or path) within this
+    MCP key's scope. Returns JSON with status, revision and Markdown content.
+    """
+    from services.agent_journal import read_journal
+
+    sb = get_supabase()
+    folder_id, error = _agent_journal_repo(sb, folder)
+    if error:
+        return json.dumps({"status": "error", "error": error})
+    try:
+        return json.dumps(read_journal(sb, _current_user_id.get(), folder_id, date))
+    except Exception as exc:
+        return json.dumps({"status": "error", "error": str(exc)})
+
+
+@mcp.tool()
+def sync_agent_journal(
+    folder: str, date: str, markdown: str, base_revision: int, content_sha256: str
+) -> str:
+    """Publish a whole local daily journal to private Storage, with CAS.
+
+    Returns JSON status ok, unchanged, conflict, or error and a revision.
+    The user identity is always derived from this MCP key, never from input.
+    """
+    from services.agent_journal import sync_journal
+
+    sb = get_supabase()
+    folder_id, error = _agent_journal_repo(sb, folder)
+    if error:
+        return json.dumps({"status": "error", "error": error})
+    try:
+        result = sync_journal(
+            sb,
+            user_id=_current_user_id.get(),
+            folder_id=folder_id,
+            journal_date=date,
+            markdown=markdown,
+            base_revision=base_revision,
+            content_sha256=content_sha256,
+        )
+        return json.dumps(result)
+    except ValueError as exc:
+        return json.dumps({"status": "error", "error": str(exc)})
+    except Exception:
+        # Storage and database errors are logged by the MCP runtime. The local
+        # journal remains intact and the CLI retries on the next capture.
+        return json.dumps({"status": "error", "error": "Journal sync failed; retry later"})
+
+
 @mcp.tool()
 def code_search(
     query: str,

@@ -13,6 +13,7 @@ import { openCmd } from "./commands/open.js";
 import { quickstart } from "./commands/quickstart.js";
 import { search } from "./commands/search.js";
 import { sessionStart } from "./commands/session-start.js";
+import { memoryCapture, memoryWorker, memorySync } from "./commands/memory.js";
 import { status } from "./commands/status.js";
 import { whoami } from "./commands/whoami.js";
 import { banner, printError, warn } from "./lib/banner.js";
@@ -215,6 +216,29 @@ program
       // never fail a hook — just be quiet
       if (process.env.KIOKU_DEBUG) console.error(err);
     }
+  });
+
+program.command("memory-capture", { hidden: true })
+  .requiredOption("--agent <claude_code|codex>")
+  .action(async ({ agent }) => {
+    if (agent === "claude_code" || agent === "codex")
+      await memoryCapture(agent);
+    if (agent === "codex") console.log("{}");
+  });
+
+program.command("memory-worker", { hidden: true })
+  .requiredOption("--agent <claude_code|codex>")
+  .action(async ({ agent }) => {
+    if (agent !== "claude_code" && agent !== "codex") return;
+    try { await memoryWorker(agent); }
+    catch (err) { if (process.env.KIOKU_DEBUG) console.error(err); }
+  });
+
+program.command("memory-sync")
+  .description("Retry upload of local agent memory journals")
+  .action(async () => {
+    try { await memorySync(); }
+    catch (err) { printError(err); process.exitCode = 1; }
   });
 
 program
