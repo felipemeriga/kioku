@@ -16,9 +16,14 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { configDir } from "./config.js";
 
 export interface RootKeyEntry {
@@ -29,6 +34,42 @@ export interface RootKeyEntry {
 
 function storePath(): string {
   return join(configDir(), "root-keys.json");
+}
+
+/** Serialize shared root-key and Codex config updates across concurrent inits. */
+export async function withInitConfigLock<T>(
+  action: () => Promise<T>,
+): Promise<T> {
+  const dir = configDir();
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const lock = join(dir, "init-config.lock");
+  const deadline = Date.now() + 300_000;
+  while (true) {
+    try {
+      mkdirSync(lock);
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      try {
+        if (Date.now() - statSync(lock).mtimeMs > 360_000) {
+          rmSync(lock, { recursive: true, force: true });
+          continue;
+        }
+      } catch {
+        continue;
+      }
+      if (Date.now() > deadline)
+        throw new Error(
+          "Another kioku init is updating shared configuration. Retry shortly.",
+        );
+      await sleep(100);
+    }
+  }
+  try {
+    return await action();
+  } finally {
+    rmSync(lock, { recursive: true, force: true });
+  }
 }
 
 function readStore(): Record<string, RootKeyEntry> {
@@ -53,7 +94,9 @@ export function saveRootKey(rootId: string, entry: RootKeyEntry): void {
   const store = readStore();
   store[rootId] = entry;
   const p = storePath();
-  writeFileSync(p, JSON.stringify(store, null, 2), { mode: 0o600 });
+  const temp = `${p}.${randomUUID()}.tmp`;
+  writeFileSync(temp, JSON.stringify(store, null, 2), { mode: 0o600 });
+  renameSync(temp, p);
   try {
     chmodSync(p, 0o600);
   } catch {
