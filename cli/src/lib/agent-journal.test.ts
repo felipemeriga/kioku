@@ -61,6 +61,9 @@ test("one daily session header precedes its turns and follows the latest summary
   assert.match(markdown, /\*\*Done so far:\*\* Checked the logs, fixed retry handling, and passed tests/);
   assert.ok(markdown.indexOf("## Codex session") < markdown.indexOf("### "));
   assert.deepEqual(parseJournal(markdown).map((entry) => entry.metadata.turn_id), ["one", "two"]);
+  const olderWriterTurn = renderEntry({ ...turn, turnId: "old-cli" }, "- Follow-up\n- No summary", timestamp + 120_000);
+  const withOlderWriter = mergeJournals(day, markdown, journalHeader(day) + olderWriterTurn);
+  assert.match(withOlderWriter, /\*\*Done so far:\*\* Checked the logs, fixed retry handling, and passed tests/);
 
   const nextDay = "2026-10-30";
   const continuation = renderEntry({ ...turn, turnId: "three" }, "- Reviewed fix\n- No regression", timestamp + 86_400_000, {

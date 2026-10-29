@@ -199,10 +199,11 @@ export function mergeJournals(day: string, remote: string, local: string): strin
     a[0].metadata.id.localeCompare(b[0].metadata.id));
   return journalHeader(day) + sorted.map((group) => {
     const first = group[0].metadata;
-    const latest = group[group.length - 1].metadata;
+    const latestTitle = [...group].reverse().find((entry) => entry.metadata.session_title)?.metadata.session_title;
+    const latestSummary = [...group].reverse().find((entry) => entry.metadata.session_summary)?.metadata.session_summary;
     const agent = first.agent === "claude_code" ? "Claude Code" : "Codex";
-    const title = latest.session_title || group[0].block.split("\n- ")[1]?.split("\n")[0] || "Untitled session";
-    const summary = latest.session_summary || "No session summary captured yet.";
+    const title = latestTitle || group[0].block.split("\n- ")[1]?.split("\n")[0] || "Untitled session";
+    const summary = latestSummary || "No session summary captured yet.";
     const marker = JSON.stringify({ agent: first.agent, session_id: first.session_id });
     return `## ${agent} session \`${first.session_id}\`\n<!-- kioku-session: ${marker} -->\n\n**About:** ${title}\n\n**Done so far:** ${summary}\n\n` +
       group.map((entry) => entry.block.replace(/^## /, "### ")).join("");
