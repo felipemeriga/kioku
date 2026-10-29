@@ -10,7 +10,7 @@ vi.mock("../lib/supabase", () => ({
 
 const today = new Date();
 const day = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-const markdown = `# Kioku agent journal — ${day}\n\n## 10:15 — Codex\n<!-- kioku-entry: {"id":"codex:s:t","agent":"codex"} -->\n\n- Found the cache invalidation issue.\n`;
+const markdown = `# Kioku agent journal — ${day}\n\n## 10:15 — Codex\n<!-- kioku-entry: {"id":"codex:codex-session:t","agent":"codex","session_id":"codex-session"} -->\n\n- Found the cache invalidation issue.\n\n## 09:20 — Claude Code\n<!-- kioku-entry: {"id":"claude_code:claude-session:t","agent":"claude_code","session_id":"claude-session"} -->\n\n- Claude checked the same folder.\n`;
 
 describe("LearningsPanel", () => {
   beforeEach(() => {
@@ -26,7 +26,7 @@ describe("LearningsPanel", () => {
                 statement: "Cache invalidation needs a folder revision.",
                 status: "reported",
                 source_entries: [
-                  { id: "codex:s:t", date: day, agent: "codex" },
+                  { id: "codex:codex-session:t", date: day, agent: "codex" },
                 ],
                 git_sha: null,
                 updated_at: new Date().toISOString(),
@@ -40,8 +40,8 @@ describe("LearningsPanel", () => {
                 {
                   journal_date: day,
                   revision: 2,
-                  entry_count: 1,
-                  agents: ["codex"],
+                  entry_count: 2,
+                  agents: ["codex", "claude_code"],
                 },
               ],
             };
@@ -55,10 +55,21 @@ describe("LearningsPanel", () => {
       await screen.findByText("Found the cache invalidation issue."),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /1 journal entries/ }),
+      screen.getByRole("button", { name: /2 journal entries/ }),
     ).toHaveAttribute("aria-pressed", "true");
+    expect(
+      screen.getByLabelText("Session ID: codex-session"),
+    ).toHaveTextContent("Session codex-s");
+    expect(
+      screen.getByLabelText("Session ID: claude-session"),
+    ).toHaveTextContent("Session claude-s");
+    const entries = document.querySelectorAll(".learnings-entry");
+    expect(entries[0]).toHaveTextContent("Claude checked the same folder.");
+    expect(entries[1]).toHaveTextContent("Found the cache invalidation issue.");
     fireEvent.click(screen.getByRole("button", { name: "Markdown" }));
-    expect(screen.getByText(/kioku-entry:.*codex:s:t/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/kioku-entry:.*codex:codex-session:t/),
+    ).toBeInTheDocument();
   });
 
   it("links a current learning back to its source day", async () => {

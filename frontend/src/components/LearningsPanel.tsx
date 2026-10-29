@@ -35,7 +35,13 @@ type Learning = {
   git_sha: string | null;
   updated_at: string;
 };
-type Entry = { id: string; agent: string; time: string; markdown: string };
+type Entry = {
+  id: string;
+  agent: string;
+  sessionId: string;
+  time: string;
+  markdown: string;
+};
 
 function entriesFromMarkdown(markdown: string): Entry[] {
   const sections = markdown.split(/^## (\d\d:\d\d) — ([^\n]+)\n/gm);
@@ -46,10 +52,15 @@ function entriesFromMarkdown(markdown: string): Entry[] {
     );
     if (!marker) continue;
     try {
-      const meta = JSON.parse(marker[1]) as { id: string; agent: string };
+      const meta = JSON.parse(marker[1]) as {
+        id: string;
+        agent: string;
+        session_id?: string;
+      };
       entries.push({
         id: meta.id,
         agent: meta.agent,
+        sessionId: meta.session_id || meta.id.split(":")[1] || "",
         time: sections[i],
         markdown: sections[i + 2].replace(marker[0], "").trim(),
       });
@@ -57,7 +68,7 @@ function entriesFromMarkdown(markdown: string): Entry[] {
       /* An invalid entry stays visible in raw Markdown. */
     }
   }
-  return entries;
+  return entries.sort((a, b) => a.time.localeCompare(b.time));
 }
 
 function dateLabel(day: string) {
@@ -326,6 +337,15 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
                           entry.agent === "codex" ? "Codex" : "Claude Code"
                         }
                       />
+                      {entry.sessionId && (
+                        <span
+                          className="learnings-session-id"
+                          title={`Session ID: ${entry.sessionId}`}
+                          aria-label={`Session ID: ${entry.sessionId}`}
+                        >
+                          Session {entry.sessionId.slice(0, 8)}
+                        </span>
+                      )}
                     </div>
                     <div className="learnings-markdown">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>

@@ -7,10 +7,19 @@ import * as api from "../lib/api";
 import ContextPanel from "../components/ContextPanel";
 import DocumentsPage from "./DocumentsPage";
 
+vi.mock("../lib/supabase", () => ({
+  supabase: { auth: { getSession: vi.fn() } },
+}));
 vi.mock("../components/NotionSyncBanner", () => ({
   NotionSyncBanner: () => null,
 }));
 vi.mock("../components/FolderIntegrationsDialog", () => ({
+  default: () => null,
+}));
+vi.mock("../components/BriefingPanel", () => ({
+  default: () => <div>Briefing content</div>,
+}));
+vi.mock("../components/DocumentationPanel", () => ({
   default: () => null,
 }));
 
@@ -179,5 +188,38 @@ describe("folder browser history", () => {
     expect(
       screen.queryByRole("button", { name: "Record audio" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("opens an existing briefing first while keeping Files selectable", async () => {
+    const user = userEvent.setup();
+    const repo = {
+      ...parent,
+      id: "repo",
+      name: "Repository",
+      kind: "repo" as const,
+    };
+    vi.spyOn(api, "fetchFolders").mockImplementation(async (id) =>
+      id ? [] : [repo],
+    );
+    vi.spyOn(api, "fetchBreadcrumbs").mockResolvedValue([repo]);
+    vi.spyOn(api, "fetchBriefing").mockResolvedValue({
+      folder: repo,
+      schema_version: 1,
+      sections: {} as Awaited<ReturnType<typeof api.fetchBriefing>>["sections"],
+      last_generated_at: "2026-10-29T12:00:00Z",
+    });
+    renderWithProviders(<Navigation surface="grid" />, {
+      initialEntries: ["/documents?folder=repo"],
+    });
+
+    expect(await screen.findByText("Briefing content")).toBeInTheDocument();
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs[0]).toHaveTextContent("Briefing");
+    expect(tabs[0]).toHaveAttribute("aria-selected", "true");
+    await user.click(screen.getByRole("tab", { name: "Files" }));
+    expect(screen.getByRole("tab", { name: "Files" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
   });
 });

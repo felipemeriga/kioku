@@ -41,7 +41,12 @@ import HomeIcon from "@mui/icons-material/Home";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import { useDocuments } from "../hooks/useDocuments";
 import { useIngestionStatus } from "../hooks/useIngestionStatus";
-import { createFolder, deleteFolder, downloadDocument } from "../lib/api";
+import {
+  createFolder,
+  deleteFolder,
+  downloadDocument,
+  fetchBriefing,
+} from "../lib/api";
 import type { Breadcrumb } from "../lib/api";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -61,6 +66,7 @@ import FolderIntegrationsDialog from "../components/FolderIntegrationsDialog";
 import NotionFolderIndicator from "../components/NotionFolderIndicator";
 import { useToast, messageFromError } from "../components/ToastProvider";
 import { brand, fonts } from "../theme";
+import { qk } from "../lib/queryKeys";
 import CornerCard from "../components/neo/CornerCard";
 
 const ACCEPTED_TYPES =
@@ -88,9 +94,10 @@ export default function DocumentsPage() {
     localStorage.setItem("kioku.documents.viewMode", viewMode);
   }, [viewMode]);
   const queryClient = useQueryClient();
-  const [folderTab, setFolderTab] = useState<
-    "files" | "briefing" | "status" | "learnings"
-  >("files");
+  const [selectedFolderTab, setSelectedFolderTab] = useState<{
+    folderId: string;
+    tab: "files" | "briefing" | "status" | "learnings";
+  } | null>(null);
   const [viewerFile, setViewerFile] = useState<string | null>(null);
 
   // Folder navigation via URL search params (shared with ContextPanel)
@@ -317,11 +324,18 @@ export default function DocumentsPage() {
     breadcrumbs.length > 0 &&
     breadcrumbs[breadcrumbs.length - 1]?.kind === "repo";
 
-  // Reset to the Files tab whenever we navigate to a different folder, so a
-  // repo's Briefing tab never "sticks" onto the next folder we open.
-  useEffect(() => {
-    setFolderTab("files");
-  }, [currentFolderId]);
+  const briefingQuery = useQuery({
+    queryKey: qk.briefing(currentFolderId ?? ""),
+    queryFn: () => fetchBriefing(currentFolderId!),
+    enabled: currentFolderIsRepo && !!currentFolderId,
+  });
+  const hasBriefing = Boolean(briefingQuery.data?.last_generated_at);
+  const folderTab =
+    selectedFolderTab?.folderId === currentFolderId
+      ? selectedFolderTab.tab
+      : hasBriefing
+        ? "briefing"
+        : "files";
 
   const handleCreateFolder = async () => {
     if (!newFolderName.trim()) return;
@@ -575,7 +589,9 @@ export default function DocumentsPage() {
           <Tabs
             className="folder-tabs"
             value={folderTab}
-            onChange={(_, v) => setFolderTab(v)}
+            onChange={(_, v) =>
+              setSelectedFolderTab({ folderId: currentFolderId!, tab: v })
+            }
             sx={{
               mb: 3,
               minHeight: 40,
@@ -591,8 +607,9 @@ export default function DocumentsPage() {
               "& .MuiTabs-indicator": { backgroundColor: brand.magenta },
             }}
           >
+            {hasBriefing && <Tab value="briefing" label="Briefing" />}
             <Tab value="files" label="Files" />
-            <Tab value="briefing" label="Briefing" />
+            {!hasBriefing && <Tab value="briefing" label="Briefing" />}
             <Tab value="status" label="Status" />
             <Tab value="learnings" label="Learnings" />
           </Tabs>
