@@ -151,6 +151,7 @@ const SHELL_TOOL_MATCHER = "Bash";
 interface CommandHandler {
   type: "command";
   command: string;
+  statusMessage?: string;
   additionalContextLimit?: number;
   async?: boolean;
   timeout?: number;
@@ -179,7 +180,7 @@ function ensureCodexHook(
   cfg: TomlTable,
   event: "SessionStart" | "Stop" | "PostToolUse",
   subcommand: string,
-  opts?: { extra?: Partial<CommandHandler>; matcher?: string }
+  opts?: { extra?: Partial<CommandHandler>; matcher?: string },
 ): boolean {
   const extra = opts?.extra;
   const matcher = opts?.matcher;
@@ -197,9 +198,13 @@ function ensureCodexHook(
     if (!Array.isArray(g.hooks)) continue;
     const before = g.hooks.length;
     g.hooks = g.hooks.filter((h) => {
-      if (h?.command === command && Object.entries(extra ?? {}).every(
-        ([key, value]) => (h as unknown as Record<string, unknown>)[key] === value
-      )) {
+      if (
+        h?.command === command &&
+        Object.entries(extra ?? {}).every(
+          ([key, value]) =>
+            (h as unknown as Record<string, unknown>)[key] === value,
+        )
+      ) {
         hadExact = true;
         return true;
       }
@@ -210,7 +215,7 @@ function ensureCodexHook(
   }
   // Drop groups emptied by the strip.
   const kept = rawGroups.filter(
-    (g) => Array.isArray(g.hooks) && g.hooks.length > 0
+    (g) => Array.isArray(g.hooks) && g.hooks.length > 0,
   );
 
   if (!hadExact) {
@@ -235,7 +240,10 @@ export function installCodexSessionStartHook(): {
   const path = codexConfigPath();
   const cfg = loadConfig(path);
   const changed = ensureCodexHook(cfg, "SessionStart", SUB_SESSION_START, {
-    extra: { additionalContextLimit: SESSION_START_CONTEXT_LIMIT },
+    extra: {
+      statusMessage: "Kioku: load repository briefing",
+      additionalContextLimit: SESSION_START_CONTEXT_LIMIT,
+    },
   });
   writeConfig(path, cfg);
   return { path, addedHook: changed };
@@ -248,7 +256,7 @@ export function installCodexMemoryCaptureHook(): {
   const path = codexConfigPath();
   const cfg = loadConfig(path);
   const changed = ensureCodexHook(cfg, "Stop", "memory-capture --agent codex", {
-    extra: { timeout: 10 },
+    extra: { statusMessage: "Kioku: save agent journal", timeout: 10 },
   });
   writeConfig(path, cfg);
   return { path, addedHook: changed };
@@ -321,6 +329,6 @@ export function updateAgentsMd(repoRoot: string): {
 } {
   return upsertMarkdownSnippet(
     join(repoRoot, "AGENTS.md"),
-    secondBrainSnippet()
+    secondBrainSnippet(),
   );
 }
