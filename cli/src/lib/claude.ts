@@ -566,6 +566,22 @@ Persist it. It'll survive the session, the PC, the team:
 - \`read_folder_documents()\` — full text of every doc already uploaded to
   this folder (specs, architecture, ecosystem context beyond the code).
 
+### Agent journal and current learnings
+
+Kioku captures a short journal entry after each turn. The daily
+Markdown is the history; Mihari maintains a smaller set of current learnings.
+
+- \`list_agent_journal_days(folder, year)\` — find dates with recorded agent
+  work in this repository, e.g. \`list_agent_journal_days("my-repo", 2026)\`.
+- \`get_agent_journal(folder, date)\` — read the full Markdown for one day,
+  e.g. \`get_agent_journal("my-repo", "2026-05-02")\`.
+- \`get_repo_learnings(folder)\` — read current conclusions and source entry
+  references. A reported implementation is not proof it reached main;
+  check current Git or code before claiming it is deployed.
+
+For a historical question, prefer the dated journal. If the year is unclear,
+ask which year. If there is no record, say so rather than filling the gap.
+
 ### Navigating the code
 
 Use the source that fits the task. Read current local files for exact behavior

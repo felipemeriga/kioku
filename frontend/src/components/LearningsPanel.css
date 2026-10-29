@@ -1,0 +1,207 @@
+.learnings-panel {
+  padding: 4px 0 36px;
+  color: #faf7ff;
+}
+.learnings-journal-layout {
+  display: grid;
+  grid-template-columns: minmax(270px, 310px) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.learnings-calendar,
+.learnings-timeline,
+.learnings-card,
+.learnings-empty {
+  background: #12091f;
+  border: 1px solid #654b83;
+  border-radius: 5px;
+}
+.learnings-calendar {
+  padding: 20px;
+  position: sticky;
+  top: 18px;
+}
+.learnings-timeline {
+  padding: 24px;
+  min-height: 330px;
+}
+.learnings-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+.learnings-weekday {
+  text-align: center;
+  color: #beb0d7;
+  font-size: 11px;
+  padding: 5px 0 9px;
+}
+.learnings-day {
+  min-height: 44px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: #beb0d7;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+}
+.learnings-day.has-entry {
+  color: #faf7ff;
+  font-weight: 600;
+}
+.learnings-day:hover {
+  background: #221035;
+  border-color: #654b83;
+}
+.learnings-day.selected {
+  border-color: #ff1493;
+  background: #3b0d35;
+  color: #fff;
+}
+.learnings-day:focus-visible,
+.learnings-card button:focus-visible {
+  outline: 2px solid #00f0ff;
+  outline-offset: 2px;
+}
+.learnings-day-dots {
+  display: flex;
+  gap: 3px;
+  height: 6px;
+}
+.learnings-day-dots i,
+.learnings-legend-dot {
+  display: inline-block;
+  height: 6px;
+  width: 6px;
+  border-radius: 50%;
+}
+.learnings-day-dots .claude,
+.learnings-legend-dot.claude,
+.learnings-entry-dot.claude {
+  background: #ff1493;
+}
+.learnings-day-dots .codex,
+.learnings-legend-dot.codex,
+.learnings-entry-dot.codex {
+  background: #00f0ff;
+}
+.learnings-legend-dot {
+  width: 7px;
+  height: 7px;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+.learnings-timeline-track {
+  border-left: 1px solid #654b83;
+  margin-left: 5px;
+  padding-left: 24px;
+}
+.learnings-entry {
+  position: relative;
+  padding: 2px 0 22px;
+}
+.learnings-entry + .learnings-entry {
+  border-top: 1px solid #654b83;
+  padding-top: 22px;
+}
+.learnings-entry-dot {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  top: 10px;
+  left: -30px;
+  box-shadow: 0 0 10px currentColor;
+}
+.learnings-entry + .learnings-entry .learnings-entry-dot {
+  top: 29px;
+}
+.learnings-entry-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #e0d5f3;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 10px;
+}
+.learnings-markdown {
+  max-width: 78ch;
+  color: #faf7ff;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.learnings-markdown p {
+  margin: 0 0 11px;
+}
+.learnings-markdown ul,
+.learnings-markdown ol {
+  padding-left: 22px;
+  margin: 0 0 13px;
+}
+.learnings-markdown li {
+  margin-bottom: 5px;
+}
+.learnings-markdown code,
+.learnings-raw {
+  font-family: "IBM Plex Mono", Menlo, monospace;
+  font-size: 0.88em;
+}
+.learnings-markdown pre,
+.learnings-raw {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 14px;
+  border: 1px solid #654b83;
+  border-radius: 4px;
+  background: #0d0718;
+  overflow-x: auto;
+}
+.learnings-markdown table {
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+  margin: 12px 0;
+}
+.learnings-markdown td,
+.learnings-markdown th {
+  border: 1px solid #654b83;
+  padding: 6px 9px;
+}
+.learnings-raw {
+  max-height: 650px;
+  overflow-y: auto;
+  line-height: 1.55;
+}
+.learnings-current {
+  max-width: 980px;
+}
+.learnings-card {
+  padding: 20px 24px;
+  border-left: 2px solid #00f0ff;
+}
+.learnings-empty {
+  padding: 28px;
+}
+@media (max-width: 800px) {
+  .learnings-journal-layout {
+    grid-template-columns: 1fr;
+  }
+  .learnings-calendar {
+    position: static;
+  }
+  .learnings-timeline {
+    padding: 18px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .learnings-day {
+    scroll-behavior: auto;
+  }
+}

@@ -20,6 +20,7 @@ from routes.drop import router as drop_router
 from routes.evaluation import router as evaluation_router
 from routes.folders import router as folders_router
 from routes.ingestion_jobs import router as ingestion_jobs_router
+from routes.learnings import router as learnings_router
 from routes.mihari import router as mihari_router
 from routes.notes import router as notes_router
 from routes.notion import router as notion_router
@@ -65,6 +66,7 @@ app.include_router(notes_router)
 app.include_router(context_router)
 app.include_router(notion_router)
 app.include_router(ingestion_jobs_router)
+app.include_router(learnings_router)
 app.include_router(briefing_router)
 app.include_router(cli_router)
 app.include_router(retrieval_log_router)

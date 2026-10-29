@@ -46,6 +46,44 @@ REVIEWED_SECTIONS = (
 )
 
 
+class LearningRefreshRequest(BaseModel):
+    folder_id: str
+    head_sha: str = Field(min_length=40, max_length=64)
+    main_commits: list[str] = Field(default_factory=list, max_length=80)
+
+
+@router.post("/learnings")
+def refresh_learnings(body: LearningRefreshRequest, request: Request):
+    """Review newly synchronized journal entries even when main has not moved."""
+    user_id, scope_id, _ = _api_key_auth(request)
+    sb = get_supabase()
+    from mcp_server import _descendant_folder_ids
+    from services.repo_learnings import process_pending
+
+    if body.folder_id not in _descendant_folder_ids(sb, scope_id, user_id):
+        raise HTTPException(status_code=403, detail="folder_id not in api key scope")
+    rows = (
+        sb.table("folders")
+        .select("kind")
+        .eq("id", body.folder_id)
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows or rows[0].get("kind") != "repo":
+        raise HTTPException(status_code=404, detail="Repository not found")
+    result = process_pending(
+        sb,
+        user_id=user_id,
+        folder_id=body.folder_id,
+        head_sha=body.head_sha,
+        main_commits=body.main_commits,
+    )
+    return {"ok": True, **result}
+
+
 class ReviewPlanRequest(BaseModel):
     folder_id: str
     head_sha: str = Field(min_length=40, max_length=64)
