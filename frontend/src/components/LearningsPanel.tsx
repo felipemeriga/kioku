@@ -40,9 +40,20 @@ type Entry = {
   id: string;
   agent: string;
   sessionId: string;
+  sessionKey: string;
   computerName: string;
   time: string;
   markdown: string;
+};
+type JournalSession = {
+  agent: string;
+  session_id: string;
+  title: string;
+  summary: string;
+  computer_name: string;
+  entry_count: number;
+  first_time: string;
+  last_time: string;
 };
 const SESSION_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -65,6 +76,7 @@ function entriesFromMarkdown(markdown: string): Entry[] {
       entries.push({
         id: meta.id,
         agent: meta.agent,
+        sessionKey: `${meta.agent}:${meta.session_id ?? meta.id}`,
         sessionId:
           typeof meta.session_id === "string" &&
           SESSION_UUID.test(meta.session_id)
@@ -98,6 +110,10 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
   const [year, setYear] = useState(() => new Date().getFullYear());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [raw, setRaw] = useState(false);
+  const [selectedSession, setSelectedSession] = useState<{
+    date: string;
+    key: string;
+  } | null>(null);
 
   const daysQuery = useQuery({
     queryKey: ["learning-days", folderId, year],
@@ -121,7 +137,12 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
     queryFn: async () =>
       (await (
         await apiFetch(`/api/folders/${folderId}/learning-days/${activeDate}`)
-      ).json()) as { status: string; markdown: string; revision: number },
+      ).json()) as {
+        status: string;
+        markdown: string;
+        revision: number;
+        sessions?: JournalSession[];
+      },
     enabled: !!activeDate && view === "journal",
     staleTime: 30_000,
   });
@@ -146,6 +167,42 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
     year: "numeric",
   }).format(new Date(year, month, 1));
   const entries = entriesFromMarkdown(dayQuery.data?.markdown ?? "");
+  const sessions =
+    dayQuery.data?.sessions ??
+    Array.from(
+      entries
+        .reduce((groups, entry) => {
+          const current = groups.get(entry.sessionKey);
+          if (current) current.entry_count += 1;
+          else
+            groups.set(entry.sessionKey, {
+              agent: entry.agent,
+              session_id: entry.sessionKey.slice(entry.agent.length + 1),
+              title:
+                entry.markdown
+                  .split("\n")[0]
+                  .replace(/^[#*\-\s]+/, "")
+                  .slice(0, 120) || "Untitled session",
+              summary: "",
+              computer_name: entry.computerName,
+              entry_count: 1,
+              first_time: entry.time,
+              last_time: entry.time,
+            });
+          return groups;
+        }, new Map<string, JournalSession>())
+        .values(),
+    );
+  const activeSession =
+    selectedSession?.date === activeDate
+      ? sessions.find(
+          (session) =>
+            `${session.agent}:${session.session_id}` === selectedSession.key,
+        )
+      : undefined;
+  const visibleEntries = activeSession
+    ? entries.filter((entry) => entry.sessionKey === selectedSession?.key)
+    : [];
 
   const changeMonth = (step: number) => {
     const next = new Date(year, month + step, 1);
@@ -157,6 +214,7 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
     setYear(y);
     setMonth(m - 1);
     setSelectedDate(day);
+    setSelectedSession(null);
     setRaw(false);
     setView("journal");
   };
@@ -253,6 +311,7 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
                         aria-pressed={activeDate === key}
                         onClick={() => {
                           setSelectedDate(key);
+                          setSelectedSession(null);
                           setRaw(false);
                         }}
                       >
@@ -299,8 +358,8 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
                 </Typography>
                 {activeDate && dayMap.get(activeDate) && (
                   <Typography sx={{ color: brand.muted, fontSize: 13 }}>
-                    {dayMap.get(activeDate)?.entry_count} entries · revision{" "}
-                    {dayMap.get(activeDate)?.revision}
+                    {dayMap.get(activeDate)?.entry_count} entries ·{" "}
+                    {sessions.length} sessions
                   </Typography>
                 )}
               </Box>
@@ -333,49 +392,114 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
               <Box component="pre" className="learnings-raw">
                 {dayQuery.data.markdown}
               </Box>
-            ) : (
-              <div className="learnings-timeline-track">
-                {entries.map((entry) => (
-                  <article key={entry.id} className="learnings-entry">
-                    <span
-                      className={`learnings-entry-dot ${entry.agent === "codex" ? "codex" : "claude"}`}
-                    />
-                    <div className="learnings-entry-heading">
-                      <time>{entry.time}</time>
+            ) : !activeSession ? (
+              <div className="learnings-session-list">
+                {sessions.map((session) => (
+                  <button
+                    key={`${session.agent}:${session.session_id}`}
+                    type="button"
+                    className="learnings-session-card"
+                    onClick={() =>
+                      setSelectedSession({
+                        date: activeDate,
+                        key: `${session.agent}:${session.session_id}`,
+                      })
+                    }
+                  >
+                    <span className="learnings-session-card-meta">
                       <Chip
                         size="small"
                         label={
-                          entry.agent === "codex" ? "Codex" : "Claude Code"
+                          session.agent === "codex" ? "Codex" : "Claude Code"
                         }
                       />
-                      {entry.sessionId && (
-                        <span
-                          className="learnings-session-id"
-                          title={`Resume with: ${entry.agent === "codex" ? "codex resume" : "claude --resume"} ${entry.sessionId}`}
-                          aria-label={`Session ID: ${entry.sessionId}`}
-                        >
-                          Session {entry.sessionId.slice(0, 8)}
-                        </span>
+                      {SESSION_UUID.test(session.session_id) && (
+                        <span>Session {session.session_id.slice(0, 8)}</span>
                       )}
-                      {entry.computerName && (
-                        <span
-                          className="learnings-session-id"
-                          title={`Computer: ${entry.computerName}`}
-                        >
-                          {entry.computerName}
-                        </span>
+                      {session.computer_name && (
+                        <span>{session.computer_name}</span>
                       )}
-                    </div>
-                    <div className="learnings-markdown">
-                      <ReactMarkdown
-                        remarkPlugins={[remarkGfm, decorateJournalMarkdown]}
-                      >
-                        {entry.markdown}
-                      </ReactMarkdown>
-                    </div>
-                  </article>
+                      <span>
+                        {session.first_time} · {session.entry_count} entries
+                      </span>
+                    </span>
+                    <strong>{session.title}</strong>
+                    {session.summary && (
+                      <div className="learnings-session-card-summary">
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm, decorateJournalMarkdown]}
+                        >
+                          {session.summary}
+                        </ReactMarkdown>
+                      </div>
+                    )}
+                  </button>
                 ))}
               </div>
+            ) : (
+              <>
+                <Button
+                  size="small"
+                  onClick={() => setSelectedSession(null)}
+                  sx={{ mb: 2 }}
+                >
+                  ← All sessions
+                </Button>
+                <Typography sx={{ fontWeight: 650, mb: 0.5 }}>
+                  {activeSession.title}
+                </Typography>
+                {activeSession.summary && (
+                  <div className="learnings-session-card-summary">
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm, decorateJournalMarkdown]}
+                    >
+                      {activeSession.summary}
+                    </ReactMarkdown>
+                  </div>
+                )}
+                <div className="learnings-timeline-track">
+                  {visibleEntries.map((entry) => (
+                    <article key={entry.id} className="learnings-entry">
+                      <span
+                        className={`learnings-entry-dot ${entry.agent === "codex" ? "codex" : "claude"}`}
+                      />
+                      <div className="learnings-entry-heading">
+                        <time>{entry.time}</time>
+                        <Chip
+                          size="small"
+                          label={
+                            entry.agent === "codex" ? "Codex" : "Claude Code"
+                          }
+                        />
+                        {entry.sessionId && (
+                          <span
+                            className="learnings-session-id"
+                            title={`Resume with: ${entry.agent === "codex" ? "codex resume" : "claude --resume"} ${entry.sessionId}`}
+                            aria-label={`Session ID: ${entry.sessionId}`}
+                          >
+                            Session {entry.sessionId.slice(0, 8)}
+                          </span>
+                        )}
+                        {entry.computerName && (
+                          <span
+                            className="learnings-session-id"
+                            title={`Computer: ${entry.computerName}`}
+                          >
+                            {entry.computerName}
+                          </span>
+                        )}
+                      </div>
+                      <div className="learnings-markdown">
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm, decorateJournalMarkdown]}
+                        >
+                          {entry.markdown}
+                        </ReactMarkdown>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </>
             )}
           </Box>
         </Box>

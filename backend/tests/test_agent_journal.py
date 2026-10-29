@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from services.agent_journal import inspect_journal
+from services.agent_journal import inspect_journal, journal_sessions
 
 DAY = "2026-10-29"
 META = {
@@ -34,6 +34,29 @@ def test_inspect_records_hash_and_provenance():
     assert got["sha256"] == hashlib.sha256(text.encode()).hexdigest()
     assert got["entry_count"] == 1
     assert got["agents"] == ["codex"]
+
+
+def test_journal_sessions_groups_turns_and_uses_latest_summary():
+    first = journal(
+        {**META, "session_title": "Investigate retries", "session_summary": "Checked retry paths."}
+    )
+    second_meta = {
+        **META,
+        "id": "codex:session:turn2",
+        "turn_id": "turn2",
+        "captured_at": "2026-10-29T10:30:00-03:00",
+        "session_title": "Fix retry handling",
+        "session_summary": "Checked retry paths and fixed NotFound recovery.",
+    }
+    text = (
+        first
+        + f"## 10:30 — Codex\n<!-- kioku-entry: {json.dumps(second_meta)} -->\n\n- Fixed retry\n\n"
+    )
+    sessions = journal_sessions(text)
+    assert len(sessions) == 1
+    assert sessions[0]["entry_count"] == 2
+    assert sessions[0]["title"] == "Fix retry handling"
+    assert sessions[0]["summary"] == "Checked retry paths and fixed NotFound recovery."
 
 
 @pytest.mark.parametrize(

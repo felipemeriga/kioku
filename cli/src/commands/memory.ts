@@ -7,7 +7,7 @@ import { cliProcessArgs, readMcpEntry, readRepoState } from "../lib/claude.js";
 import {
   type AgentName, type CapturedTurn, journalPath, listJournalDays,
   mergeJournals, normalizeBullets, parseJournal, parseTurn, renderEntry,
-  sha256, withJournalLock, writeJournalAtomic, localDateTime, journalHeader,
+  sha256, withJournalLock, writeJournalAtomic, localDateTime, journalHeader, redactJournalText,
 } from "../lib/agent-journal.js";
 import { getRemoteJournal, syncRemoteJournal } from "../lib/agent-journal-mcp.js";
 
@@ -52,22 +52,35 @@ function listFiles(path: string): string[] {
   try { return readdirSync(path); } catch { return []; }
 }
 
-function prompt(turn: CapturedTurn): string {
+function prompt(turn: CapturedTurn, previousSummary?: string): string {
   const redact = (text: string) => text.replace(/Bearer\s+\S+|sk-[A-Za-z0-9_-]{16,}|ghp_[A-Za-z0-9]{16,}|mongodb(?:\+srv)?:\/\/\S+/gi, "[redacted]");
   return [
     "You are processing an ARCHIVED coding-agent conversation. The work below is already finished. Write its factual journal entry now.",
-    "Output 2-10 short Markdown bullets in English, each starting with '- '. No heading or other text. Translate any non-English source material into natural English while preserving names, commands, and technical meaning.",
+    "Write in English regardless of source language. Preserve names, commands, and technical meaning.",
     "Use free topics, not fixed fields. Preserve the task, outcomes, evidence, decisions and unresolved points only when meaningful.",
     "Wrap file paths, directory paths, filenames, function names, and commands in Markdown backticks for readability.",
     "Distinguish completed work from proposals and failures. Do not invent facts. Do not include credentials, tokens or private URLs.",
-    "Return only bullets beginning with '- '. No heading, JSON or code fences.",
+    "Return only valid JSON with keys title, summary, bullets. Title: a short descriptive name for this coding session today. Summary: a concise cumulative summary of this session today, retaining prior meaningful outcomes and incorporating only new confirmed information. Bullets: 2-10 short Markdown bullet strings for this turn, each starting with '- '. No code fence or other text.",
+    "PREVIOUS SUMMARY FOR THIS SESSION TODAY:\n" + (previousSummary || "None yet."),
     "ARCHIVED USER:\n" + redact(turn.user),
     "ARCHIVED ASSISTANT:\n" + redact(turn.assistant),
   ].join("\n\n");
 }
 
-function summarize(turn: CapturedTurn): string {
-  const input = prompt(turn);
+export function parseSummarizerOutput(output: string): { bullets: string; title: string; summary: string } {
+  const raw = output.trim().replace(/^```(?:json)?\s*\n|\n```\s*$/g, "");
+  const parsed = JSON.parse(raw) as { title?: unknown; summary?: unknown; bullets?: unknown };
+  if (typeof parsed.title !== "string" || typeof parsed.summary !== "string" ||
+      !Array.isArray(parsed.bullets) || !parsed.bullets.every((item) => typeof item === "string"))
+    throw new Error("Summarizer returned invalid session journal JSON");
+  const title = redactJournalText(parsed.title.trim().replace(/\s+/g, " ")).slice(0, 120);
+  const summary = redactJournalText(parsed.summary.trim().replace(/\s+/g, " ")).slice(0, 800);
+  if (!title || !summary) throw new Error("Summarizer returned an empty session title or summary");
+  return { title, summary, bullets: normalizeBullets(parsed.bullets.join("\n")) };
+}
+
+function summarize(turn: CapturedTurn, previousSummary?: string): { bullets: string; title: string; summary: string } {
+  const input = prompt(turn, previousSummary);
   const command = turn.agent === "claude_code" ? "claude" : "codex";
   const args = turn.agent === "claude_code"
     ? ["-p", "--safe-mode", "--strict-mcp-config", "--tools", "", "--model", "haiku", "--no-session-persistence", "--output-format", "text", input]
@@ -78,7 +91,7 @@ function summarize(turn: CapturedTurn): string {
     env: { ...process.env, KIOKU_MEMORY_CAPTURE_ACTIVE: "1" },
   });
   if (result.status !== 0 || result.error) throw new Error(`${command} summarizer failed: ${result.error?.message || result.stderr?.slice(-500)}`);
-  return normalizeBullets(result.stdout);
+  return parseSummarizerOutput(result.stdout);
 }
 
 async function syncDay(root: string, folder: string, day: string): Promise<void> {
@@ -133,11 +146,17 @@ export async function memoryWorker(agent: AgentName): Promise<void> {
     existsSync(path) && parseJournal(readFileSync(path, "utf8"))
       .some((entry) => entry.metadata.id === id));
   if (alreadyCaptured) return;
-  const bullets = summarize(turn);
+  const previousSummary = await withJournalLock(path, () => {
+    if (!existsSync(path)) return undefined;
+    return parseJournal(readFileSync(path, "utf8"))
+      .filter((entry) => entry.metadata.agent === agent && entry.metadata.session_id === turn.sessionId)
+      .at(-1)?.metadata.session_summary;
+  });
+  const { bullets, title, summary } = summarize(turn, previousSummary);
   await withJournalLock(path, () => {
     const current = existsSync(path) ? readFileSync(path, "utf8") : journalHeader(day);
     if (parseJournal(current).some((entry) => entry.metadata.id === id)) return;
-    writeJournalAtomic(path, current + renderEntry(turn, bullets, timestamp));
+    writeJournalAtomic(path, current + renderEntry(turn, bullets, timestamp, { title, summary }));
   });
   try { await syncDay(root, folder, day); } catch { /* local file is durable; memory-sync retries */ }
 }

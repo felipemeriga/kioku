@@ -36,7 +36,43 @@ describe("LearningsPanel", () => {
             ],
           }
         : url.includes("learning-days/")
-          ? { status: "ok", markdown, revision: 2 }
+          ? {
+              status: "ok",
+              markdown,
+              revision: 2,
+              sessions: [
+                {
+                  agent: "codex",
+                  session_id: codexSession,
+                  title: "Fix cache invalidation",
+                  summary: "Found the cache invalidation issue.",
+                  computer_name: "Felipe MacBook",
+                  entry_count: 1,
+                  first_time: "10:15",
+                  last_time: "10:15",
+                },
+                {
+                  agent: "claude_code",
+                  session_id: claudeSession,
+                  title: "Review folder",
+                  summary: "Checked the same folder.",
+                  computer_name: "",
+                  entry_count: 1,
+                  first_time: "09:20",
+                  last_time: "09:20",
+                },
+                {
+                  agent: "claude_code",
+                  session_id: "kioku-e2e",
+                  title: "Synthetic E2E entry",
+                  summary: "",
+                  computer_name: "",
+                  entry_count: 1,
+                  first_time: "11:00",
+                  last_time: "11:00",
+                },
+              ],
+            }
           : {
               days: [
                 {
@@ -54,8 +90,11 @@ describe("LearningsPanel", () => {
   it("marks recorded dates and renders the actual journal entry", async () => {
     renderWithProviders(<LearningsPanel folderId="repo-1" />);
     expect(
-      await screen.findByText("Found the cache invalidation issue."),
+      await screen.findByRole("button", { name: /Fix cache invalidation/ }),
     ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Fix cache invalidation/ }),
+    );
     expect(
       screen.getByRole("button", { name: /3 journal entries/ }),
     ).toHaveAttribute("aria-pressed", "true");
@@ -65,16 +104,16 @@ describe("LearningsPanel", () => {
     expect(
       screen.getByLabelText(`Session ID: ${codexSession}`),
     ).toHaveAttribute("title", `Resume with: codex resume ${codexSession}`);
+    expect(screen.queryByLabelText("Session ID: kioku-e2e")).toBeNull();
+    const entries = document.querySelectorAll(".learnings-entry");
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toHaveTextContent("Found the cache invalidation issue.");
+    fireEvent.click(screen.getByRole("button", { name: "← All sessions" }));
+    fireEvent.click(screen.getByRole("button", { name: /Review folder/ }));
     expect(
       screen.getByLabelText(`Session ID: ${claudeSession}`),
     ).toHaveTextContent("Session b9423292");
-    expect(
-      screen.getByLabelText(`Session ID: ${claudeSession}`),
-    ).toHaveAttribute("title", `Resume with: claude --resume ${claudeSession}`);
-    expect(screen.queryByLabelText("Session ID: kioku-e2e")).toBeNull();
-    const entries = document.querySelectorAll(".learnings-entry");
-    expect(entries[0]).toHaveTextContent("Claude checked the same folder.");
-    expect(entries[1]).toHaveTextContent("Found the cache invalidation issue.");
+    expect(document.querySelectorAll(".learnings-entry")).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Markdown" }));
     expect(
       screen.getByText(
@@ -92,7 +131,7 @@ describe("LearningsPanel", () => {
     expect(screen.getByText("Agent report")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: `${day} · Codex` }));
     expect(
-      await screen.findByText("Found the cache invalidation issue."),
+      await screen.findByRole("button", { name: /Fix cache invalidation/ }),
     ).toBeInTheDocument();
   });
 });
