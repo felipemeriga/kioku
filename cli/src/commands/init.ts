@@ -36,6 +36,7 @@ import {
   installCodexSessionStartHook,
   installCodexMemoryCaptureHook,
   removeCodexCaptureHooks,
+  removeCodexLegacyPostPushHook,
   updateAgentsMd,
   writeCodexMcpConfig,
 } from "../lib/codex.js";
@@ -384,6 +385,7 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
   // new, distinctly named journal hook. Preserve every unrelated Stop hook.
   removeLegacyCaptureHooks(repoRoot);
   removeCodexCaptureHooks();
+  removeCodexLegacyPostPushHook();
 
   if (agent === "codex") {
     // Codex surface: global ~/.codex/config.toml (MCP + SessionStart) +

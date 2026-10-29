@@ -3,11 +3,12 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parse as parseToml } from "smol-toml";
+import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import {
   installCodexSessionStartHook,
   installCodexMemoryCaptureHook,
   removeCodexCaptureHooks,
+  removeCodexLegacyPostPushHook,
   installCodexPostPushHook,
   readCodexMcpEntry,
   toStreamableHttpUrl,
@@ -38,16 +39,16 @@ const ENTRY = {
 test("toStreamableHttpUrl rewrites /sse → /mcp, leaves others alone", () => {
   assert.equal(
     toStreamableHttpUrl("http://localhost:8001/sse"),
-    "http://localhost:8001/mcp"
+    "http://localhost:8001/mcp",
   );
   assert.equal(
     toStreamableHttpUrl("https://x.mcp.example.com/sse"),
-    "https://x.mcp.example.com/mcp"
+    "https://x.mcp.example.com/mcp",
   );
   // Already streamable-http — untouched.
   assert.equal(
     toStreamableHttpUrl("http://localhost:8001/mcp"),
-    "http://localhost:8001/mcp"
+    "http://localhost:8001/mcp",
   );
 });
 
@@ -59,7 +60,7 @@ test("writeCodexMcpConfig writes a streamable-http entry with auth header", () =
     assert.equal(cfg.mcp_servers.kioku.url, "http://localhost:8001/mcp");
     assert.equal(
       cfg.mcp_servers.kioku.http_headers.Authorization,
-      "Bearer testkey123"
+      "Bearer testkey123",
     );
   } finally {
     cleanup();
@@ -94,6 +95,7 @@ test("hooks write the correct [[hooks.Event]] / [[hooks.Event.hooks]] nesting", 
     assert.ok(ssHandler.command.includes(process.execPath));
     // Absolute invocation, not a bare `kioku`.
     assert.notEqual(ssHandler.command, "kioku session-start");
+    assert.equal(ssHandler.statusMessage, "Kioku: load repository briefing");
 
     assert.equal(cfg.hooks.Stop, undefined);
   } finally {
@@ -108,8 +110,37 @@ test("memory Stop hook is idempotent and agent-specific", () => {
     installCodexMemoryCaptureHook();
     const cfg = parseToml(readFileSync(path, "utf8")) as any;
     assert.equal(cfg.hooks.Stop.length, 1);
-    assert.match(cfg.hooks.Stop[0].hooks[0].command, /memory-capture --agent codex$/);
-  } finally { cleanup(); }
+    assert.match(
+      cfg.hooks.Stop[0].hooks[0].command,
+      /memory-capture --agent codex$/,
+    );
+    assert.equal(
+      cfg.hooks.Stop[0].hooks[0].statusMessage,
+      "Kioku: save agent journal",
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test("re-init names an existing unlabeled Kioku hook without duplicating it", () => {
+  const { path, cleanup } = setup();
+  try {
+    installCodexSessionStartHook();
+    const cfg = parseToml(readFileSync(path, "utf8")) as any;
+    delete cfg.hooks.SessionStart[0].hooks[0].statusMessage;
+    writeFileSync(path, stringifyToml(cfg));
+    assert.equal(installCodexSessionStartHook().addedHook, true);
+    const updated = parseToml(readFileSync(path, "utf8")) as any;
+    assert.equal(updated.hooks.SessionStart.length, 1);
+    assert.equal(updated.hooks.SessionStart[0].hooks.length, 1);
+    assert.equal(
+      updated.hooks.SessionStart[0].hooks[0].statusMessage,
+      "Kioku: load repository briefing",
+    );
+  } finally {
+    cleanup();
+  }
 });
 
 test("PostToolUse push hook writes a Bash-matched group running on-push", () => {
@@ -147,6 +178,27 @@ test("re-installing the push hook is idempotent (no duplicates)", () => {
   }
 });
 
+test("init removes only the retired Kioku Codex push hook", () => {
+  const { path, cleanup } = setup();
+  try {
+    writeFileSync(
+      path,
+      `[[hooks.PostToolUse]]\nmatcher = "Bash"\n[[hooks.PostToolUse.hooks]]\ntype = "command"\ncommand = "'/old/@felipemeriga/kioku/dist/index.js' on-push"\n[[hooks.PostToolUse.hooks]]\ntype = "command"\ncommand = "other-tool on-push"\n`,
+    );
+    assert.equal(removeCodexLegacyPostPushHook(), true);
+    assert.equal(removeCodexLegacyPostPushHook(), false);
+    const cfg = parseToml(readFileSync(path, "utf8")) as any;
+    assert.equal(cfg.hooks.PostToolUse.length, 1);
+    assert.equal(cfg.hooks.PostToolUse[0].hooks.length, 1);
+    assert.equal(
+      cfg.hooks.PostToolUse[0].hooks[0].command,
+      "other-tool on-push",
+    );
+  } finally {
+    cleanup();
+  }
+});
+
 test("a stale bare push hook is migrated, not duplicated", () => {
   const { path, cleanup } = setup();
   try {
@@ -159,12 +211,12 @@ test("a stale bare push hook is migrated, not duplicated", () => {
         'type = "command"',
         'command = "kioku on-push"',
         "",
-      ].join("\n")
+      ].join("\n"),
     );
     installCodexPostPushHook();
     const cfg = parseToml(readFileSync(path, "utf8")) as any;
     const commands = (cfg.hooks.PostToolUse as any[]).flatMap((g) =>
-      g.hooks.map((h: any) => h.command)
+      g.hooks.map((h: any) => h.command),
     );
     assert.equal(commands.length, 1);
     assert.notEqual(commands[0], "kioku on-push");
@@ -180,7 +232,7 @@ test("push + session-start hooks coexist independently", () => {
     installCodexPostPushHook();
     const cfg = parseToml(readFileSync(path, "utf8")) as any;
     assert.ok(
-      cfg.hooks.SessionStart[0].hooks[0].command.endsWith(" session-start")
+      cfg.hooks.SessionStart[0].hooks[0].command.endsWith(" session-start"),
     );
     assert.equal(cfg.hooks.Stop, undefined);
     assert.ok(cfg.hooks.PostToolUse[0].hooks[0].command.endsWith(" on-push"));
@@ -195,7 +247,7 @@ test("retired capture hook cleanup preserves unrelated handlers and is idempoten
   try {
     writeFileSync(
       path,
-      `[[hooks.Stop]]\n[[hooks.Stop.hooks]]\ntype = "command"\ncommand = "kioku capture"\n[[hooks.Stop.hooks]]\ntype = "command"\ncommand = "other-hook"\n`
+      `[[hooks.Stop]]\n[[hooks.Stop.hooks]]\ntype = "command"\ncommand = "kioku capture"\n[[hooks.Stop.hooks]]\ntype = "command"\ncommand = "other-hook"\n`,
     );
     assert.equal(removeCodexCaptureHooks(), true);
     assert.equal(removeCodexCaptureHooks(), false);
@@ -223,7 +275,7 @@ Stop = [
   { hooks = ["unknown-handler", { type = "prompt", command = "kioku capture" }, { type = "command", command = 42 }, { type = "command", command = "kioku capture" }] },
   { hooks = [{ type = "command", command = "kioku capture" }] }
 ]
-`
+`,
     );
     const before = parseToml(readFileSync(path, "utf8")) as any;
     assert.equal(removeCodexCaptureHooks(), true);
@@ -234,7 +286,7 @@ Stop = [
     ]);
     assert.deepEqual(
       cfg.hooks.Stop[4].hooks,
-      before.hooks.Stop[5].hooks.slice(0, 3)
+      before.hooks.Stop[5].hooks.slice(0, 3),
     );
     assert.equal(cfg.hooks.Stop.length, 5);
     assert.equal(removeCodexCaptureHooks(), false);
@@ -268,12 +320,12 @@ test("a stale bare hook is migrated, not duplicated", () => {
         'type = "command"',
         'command = "kioku session-start"',
         "",
-      ].join("\n")
+      ].join("\n"),
     );
     installCodexSessionStartHook();
     const cfg = parseToml(readFileSync(path, "utf8")) as any;
     const commands = (cfg.hooks.SessionStart as any[]).flatMap((g) =>
-      g.hooks.map((h: any) => h.command)
+      g.hooks.map((h: any) => h.command),
     );
     assert.equal(commands.length, 1);
     assert.notEqual(commands[0], "kioku session-start");
@@ -293,7 +345,7 @@ test("writing MCP + hooks preserves unrelated config", () => {
         "[mcp_servers.other]",
         'url = "http://x/mcp"',
         "",
-      ].join("\n")
+      ].join("\n"),
     );
     writeCodexMcpConfig(ENTRY);
     installCodexSessionStartHook();

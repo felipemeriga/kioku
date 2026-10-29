@@ -151,6 +151,7 @@ const SHELL_TOOL_MATCHER = "Bash";
 interface CommandHandler {
   type: "command";
   command: string;
+  statusMessage?: string;
   additionalContextLimit?: number;
   async?: boolean;
   timeout?: number;
@@ -179,7 +180,7 @@ function ensureCodexHook(
   cfg: TomlTable,
   event: "SessionStart" | "Stop" | "PostToolUse",
   subcommand: string,
-  opts?: { extra?: Partial<CommandHandler>; matcher?: string }
+  opts?: { extra?: Partial<CommandHandler>; matcher?: string },
 ): boolean {
   const extra = opts?.extra;
   const matcher = opts?.matcher;
@@ -197,9 +198,13 @@ function ensureCodexHook(
     if (!Array.isArray(g.hooks)) continue;
     const before = g.hooks.length;
     g.hooks = g.hooks.filter((h) => {
-      if (h?.command === command && Object.entries(extra ?? {}).every(
-        ([key, value]) => (h as unknown as Record<string, unknown>)[key] === value
-      )) {
+      if (
+        h?.command === command &&
+        Object.entries(extra ?? {}).every(
+          ([key, value]) =>
+            (h as unknown as Record<string, unknown>)[key] === value,
+        )
+      ) {
         hadExact = true;
         return true;
       }
@@ -210,7 +215,7 @@ function ensureCodexHook(
   }
   // Drop groups emptied by the strip.
   const kept = rawGroups.filter(
-    (g) => Array.isArray(g.hooks) && g.hooks.length > 0
+    (g) => Array.isArray(g.hooks) && g.hooks.length > 0,
   );
 
   if (!hadExact) {
@@ -235,7 +240,10 @@ export function installCodexSessionStartHook(): {
   const path = codexConfigPath();
   const cfg = loadConfig(path);
   const changed = ensureCodexHook(cfg, "SessionStart", SUB_SESSION_START, {
-    extra: { additionalContextLimit: SESSION_START_CONTEXT_LIMIT },
+    extra: {
+      statusMessage: "Kioku: load repository briefing",
+      additionalContextLimit: SESSION_START_CONTEXT_LIMIT,
+    },
   });
   writeConfig(path, cfg);
   return { path, addedHook: changed };
@@ -248,7 +256,7 @@ export function installCodexMemoryCaptureHook(): {
   const path = codexConfigPath();
   const cfg = loadConfig(path);
   const changed = ensureCodexHook(cfg, "Stop", "memory-capture --agent codex", {
-    extra: { timeout: 10 },
+    extra: { statusMessage: "Kioku: save agent journal", timeout: 10 },
   });
   writeConfig(path, cfg);
   return { path, addedHook: changed };
@@ -291,6 +299,34 @@ export function removeCodexCaptureHooks(): boolean {
   return true;
 }
 
+/** Retire Kioku's old global PostToolUse push hook; Mihari handles indexing. */
+export function removeCodexLegacyPostPushHook(): boolean {
+  const path = codexConfigPath();
+  if (!existsSync(path)) return false;
+  const cfg = loadConfig(path);
+  const hooks = cfg.hooks as TomlTable | undefined;
+  if (!Array.isArray(hooks?.PostToolUse)) return false;
+  const before = JSON.stringify(hooks.PostToolUse);
+  hooks.PostToolUse = (hooks.PostToolUse as unknown[]).flatMap((group) => {
+    if (!group || typeof group !== "object") return [group];
+    const record = group as TomlTable;
+    if (!Array.isArray(record.hooks)) return [group];
+    const remaining = record.hooks.filter((handler: unknown) => {
+      if (!handler || typeof handler !== "object") return true;
+      const command = (handler as TomlTable).command;
+      return !(
+        typeof command === "string" &&
+        isSubcommand(command, SUB_POST_PUSH) &&
+        /kioku/i.test(command)
+      );
+    });
+    return remaining.length ? [{ ...record, hooks: remaining }] : [];
+  });
+  if (JSON.stringify(hooks.PostToolUse) === before) return false;
+  writeConfig(path, cfg);
+  return true;
+}
+
 /** PostToolUse hook scoped to the shell (Bash) tool. `kioku on-push` filters
  *  for a `git push` command and, when found, nudges the SAME Codex session to
  *  refresh the repo's stored `activity` briefing from the newly-pushed commits.
@@ -321,6 +357,6 @@ export function updateAgentsMd(repoRoot: string): {
 } {
   return upsertMarkdownSnippet(
     join(repoRoot, "AGENTS.md"),
-    secondBrainSnippet()
+    secondBrainSnippet(),
   );
 }
