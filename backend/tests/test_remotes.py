@@ -1,5 +1,6 @@
 """Connection protocol/ownership tests without production credentials or services."""
 
+import hashlib
 import time
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
@@ -13,6 +14,25 @@ from starlette.websockets import WebSocketDisconnect
 
 from auth import get_current_user
 from routes import remotes
+
+
+def memory_message(folder_id=None):
+    content = "A durable user correction"
+    return {
+        "type": "memory_post",
+        "protocol": 1,
+        "event_id": "a" * 64,
+        "content_hash": hashlib.sha256(content.encode()).hexdigest(),
+        "folder_id": folder_id or str(uuid4()),
+        "session_id": "session-1",
+        "source": "claude_code",
+        "record_position": 1,
+        "event_time": datetime.now(timezone.utc).isoformat(),
+        "observed_at": datetime.now(timezone.utc).isoformat(),
+        "provenance": "user",
+        "sensitivity": "normal",
+        "content": content,
+    }
 
 
 class Query:
@@ -388,3 +408,57 @@ def test_custom_name_is_owned_and_survives_reregistration(setup):
     )
     client.patch(url, json={"name": None}, headers={"X-Test-User": "alice"})
     assert listing(client)[0]["name"] == "Laptop"
+
+
+def test_memory_ack_requires_enabled_capability_and_successful_storage(setup, monkeypatch):
+    client, _ = setup
+    machine = register(client)
+    calls = []
+    monkeypatch.setenv("KIOKU_MEMORY_CAPTURE_ENABLED", "true")
+
+    def accept(event, user_id, machine_id):
+        calls.append((event.event_id, user_id, machine_id))
+        return "stored"
+
+    monkeypatch.setattr(remotes, "accept_event", accept)
+    with client.websocket_connect("/api/remotes/connect") as socket:
+        socket.send_json({"type": "hello", "id": machine["id"], "secret": machine["secret"]})
+        assert "memory_post_v1" in socket.receive_json()["capabilities"]
+        socket.send_json(memory_message())
+        assert socket.receive_json() == {
+            "type": "memory_ack",
+            "event_id": "a" * 64,
+            "status": "stored",
+        }
+        assert calls == [("a" * 64, "alice", machine["id"])]
+
+
+def test_memory_storage_failure_nacks_without_ack(setup, monkeypatch):
+    client, _ = setup
+    machine = register(client)
+    monkeypatch.setenv("KIOKU_MEMORY_CAPTURE_ENABLED", "true")
+
+    def fail(*_):
+        raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(remotes, "accept_event", fail)
+    with client.websocket_connect("/api/remotes/connect") as socket:
+        hello(socket, machine)
+        socket.send_json(memory_message())
+        assert socket.receive_json() == {
+            "type": "memory_nack",
+            "event_id": "a" * 64,
+            "code": "storage_unavailable",
+            "retryable": True,
+        }
+
+
+def test_old_backend_capability_is_absent_when_capture_disabled(setup, monkeypatch):
+    client, _ = setup
+    machine = register(client)
+    monkeypatch.delenv("KIOKU_MEMORY_CAPTURE_ENABLED", raising=False)
+    with client.websocket_connect("/api/remotes/connect") as socket:
+        socket.send_json({"type": "hello", "id": machine["id"], "secret": machine["secret"]})
+        assert "capabilities" not in socket.receive_json()
+        socket.send_json(memory_message())
+        assert socket.receive_json()["code"] == "disabled"

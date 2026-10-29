@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import re
 from datetime import datetime, timezone
 from typing import Literal
@@ -15,11 +16,13 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from auth import get_current_user
 from db.client import get_supabase_thread_safe
+from services.agent_memory.ingest import MemoryPost, accept_event
 
 router = APIRouter(prefix="/api/remotes", tags=["remotes"])
 log = logging.getLogger(__name__)
 HEARTBEAT_SECONDS = 30
 STALE_SECONDS = 90
+MEMORY_MAX_BYTES = 64 * 1024
 PUBLIC_COLUMNS = (
     "id,name,custom_name,platform,version,created_at,connected_at,last_seen,connected,"
     "os_name,os_id,architecture,inventory,inventory_updated_at,warnings"
@@ -252,9 +255,63 @@ async def connect(socket: WebSocket):
         if version is not None:
             connection_values["version"] = version
         await asyncio.to_thread(update, connection_values, False)
-        await socket.send_json({"type": "ready", "heartbeat_seconds": HEARTBEAT_SECONDS})
+        memory_enabled = os.environ.get("KIOKU_MEMORY_CAPTURE_ENABLED") == "true"
+        ready = {"type": "ready", "heartbeat_seconds": HEARTBEAT_SECONDS}
+        if memory_enabled:
+            ready["capabilities"] = ["memory_post_v1"]
+        await socket.send_json(ready)
         while True:
             message = await receive_small_json(socket, HEARTBEAT_SECONDS * 2 + 10, 256_000)
+            if message.get("type") == "memory_post":
+                event_id = message.get("event_id")
+                if not memory_enabled:
+                    await socket.send_json(
+                        {
+                            "type": "memory_nack",
+                            "event_id": event_id,
+                            "code": "disabled",
+                            "retryable": True,
+                        }
+                    )
+                    continue
+                try:
+                    if len(json.dumps(message, ensure_ascii=False).encode()) > MEMORY_MAX_BYTES:
+                        raise ValueError("too_large")
+                    event = MemoryPost.model_validate(message)
+                except (ValidationError, ValueError):
+                    await socket.send_json(
+                        {
+                            "type": "memory_nack",
+                            "event_id": event_id,
+                            "code": "invalid_payload",
+                            "retryable": False,
+                        }
+                    )
+                    continue
+                try:
+                    status = await asyncio.to_thread(accept_event, event, row["user_id"], row["id"])
+                except Exception as exc:  # noqa: BLE001 — durable write failure must preserve sender spool
+                    detail = str(exc)
+                    code = (
+                        "scope_denied"
+                        if "memory_scope_denied" in detail
+                        else "hash_conflict"
+                        if "memory_hash_conflict" in detail
+                        else "storage_unavailable"
+                    )
+                    await socket.send_json(
+                        {
+                            "type": "memory_nack",
+                            "event_id": event.event_id,
+                            "code": code,
+                            "retryable": code == "storage_unavailable",
+                        }
+                    )
+                    continue
+                await socket.send_json(
+                    {"type": "memory_ack", "event_id": event.event_id, "status": status}
+                )
+                continue
             if message.get("type") == "inventory":
                 revision = message.get("revision", "")
                 if not isinstance(revision, str) or len(revision) != 64:
