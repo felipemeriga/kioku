@@ -3,12 +3,14 @@
 
 import argparse
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
 
 PACKAGES = ("backend", "mcp", "frontend", "mihari", "cli")
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
+LEVELS = {"patch": 0, "minor": 1, "major": 2}
 
 
 def git(*args, cwd=None):
@@ -53,21 +55,64 @@ def build_matrix(plan):
     ]
 
 
-def bump(version):
+def bump(version, level="patch"):
     if not re.fullmatch(r"\d+\.\d+\.\d+", version):
         raise ValueError(f"Expected stable major.minor.patch, got {version!r}")
+    if level not in LEVELS:
+        raise ValueError(f"Unknown release level: {level}")
     major, minor, patch = map(int, version.split("."))
+    if level == "major":
+        return f"{major + 1}.0.0"
+    if level == "minor":
+        return f"{major}.{minor + 1}.0"
     return f"{major}.{minor}.{patch + 1}"
 
 
-def bump_packages(root, packages):
+def release_levels(base, head, packages):
+    """Read labels on merged PRs; direct pushes and unlabeled PRs are patches."""
+    result = dict.fromkeys(packages, "patch")
+    if not base:
+        return result
+    repository = os.environ.get("GITHUB_REPOSITORY")
+    for line in git(
+        "log", "--first-parent", "--reverse", "--format=%H%x09%s", f"{base}..{head}"
+    ).splitlines():
+        sha, subject = line.split("\t", 1)
+        changed = affected(git("diff", "--name-only", f"{sha}^1", sha).splitlines())
+        match = re.fullmatch(r"Merge pull request #(\d+) from .+", subject)
+        if not match or not changed:
+            continue
+        if not repository:
+            raise ValueError("GITHUB_REPOSITORY is required to read PR release labels")
+        pr = json.loads(
+            subprocess.check_output(
+                ["gh", "api", f"repos/{repository}/pulls/{match[1]}"], text=True
+            )
+        )
+        if pr.get("merge_commit_sha") != sha or pr.get("base", {}).get("ref") != "main":
+            raise ValueError(f"PR #{match[1]} does not match merged main commit {sha}")
+        labels = {label["name"] for label in pr.get("labels", [])}
+        level = max(
+            (name for name in LEVELS if f"release:{name}" in labels),
+            key=lambda name: LEVELS[name],
+            default="patch",
+        )
+        for package in changed:
+            if package in result and LEVELS[level] > LEVELS[result[package]]:
+                result[package] = level
+    return result
+
+
+def bump_packages(root, packages, levels=None):
+    levels = levels or {}
     versions = json.loads((root / ".release/versions.json").read_text())
     result = {}
     for package in packages:
+        level = levels.get(package, "patch")
         if package in ("cli", "frontend"):
             path = root / package / "package.json"
             data = json.loads(path.read_text())
-            version = bump(data["version"])
+            version = bump(data["version"], level)
             data["version"] = version
             dump(path, data)
             lock_path = root / package / "package-lock.json"
@@ -90,7 +135,7 @@ def bump_packages(root, packages):
             path = root / "backend/pyproject.toml"
             text = path.read_text()
             match = re.search(r'^version = "([^"]+)"', text, re.MULTILINE)
-            version = bump(match[1])
+            version = bump(match[1], level)
             path.write_text(text[: match.start(1)] + version + text[match.end(1) :])
             lock = root / "backend/uv.lock"
             updated, count = re.subn(
@@ -104,7 +149,7 @@ def bump_packages(root, packages):
                 )
             lock.write_text(updated)
         else:
-            version = versions[package] = bump(versions[package])
+            version = versions[package] = bump(versions[package], level)
         result[package] = version
     dump(root / ".release/versions.json", versions)
     return result
@@ -155,7 +200,8 @@ def prepare(root, source):
     packages = affected(paths) if base else list(PACKAGES)
     if not packages:
         return None
-    versions = bump_packages(root, packages)
+    levels = release_levels(base, head, packages)
+    versions = bump_packages(root, packages, levels)
     cloud_dir = "mihari" if (root / "mihari/Dockerfile").exists() else "watcher"
     images = []
     for package in packages:
@@ -183,6 +229,8 @@ def prepare(root, source):
         "source_sha": source,
         "release_branch": "main",
         "versions": versions,
+        "release_levels": levels,
+        "major": "major" in levels.values(),
         "images": images,
         "cli": "cli" in packages,
         "cloud_directory": cloud_dir,

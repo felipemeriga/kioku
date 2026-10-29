@@ -23,11 +23,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: read
     outputs:
       ready: ${{ steps.plan.outputs.ready }}
       sha: ${{ steps.plan.outputs.sha }}
       matrix: ${{ steps.plan.outputs.matrix }}
       cli: ${{ steps.plan.outputs.cli }}
+      major: ${{ steps.plan.outputs.major }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -42,6 +44,7 @@ jobs:
           DOKPLOY_COMPOSE_IDS: ${{ vars.DOKPLOY_COMPOSE_IDS }}
           DOKPLOY_DEPLOY_TIMEOUT_SECONDS: ${{ vars.DOKPLOY_DEPLOY_TIMEOUT_SECONDS || '900' }}
           HIVE_TOKEN: ${{ secrets.HIVE_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           DOCKER_USER: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKER_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
           SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
@@ -87,7 +90,24 @@ jobs:
               out.write('sha='+subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()+'\n')
               out.write('matrix='+json.dumps({'include':build_matrix(plan)},separators=(',',':'))+'\n')
               out.write('cli='+str(plan['cli']).lower()+'\n')
+              out.write('major='+str(plan['major']).lower()+'\n')
           PY
+
+  major-approval:
+    needs: prepare
+    if: needs.prepare.outputs.major == 'true'
+    runs-on: ubuntu-latest
+    environment: major-release
+    permissions:
+      contents: read
+    steps:
+      - name: Verify the human approval gate is configured
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/environments/major-release" --jq \
+            '[.protection_rules[] | select(.type == "required_reviewers") | .reviewers[].reviewer.login] | index("felipemeriga")' \
+            | grep -qx '[0-9]*'
 
   validate:
     needs: prepare
@@ -177,11 +197,12 @@ jobs:
       ref: ${{ needs.prepare.outputs.sha }}
 
   promote:
-    needs: [prepare, validate, retrieval-eval, images, cli]
+    needs: [prepare, major-approval, validate, retrieval-eval, images, cli]
     if: >-
       always() && needs.prepare.outputs.ready == 'true' &&
       needs.validate.result == 'success' &&
       (needs.retrieval-eval.result == 'success' || needs.retrieval-eval.result == 'skipped') &&
+      (needs.major-approval.result == 'success' || needs.major-approval.result == 'skipped') &&
       (needs.images.result == 'success' || needs.images.result == 'skipped') &&
       (needs.cli.result == 'success' || needs.cli.result == 'skipped')
     runs-on: ubuntu-latest
