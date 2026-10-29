@@ -18,8 +18,8 @@ export interface MemoryEvent {
   content_hash: string;
   folder_id: string;
   session_id: string;
-  source: "claude_code" | "codex" | "claude_memory" | "codex_memory";
-  source_schema_version: 1;
+  source: string;
+  source_schema_version: number;
   record_position: number;
   event_time: string | null;
   observed_at: string;

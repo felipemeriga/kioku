@@ -25,8 +25,8 @@ class MemoryPost(BaseModel):
     content_hash: str = Field(pattern=HASH)
     folder_id: UUID
     session_id: str = Field(min_length=1, max_length=160)
-    source: Literal["claude_code", "codex", "claude_memory", "codex_memory"]
-    source_schema_version: Literal[1]
+    source: str = Field(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_]*$")
+    source_schema_version: int = Field(ge=1, le=100)
     record_position: int = Field(ge=0)
     event_time: datetime | None = None
     observed_at: datetime
