@@ -157,7 +157,8 @@ export async function memoryWorker(agent: AgentName): Promise<void> {
   await withJournalLock(path, () => {
     const current = existsSync(path) ? readFileSync(path, "utf8") : journalHeader(day);
     if (parseJournal(current).some((entry) => entry.metadata.id === id)) return;
-    writeJournalAtomic(path, current + renderEntry(turn, bullets, timestamp, { title, summary }));
+    const next = current + renderEntry(turn, bullets, timestamp, { title, summary });
+    writeJournalAtomic(path, mergeJournals(day, current, next));
   });
   try { await syncDay(root, folder, day); } catch { /* local file is durable; memory-sync retries */ }
 }

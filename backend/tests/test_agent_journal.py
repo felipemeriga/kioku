@@ -10,6 +10,7 @@ import pytest
 
 from services.agent_journal import (
     inspect_journal,
+    journal_entries,
     journal_sessions,
     local_journal_day,
     local_journal_days,
@@ -67,6 +68,30 @@ def test_journal_sessions_groups_turns_and_uses_latest_summary():
     assert sessions[0]["summary"] == "Checked retry paths and fixed NotFound recovery."
 
 
+def test_grouped_session_header_is_not_part_of_turn_entries():
+    first_ms = 1793278800000
+    meta = {
+        **META,
+        "captured_at": first_ms,
+        "session_title": "Fix retry handling",
+        "session_summary": "Investigated and fixed retry handling.",
+    }
+    text = (
+        f"# Kioku agent journal — {DAY}\n\n"
+        "## Codex session `session`\n"
+        '<!-- kioku-session: {"agent":"codex","session_id":"session"} -->\n\n'
+        "**About:** Fix retry handling\n\n"
+        "**Done so far:** Investigated and fixed retry handling.\n\n"
+        f"### {first_ms} — Codex\n<!-- kioku-entry: {json.dumps(meta)} -->\n\n"
+        "- Fixed the retry\n\n"
+    )
+    parsed = journal_entries(text)
+    assert len(parsed) == 1
+    assert "**About:**" not in parsed[0]["block"]
+    assert inspect_journal(text, DAY)["entry_count"] == 1
+    assert journal_sessions(text)[0]["title"] == "Fix retry handling"
+
+
 def test_epoch_journals_project_adjacent_utc_days_into_viewer_day():
     first_ms = 1793316600000  # 2026-10-29 23:30 UTC
     second_ms = 1793320200000  # 2026-10-30 00:30 UTC
@@ -100,6 +125,8 @@ def test_epoch_journals_project_adjacent_utc_days_into_viewer_day():
     result = local_journal_day(journals, tz, date(2026, 10, 29))
     assert result["status"] == "ok"
     assert result["sessions"][0]["entry_count"] == 2
+    assert result["markdown"].count("## Codex session") == 1
+    assert result["markdown"].index("## Codex session") < result["markdown"].index("- First")
     assert result["markdown"].index("- First") < result["markdown"].index("- Second")
 
 

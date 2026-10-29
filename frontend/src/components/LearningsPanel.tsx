@@ -59,12 +59,20 @@ const SESSION_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function entriesFromMarkdown(markdown: string): Entry[] {
-  const sections = markdown.split(/^## (\d\d:\d\d|\d{13}) — ([^\n]+)\n/gm);
+  const headings = [
+    ...markdown.matchAll(
+      /^## (?:Codex|Claude Code) session [^\n]+\n|^#{2,3} (\d\d:\d\d|\d{13}) — ([^\n]+)\n/gm,
+    ),
+  ];
   const entries: Entry[] = [];
-  for (let i = 1; i + 2 < sections.length; i += 3) {
-    const marker = sections[i + 2].match(
-      /^<!-- kioku-entry: (\{[^\n]+\}) -->\n/m,
+  for (let i = 0; i < headings.length; i++) {
+    const heading = headings[i];
+    if (!heading[1]) continue;
+    const section = markdown.slice(
+      heading.index! + heading[0].length,
+      i + 1 < headings.length ? headings[i + 1].index! : markdown.length,
     );
+    const marker = section.match(/^<!-- kioku-entry: (\{[^\n]+\}) -->\n/m);
     if (!marker) continue;
     try {
       const meta = JSON.parse(marker[1]) as {
@@ -91,7 +99,7 @@ function entriesFromMarkdown(markdown: string): Entry[] {
         time,
         computerName:
           typeof meta.computer_name === "string" ? meta.computer_name : "",
-        markdown: sections[i + 2].replace(marker[0], "").trim(),
+        markdown: section.replace(marker[0], "").trim(),
       });
     } catch {
       /* An invalid entry stays visible in raw Markdown. */

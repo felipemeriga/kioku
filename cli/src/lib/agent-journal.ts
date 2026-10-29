@@ -39,6 +39,7 @@ export interface JournalEntry {
 }
 
 const MARKER_RE = /^<!-- kioku-entry: (\{[^\n]+\}) -->$/gm;
+const BLOCK_HEADING_RE = /^## (?:Codex|Claude Code) session .+$|^#{2,3} (?:\d\d:\d\d|\d{13}) — [^\n]+$/gm;
 const SECRET_RE = /(Bearer\s+\S+|sk-[A-Za-z0-9_-]{16,}|ghp_[A-Za-z0-9]{16,}|mongodb(?:\+srv)?:\/\/\S+)/gi;
 export function redactJournalText(text: string): string {
   return text.replace(SECRET_RE, "[redacted]");
@@ -160,21 +161,22 @@ export function renderEntry(turn: CapturedTurn, bullets: string, timestamp: numb
     ...(session ? { session_title: session.title, session_summary: session.summary } : {}),
   };
   const label = turn.agent === "claude_code" ? "Claude Code" : "Codex";
-  return `## ${timestamp} — ${label}\n<!-- kioku-entry: ${JSON.stringify(metadata)} -->\n\n${bullets}\n\n`;
+  return `### ${timestamp} — ${label}\n<!-- kioku-entry: ${JSON.stringify(metadata)} -->\n\n${bullets}\n\n`;
 }
 
 export function parseJournal(markdown: string): Array<{ metadata: JournalEntry; block: string }> {
-  const matches = [...markdown.matchAll(MARKER_RE)];
+  const headings = [...markdown.matchAll(BLOCK_HEADING_RE)];
   const entries: Array<{ metadata: JournalEntry; block: string }> = [];
-  for (let i = 0; i < matches.length; i++) {
-    const marker = matches[i];
-    const headingStart = markdown.lastIndexOf("\n## ", marker.index) + 1;
-    const end = i + 1 < matches.length
-      ? markdown.lastIndexOf("\n## ", matches[i + 1].index) + 1
-      : markdown.length;
+  for (let i = 0; i < headings.length; i++) {
+    const heading = headings[i];
+    if (!/^#{2,3} (?:\d\d:\d\d|\d{13}) — /.test(heading[0])) continue;
+    const end = i + 1 < headings.length ? headings[i + 1].index! : markdown.length;
+    const block = markdown.slice(heading.index!, end);
+    const marker = [...block.matchAll(MARKER_RE)][0];
+    if (!marker) continue;
     entries.push({
       metadata: JSON.parse(marker[1]) as JournalEntry,
-      block: markdown.slice(headingStart, end).trimEnd() + "\n\n",
+      block: block.trimEnd() + "\n\n",
     });
   }
   return entries;
@@ -184,10 +186,27 @@ export function mergeJournals(day: string, remote: string, local: string): strin
   const entries = new Map<string, { metadata: JournalEntry; block: string }>();
   for (const entry of [...parseJournal(local), ...parseJournal(remote)])
     entries.set(entry.metadata.id, entry);
-  return journalHeader(day) + [...entries.values()]
-    .sort((a, b) => entryEpochMs(a.metadata) - entryEpochMs(b.metadata) || a.metadata.id.localeCompare(b.metadata.id))
-    .map((entry) => entry.block)
-    .join("");
+  const groups = new Map<string, Array<{ metadata: JournalEntry; block: string }>>();
+  for (const entry of entries.values()) {
+    const key = `${entry.metadata.agent}:${entry.metadata.session_id}`;
+    const group = groups.get(key) ?? [];
+    group.push(entry);
+    groups.set(key, group);
+  }
+  const sorted = [...groups.values()].map((group) => group.sort((a, b) =>
+    entryEpochMs(a.metadata) - entryEpochMs(b.metadata) || a.metadata.id.localeCompare(b.metadata.id)));
+  sorted.sort((a, b) => entryEpochMs(a[0].metadata) - entryEpochMs(b[0].metadata) ||
+    a[0].metadata.id.localeCompare(b[0].metadata.id));
+  return journalHeader(day) + sorted.map((group) => {
+    const first = group[0].metadata;
+    const latest = group[group.length - 1].metadata;
+    const agent = first.agent === "claude_code" ? "Claude Code" : "Codex";
+    const title = latest.session_title || group[0].block.split("\n- ")[1]?.split("\n")[0] || "Untitled session";
+    const summary = latest.session_summary || "No session summary captured yet.";
+    const marker = JSON.stringify({ agent: first.agent, session_id: first.session_id });
+    return `## ${agent} session \`${first.session_id}\`\n<!-- kioku-session: ${marker} -->\n\n**About:** ${title}\n\n**Done so far:** ${summary}\n\n` +
+      group.map((entry) => entry.block.replace(/^## /, "### ")).join("");
+  }).join("");
 }
 
 export function sha256(text: string): string {
