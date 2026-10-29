@@ -19,6 +19,7 @@ export interface MemoryEvent {
   folder_id: string;
   session_id: string;
   source: "claude_code";
+  source_schema_version: 1;
   record_position: number;
   event_time: string | null;
   observed_at: string;
@@ -158,6 +159,7 @@ export function readClaudeRecords(
       folder_id: folderId,
       session_id: sessionId,
       source: "claude_code",
+      source_schema_version: 1,
       record_position: position,
       event_time: eventTime,
       observed_at: new Date().toISOString(),

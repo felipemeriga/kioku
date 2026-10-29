@@ -21,6 +21,7 @@ def event():
         "folder_id": str(uuid4()),
         "session_id": "session-1",
         "source": "claude_code",
+        "source_schema_version": 1,
         "record_position": 10,
         "event_time": datetime.now(timezone.utc).isoformat(),
         "observed_at": datetime.now(timezone.utc).isoformat(),

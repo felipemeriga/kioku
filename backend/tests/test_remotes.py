@@ -26,6 +26,7 @@ def memory_message(folder_id=None):
         "folder_id": folder_id or str(uuid4()),
         "session_id": "session-1",
         "source": "claude_code",
+        "source_schema_version": 1,
         "record_position": 1,
         "event_time": datetime.now(timezone.utc).isoformat(),
         "observed_at": datetime.now(timezone.utc).isoformat(),

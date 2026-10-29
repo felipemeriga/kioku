@@ -6,6 +6,7 @@ CREATE TABLE public.memory_raw_events (
     folder_id uuid NOT NULL REFERENCES public.folders(id) ON DELETE CASCADE,
     machine_id uuid NOT NULL,
     source text NOT NULL CHECK (source = 'claude_code'),
+    source_schema_version integer NOT NULL CHECK (source_schema_version = 1),
     session_id text NOT NULL CHECK (length(session_id) BETWEEN 1 AND 160),
     record_position bigint NOT NULL CHECK (record_position >= 0),
     content_hash text NOT NULL CHECK (content_hash ~ '^[a-f0-9]{64}$'),
@@ -51,6 +52,7 @@ CREATE FUNCTION public.accept_memory_event(
     p_event_id text,
     p_folder_id uuid,
     p_source text,
+    p_source_schema_version integer,
     p_session_id text,
     p_record_position bigint,
     p_content_hash text,
@@ -83,11 +85,11 @@ BEGIN
     END IF;
 
     INSERT INTO public.memory_raw_events (
-        user_id, event_id, folder_id, machine_id, source, session_id,
+        user_id, event_id, folder_id, machine_id, source, source_schema_version, session_id,
         record_position, content_hash, raw_ciphertext, wrapped_dek, nonce,
         redacted_content, event_time, observed_at, provenance, sensitivity
     ) VALUES (
-        p_user_id, p_event_id, p_folder_id, p_machine_id, p_source, p_session_id,
+        p_user_id, p_event_id, p_folder_id, p_machine_id, p_source, p_source_schema_version, p_session_id,
         p_record_position, p_content_hash, p_raw_ciphertext, p_wrapped_dek, p_nonce,
         p_redacted_content, p_event_time, p_observed_at, p_provenance, p_sensitivity
     ) ON CONFLICT (user_id, event_id) DO NOTHING;
@@ -108,10 +110,10 @@ BEGIN
 END;
 $$;
 REVOKE ALL ON FUNCTION public.accept_memory_event(
-    uuid, uuid, text, uuid, text, text, bigint, text, text, text, text,
+    uuid, uuid, text, uuid, text, integer, text, bigint, text, text, text, text,
     text, timestamptz, timestamptz, text, text
 ) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.accept_memory_event(
-    uuid, uuid, text, uuid, text, text, bigint, text, text, text, text,
+    uuid, uuid, text, uuid, text, integer, text, bigint, text, text, text, text,
     text, timestamptz, timestamptz, text, text
 ) TO service_role;

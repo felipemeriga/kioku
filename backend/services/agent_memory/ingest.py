@@ -26,6 +26,7 @@ class MemoryPost(BaseModel):
     folder_id: UUID
     session_id: str = Field(min_length=1, max_length=160)
     source: Literal["claude_code"]
+    source_schema_version: Literal[1]
     record_position: int = Field(ge=0)
     event_time: datetime | None = None
     observed_at: datetime
@@ -73,6 +74,7 @@ def accept_event(event: MemoryPost, user_id: str, machine_id: str) -> str:
                 "p_event_id": event.event_id,
                 "p_folder_id": str(event.folder_id),
                 "p_source": event.source,
+                "p_source_schema_version": event.source_schema_version,
                 "p_session_id": event.session_id,
                 "p_record_position": event.record_position,
                 "p_content_hash": event.content_hash,
