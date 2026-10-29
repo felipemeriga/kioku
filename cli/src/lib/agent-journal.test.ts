@@ -37,6 +37,11 @@ test("daily merge keeps both agents and ignores replay", () => {
   const merged = mergeJournals(day, first, second);
   assert.equal(parseJournal(merged).length, 2);
   assert.equal(mergeJournals(day, merged, first), merged);
+  const sessionEntry = renderEntry(c, "- Started task\n- Completed task", timestamp, {
+    title: "Build session timeline",
+    summary: "Created the timeline view.",
+  });
+  assert.equal(parseJournal(sessionEntry)[0].metadata.session_title, "Build session timeline");
   const olderLocal = first.replace("Started task", "Tarefa iniciada");
   assert.equal(mergeJournals(day, first, olderLocal), first);
 });

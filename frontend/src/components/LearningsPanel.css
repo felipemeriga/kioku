@@ -25,6 +25,46 @@
   padding: 24px;
   min-height: 330px;
 }
+.learnings-session-list {
+  display: grid;
+  gap: 10px;
+}
+.learnings-session-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 9px;
+  width: 100%;
+  padding: 16px 18px;
+  border: 1px solid #654b83;
+  border-radius: 5px;
+  background: #1a0d2a;
+  color: #faf7ff;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.learnings-session-card:hover,
+.learnings-session-card:focus-visible {
+  border-color: #00f0ff;
+  outline: none;
+}
+.learnings-session-card-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: #beb0d7;
+  font-size: 12px;
+}
+.learnings-session-card-summary {
+  color: #beb0d7;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.learnings-session-card-summary p {
+  margin: 0;
+}
 .learnings-calendar-grid {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));

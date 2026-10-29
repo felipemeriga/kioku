@@ -11,6 +11,49 @@ BUCKET = "agent-journals"
 MAX_BYTES = 5 * 1024 * 1024
 ENTRY_RE = re.compile(r"^<!-- kioku-entry: (\{[^\n]*\}) -->$", re.MULTILINE)
 ALLOWED_AGENTS = {"claude_code", "codex"}
+HEADING_RE = re.compile(r"^## (\d\d:\d\d) — [^\n]+\n", re.MULTILINE)
+
+
+def journal_sessions(markdown: str) -> list[dict]:
+    """Group a day's entries by native agent session, including legacy journals."""
+    headings = list(HEADING_RE.finditer(markdown))
+    sessions: dict[tuple[str, str], dict] = {}
+    for index, heading in enumerate(headings):
+        block = markdown[
+            heading.end() : headings[index + 1].start()
+            if index + 1 < len(headings)
+            else len(markdown)
+        ]
+        marker = ENTRY_RE.search(block)
+        if not marker:
+            continue
+        entry = json.loads(marker.group(1))
+        agent, session_id = entry["agent"], entry["session_id"]
+        key = (agent, session_id)
+        prose = block[marker.end() :].strip()
+        fallback = re.sub(r"^[#*\-\s]+", "", prose.splitlines()[0] if prose else "").strip()
+        record = sessions.setdefault(
+            key,
+            {
+                "agent": agent,
+                "session_id": session_id,
+                "title": fallback[:120] or "Untitled session",
+                "summary": "",
+                "computer_name": entry.get("computer_name") or "",
+                "entry_count": 0,
+                "first_time": heading.group(1),
+                "last_time": heading.group(1),
+            },
+        )
+        record["entry_count"] += 1
+        record["last_time"] = heading.group(1)
+        if entry.get("session_title"):
+            record["title"] = entry["session_title"]
+        if entry.get("session_summary"):
+            record["summary"] = entry["session_summary"]
+        if entry.get("computer_name"):
+            record["computer_name"] = entry["computer_name"]
+    return list(sessions.values())
 
 
 def inspect_journal(markdown: str, journal_date: str) -> dict:
@@ -45,6 +88,16 @@ def inspect_journal(markdown: str, journal_date: str) -> dict:
             entry.get("source_ref"), str
         ):
             raise ValueError("Missing session or source reference")
+        for field, limit in (
+            ("session_title", 120),
+            ("session_summary", 800),
+            ("computer_name", 120),
+        ):
+            value = entry.get(field)
+            if value is not None and (
+                not isinstance(value, str) or not value or len(value) > limit
+            ):
+                raise ValueError(f"Invalid {field}")
         seen.add(entry_id)
         entries.append((agent, captured_at))
     if not entries:
@@ -79,7 +132,13 @@ def read_journal(sb, user_id: str, folder_id: str, journal_date: str) -> dict:
     raw = sb.storage.from_(BUCKET).download(row["storage_path"])
     if hashlib.sha256(raw).hexdigest() != row["content_sha256"]:
         raise RuntimeError("Journal object does not match its index hash")
-    return {"status": "ok", "revision": row["revision"], "markdown": raw.decode("utf-8")}
+    markdown = raw.decode("utf-8")
+    return {
+        "status": "ok",
+        "revision": row["revision"],
+        "markdown": markdown,
+        "sessions": journal_sessions(markdown),
+    }
 
 
 def sync_journal(

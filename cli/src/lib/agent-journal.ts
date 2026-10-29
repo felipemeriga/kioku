@@ -33,11 +33,16 @@ export interface JournalEntry {
   captured_at: string;
   source_ref: string;
   computer_name?: string;
+  session_title?: string;
+  session_summary?: string;
   schema: 1;
 }
 
 const MARKER_RE = /^<!-- kioku-entry: (\{[^\n]+\}) -->$/gm;
 const SECRET_RE = /(Bearer\s+\S+|sk-[A-Za-z0-9_-]{16,}|ghp_[A-Za-z0-9]{16,}|mongodb(?:\+srv)?:\/\/\S+)/gi;
+export function redactJournalText(text: string): string {
+  return text.replace(SECRET_RE, "[redacted]");
+}
 
 function messageText(content: unknown): string {
   if (typeof content === "string") return content;
@@ -144,15 +149,16 @@ export function normalizeBullets(output: string): string {
   const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
   if (lines.length < 2 || lines.length > 10 || lines.some((line) => !line.startsWith("- ")))
     throw new Error("Summarizer must return 2–10 Markdown bullets");
-  return lines.join("\n").replace(SECRET_RE, "[redacted]");
+  return redactJournalText(lines.join("\n"));
 }
 
-export function renderEntry(turn: CapturedTurn, bullets: string, timestamp: string): string {
+export function renderEntry(turn: CapturedTurn, bullets: string, timestamp: string, session?: { title: string; summary: string }): string {
   const id = `${turn.agent}:${turn.sessionId}:${turn.turnId}`;
   const metadata: JournalEntry = {
     id, agent: turn.agent, session_id: turn.sessionId, turn_id: turn.turnId,
     captured_at: timestamp, source_ref: `${turn.agent}://${turn.sessionId}/${turn.turnId}`, schema: 1,
     computer_name: hostname().slice(0, 120),
+    ...(session ? { session_title: session.title, session_summary: session.summary } : {}),
   };
   const label = turn.agent === "claude_code" ? "Claude Code" : "Codex";
   return `## ${timestamp.slice(11, 16)} — ${label}\n<!-- kioku-entry: ${JSON.stringify(metadata)} -->\n\n${bullets}\n\n`;
