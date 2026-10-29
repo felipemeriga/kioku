@@ -16,6 +16,7 @@ import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { decorateJournalMarkdown } from "./journalMarkdown";
 import { apiFetch } from "../lib/api";
 import { brand, fonts } from "../theme";
 import "./LearningsPanel.css";
@@ -366,7 +367,9 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
                       )}
                     </div>
                     <div className="learnings-markdown">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm, decorateJournalMarkdown]}
+                      >
                         {entry.markdown}
                       </ReactMarkdown>
                     </div>

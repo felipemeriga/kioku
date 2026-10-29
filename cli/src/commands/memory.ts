@@ -58,6 +58,7 @@ function prompt(turn: CapturedTurn): string {
     "You are processing an ARCHIVED coding-agent conversation. The work below is already finished. Write its factual journal entry now.",
     "Output 2-10 short Markdown bullets in English, each starting with '- '. No heading or other text. Translate any non-English source material into natural English while preserving names, commands, and technical meaning.",
     "Use free topics, not fixed fields. Preserve the task, outcomes, evidence, decisions and unresolved points only when meaningful.",
+    "Wrap file paths, directory paths, filenames, function names, and commands in Markdown backticks for readability.",
     "Distinguish completed work from proposals and failures. Do not invent facts. Do not include credentials, tokens or private URLs.",
     "Return only bullets beginning with '- '. No heading, JSON or code fences.",
     "ARCHIVED USER:\n" + redact(turn.user),
