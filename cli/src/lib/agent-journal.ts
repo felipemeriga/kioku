@@ -12,6 +12,7 @@ import {
 } from "node:fs";
 import { createHash } from "node:crypto";
 import { join, dirname } from "node:path";
+import { hostname } from "node:os";
 
 export type AgentName = "claude_code" | "codex";
 
@@ -31,6 +32,7 @@ export interface JournalEntry {
   turn_id: string;
   captured_at: string;
   source_ref: string;
+  computer_name?: string;
   schema: 1;
 }
 
@@ -150,6 +152,7 @@ export function renderEntry(turn: CapturedTurn, bullets: string, timestamp: stri
   const metadata: JournalEntry = {
     id, agent: turn.agent, session_id: turn.sessionId, turn_id: turn.turnId,
     captured_at: timestamp, source_ref: `${turn.agent}://${turn.sessionId}/${turn.turnId}`, schema: 1,
+    computer_name: hostname().slice(0, 120),
   };
   const label = turn.agent === "claude_code" ? "Claude Code" : "Codex";
   return `## ${timestamp.slice(11, 16)} — ${label}\n<!-- kioku-entry: ${JSON.stringify(metadata)} -->\n\n${bullets}\n\n`;

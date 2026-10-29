@@ -39,6 +39,7 @@ type Entry = {
   id: string;
   agent: string;
   sessionId: string;
+  computerName: string;
   time: string;
   markdown: string;
 };
@@ -58,6 +59,7 @@ function entriesFromMarkdown(markdown: string): Entry[] {
         id: string;
         agent: string;
         session_id?: string;
+        computer_name?: string;
       };
       entries.push({
         id: meta.id,
@@ -68,6 +70,8 @@ function entriesFromMarkdown(markdown: string): Entry[] {
             ? meta.session_id
             : "",
         time: sections[i],
+        computerName:
+          typeof meta.computer_name === "string" ? meta.computer_name : "",
         markdown: sections[i + 2].replace(marker[0], "").trim(),
       });
     } catch {
@@ -350,6 +354,14 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
                           aria-label={`Session ID: ${entry.sessionId}`}
                         >
                           Session {entry.sessionId.slice(0, 8)}
+                        </span>
+                      )}
+                      {entry.computerName && (
+                        <span
+                          className="learnings-session-id"
+                          title={`Computer: ${entry.computerName}`}
+                        >
+                          {entry.computerName}
                         </span>
                       )}
                     </div>
