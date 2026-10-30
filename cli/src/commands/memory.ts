@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { cliProcessArgs, readMcpEntry, readRepoState } from "../lib/claude.js";
 import {
-  type AgentName, type CapturedTurn, journalPath, listJournalDays,
+  type AgentName, type CapturedTurn, entryEpochMs, journalPath, listJournalDays,
   mergeJournals, normalizeBullets, parseJournal, parseTurn, renderEntry,
   sha256, withJournalLock, writeJournalAtomic, localDateTime, journalHeader, redactJournalText,
 } from "../lib/agent-journal.js";
@@ -52,7 +52,26 @@ function listFiles(path: string): string[] {
   try { return readdirSync(path); } catch { return []; }
 }
 
-function prompt(turn: CapturedTurn, previous?: { title?: string; summary?: string }): string {
+interface PreviousSessionContext { title?: string; summary?: string; earlierEntries?: string; }
+
+/** Supply older free-form entries only when a legacy session has no overview. */
+export function previousSessionContext(markdowns: string[], agent: AgentName, sessionId: string): PreviousSessionContext {
+  const entries = markdowns.flatMap(parseJournal)
+    .filter((entry) => entry.metadata.agent === agent && entry.metadata.session_id === sessionId)
+    .sort((a, b) => entryEpochMs(a.metadata) - entryEpochMs(b.metadata));
+  const latestOverview = [...entries].reverse().find((entry) => entry.metadata.session_summary);
+  if (latestOverview) return {
+    title: latestOverview.metadata.session_title,
+    summary: latestOverview.metadata.session_summary,
+  };
+  return {
+    title: [...entries].reverse().find((entry) => entry.metadata.session_title)?.metadata.session_title,
+    earlierEntries: entries.slice(-8).map((entry) => entry.block.replace(/<!-- kioku-entry: [^\n]+ -->\n?/, "").trim())
+      .join("\n\n").slice(-6000),
+  };
+}
+
+function prompt(turn: CapturedTurn, previous?: PreviousSessionContext): string {
   const redact = (text: string) => text.replace(/Bearer\s+\S+|sk-[A-Za-z0-9_-]{16,}|ghp_[A-Za-z0-9]{16,}|mongodb(?:\+srv)?:\/\/\S+/gi, "[redacted]");
   return [
     "You are processing an ARCHIVED coding-agent conversation. The work below is already finished. Write its factual journal entry now.",
@@ -63,6 +82,8 @@ function prompt(turn: CapturedTurn, previous?: { title?: string; summary?: strin
     "Return only valid JSON with keys title, summary, bullets. Title: a short name for the overall user goal of this session, not merely the latest turn. Summary: an evolving introduction to the whole session, roughly 80-160 words when the evidence supports it. Explain what the user is trying to achieve and why, the relevant project context, what has been established or done so far, and what remains uncertain or unfinished. Retain meaningful prior context; revise the title and summary as the user's goal becomes clearer. Do not let the latest task replace the overall purpose. If motivation is not stated, do not invent it. Bullets: 2-10 short Markdown bullet strings for this turn, each starting with '- '. No code fence or other text.",
     "PREVIOUS TITLE FOR THIS SAME SESSION (POSSIBLY FROM AN EARLIER DAY):\n" + (previous?.title || "None yet."),
     "PREVIOUS SUMMARY FOR THIS SAME SESSION (POSSIBLY FROM AN EARLIER DAY):\n" + (previous?.summary || "None yet."),
+    "EARLIER JOURNAL ENTRIES FOR THIS SESSION (ONLY WHEN NO OVERVIEW EXISTS):\n" + (previous?.earlierEntries || "None."),
+    "If the earlier journal has no introduction, objectives, or session description, create them now from the available evidence. On every capture, reconsider and update the session title and overview as the purpose becomes clearer; retain confirmed context that still matters. Keep the turn bullets free-form and focused on this turn.",
     "ARCHIVED USER:\n" + redact(turn.user),
     "ARCHIVED ASSISTANT:\n" + redact(turn.assistant),
   ].join("\n\n");
@@ -80,7 +101,7 @@ export function parseSummarizerOutput(output: string): { bullets: string; title:
   return { title, summary, bullets: normalizeBullets(parsed.bullets.join("\n")) };
 }
 
-function summarize(turn: CapturedTurn, previous?: { title?: string; summary?: string }): { bullets: string; title: string; summary: string } {
+function summarize(turn: CapturedTurn, previous?: PreviousSessionContext): { bullets: string; title: string; summary: string } {
   const input = prompt(turn, previous);
   const command = turn.agent === "claude_code" ? "claude" : "codex";
   const args = turn.agent === "claude_code"
@@ -147,16 +168,11 @@ export async function memoryWorker(agent: AgentName): Promise<void> {
     existsSync(path) && parseJournal(readFileSync(path, "utf8"))
       .some((entry) => entry.metadata.id === id));
   if (alreadyCaptured) return;
-  let previous: { title?: string; summary?: string } | undefined;
-  for (const recordedDay of listJournalDays(root).filter((value) => value <= day).sort((a, b) => b.localeCompare(a))) {
-    const latest = parseJournal(readFileSync(journalPath(root, recordedDay), "utf8"))
-      .filter((entry) => entry.metadata.agent === agent && entry.metadata.session_id === turn.sessionId)
-      .at(-1)?.metadata;
-    if (latest?.session_summary) {
-      previous = { title: latest.session_title, summary: latest.session_summary };
-      break;
-    }
-  }
+  const previous = previousSessionContext(
+    listJournalDays(root).filter((value) => value <= day)
+      .map((recordedDay) => readFileSync(journalPath(root, recordedDay), "utf8")),
+    agent, turn.sessionId,
+  );
   const { bullets, title, summary } = summarize(turn, previous);
   await withJournalLock(path, () => {
     const current = existsSync(path) ? readFileSync(path, "utf8") : journalHeader(day);
