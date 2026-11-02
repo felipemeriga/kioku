@@ -66,13 +66,13 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
     status?.index_refresh_started_at,
     status?.index_refresh_finished_at,
     status?.index_refresh_error,
-    now
+    now,
   );
   const sectionsState = refreshState(
     status?.sections_refresh_started_at,
     status?.sections_refresh_finished_at,
     status?.sections_refresh_error,
-    now
+    now,
   );
   const indexRunning = clicking === "index" || indexState === "running";
   const sectionsRunning =
@@ -135,7 +135,7 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
         setNote(
           code === 503
             ? `Mihari unavailable. ${messageFromError(e, "Try again shortly.")}`
-            : messageFromError(e, "Couldn’t start the refresh. Please retry.")
+            : messageFromError(e, "Couldn’t start the refresh. Please retry."),
         );
       }
     } finally {
@@ -151,6 +151,11 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
   const lastBriefingChange = briefingChangedAt.length
     ? briefingChangedAt.reduce((latest, at) => (at > latest ? at : latest))
     : null;
+  const briefingReviewedAtHead = Boolean(
+    status?.head_sha &&
+    status?.briefing_reviewed_sha &&
+    status.head_sha === status.briefing_reviewed_sha,
+  );
 
   const cards = [
     {
@@ -181,11 +186,14 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
       icon: DescriptionOutlinedIcon,
       label: "Briefing",
       at: status?.briefing_reviewed_at ?? lastBriefingChange,
-      sub: status?.briefing_reviewed_at
-        ? `Architecture, overview, and detailed docs reviewed at ${status.briefing_reviewed_sha?.slice(0, 7) ?? "current HEAD"} · Content changed ${timeAgo(lastBriefingChange)}`
-        : "Architecture, overview, and detailed docs · Awaiting Mihari review",
+      sub: briefingReviewedAtHead
+        ? `Architecture, overview, and detailed docs reviewed at ${status?.briefing_reviewed_sha?.slice(0, 7)} · Content changed ${timeAgo(lastBriefingChange)}`
+        : status?.briefing_reviewed_sha
+          ? `Git is at ${status.head_sha?.slice(0, 7)} · Last reviewed at ${status.briefing_reviewed_sha.slice(0, 7)} · Content changed ${timeAgo(lastBriefingChange)}`
+          : "Architecture, overview, and detailed docs · Awaiting Mihari review",
       color: brand.violet2,
-      reviewed: Boolean(status?.briefing_reviewed_at),
+      reviewed: briefingReviewedAtHead,
+      pending: !briefingReviewedAtHead,
     },
   ];
 
@@ -382,21 +390,32 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
                     <>
                       <Typography
                         sx={{
-                          color: c.at ? brand.green : brand.muted,
+                          color:
+                            "pending" in c && c.pending
+                              ? brand.muted
+                              : c.at
+                                ? brand.green
+                                : brand.muted,
                           fontSize: 13,
                         }}
                       >
-                        {glyph.glyph}{" "}
-                        {c.at
-                          ? "reviewed" in c && c.reviewed
-                            ? "Reviewed"
-                            : "Recorded"
-                          : "Not available"}
+                        {"pending" in c && c.pending ? "○" : glyph.glyph}{" "}
+                        {"pending" in c && c.pending
+                          ? "Review pending"
+                          : c.at
+                            ? "reviewed" in c && c.reviewed
+                              ? "Reviewed"
+                              : "Recorded"
+                            : "Not available"}
                       </Typography>
                       <Typography
                         sx={{ color: brand.muted, fontSize: 13, mt: 0.5 }}
                       >
-                        {timeAgo(c.at)}
+                        {"pending" in c &&
+                        c.pending &&
+                        status?.briefing_reviewed_at
+                          ? `Last review ${timeAgo(status.briefing_reviewed_at)}`
+                          : timeAgo(c.at)}
                       </Typography>
                     </>
                   )}

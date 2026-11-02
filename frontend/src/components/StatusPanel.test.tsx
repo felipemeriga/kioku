@@ -16,14 +16,14 @@ describe("StatusPanel", () => {
     } as api.FolderStatus);
     renderWithProviders(<StatusPanel folderId="f1" />);
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "SANITIZED_TEST_FAILURE"
+      "SANITIZED_TEST_FAILURE",
     );
     expect(screen.getByText("Briefing")).toBeInTheDocument();
     expect(screen.queryByText("by watcher")).toBeNull();
     const actions = screen.getByTestId("status-actions");
     expect(
       actions.compareDocumentPosition(screen.getByText("Git updates")) &
-        Node.DOCUMENT_POSITION_FOLLOWING
+        Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(screen.getByText("Refresh code index")).toBeEnabled();
   });
@@ -35,7 +35,7 @@ describe("StatusPanel", () => {
     async (timeout) => {
       vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
       const started = new Date(
-        Date.now() - (timeout ? 30 * 60000 - 2000 : 1000)
+        Date.now() - (timeout ? 30 * 60000 - 2000 : 1000),
       ).toISOString();
       const initial = {
         index_refresh_started_at: started,
@@ -54,14 +54,14 @@ describe("StatusPanel", () => {
           await vi.advanceTimersByTimeAsync(5000);
         });
         expect(
-          screen.getByText(timeout ? /Refresh timed out/ : /Refresh completed/)
+          screen.getByText(timeout ? /Refresh timed out/ : /Refresh completed/),
         ).toBeInTheDocument();
         expect(screen.queryByText("Refreshing…")).not.toBeInTheDocument();
       } finally {
         view.unmount();
         vi.useRealTimers();
       }
-    }
+    },
   );
 
   it("uses job completion rather than content changes", () => {
@@ -72,7 +72,7 @@ describe("StatusPanel", () => {
     expect(refreshState(started, finished, null, now)).toBe("completed");
     expect(refreshState(started, finished, "failed", now)).toBe("failed");
     expect(refreshState(started, null, null, now + 31 * 60000)).toBe(
-      "timed-out"
+      "timed-out",
     );
     expect(refreshState(finished, started, null, now)).toBe("running");
   });
@@ -90,7 +90,7 @@ describe("StatusPanel", () => {
       await screen.findByText(error ? /Refresh failed/ : /Refresh completed/);
       expect(screen.queryByText("Refreshing…")).not.toBeInTheDocument();
       expect(screen.getByText("Refresh code index")).toBeEnabled();
-    }
+    },
   );
 
   it("groups the briefing status into one row", async () => {
@@ -112,7 +112,7 @@ describe("StatusPanel", () => {
     });
     renderWithProviders(<StatusPanel folderId="f1" />);
     await waitFor(() =>
-      expect(screen.getByText("Briefing")).toBeInTheDocument()
+      expect(screen.getByText("Briefing")).toBeInTheDocument(),
     );
     expect(screen.queryByText("Architecture")).not.toBeInTheDocument();
     expect(screen.queryByText("Detailed docs")).not.toBeInTheDocument();
@@ -126,15 +126,31 @@ describe("StatusPanel", () => {
       detailed_doc_at: "2026-09-01T00:00:00Z",
       briefing_reviewed_at: new Date().toISOString(),
       briefing_reviewed_sha: "a".repeat(40),
+      head_sha: "a".repeat(40),
     } as api.FolderStatus);
     renderWithProviders(<StatusPanel folderId="f1" />);
     expect(await screen.findByText("Briefing")).toBeInTheDocument();
     expect(
       await screen.findByText(
-        /Architecture, overview, and detailed docs reviewed at aaaaaaa/
-      )
+        /Architecture, overview, and detailed docs reviewed at aaaaaaa/,
+      ),
     ).toHaveTextContent("Content changed");
     expect(screen.getByText(/Reviewed/)).toBeInTheDocument();
+  });
+
+  it("shows a pending review when Git advances past the last reviewed commit", async () => {
+    vi.spyOn(api, "getFolderStatus").mockResolvedValue({
+      head_sha: "b".repeat(40),
+      briefing_reviewed_at: "2026-10-27T12:00:00Z",
+      briefing_reviewed_sha: "a".repeat(40),
+      architecture_at: "2026-10-26T12:00:00Z",
+    } as api.FolderStatus);
+    renderWithProviders(<StatusPanel folderId="f1" />);
+    expect(await screen.findByText(/Review pending/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Git is at bbbbbbb · Last reviewed at aaaaaaa/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Reviewed")).not.toBeInTheDocument();
   });
 
   it("calls refreshFolder with 'sections' when the detail button is clicked", async () => {
@@ -159,7 +175,7 @@ describe("StatusPanel", () => {
       .mockResolvedValue({ started: true });
     renderWithProviders(<StatusPanel folderId="f1" />);
     await waitFor(() =>
-      expect(screen.getByText("Review briefing")).toBeEnabled()
+      expect(screen.getByText("Review briefing")).toBeEnabled(),
     );
     fireEvent.click(screen.getByText("Review briefing"));
     await waitFor(() => expect(spy).toHaveBeenCalledWith("f1", "sections"));
@@ -168,11 +184,11 @@ describe("StatusPanel", () => {
   it("shows a loading spinner until the status arrives", async () => {
     // Never resolves → the query stays pending.
     vi.spyOn(api, "getFolderStatus").mockReturnValue(
-      new Promise<never>(() => {})
+      new Promise<never>(() => {}),
     );
     renderWithProviders(<StatusPanel folderId="f1" />);
     await waitFor(() =>
-      expect(screen.getAllByRole("progressbar").length).toBeGreaterThan(0)
+      expect(screen.getAllByRole("progressbar").length).toBeGreaterThan(0),
     );
     // Must not flash the misleading "never" fallback while loading.
     expect(screen.queryByText("never")).not.toBeInTheDocument();
