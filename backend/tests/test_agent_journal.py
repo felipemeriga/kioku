@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 from zoneinfo import ZoneInfo
 
 import pytest
+from storage3.exceptions import StorageApiError
 
 from services.agent_journal import (
     inspect_journal,
@@ -14,6 +15,7 @@ from services.agent_journal import (
     journal_sessions,
     local_journal_day,
     local_journal_days,
+    local_journal_days_indexed,
     read_journals_in_range,
 )
 
@@ -154,6 +156,69 @@ def test_local_day_lookup_includes_two_adjacent_source_dates():
     read_journals_in_range(sb, "u", "repo", date(2026, 10, 31), date(2026, 10, 31))
     chain.gte.assert_called_once_with("journal_date", "2026-10-29")
     chain.gte.return_value.lte.assert_called_once_with("journal_date", "2026-11-02")
+
+
+def test_calendar_uses_index_without_downloading_single_local_day():
+    sb = MagicMock()
+    row = {
+        "journal_date": DAY,
+        "revision": 3,
+        "entry_count": 2,
+        "agents": ["codex", "claude_code"],
+        "first_entry_at": "2026-10-29T13:00:00+00:00",
+        "last_entry_at": "2026-10-29T14:00:00+00:00",
+    }
+    days = local_journal_days_indexed(sb, [row], ZoneInfo("America/Sao_Paulo"), 2026, 10)
+    assert days == [
+        {
+            "journal_date": DAY,
+            "revision": 3,
+            "entry_count": 2,
+            "agents": ["claude_code", "codex"],
+        }
+    ]
+    sb.storage.from_.assert_not_called()
+
+
+def test_calendar_survives_storage_failure_on_cross_midnight_day():
+    sb = MagicMock()
+    row = {
+        "journal_date": DAY,
+        "storage_path": "test.md",
+        "revision": 3,
+        "entry_count": 4,
+        "agents": ["codex"],
+        "first_entry_at": "2026-10-29T02:00:00+00:00",
+        "last_entry_at": "2026-10-29T14:00:00+00:00",
+    }
+    with patch(
+        "services.agent_journal.download_journal",
+        side_effect=StorageApiError("Internal Server Error", "Internal", 500),
+    ):
+        days = local_journal_days_indexed(sb, [row], ZoneInfo("America/Sao_Paulo"), 2026, 10)
+    assert [(day["journal_date"], day["entry_count"], day["approximate"]) for day in days] == [
+        ("2026-10-29", 1, True),
+        ("2026-10-28", 1, True),
+    ]
+
+
+def test_local_day_skips_adjacent_journals_outside_the_viewer_day():
+    sb = MagicMock()
+    chain = sb.table.return_value.select.return_value.eq.return_value.eq.return_value
+    page = chain.gte.return_value.lte.return_value.order.return_value.limit.return_value
+    page.execute.return_value.data = [
+        {
+            "journal_date": "2026-10-30",
+            "storage_path": "old.md",
+            "first_entry_at": "2026-10-30T13:39:33+00:00",
+            "last_entry_at": "2026-10-30T19:42:26+00:00",
+        }
+    ]
+    result = read_journals_in_range(
+        sb, "u", "repo", date(2026, 11, 1), date(2026, 11, 1), ZoneInfo("America/Sao_Paulo")
+    )
+    assert result == []
+    sb.storage.from_.return_value.download.assert_not_called()
 
 
 @pytest.mark.parametrize(
