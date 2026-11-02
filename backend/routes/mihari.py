@@ -20,6 +20,7 @@ import subprocess
 import tempfile
 from datetime import datetime, timezone
 
+from anthropic import BadRequestError
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
@@ -28,6 +29,17 @@ from services.crypto import decrypt_secret, encrypt_secret
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _raise_if_credit_exhausted(exc: BadRequestError) -> None:
+    if "credit balance is too low" in str(exc).lower():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Anthropic credits exhausted for the Kioku backend key; restore billing "
+                "or replace the key with one from a credited organization."
+            ),
+        ) from exc
 
 
 def _user_edited(section: dict) -> bool:
@@ -74,13 +86,17 @@ def refresh_learnings(body: LearningRefreshRequest, request: Request):
     )
     if not rows or rows[0].get("kind") != "repo":
         raise HTTPException(status_code=404, detail="Repository not found")
-    result = process_pending(
-        sb,
-        user_id=user_id,
-        folder_id=body.folder_id,
-        head_sha=body.head_sha,
-        main_commits=body.main_commits,
-    )
+    try:
+        result = process_pending(
+            sb,
+            user_id=user_id,
+            folder_id=body.folder_id,
+            head_sha=body.head_sha,
+            main_commits=body.main_commits,
+        )
+    except BadRequestError as exc:
+        _raise_if_credit_exhausted(exc)
+        raise
     return {"ok": True, **result}
 
 
@@ -93,7 +109,7 @@ class ReviewPlanRequest(BaseModel):
 
 
 @router.post("/review-plan")
-async def review_plan(body: ReviewPlanRequest, request: Request):
+def review_plan(body: ReviewPlanRequest, request: Request):
     """Inspect new commits once and select only briefing areas with factual changes."""
     user_id, scope_id, _ = _api_key_auth(request)
     sb = get_supabase()
@@ -144,12 +160,18 @@ async def review_plan(body: ReviewPlanRequest, request: Request):
         f"COMMITS: {json.dumps(body.commits)[:3500]}\n\n"
         f"PATCH:\n{body.patch[:12000]}"
     )
-    response = complete(
-        task=Task.FOLDER_SUMMARY_ROLLUP,
-        max_tokens=350,
-        system="Select only repository briefing areas whose facts need revision. Output JSON only.",
-        messages=[{"role": "user", "content": prompt}],
-    )
+    try:
+        response = complete(
+            task=Task.FOLDER_SUMMARY_ROLLUP,
+            max_tokens=350,
+            system=(
+                "Select only repository briefing areas whose facts need revision. Output JSON only."
+            ),
+            messages=[{"role": "user", "content": prompt}],
+        )
+    except BadRequestError as exc:
+        _raise_if_credit_exhausted(exc)
+        raise
     text = "".join(block.text for block in response.content if hasattr(block, "text")).strip()
     try:
         match = re.search(r"\{.*?\}", text, flags=re.DOTALL)

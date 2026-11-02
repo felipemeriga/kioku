@@ -2,6 +2,8 @@ import json
 from contextlib import contextmanager
 from types import SimpleNamespace
 
+import httpx
+from anthropic import BadRequestError
 from fastapi.testclient import TestClient
 
 from main import app
@@ -110,6 +112,35 @@ def test_review_plan_recovers_from_invalid_model_reply(monkeypatch):
     )
     assert response.status_code == 200
     assert set(response.json()["selected"]) == set(mihari.REVIEWED_SECTIONS)
+
+
+def test_review_plan_reports_exhausted_anthropic_credits(monkeypatch):
+    db = DB()
+    monkeypatch.setattr(mihari, "_api_key_auth", lambda _request: ("u1", "f1", "rag_test"))
+    monkeypatch.setattr(mihari, "get_supabase", lambda: db)
+    monkeypatch.setattr("mcp_server._descendant_folder_ids", lambda *_: ["f1"])
+    monkeypatch.setattr(
+        "services.folder_summary.repo.get_latest_summary",
+        lambda *_: {"content": {"sections": {"overview": {"content": "Repository memory"}}}},
+    )
+
+    def exhausted(**_kwargs):
+        response = httpx.Response(
+            400, request=httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+        )
+        raise BadRequestError(
+            "Your credit balance is too low to access the Anthropic API.",
+            response=response,
+            body={"error": {"type": "invalid_request_error"}},
+        )
+
+    monkeypatch.setattr("services.llm.complete", exhausted)
+    response = TestClient(app).post(
+        "/api/mihari/review-plan",
+        json={"folder_id": "f1", "head_sha": "a" * 40},
+    )
+    assert response.status_code == 503
+    assert "credits exhausted" in response.json()["detail"]
 
 
 def test_review_completion_preserves_other_markers(monkeypatch):

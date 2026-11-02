@@ -94,6 +94,17 @@ def log(msg: str) -> None:
     print(f"{datetime.now(timezone.utc).isoformat()} {msg}", flush=True)
 
 
+def raise_review_response(response: requests.Response) -> None:
+    if getattr(response, "status_code", None) == 503:
+        try:
+            detail = response.json().get("detail")
+        except (ValueError, AttributeError):
+            detail = None
+        if isinstance(detail, str) and detail.startswith("Anthropic credits exhausted"):
+            raise RuntimeError(detail)
+    response.raise_for_status()
+
+
 def rest_get(path: str, params: dict) -> list[dict]:
     r = requests.get(f"{REST}/{path}", headers=HEADERS, params=params, timeout=30)
     r.raise_for_status()
@@ -748,7 +759,7 @@ def review_new_commits(clone: Path, repo: dict, old_sha: str | None, head: str, 
         },
         timeout=120,
     )
-    r.raise_for_status()
+    raise_review_response(r)
     plan = r.json()
     selected = set(plan.get("selected") or [])
     reviewed = plan.get("reviewed") or []
@@ -1139,7 +1150,7 @@ def refresh_repo_learnings(repo: dict) -> None:
         json={"folder_id": repo["folder_id"], "head_sha": head, "main_commits": out.splitlines()},
         timeout=120,
     )
-    response.raise_for_status()
+    raise_review_response(response)
     result = response.json()
     if result.get("processed_entries"):
         log(
