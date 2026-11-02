@@ -148,8 +148,7 @@ jobs:
       - uses: docker/setup-buildx-action@v4
         with:
           version: v0.38.1
-          driver: cloud
-          endpoint: ${{ vars.DOCKER_CLOUD_BUILDER || 'felipemeriga1/builder' }}
+          driver: docker-container
       - name: Reuse an existing immutable release image on retry
         id: existing
         env:

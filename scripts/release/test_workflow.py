@@ -78,7 +78,7 @@ class WorkflowTests(unittest.TestCase):
         prepare = workflow.split("  prepare:\n", 1)[1].split("  validate:\n", 1)[0]
         self.assertNotIn("persist-credentials: false", prepare)
 
-    def test_native_matrix_and_cloud_only_images(self):
+    def test_native_matrix_and_runner_local_images(self):
         workflow = Path(".github/workflows/release.yml").read_text()
         native = Path(".github/workflows/cli-native.yml").read_text()
         for target in (
@@ -89,7 +89,7 @@ class WorkflowTests(unittest.TestCase):
             "windows-x64",
         ):
             self.assertIn("target: " + target, native)
-        self.assertIn("driver: cloud", workflow)
+        self.assertIn("driver: docker-container", workflow)
         self.assertIn("file: ${{ matrix.dockerfile }}", workflow)
         self.assertIn("needs.retrieval-eval.result", workflow)
         self.assertNotIn("--force", workflow)
