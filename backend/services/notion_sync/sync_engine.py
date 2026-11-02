@@ -26,7 +26,7 @@ async def sync_loop(get_supabase, poll_interval_seconds: int = 60) -> None:
     try:
         while True:
             try:
-                await _tick(get_supabase(), pool)
+                await _tick(get_supabase, pool)
             except Exception:
                 logger.exception("Notion sync tick failed")
             await asyncio.sleep(poll_interval_seconds)
@@ -34,9 +34,19 @@ async def sync_loop(get_supabase, poll_interval_seconds: int = 60) -> None:
         await pool.close()
 
 
-async def _tick(supabase, pool) -> None:
+async def _tick(get_supabase, pool) -> None:
+    # The Supabase client is synchronous. Keep its potentially slow HTTP calls
+    # off the FastAPI event loop so chat and health requests remain responsive.
+    jobs = await asyncio.to_thread(_plan_jobs, get_supabase)
+    for job in jobs:
+        await pool.enqueue_job("notion_sync_task", job)
+
+
+def _plan_jobs(get_supabase) -> list[dict]:
+    supabase = get_supabase()
     now = datetime.now(timezone.utc)
     configs = supabase.table("notion_sync_configs").select("*").execute().data or []
+    jobs = []
 
     for cfg in _configs_due_for_fast_poll(configs, now=now):
         if get_active_job(supabase, kind="notion_sync", source_ref=cfg["id"]):
@@ -48,10 +58,7 @@ async def _tick(supabase, pool) -> None:
             source_ref=cfg["id"],
             root_folder_id=cfg["root_folder_id"],
         )
-        await pool.enqueue_job(
-            "notion_sync_task",
-            {"job_id": job_id, "config_id": cfg["id"], "full_reconcile": False},
-        )
+        jobs.append({"job_id": job_id, "config_id": cfg["id"], "full_reconcile": False})
 
     for cfg in _configs_due_for_full_recon(configs, now=now):
         if get_active_job(supabase, kind="notion_sync", source_ref=cfg["id"]):
@@ -63,10 +70,8 @@ async def _tick(supabase, pool) -> None:
             source_ref=cfg["id"],
             root_folder_id=cfg["root_folder_id"],
         )
-        await pool.enqueue_job(
-            "notion_sync_task",
-            {"job_id": job_id, "config_id": cfg["id"], "full_reconcile": True},
-        )
+        jobs.append({"job_id": job_id, "config_id": cfg["id"], "full_reconcile": True})
+    return jobs
 
 
 def _configs_due_for_fast_poll(configs: Iterable[dict], *, now: datetime) -> list[dict]:

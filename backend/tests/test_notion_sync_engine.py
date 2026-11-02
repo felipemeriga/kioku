@@ -1,5 +1,8 @@
+import asyncio
+import threading
 import unittest
 from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock, patch
 
 
 def _cfg(**kw):
@@ -37,3 +40,27 @@ class TestSyncLoopSchedules(unittest.TestCase):
 
         result = _configs_due_for_fast_poll([due, not_due, never], now=now)
         self.assertEqual({c["id"] for c in result}, {"a", "c"})
+
+
+class TestSyncLoopResponsiveness(unittest.IsolatedAsyncioTestCase):
+    async def test_slow_supabase_call_does_not_block_request_loop(self):
+        from services.notion_sync.sync_engine import _tick
+
+        started = threading.Event()
+        release = threading.Event()
+
+        def slow_plan(_get_supabase):
+            started.set()
+            release.wait(timeout=2)
+            return []
+
+        pool = AsyncMock()
+        with patch("services.notion_sync.sync_engine._plan_jobs", side_effect=slow_plan):
+            task = asyncio.create_task(_tick(lambda: None, pool))
+            try:
+                await asyncio.wait_for(asyncio.to_thread(started.wait), timeout=1)
+                await asyncio.wait_for(asyncio.sleep(0), timeout=0.1)
+                self.assertFalse(task.done())
+            finally:
+                release.set()
+                await task
