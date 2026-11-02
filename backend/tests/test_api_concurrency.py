@@ -10,7 +10,7 @@ import pytest
 from fastapi import FastAPI
 
 from auth import get_current_user
-from routes import cli, documents, folders, notion
+from routes import chat, cli, documents, folders, notion
 from services import embeddings, retrieval
 
 
@@ -25,7 +25,9 @@ class Query:
         return self._execute()
 
 
-async def assert_health_during_io(app, path, started, release, finished, **kwargs):
+async def assert_health_during_io(
+    app, path, started, release, finished, expected_status=200, **kwargs
+):
     @app.get("/health")
     async def health():
         return {"io_finished": finished.is_set()}
@@ -41,7 +43,7 @@ async def assert_health_during_io(app, path, started, release, finished, **kwarg
         finally:
             release.set()
         response = await pending
-        assert response.status_code == 200
+        assert response.status_code == expected_status
         return response
 
 
@@ -71,6 +73,28 @@ async def test_database_routes_do_not_block_health(monkeypatch, module, path):
     app.include_router(module.router)
     app.dependency_overrides[get_current_user] = lambda: "alice"
     await assert_health_during_io(app, path, started, release, finished)
+
+
+@pytest.mark.asyncio
+async def test_chat_ownership_check_does_not_block_other_requests(monkeypatch):
+    call, started, release, finished = blocking_io(SimpleNamespace(data=[]))
+    monkeypatch.setattr(chat, "get_supabase", lambda: Query(call))
+    app = FastAPI()
+    app.include_router(chat.router)
+    app.dependency_overrides[get_current_user] = lambda: "alice"
+    await assert_health_during_io(
+        app,
+        "/api/chat",
+        started,
+        release,
+        finished,
+        expected_status=404,
+        method="POST",
+        json={
+            "conversation_id": "11111111-1111-1111-1111-111111111111",
+            "content": "question",
+        },
+    )
 
 
 @pytest.mark.asyncio

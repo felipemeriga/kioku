@@ -5,7 +5,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from auth import get_current_user
-from db.client import get_supabase
+from db.client import get_supabase_thread_safe as get_supabase
 from routes._validation import require_uuid
 from services.rag import stream_rag_response
 from services.scope import validate_scope_folder
@@ -29,7 +29,7 @@ class ChatRequest(BaseModel):
 
 
 @router.post("/chat")
-async def chat(request: ChatRequest, user_id: str = Depends(get_current_user)):
+def chat(request: ChatRequest, user_id: str = Depends(get_current_user)):
     # Validate before opening the stream: a malformed conversation_id reaches
     # the uuid column in stream_rag_response and raises 22P02, which crashes the
     # generator (client gets a silent empty stream + a server-side traceback).
