@@ -6,7 +6,7 @@ release preparation disabled, before any version commit, build, or Hive write.
 Pull requests cannot release.
 Release versions only affected packages, commits their manifests
 and lockfiles, validates that exact commit through CI (and retrieval evaluation
-for backend changes), then builds container images on Docker Build Cloud. Native
+for backend changes), then builds container images on GitHub runner-local Buildx. Native
 CLI executables are built and smoke-tested on their target operating systems.
 
 After **all required checks and artifacts succeed**, one commit updates the
@@ -30,10 +30,9 @@ Configure these in the Kioku GitHub repository before enabling production releas
 | Setting                                                            | Purpose                                                                                                              |
 | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
 | `KIOKU_RELEASE_ENABLED` repository variable                         | Production activation gate; keep `false` while merging the application stack, then set to `true` when the full main tree is ready |
-| Existing `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` secrets           | Docker Hub and Build Cloud authentication; account must access the builder and push Kioku images                     |
+| Existing `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` secrets           | Docker Hub authentication to push Kioku images                                                                        |
 | `HIVE_RELEASE_TOKEN` secret                                        | Fine-grained PAT for **felipemeriga/hive only**, Contents read/write; its commits trigger Dokploy's Hive integration |
 | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` repository variables | Public browser configuration baked into frontend builds; never use a service-role key                                |
-| Optional `DOCKER_CLOUD_BUILDER` variable                           | Defaults to `felipemeriga1/builder`                                                                                  |
 | Existing `ANTHROPIC_API_KEY`, `VOYAGE_API_KEY` secrets             | Retrieval evaluation gate                                                                                            |
 | `DOKPLOY_API_KEY` secret                                           | Read access to Dokploy deployment history for every affected Compose service                                         |
 | `DOKPLOY_URL` variable                                             | HTTPS Dokploy origin, without `/api` or another path                                                                 |
