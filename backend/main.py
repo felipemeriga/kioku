@@ -8,7 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from db.client import get_supabase
+from db.client import get_supabase_thread_safe
 from routes.api_keys import router as api_keys_router
 from routes.briefing import router as briefing_router
 from routes.chat import router as chat_router
@@ -34,7 +34,7 @@ load_dotenv()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    task = asyncio.create_task(sync_loop(get_supabase))
+    task = asyncio.create_task(sync_loop(get_supabase_thread_safe))
     try:
         yield
     finally:
