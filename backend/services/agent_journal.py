@@ -3,6 +3,7 @@
 import hashlib
 import json
 import re
+import time
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -17,6 +18,17 @@ BLOCK_HEADING_RE = re.compile(
     r"^## (?:Codex|Claude Code) session [^\n]+\n|^#{2,3} (?:\d\d:\d\d|\d{13}) — [^\n]+\n",
     re.MULTILINE,
 )
+
+
+def download_journal(bucket, path: str) -> bytes:
+    """Retry a transient Storage failure once before reporting it to the caller."""
+    try:
+        return bucket.download(path)
+    except StorageApiError as exc:
+        if str(exc.status) not in {"500", "502", "503", "504"}:
+            raise
+        time.sleep(0.2)
+        return bucket.download(path)
 
 
 def entry_instant(entry: dict) -> datetime:
@@ -161,7 +173,7 @@ def read_journal(sb, user_id: str, folder_id: str, journal_date: str) -> dict:
     if not rows:
         return {"status": "absent", "revision": 0, "markdown": ""}
     row = rows[0]
-    raw = sb.storage.from_(BUCKET).download(row["storage_path"])
+    raw = download_journal(sb.storage.from_(BUCKET), row["storage_path"])
     if hashlib.sha256(raw).hexdigest() != row["content_sha256"]:
         raise RuntimeError("Journal object does not match its index hash")
     markdown = raw.decode("utf-8")
@@ -173,11 +185,13 @@ def read_journal(sb, user_id: str, folder_id: str, journal_date: str) -> dict:
     }
 
 
-def read_journals_in_range(sb, user_id: str, folder_id: str, first: date, last: date) -> list[dict]:
+def read_journals_in_range(
+    sb, user_id: str, folder_id: str, first: date, last: date, tz: ZoneInfo | None = None
+) -> list[dict]:
     """Load candidate source days; ±2 days covers old writer and new UTC buckets."""
     rows = (
         sb.table("agent_journal_days")
-        .select("journal_date,storage_path,content_sha256,revision")
+        .select("journal_date,storage_path,content_sha256,revision,first_entry_at,last_entry_at")
         .eq("user_id", user_id)
         .eq("folder_id", folder_id)
         .gte("journal_date", (first - timedelta(days=2)).isoformat())
@@ -191,7 +205,12 @@ def read_journals_in_range(sb, user_id: str, folder_id: str, first: date, last: 
     bucket = sb.storage.from_(BUCKET)
     journals = []
     for row in rows:
-        raw = bucket.download(row["storage_path"])
+        if tz and row.get("first_entry_at") and row.get("last_entry_at"):
+            first_local = datetime.fromisoformat(row["first_entry_at"]).astimezone(tz).date()
+            last_local = datetime.fromisoformat(row["last_entry_at"]).astimezone(tz).date()
+            if last_local < first or first_local > last:
+                continue
+        raw = download_journal(bucket, row["storage_path"])
         if hashlib.sha256(raw).hexdigest() != row["content_sha256"]:
             raise RuntimeError("Journal object does not match its index hash")
         journals.append({**row, "markdown": raw.decode("utf-8")})
@@ -219,6 +238,54 @@ def local_journal_days(journals: list[dict], tz: ZoneInfo, year: int, month: int
             day["entry_count"] += 1
             day["revision"] = max(day["revision"], journal["revision"])
             day["agents"].add(entry["agent"])
+    return [
+        {**day, "agents": sorted(day["agents"])} for _, day in sorted(days.items(), reverse=True)
+    ]
+
+
+def local_journal_days_indexed(
+    sb, rows: list[dict], tz: ZoneInfo, year: int, month: int
+) -> list[dict]:
+    """Use indexed timestamps for ordinary days; inspect Storage only across local midnight."""
+    days: dict[str, dict] = {}
+
+    def add(day: date, row: dict, count: int, approximate: bool = False) -> None:
+        if day.year != year or day.month != month:
+            return
+        key = day.isoformat()
+        item = days.setdefault(
+            key,
+            {"journal_date": key, "revision": 0, "entry_count": 0, "agents": set()},
+        )
+        item["revision"] = max(item["revision"], row["revision"])
+        item["entry_count"] += count
+        item["agents"].update(row["agents"])
+        if approximate:
+            item["approximate"] = True
+
+    for row in rows:
+        first = row.get("first_entry_at")
+        last = row.get("last_entry_at")
+        if first and last:
+            first_day = datetime.fromisoformat(first).astimezone(tz).date()
+            last_day = datetime.fromisoformat(last).astimezone(tz).date()
+            if first_day == last_day:
+                add(first_day, row, row["entry_count"])
+                continue
+        else:
+            first_day = last_day = date.fromisoformat(row["journal_date"])
+        try:
+            raw = download_journal(sb.storage.from_(BUCKET), row["storage_path"])
+        except StorageApiError:
+            # The calendar remains navigable during a transient Storage outage.
+            # Exact counts are resolved when the user opens the selected day.
+            for day in {first_day, last_day}:
+                add(day, row, 1, approximate=True)
+            continue
+        if hashlib.sha256(raw).hexdigest() != row["content_sha256"]:
+            raise RuntimeError("Journal object does not match its index hash")
+        for day in local_journal_days([{**row, "markdown": raw.decode("utf-8")}], tz, year, month):
+            add(date.fromisoformat(day["journal_date"]), day, day["entry_count"])
     return [
         {**day, "agents": sorted(day["agents"])} for _, day in sorted(days.items(), reverse=True)
     ]

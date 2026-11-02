@@ -1,16 +1,17 @@
 """Read-only repository journal and current-learning views for the web UI."""
 
 from calendar import monthrange
-from datetime import date
+from datetime import date, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from storage3.exceptions import StorageApiError
 
 from auth import get_current_user
 from db.client import get_supabase_thread_safe
 from services.agent_journal import (
     local_journal_day,
-    local_journal_days,
+    local_journal_days_indexed,
     read_journal,
     read_journals_in_range,
 )
@@ -52,8 +53,22 @@ def learning_days(
             raise HTTPException(status_code=422, detail="Invalid timezone") from exc
         first = date(year, month, 1)
         last = date(year, month, monthrange(year, month)[1])
-        journals = read_journals_in_range(sb, user_id, folder_id, first, last)
-        return {"days": local_journal_days(journals, tz, year, month)}
+        rows = (
+            sb.table("agent_journal_days")
+            .select(
+                "journal_date,storage_path,content_sha256,revision,entry_count,agents,first_entry_at,last_entry_at"
+            )
+            .eq("user_id", user_id)
+            .eq("folder_id", folder_id)
+            .gte("journal_date", (first - timedelta(days=2)).isoformat())
+            .lte("journal_date", (last + timedelta(days=2)).isoformat())
+            .order("journal_date")
+            .limit(40)
+            .execute()
+            .data
+            or []
+        )
+        return {"days": local_journal_days_indexed(sb, rows, tz, year, month)}
     rows = (
         sb.table("agent_journal_days")
         .select("journal_date,revision,entry_count,agents,first_entry_at,last_entry_at")
@@ -88,9 +103,19 @@ def learning_day(
             tz = ZoneInfo(timezone)
         except (ZoneInfoNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=422, detail="Invalid timezone") from exc
-        journals = read_journals_in_range(sb, user_id, folder_id, target, target)
+        try:
+            journals = read_journals_in_range(sb, user_id, folder_id, target, target, tz)
+        except StorageApiError as exc:
+            raise HTTPException(
+                status_code=503, detail="Journal storage is temporarily unavailable"
+            ) from exc
         return local_journal_day(journals, tz, target)
-    return read_journal(sb, user_id, folder_id, journal_date)
+    try:
+        return read_journal(sb, user_id, folder_id, journal_date)
+    except StorageApiError as exc:
+        raise HTTPException(
+            status_code=503, detail="Journal storage is temporarily unavailable"
+        ) from exc
 
 
 @router.get("/{folder_id}/learnings")

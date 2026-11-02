@@ -26,6 +26,7 @@ type JournalDay = {
   revision: number;
   entry_count: number;
   agents: string[];
+  approximate?: boolean;
 };
 type Learning = {
   id: string;
@@ -151,6 +152,8 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
         )
       ).json()) as { days: JournalDay[] },
     staleTime: 60_000,
+    enabled: view === "journal",
+    retry: 1,
   });
   const dayMap = useMemo(
     () =>
@@ -176,6 +179,7 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
       },
     enabled: !!activeDate && view === "journal",
     staleTime: 30_000,
+    retry: 1,
   });
   const learningsQuery = useQuery({
     queryKey: ["repo-learnings", folderId],
@@ -332,7 +336,16 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
             {daysQuery.isLoading ? (
               <CircularProgress size={22} aria-label="Loading journal days" />
             ) : daysQuery.isError ? (
-              <Alert severity="error">Could not load journal dates.</Alert>
+              <Alert
+                severity="error"
+                action={
+                  <Button onClick={() => void daysQuery.refetch()}>
+                    Retry
+                  </Button>
+                }
+              >
+                Could not load journal dates.
+              </Alert>
             ) : (
               <>
                 <div
@@ -354,7 +367,7 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
                         key={key}
                         type="button"
                         className={`learnings-day ${activeDate === key ? "selected" : ""} ${day ? "has-entry" : ""}`}
-                        aria-label={`${dateLabel(key)}${day ? `, ${day.entry_count} journal entries` : ", no entries"}`}
+                        aria-label={`${dateLabel(key)}${day ? `, ${day.approximate ? "at least " : ""}${day.entry_count} journal entries` : ", no entries"}`}
                         aria-pressed={activeDate === key}
                         onClick={() => {
                           setSelectedDate(key);
@@ -405,8 +418,12 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
                 </Typography>
                 {activeDate && dayMap.get(activeDate) && (
                   <Typography sx={{ color: brand.muted, fontSize: 13 }}>
-                    {dayMap.get(activeDate)?.entry_count} entries ·{" "}
-                    {sessions.length} sessions · {timezone}
+                    {dayQuery.data?.status === "ok"
+                      ? entries.length
+                      : dayMap.get(activeDate)?.approximate
+                        ? `At least ${dayMap.get(activeDate)?.entry_count}`
+                        : dayMap.get(activeDate)?.entry_count}{" "}
+                    entries · {sessions.length} sessions · {timezone}
                   </Typography>
                 )}
               </Box>
@@ -430,7 +447,14 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
                 Loading journal…
               </Stack>
             ) : dayQuery.isError ? (
-              <Alert severity="error">Could not load this journal.</Alert>
+              <Alert
+                severity="error"
+                action={
+                  <Button onClick={() => void dayQuery.refetch()}>Retry</Button>
+                }
+              >
+                Could not load this journal.
+              </Alert>
             ) : dayQuery.data?.status !== "ok" ? (
               <Typography sx={{ color: brand.muted }}>
                 No agent interactions recorded on this day.
