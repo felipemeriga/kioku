@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from langsmith import traceable
 
-from db.client import get_supabase, get_supabase_thread_safe
+from db.client import get_supabase_thread_safe
 from services.citations import CitationRegistry
 from services.llm import Task, complete, stream_complete
 from services.metrics import collect_request, record, submit_with_context
@@ -248,7 +248,7 @@ def stream_rag_response(
     scope_filename: str | None = None,
 ) -> Generator[str, None, None]:
     """Agentic RAG pipeline: save message, run tool-use loop, stream response."""
-    sb = get_supabase()
+    sb = get_supabase_thread_safe()
 
     # Resolve a folder scope to its subtree once — the agent may call the
     # search tool several times per turn.
