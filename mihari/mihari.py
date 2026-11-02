@@ -95,12 +95,14 @@ def log(msg: str) -> None:
 
 
 def raise_review_response(response: requests.Response) -> None:
-    if getattr(response, "status_code", None) == 503:
+    if getattr(response, "status_code", None) in (502, 503):
         try:
             detail = response.json().get("detail")
         except (ValueError, AttributeError):
             detail = None
-        if isinstance(detail, str) and detail.startswith("Anthropic credits exhausted"):
+        if isinstance(detail, str) and detail.startswith(
+            ("Anthropic credits exhausted", "Learning extraction returned invalid JSON")
+        ):
             raise RuntimeError(detail)
     response.raise_for_status()
 

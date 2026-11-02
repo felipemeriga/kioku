@@ -1,9 +1,17 @@
 """Learning extraction must not turn proposals or agent claims into proven code."""
 
 import json
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from services.repo_learnings import apply_updates, journal_entries
+import pytest
+
+from services.repo_learnings import (
+    LearningExtractionError,
+    _extract,
+    apply_updates,
+    journal_entries,
+)
 
 
 def entry(entry_id: str, text: str) -> dict:
@@ -21,6 +29,22 @@ def database():
     query = sb.table.return_value.select.return_value.eq.return_value.eq.return_value
     query.order.return_value.limit.return_value.execute.return_value.data = []
     return sb
+
+
+def test_learning_extraction_retries_malformed_json_without_losing_entries():
+    malformed = SimpleNamespace(content=[SimpleNamespace(text='{"updates":[{"topic_key":')])
+    repaired = SimpleNamespace(content=[SimpleNamespace(text='{"updates":[]}')])
+    with patch("services.repo_learnings.complete", side_effect=[malformed, repaired]) as llm:
+        assert _extract([entry("turn-1", "A durable finding")], [], []) == []
+    assert llm.call_count == 2
+    assert llm.call_args.kwargs["max_tokens"] > llm.call_args_list[0].kwargs["max_tokens"]
+
+
+def test_learning_extraction_does_not_accept_malformed_response():
+    malformed = SimpleNamespace(content=[SimpleNamespace(text='{"updates":[{"topic_key":')])
+    with patch("services.repo_learnings.complete", return_value=malformed):
+        with pytest.raises(LearningExtractionError, match="invalid JSON after retry"):
+            _extract([entry("turn-1", "A durable finding")], [], [])
 
 
 def test_synthetic_journals_are_excluded():

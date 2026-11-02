@@ -70,7 +70,7 @@ def refresh_learnings(body: LearningRefreshRequest, request: Request):
     user_id, scope_id, _ = _api_key_auth(request)
     sb = get_supabase()
     from mcp_server import _descendant_folder_ids
-    from services.repo_learnings import process_pending
+    from services.repo_learnings import LearningExtractionError, process_pending
 
     if body.folder_id not in _descendant_folder_ids(sb, scope_id, user_id):
         raise HTTPException(status_code=403, detail="folder_id not in api key scope")
@@ -97,6 +97,8 @@ def refresh_learnings(body: LearningRefreshRequest, request: Request):
     except BadRequestError as exc:
         _raise_if_credit_exhausted(exc)
         raise
+    except LearningExtractionError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     return {"ok": True, **result}
 
 
