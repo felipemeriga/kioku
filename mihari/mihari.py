@@ -95,7 +95,7 @@ def log(msg: str) -> None:
 
 
 def raise_review_response(response: requests.Response) -> None:
-    if response.status_code == 503:
+    if getattr(response, "status_code", None) == 503:
         try:
             detail = response.json().get("detail")
         except (ValueError, AttributeError):
