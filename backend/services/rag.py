@@ -5,6 +5,7 @@ import logging
 import queue as _queue
 import re
 import threading
+import uuid
 from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor
 
@@ -16,6 +17,13 @@ from services.llm import Task, complete, stream_complete
 from services.metrics import collect_request, record, submit_with_context
 from services.timing import request, stage
 from services.tools import TOOL_DEFINITIONS, execute_tool
+from services.usage_ledger import (
+    UsageAttribution,
+    UsageCollector,
+    collect_usage,
+    save_usage,
+    usage_row,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -305,12 +313,24 @@ def stream_rag_response(
 
     def _generate_and_save() -> None:
         sb_bg = get_supabase_thread_safe()
+        response_id = str(uuid.uuid4())
         full = ""
         debug_payload: dict | None = None
         usage_payload: dict | None = None
+        usage_rounds: list[dict] = []
+        side_calls = UsageCollector()
         citations_payload: list | None = None
         try:
-            with collect_request(f"rag chat turn ({_label})"), request(f"rag chat turn ({_label})"):
+            with (
+                collect_request(f"rag chat turn ({_label})"),
+                request(f"rag chat turn ({_label})"),
+                collect_usage(
+                    UsageAttribution(
+                        user_id, "chat", "enrichment", scope_folder_id, conversation_id, response_id
+                    ),
+                    side_calls,
+                ),
+            ):
                 for chunk_kind, payload in _run_loop_and_stream_final(
                     user_message=user_message,
                     user_id=user_id,
@@ -320,10 +340,16 @@ def stream_rag_response(
                     history=prior_messages,
                     scope_folder_ids=scope_folder_ids,
                     scope_filename=scope_filename,
+                    response_id=response_id,
+                    conversation_id=conversation_id,
+                    scope_folder_id=scope_folder_id,
                 ):
                     # Usage is captured for billing, not streamed to the client.
                     if chunk_kind == "usage":
                         usage_payload = json.loads(payload)
+                        continue
+                    if chunk_kind == "usage_round":
+                        usage_rounds.append(json.loads(payload))
                         continue
                     events.put((chunk_kind, payload))
                     if chunk_kind == "text_delta":
@@ -336,6 +362,7 @@ def stream_rag_response(
             logger.warning("rag generation failed", exc_info=True)
             events.put(("error", str(exc)))
         finally:
+            save_usage(usage_rounds + side_calls.rows)
             # Save the full assistant message regardless of client connection.
             if full:
                 row: dict = {
@@ -418,6 +445,9 @@ def _run_loop_and_stream_final(
     history: list[dict] | None,
     scope_folder_ids: list[str] | None = None,
     scope_filename: str | None = None,
+    response_id: str | None = None,
+    conversation_id: str | None = None,
+    scope_folder_id: str | None = None,
 ) -> Generator[tuple[str, str], None, None]:
     """Tool-use loop that streams text deltas via Anthropic's streaming API.
 
@@ -505,6 +535,24 @@ def _run_loop_and_stream_final(
                 if u:
                     usage_in += getattr(u, "input_tokens", 0) or 0
                     usage_out += getattr(u, "output_tokens", 0) or 0
+                if response_id and u:
+                    yield (
+                        "usage_round",
+                        json.dumps(
+                            usage_row(
+                                final,
+                                UsageAttribution(
+                                    user_id=user_id,
+                                    source="chat",
+                                    operation="answer",
+                                    conversation_id=conversation_id,
+                                    folder_id=scope_folder_id,
+                                    response_id=response_id,
+                                    round_number=round_num + 1,
+                                ),
+                            )
+                        ),
+                    )
 
         if debug_trace is not None:
             for b in final.content:
@@ -522,6 +570,7 @@ def _run_loop_and_stream_final(
             fallback = complete(
                 task=task,
                 max_tokens=2500,
+                capture_usage=False,
                 thinking_budget=None,
                 system=system_prompt,
                 messages=round_messages,
@@ -540,6 +589,24 @@ def _run_loop_and_stream_final(
             if u:
                 usage_in += getattr(u, "input_tokens", 0) or 0
                 usage_out += getattr(u, "output_tokens", 0) or 0
+            if response_id and u:
+                yield (
+                    "usage_round",
+                    json.dumps(
+                        usage_row(
+                            fallback,
+                            UsageAttribution(
+                                user_id=user_id,
+                                source="chat",
+                                operation="answer_fallback",
+                                conversation_id=conversation_id,
+                                folder_id=scope_folder_id,
+                                response_id=response_id,
+                                round_number=round_num + 2,
+                            ),
+                        )
+                    ),
+                )
             if debug_trace is not None:
                 yield ("debug", json.dumps(debug_trace, default=str))
             yield _citations_event()

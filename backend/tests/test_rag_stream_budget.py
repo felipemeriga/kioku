@@ -139,3 +139,48 @@ def test_final_answer_strips_literal_thinking_block():
 
     assert ("text_delta", "# Answer\nIt works [1].") in events
     assert not any("Let me research" in payload for kind, payload in events if kind == "text_delta")
+
+
+def test_stream_emits_provider_usage_for_each_response_round():
+    class UsedStream(FakeStream):
+        def __init__(self):
+            self.text_stream = iter(["Answer."])
+
+        def get_final_message(self):
+            return SimpleNamespace(
+                id="msg_round_1",
+                model="claude-haiku-4-5-20251001",
+                stop_reason="end_turn",
+                content=[],
+                usage=SimpleNamespace(
+                    input_tokens=100,
+                    output_tokens=20,
+                    cache_creation_input_tokens=0,
+                    cache_read_input_tokens=50,
+                    cache_creation=None,
+                ),
+            )
+
+    with (
+        patch("services.rag._MAX_TOOL_ROUNDS", 0),
+        patch("services.rag.stream_complete", return_value=UsedStream()),
+        patch("services.rag.CitationRegistry", return_value=MagicMock(entries=lambda: [])),
+        patch("services.rag.get_supabase_thread_safe"),
+    ):
+        events = list(
+            _run_loop_and_stream_final(
+                user_message="Question",
+                user_id="user",
+                model="haiku",
+                mode="agentic",
+                history=[],
+                response_id="response",
+                conversation_id="conversation",
+            )
+        )
+    rows = [json.loads(payload) for kind, payload in events if kind == "usage_round"]
+    assert len(rows) == 1
+    assert rows[0]["response_id"] == "response"
+    assert rows[0]["conversation_id"] == "conversation"
+    assert rows[0]["round_number"] == 1
+    assert rows[0]["list_cost_usd"] == "0.000205"

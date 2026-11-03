@@ -1,11 +1,14 @@
 """Central Anthropic LLM client: singleton, task→model routing, prompt caching."""
 
 import os
+from dataclasses import replace
 from enum import Enum
 from functools import cache
 
 import anthropic
 from langsmith.wrappers import wrap_anthropic
+
+from services.usage_ledger import UsageAttribution, current_usage, save_usage, usage_row
 
 
 class Task(str, Enum):
@@ -118,6 +121,8 @@ def complete(
     max_tokens: int = 1024,
     cache_system: bool = True,
     thinking_budget: int | None = None,
+    attribution: UsageAttribution | None = None,
+    capture_usage: bool = True,
 ) -> anthropic.types.Message:
     """Run a Claude completion routed by task.
 
@@ -136,7 +141,15 @@ def complete(
         cache_system=cache_system,
         thinking_budget=thinking_budget,
     )
-    return get_client().messages.create(**kwargs)
+    response = get_client().messages.create(**kwargs)
+    if capture_usage:
+        active = current_usage() if attribution is None else None
+        if active is not None:
+            scoped, collector = active
+            collector.add(usage_row(response, replace(scoped, operation=task.value)))
+        elif attribution is not None:
+            save_usage([usage_row(response, attribution)])
+    return response
 
 
 def stream_complete(

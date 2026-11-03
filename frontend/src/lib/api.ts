@@ -1077,6 +1077,53 @@ export async function fetchUsageByMonth(): Promise<MonthlyUsage[]> {
   return res.json();
 }
 
+export interface AttributedUsage {
+  month: string;
+  total_cost_usd: string;
+  unpriced_calls: number;
+  call_count: number;
+  by_source: Record<string, string>;
+  by_repository: { folder_id: string; name: string; cost_usd: string }[];
+  responses: {
+    response_id: string;
+    title: string;
+    created_at: string;
+    cost_usd: string;
+    rounds: {
+      round: number;
+      model: string;
+      operation: string;
+      cost_usd: string;
+      input_tokens: number;
+      output_tokens: number;
+      cache_write_tokens: number;
+      cache_read_tokens: number;
+    }[];
+    additional_calls: {
+      round: null;
+      model: string;
+      operation: string;
+      cost_usd: string;
+      input_tokens: number;
+      output_tokens: number;
+      cache_write_tokens: number;
+      cache_read_tokens: number;
+    }[];
+  }[];
+  mihari_calls: {
+    created_at: string;
+    operation: string;
+    repository: string;
+    model: string;
+    cost_usd: string | null;
+  }[];
+}
+
+export async function fetchUsageAttribution(month: string): Promise<AttributedUsage> {
+  const res = await apiFetch(`/api/usage/attribution?month=${encodeURIComponent(month)}`);
+  return res.json();
+}
+
 export interface RemoteRepository {
   id: string;
   folder_id: string;

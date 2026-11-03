@@ -9,6 +9,7 @@ const api = vi.hoisted(() => ({
   fetchRootFolders: vi.fn(),
   fetchUsageByConversation: vi.fn(),
   fetchUsageByMonth: vi.fn(),
+  fetchUsageAttribution: vi.fn(),
   createApiKey: vi.fn(),
   revokeApiKey: vi.fn(),
 }));
@@ -50,6 +51,44 @@ beforeEach(() => {
       cost_usd: 1.25,
     },
   ]);
+  api.fetchUsageAttribution.mockResolvedValue({
+    month: "2026-11",
+    total_cost_usd: "0.0069",
+    unpriced_calls: 0,
+    call_count: 2,
+    by_source: { chat: "0.004", mihari: "0.0029" },
+    by_repository: [{ folder_id: "f1", name: "Kioku", cost_usd: "0.0029" }],
+    responses: [
+      {
+        response_id: "r1",
+        title: "First",
+        created_at: "2026-11-03T10:00:00Z",
+        cost_usd: "0.004",
+        rounds: [
+          {
+            round: 1,
+            model: "claude-haiku-4-5-20251001",
+            operation: "answer",
+            cost_usd: "0.004",
+            input_tokens: 100,
+            output_tokens: 50,
+            cache_write_tokens: 10,
+            cache_read_tokens: 20,
+          },
+        ],
+        additional_calls: [],
+      },
+    ],
+    mihari_calls: [
+      {
+        created_at: "2026-11-03T10:01:00Z",
+        operation: "documentation",
+        repository: "Kioku",
+        model: "claude-haiku-4-5-20251001",
+        cost_usd: "0.0029",
+      },
+    ],
+  });
   api.createApiKey.mockResolvedValue({ key: "test-secret-shown-once" });
   api.revokeApiKey.mockResolvedValue(undefined);
 });
@@ -64,10 +103,12 @@ describe("Settings page", () => {
     expect(within(summary).getByText("500")).toBeInTheDocument();
     expect(within(summary).getByText("2")).toBeInTheDocument();
     expect(
-      await screen.findByRole("img", { name: /October 2026: \$2.50/ })
+      await screen.findByRole("img", { name: /October 2026: \$2.50/ }),
     ).toBeInTheDocument();
     expect(screen.getByRole("table")).toHaveTextContent("First");
     expect(screen.getByText("All recorded usage")).toBeInTheDocument();
+    expect(await screen.findByText("Mihari by repository")).toBeInTheDocument();
+    expect(screen.getByText("Chat responses and rounds")).toBeInTheDocument();
   });
 
   it("keeps stored keys private, generates with the selected scope and confirms revocation", async () => {
@@ -75,7 +116,7 @@ describe("Settings page", () => {
     renderWithProviders(<SettingsPage />);
     await screen.findByText("Laptop");
     expect(
-      screen.getByText("Key kept private · Personal scope")
+      screen.getByText("Key kept private · Personal scope"),
     ).toBeInTheDocument();
     await user.clear(screen.getByLabelText("Key name"));
     await user.type(screen.getByLabelText("Key name"), "Workstation");
@@ -83,17 +124,17 @@ describe("Settings page", () => {
     await user.click(await screen.findByRole("option", { name: "Personal" }));
     await user.click(screen.getByRole("button", { name: "Generate API key" }));
     await waitFor(() =>
-      expect(api.createApiKey).toHaveBeenCalledWith("Workstation", "root-1")
+      expect(api.createApiKey).toHaveBeenCalledWith("Workstation", "root-1"),
     );
     expect(await screen.findByLabelText("New API key")).toHaveValue(
-      "test-secret-shown-once"
+      "test-secret-shown-once",
     );
     await user.click(screen.getByRole("button", { name: "Revoke key" }));
     expect(api.revokeApiKey).not.toHaveBeenCalled();
     await user.click(
       within(screen.getByRole("dialog")).getByRole("button", {
         name: /^Revoke$/,
-      })
+      }),
     );
     await waitFor(() => expect(api.revokeApiKey).toHaveBeenCalledWith("key-1"));
   });
@@ -108,19 +149,19 @@ describe("Settings page", () => {
       initialEntries: ["/settings?tab=mcp-client"],
     });
     expect(screen.getByLabelText("Server URL")).toHaveValue(
-      "https://mcp.example.test/sse"
+      "https://mcp.example.test/sse",
     );
     await user.click(
-      screen.getByRole("button", { name: "Copy configuration" })
+      screen.getByRole("button", { name: "Copy configuration" }),
     );
     expect(writeText).toHaveBeenCalledWith(
-      expect.stringContaining('"url": "https://mcp.example.test/sse"')
+      expect.stringContaining('"url": "https://mcp.example.test/sse"'),
     );
     expect(writeText).toHaveBeenCalledWith(
-      expect.stringContaining("Bearer YOUR_SCOPED_API_KEY")
+      expect.stringContaining("Bearer YOUR_SCOPED_API_KEY"),
     );
     expect(
-      screen.getByText("https://mcp.example.test/mcp")
+      screen.getByText("https://mcp.example.test/mcp"),
     ).toBeInTheDocument();
   });
 });
