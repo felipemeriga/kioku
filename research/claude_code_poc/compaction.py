@@ -48,8 +48,33 @@ def main():
         timeout=240,
         system_prompt="You are Kioku. Preserve final adopted facts and distinguish inconclusive research from decisions.",
     )
+    records = [first, second]
+    for label, extra in [
+        (
+            "cross-compaction-threshold",
+            continuation
+            + "\nRecall only the adopted queue and idempotency key. Do not add unprovided retry details.",
+        ),
+        (
+            "post-threshold-short-recall",
+            "What final architecture and error statuses were actually adopted? Include only facts explicitly provided; do not infer backoff/max attempts/dead-letter behavior.",
+        ),
+    ]:
+        records.append(
+            runner.call(
+                label,
+                extra,
+                resume=first.get("session_id"),
+                thinking_tokens=0,
+                exclude_instructions=True,
+                autocompact="100k",
+                timeout=240,
+                system_prompt="You are Kioku. Preserve final adopted facts and distinguish inconclusive research from decisions.",
+            )
+        )
+    final = records[-1]
     boundaries = []
-    for record in [first, second]:
+    for record in records:
         path = root / record["id"] / "events.jsonl"
         for line in path.read_text().splitlines():
             event = json.loads(line)
@@ -62,11 +87,13 @@ def main():
         "second_prompt_chars": len(continuation),
         "first_success": first["returncode"] == 0,
         "second_success": second["returncode"] == 0,
-        "final_fact_retained": "PostgreSQL" in (second.get("result") or "")
-        and "event_id" in (second.get("result") or ""),
+        "final_fact_retained": "PostgreSQL" in (final.get("result") or "")
+        and "event_id" in (final.get("result") or ""),
+        "call_ids": [record["id"] for record in records],
         "compaction_boundary_count": len(boundaries),
         "compaction_boundaries": boundaries,
         "second_result": second.get("result"),
+        "final_result": final.get("result"),
     }
     (root / "checks.json").write_text(json.dumps(checks, indent=2))
     print(json.dumps(checks), flush=True)
