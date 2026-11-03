@@ -93,7 +93,7 @@ def test_review_plan_can_choose_activity_only_and_still_review_full_briefing(mon
     assert set(response.json()["reviewed"]) == {"architecture", "overview", "documentation"}
 
 
-def test_review_plan_recovers_from_invalid_model_reply(monkeypatch):
+def test_review_plan_rejects_invalid_model_reply_without_expensive_fallback(monkeypatch):
     db = DB()
     monkeypatch.setattr(mihari, "_api_key_auth", lambda _request: ("u1", "f1", "rag_test"))
     monkeypatch.setattr(mihari, "get_supabase", lambda: db)
@@ -110,8 +110,8 @@ def test_review_plan_recovers_from_invalid_model_reply(monkeypatch):
         "/api/mihari/review-plan",
         json={"folder_id": "f1", "head_sha": "a" * 40},
     )
-    assert response.status_code == 200
-    assert set(response.json()["selected"]) == set(mihari.REVIEWED_SECTIONS)
+    assert response.status_code == 502
+    assert response.json()["detail"] == "invalid briefing review plan"
 
 
 def test_review_plan_reports_exhausted_anthropic_credits(monkeypatch):

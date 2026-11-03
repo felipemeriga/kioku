@@ -36,6 +36,32 @@ def test_retired_briefing_review_does_not_make_unchanged_head_stale():
     assert all(item["head_sha"] == head for item in current.values())
 
 
+def test_unchanged_head_never_calls_paid_briefing_review(monkeypatch, tmp_path):
+    head = "a" * 40
+    clone = tmp_path / "u1" / "f1"
+    (clone / ".git").mkdir(parents=True)
+    monkeypatch.setattr(mihari, "DATA", tmp_path)
+    monkeypatch.setattr(mihari, "decrypt", lambda _: "test-key")
+    monkeypatch.setattr(mihari, "git_env", lambda _: {})
+    monkeypatch.setattr(mihari, "run_git", lambda *_a, **_k: (0, f"{head} ref", ""))
+    monkeypatch.setattr(mihari, "rest_patch", lambda *_a, **_k: None)
+    monkeypatch.setattr(mihari, "compute_freshness", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        mihari,
+        "review_new_commits",
+        lambda *_a, **_k: pytest.fail("unchanged HEAD triggered an AI review"),
+    )
+    repo = {
+        "id": "r1",
+        "remote_url": "repo",
+        "branch": "main",
+        "user_id": "u1",
+        "folder_id": "f1",
+        "last_sha": head,
+    }
+    mihari.process_repo(repo, {"private_key_encrypted": "encrypted"})
+
+
 def test_activity_only_review_skips_expensive_briefing_generation(monkeypatch):
     monkeypatch.setattr(mihari, "API_URL", "http://api")
     monkeypatch.setattr(mihari, "decrypt", lambda _cipher: "key")

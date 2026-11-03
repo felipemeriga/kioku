@@ -183,10 +183,9 @@ def review_plan(body: ReviewPlanRequest, request: Request):
         ):
             raise ValueError("invalid section selection")
     except (ValueError, KeyError, TypeError):
-        # A malformed model reply must not leave the watcher stuck on this commit.
-        # Rechecking every area is more expensive, but preserves correctness.
-        logger.warning("Mihari review plan was invalid; reviewing all briefing areas")
-        selected = list(REVIEWED_SECTIONS)
+        # Do not turn one malformed cheap plan into several expensive rewrites.
+        logger.warning("Mihari review plan was invalid; retrying on the next pass")
+        raise HTTPException(status_code=502, detail="invalid briefing review plan") from None
     selected = list(dict.fromkeys(["activity", *selected]))
     return {"ok": True, "selected": selected, "reviewed": reviewed}
 
