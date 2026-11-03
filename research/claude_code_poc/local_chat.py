@@ -158,7 +158,10 @@ def main():
             mode,
         )
         second = chat(
-            base, cid, "What queue transport did we choose? One sentence.", mode
+            base,
+            cid,
+            "What database and event-delivery pattern did we choose? One sentence.",
+            mode,
         )
         checks.append(
             {
