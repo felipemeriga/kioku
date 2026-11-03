@@ -5,6 +5,7 @@ import json
 import math
 import statistics
 from collections import Counter, defaultdict
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -33,11 +34,17 @@ def main():
                 continue
             row["experiment"] = str(path.parent.relative_to(args.runtime))
             calls.append(row)
-    sessions = defaultdict(Decimal)
+    sessions = defaultdict(list)
+    intervals = defaultdict(list)
     for call in calls:
         sid = call.get("session_id")
         if sid and call.get("list_cost_usd") is not None:
-            sessions[sid] = max(sessions[sid], Decimal(str(call["list_cost_usd"])))
+            finished = (
+                int(call["id"].split("-", 1)[0]) / 1_000_000_000 + call["elapsed_s"]
+            )
+            start = int(call["id"].split("-", 1)[0]) / 1_000_000_000
+            intervals[sid].append((start, finished))
+            sessions[sid].append((finished, Decimal(str(call["list_cost_usd"]))))
     groups = defaultdict(list)
     for call in calls:
         groups[call["experiment"]].append(call)
@@ -75,7 +82,13 @@ def main():
         for turn in turns:
             if turn.get("list_cost_usd") is not None:
                 sid = turn.get("session_id") or state["session_id"]
-                sessions[sid] = max(sessions[sid], Decimal(str(turn["list_cost_usd"])))
+                start = datetime.fromisoformat(
+                    state["start_utc"].replace("Z", "+00:00")
+                ).timestamp()
+                finished = start + turn.get(
+                    "elapsed_since_start_s", turn.get("elapsed_s", 0)
+                )
+                sessions[sid].append((finished, Decimal(str(turn["list_cost_usd"]))))
         duplex[str(path.parent.relative_to(args.runtime))] = {
             "start_utc": state["start_utc"],
             "status": state["status"],
@@ -89,11 +102,34 @@ def main():
             ),
         }
     soak = json.loads((args.runtime / "soak/checkpoint.json").read_text())
+    equivalent = Decimal(0)
+    reset_count = 0
+    ambiguous = set()
+    for sid, ranges in intervals.items():
+        previous_end = 0
+        for start, end in sorted(ranges):
+            if start < previous_end:
+                ambiguous.add(sid)
+            previous_end = max(previous_end, end)
+    for sid, observations in sessions.items():
+        if sid in ambiguous:
+            continue
+        previous = Decimal(0)
+        for _, value in sorted(observations):
+            if value + Decimal("0.000001") < previous:
+                equivalent += previous
+                reset_count += 1
+            previous = value
+        equivalent += previous
     report = {
         "scope": "local native subscription POC, not production integration",
         "monetary_subscription_charge": "not exposed by CLI; no monetary savings claim",
-        "list_cost_equivalent_lower_bound_usd": str(sum(sessions.values(), Decimal(0))),
-        "cost_accounting_note": "max cumulative total per session, never sum per-turn totals; cancelled calls can have unreported usage; simultaneous same-session totals may race",
+        "list_cost_equivalent_lower_bound_usd": str(
+            equivalent.quantize(Decimal("0.000000001"))
+        ),
+        "observed_cost_counter_resets": reset_count,
+        "concurrent_sessions_excluded_from_cost": len(ambiguous),
+        "cost_accounting_note": "session deltas segmented on observed resets, never sum per-turn totals; cancelled calls can have unreported usage; simultaneous same-session totals may race; only captured call/duplex summaries included",
         "calls": len(calls),
         "experiments": experiments,
         "duplex": duplex,

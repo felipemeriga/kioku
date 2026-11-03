@@ -1,6 +1,7 @@
 """Standalone localhost SSE chat POC, preserving generation after disconnect."""
 
 import json
+import concurrent.futures
 import queue
 import threading
 import time
@@ -198,6 +199,45 @@ def main():
             and len(history[-1]["content"]) > len(aborted["text"]),
             "client_partial_chars": len(aborted["text"]),
             "persisted_chars": len(history[-1]["content"]) if history else 0,
+        }
+    )
+    cid = str(uuid.uuid4())
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(
+            chat,
+            base,
+            cid,
+            "Explain the tradeoffs of an invoice outbox worker in about250words.",
+            "stateful",
+        )
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            with LOCK:
+                active = STATE.get(cid, {}).get("status") == "generating"
+            if active:
+                break
+            time.sleep(0.01)
+        probe_started = time.monotonic()
+        with urllib.request.urlopen(base, timeout=5) as response:
+            json.load(response)
+        probe_latency = time.monotonic() - probe_started
+        rejected = chat(
+            base,
+            cid,
+            "This simultaneous same-conversation turn must be rejected.",
+            "stateful",
+        )
+        completed = future.result()
+    checks.append(
+        {
+            "mode": "stateful",
+            "check": "active-job-does-not-block-state-and-serializes-conversation",
+            "passed": active
+            and probe_latency < 0.5
+            and bool(rejected["errors"])
+            and completed["done"],
+            "state_probe_s": probe_latency,
+            "same_conversation_errors": rejected["errors"],
         }
     )
     server.shutdown()

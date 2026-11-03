@@ -35,7 +35,9 @@ fallbacks and never reads, copies, or proxies authentication credentials.
   stateful conversation history, partial text, and answer persistence after
   a browser-like client disconnect. It is not integrated into the Kioku app.
 - `report.py`: aggregates metrics and normalizes cumulative native session
-  list-cost totals rather than incorrectly adding them once per turn.
+  list-cost totals, including observed reset boundaries after process kills,
+  rather than incorrectly adding them once per turn. Ambiguous simultaneous
+  same-session cost counters are excluded from the reported lower bound.
 - `prompt_parity.py`: runs the actual backend review-plan prompt through the
   native CLI for six change classes on two models, using isolated backend data.
 - `concurrency.py`: repeats bounded one/two/four-process workloads at zero,
