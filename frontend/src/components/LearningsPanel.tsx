@@ -521,7 +521,10 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
                   {activeSession.title}
                 </Typography>
                 {activeSession.summary && (
-                  <section aria-label="Session overview">
+                  <section
+                    className="learnings-session-overview"
+                    aria-label="Session overview"
+                  >
                     <Typography
                       variant="caption"
                       sx={{ color: "text.secondary" }}
