@@ -79,6 +79,16 @@ SECTION_PATH_RULES: dict[str, list[str]] = {
         ".github/workflows/",
     ],
 }
+CURRENT_BRIEFING_SECTIONS = frozenset(
+    {"overview", "architecture", "how_it_runs", "deployment", "activity", "documentation"}
+)
+
+
+def current_briefing_reviews(reviews: dict) -> dict:
+    """Ignore retired briefing areas when deciding whether HEAD needs review."""
+    return {name: marker for name, marker in reviews.items() if name in CURRENT_BRIEFING_SECTIONS}
+
+
 # architecture/overview go stale on broad source churn, not specific paths.
 ARCH_CHURN_THRESHOLD = 10
 
@@ -247,7 +257,9 @@ def compute_freshness(clone: Path, repo: dict, env: dict) -> None:
             "limit": "1",
         },
     )
-    reviews = (review_rows[0].get("section_reviews") or {}) if review_rows else {}
+    reviews = current_briefing_reviews(
+        (review_rows[0].get("section_reviews") or {}) if review_rows else {}
+    )
     code, behind, _ = run_git(
         ["rev-list", "--count", f"--since={generated_at}", "HEAD"], env, cwd=str(clone)
     )
@@ -852,7 +864,10 @@ def process_repo(repo: dict, key_row: dict) -> None:
                         "limit": "1",
                     },
                 )
-                review = (review_rows[0].get("section_reviews") or {}) if review_rows else {}
+                all_reviews = (review_rows[0].get("section_reviews") or {}) if review_rows else {}
+                # Old snapshots can retain removed areas such as preferences.
+                # Their stale SHAs must not trigger a model review every poll.
+                review = current_briefing_reviews(all_reviews)
                 latest = rest_get(
                     "folder_summaries",
                     {
