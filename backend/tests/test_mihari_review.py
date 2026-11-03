@@ -173,7 +173,14 @@ def test_documentation_refresh_collects_streamed_response(monkeypatch):
 
     @contextmanager
     def streamed_response(**_kwargs):
-        yield SimpleNamespace(text_stream=iter([guide[:50], guide[50:]]))
+        yield SimpleNamespace(
+            text_stream=iter([guide[:50], guide[50:]]),
+            get_final_message=lambda: SimpleNamespace(
+                id="msg_docs",
+                model="claude-haiku-4-5-20251001",
+                usage=SimpleNamespace(input_tokens=100, output_tokens=50),
+            ),
+        )
 
     monkeypatch.setattr(mihari, "_api_key_auth", lambda _request: ("u1", "f1", "rag_test"))
     monkeypatch.setattr(mihari, "get_supabase", DocumentationDB)
@@ -183,9 +190,13 @@ def test_documentation_refresh_collects_streamed_response(monkeypatch):
         lambda *_: {"content": {"sections": {"documentation": {"content": abstract}}}},
     )
     monkeypatch.setattr("services.llm.stream_complete", streamed_response)
+    saved = []
+    monkeypatch.setattr(mihari, "save_usage", lambda rows: saved.extend(rows))
     response = TestClient(app).post(
         "/api/mihari/documentation",
         json={"folder_id": "f1", "head_sha": "a" * 40},
     )
     assert response.status_code == 200
     assert response.json() == {"ok": True, "updated": False, "reason": "content unchanged"}
+    assert saved[0]["source"] == "mihari"
+    assert saved[0]["operation"] == "documentation"

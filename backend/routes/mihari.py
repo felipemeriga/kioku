@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 
 from db.client import get_supabase
 from services.crypto import decrypt_secret, encrypt_secret
+from services.usage_ledger import UsageAttribution, save_usage, usage_row
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -93,6 +94,7 @@ def refresh_learnings(body: LearningRefreshRequest, request: Request):
             folder_id=body.folder_id,
             head_sha=body.head_sha,
             main_commits=body.main_commits,
+            attribution=UsageAttribution(user_id, "mihari", "learnings", body.folder_id),
         )
     except BadRequestError as exc:
         _raise_if_credit_exhausted(exc)
@@ -170,6 +172,7 @@ def review_plan(body: ReviewPlanRequest, request: Request):
                 "Select only repository briefing areas whose facts need revision. Output JSON only."
             ),
             messages=[{"role": "user", "content": prompt}],
+            attribution=UsageAttribution(user_id, "mihari", "review_plan", body.folder_id),
         )
     except BadRequestError as exc:
         _raise_if_credit_exhausted(exc)
@@ -443,6 +446,7 @@ async def refresh_activity(body: ActivityRefreshRequest, request: Request):
         max_tokens=1500,
         system="You update repo activity summaries. Output only valid JSON.",
         messages=[{"role": "user", "content": prompt}],
+        attribution=UsageAttribution(user_id, "mihari", "activity", body.folder_id),
     )
     text = "".join(b.text for b in response.content if hasattr(b, "text")).strip()
     if text.startswith("```"):
@@ -579,6 +583,7 @@ async def refresh_section(body: SectionRefreshRequest, request: Request):
         max_tokens=2400 if body.section == "how_it_runs" else 1500,
         system="You update repo briefing sections from source files. Output only valid JSON.",
         messages=[{"role": "user", "content": prompt}],
+        attribution=UsageAttribution(user_id, "mihari", body.section, body.folder_id),
     )
     text = "".join(b.text for b in response.content if hasattr(b, "text")).strip()
     if text.startswith("```"):
@@ -746,6 +751,7 @@ async def reground_holistic(body: RegroundRequest, request: Request):
             "Output only valid JSON."
         ),
         messages=[{"role": "user", "content": prompt}],
+        attribution=UsageAttribution(user_id, "mihari", "reground", body.folder_id),
     )
     text = "".join(b.text for b in response.content if hasattr(b, "text")).strip()
     if text.startswith("```"):
@@ -869,6 +875,14 @@ async def refresh_documentation(body: DocumentationRefreshRequest, request: Requ
         messages=[{"role": "user", "content": prompt}],
     ) as stream:
         content = "".join(stream.text_stream).strip()
+        save_usage(
+            [
+                usage_row(
+                    stream.get_final_message(),
+                    UsageAttribution(user_id, "mihari", "documentation", body.folder_id),
+                )
+            ]
+        )
     if content.startswith("```markdown") and content.endswith("```"):
         content = content[len("```markdown") : -3].strip()
     if len(content) < max(400, min(len(old["content"]) // 2, 5000)):

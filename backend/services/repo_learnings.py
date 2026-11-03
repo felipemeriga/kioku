@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from services.agent_journal import journal_entries as parsed_journal_entries
 from services.agent_journal import read_journal
 from services.llm import Task, complete
+from services.usage_ledger import UsageAttribution
 
 
 class LearningExtractionError(ValueError):
@@ -35,7 +36,12 @@ def journal_entries(markdown: str, journal_date: str) -> list[dict]:
     return entries
 
 
-def _extract(new_entries: list[dict], current: list[dict], main_commits: list[str]) -> list[dict]:
+def _extract(
+    new_entries: list[dict],
+    current: list[dict],
+    main_commits: list[str],
+    attribution: UsageAttribution | None = None,
+) -> list[dict]:
     """The model proposes changes; deterministic checks constrain the result."""
     payload = {
         "new_entries": new_entries,
@@ -76,6 +82,7 @@ def _extract(new_entries: list[dict], current: list[dict], main_commits: list[st
             max_tokens=2200 if attempt == 0 else 3200,
             system=system,
             messages=messages,
+            attribution=attribution,
         )
         raw = "".join(block.text for block in response.content if hasattr(block, "text")).strip()
         try:
@@ -105,6 +112,7 @@ def apply_updates(
     new_entries: list[dict],
     main_commits: list[str],
     head_sha: str,
+    attribution: UsageAttribution | None = None,
 ) -> int:
     current = (
         sb.table("repo_learnings")
@@ -120,7 +128,7 @@ def apply_updates(
     by_key = {row["topic_key"]: row for row in current}
     by_id = {entry["id"]: entry for entry in new_entries}
     written = 0
-    for update in _extract(new_entries, current, main_commits):
+    for update in _extract(new_entries, current, main_commits, attribution):
         if not isinstance(update, dict):
             continue
         key, statement = update.get("topic_key"), update.get("statement")
@@ -190,7 +198,13 @@ def apply_updates(
 
 
 def process_pending(
-    sb, *, user_id: str, folder_id: str, head_sha: str, main_commits: list[str]
+    sb,
+    *,
+    user_id: str,
+    folder_id: str,
+    head_sha: str,
+    main_commits: list[str],
+    attribution: UsageAttribution | None = None,
 ) -> dict:
     """Read only changed days; same-day revisions contribute only unseen entry IDs."""
 
@@ -237,6 +251,7 @@ def process_pending(
                 new_entries=batch,
                 main_commits=main_commits,
                 head_sha=head_sha,
+                attribution=attribution,
             )
             seen.update(entry["id"] for entry in batch)
             sb.table("repo_learning_days").upsert(

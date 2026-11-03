@@ -30,6 +30,7 @@ import {
   fetchRootFolders,
   fetchUsageByConversation,
   fetchUsageByMonth,
+  fetchUsageAttribution,
 } from "../lib/api";
 import { NotionIntegrationSection } from "../components/NotionIntegrationSection";
 import { messageFromError } from "../components/ToastProvider";
@@ -142,6 +143,9 @@ export default function SettingsPage() {
   const [revokeTarget, setRevokeTarget] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedScope, setSelectedScope] = useState<string>("");
+  const [usageMonth, setUsageMonth] = useState(() =>
+    new Date().toISOString().slice(0, 7),
+  );
   const [keyName, setKeyName] = useState("Default");
   const [tabParams, setTabParams] = useSearchParams();
   const requestedTab = tabParams.get("tab");
@@ -153,6 +157,11 @@ export default function SettingsPage() {
   ].includes(requestedTab ?? "")
     ? (requestedTab as SettingsTab)
     : "api-keys";
+  const attributedUsage = useQuery({
+    queryKey: qk.usageAttribution(usageMonth),
+    queryFn: () => fetchUsageAttribution(usageMonth),
+    enabled: activeTab === "usage",
+  });
 
   const handleGenerate = async () => {
     if (!selectedScope) {
@@ -657,7 +666,7 @@ export default function SettingsPage() {
       {activeTab === "usage" && (
         <SettingsPanel
           title="Usage"
-          description="Estimated model usage across your conversations."
+          description="Model call costs by source, repository, and chat response."
           action={
             <Typography
               sx={{ fontSize: 13, color: brand.muted, whiteSpace: "nowrap" }}
@@ -886,9 +895,182 @@ export default function SettingsPage() {
             </Box>
           )}
           <Typography sx={{ fontSize: 12, color: brand.muted, mt: "22px" }}>
-            Costs are estimates based on recorded model tokens. Conversations
-            without recorded usage are not included.
+            The conversation summary above uses older approximate accounting.
+            New chat calls also appear in the ledger below, so do not add the
+            two totals. The ledger starts with this release and includes cache
+            usage.
           </Typography>
+          <Box sx={{ borderTop: `1px solid ${brand.line}`, mt: 3, pt: 3 }}>
+            <Typography component="h3" sx={sectionTitle}>
+              Model call ledger
+            </Typography>
+            <TextField
+              type="month"
+              label="Usage month (UTC)"
+              value={usageMonth}
+              onChange={(event) => setUsageMonth(event.target.value)}
+              size="small"
+              sx={{ mb: 2, ...inputStyle }}
+              slotProps={{ inputLabel: { shrink: true } }}
+            />
+            {attributedUsage.isPending ? (
+              <Typography role="status" sx={{ color: brand.muted }}>
+                Loading model calls…
+              </Typography>
+            ) : attributedUsage.isError ? (
+              <Alert
+                severity="error"
+                action={
+                  <Button onClick={() => void attributedUsage.refetch()}>
+                    Retry
+                  </Button>
+                }
+              >
+                {messageFromError(attributedUsage.error)}
+              </Alert>
+            ) : attributedUsage.data ? (
+              <>
+                <Typography sx={{ fontSize: 27, fontWeight: 600 }}>
+                  {fmtCost(Number(attributedUsage.data.total_cost_usd))}
+                </Typography>
+                <Typography sx={{ color: brand.muted, fontSize: 13, mb: 3 }}>
+                  {attributedUsage.data.call_count} model calls · Chat{" "}
+                  {fmtCost(Number(attributedUsage.data.by_source.chat ?? 0))} ·
+                  Mihari{" "}
+                  {fmtCost(Number(attributedUsage.data.by_source.mihari ?? 0))}
+                  {attributedUsage.data.unpriced_calls > 0 &&
+                    ` · ${attributedUsage.data.unpriced_calls} calls with unknown pricing`}
+                </Typography>
+                <Typography component="h4" sx={sectionTitle}>
+                  Mihari by repository
+                </Typography>
+                {attributedUsage.data.by_repository.length === 0 ? (
+                  <Typography sx={{ color: brand.muted, fontSize: 14 }}>
+                    No Mihari calls recorded this month.
+                  </Typography>
+                ) : (
+                  attributedUsage.data.by_repository.map((repo) => (
+                    <Box
+                      key={repo.folder_id}
+                      sx={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        py: 1,
+                        borderBottom: `1px solid ${brand.line}`,
+                      }}
+                    >
+                      <Typography sx={{ fontSize: 14 }}>{repo.name}</Typography>
+                      <Typography sx={{ fontSize: 14 }}>
+                        {fmtCost(Number(repo.cost_usd))}
+                      </Typography>
+                    </Box>
+                  ))
+                )}
+                <Typography component="h4" sx={{ ...sectionTitle, mt: 3 }}>
+                  Chat responses and rounds
+                </Typography>
+                {attributedUsage.data.responses.length === 0 ? (
+                  <Typography sx={{ color: brand.muted, fontSize: 14 }}>
+                    No chat calls recorded this month.
+                  </Typography>
+                ) : (
+                  attributedUsage.data.responses.map((response) => (
+                    <Box
+                      key={response.response_id}
+                      component="details"
+                      sx={{ py: 1, borderBottom: `1px solid ${brand.line}` }}
+                    >
+                      <Box
+                        component="summary"
+                        sx={{
+                          cursor: "pointer",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: 2,
+                          fontSize: 14,
+                        }}
+                      >
+                        <span>
+                          {response.title} ·{" "}
+                          {new Date(response.created_at).toLocaleString()}
+                        </span>
+                        <span>
+                          {response.rounds.length} rounds ·{" "}
+                          {response.additional_calls.length} retrieval calls ·{" "}
+                          {fmtCost(Number(response.cost_usd))}
+                        </span>
+                      </Box>
+                      {response.rounds.map((round) => (
+                        <Typography
+                          key={`${response.response_id}-${round.round}`}
+                          sx={{
+                            color: brand.muted,
+                            fontSize: 13,
+                            pl: 2,
+                            py: 0.5,
+                          }}
+                        >
+                          Round {round.round} · {round.model} ·{" "}
+                          {fmtCost(Number(round.cost_usd))} ·{" "}
+                          {fmtTokens(round.input_tokens)} input /{" "}
+                          {fmtTokens(round.output_tokens)} output /{" "}
+                          {fmtTokens(round.cache_write_tokens)} cache write /{" "}
+                          {fmtTokens(round.cache_read_tokens)} cache read
+                        </Typography>
+                      ))}
+                      {response.additional_calls.map((call, index) => (
+                        <Typography
+                          key={`${response.response_id}-extra-${index}`}
+                          sx={{
+                            color: brand.muted,
+                            fontSize: 13,
+                            pl: 2,
+                            py: 0.5,
+                          }}
+                        >
+                          {call.operation} · {call.model} ·{" "}
+                          {fmtCost(Number(call.cost_usd))} ·{" "}
+                          {fmtTokens(call.input_tokens)} input /{" "}
+                          {fmtTokens(call.output_tokens)} output
+                        </Typography>
+                      ))}
+                    </Box>
+                  ))
+                )}
+                <Typography component="h4" sx={{ ...sectionTitle, mt: 3 }}>
+                  Mihari calls
+                </Typography>
+                {attributedUsage.data.mihari_calls.map((call, index) => (
+                  <Box
+                    key={`${call.created_at}-${index}`}
+                    sx={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: 2,
+                      py: 1,
+                      borderBottom: `1px solid ${brand.line}`,
+                      fontSize: 13,
+                    }}
+                  >
+                    <span>
+                      {call.repository} · {call.operation} · {call.model} ·{" "}
+                      {new Date(call.created_at).toLocaleString()}
+                    </span>
+                    <span>
+                      {call.cost_usd === null
+                        ? "Unpriced"
+                        : fmtCost(Number(call.cost_usd))}
+                    </span>
+                  </Box>
+                ))}
+                <Typography sx={{ color: brand.muted, fontSize: 12, mt: 2 }}>
+                  USD list prices at capture time, calculated from Anthropic
+                  usage including cache reads and writes. Provider invoices may
+                  include discounts or other charges.
+                </Typography>
+              </>
+            ) : null}
+          </Box>
         </SettingsPanel>
       )}
       <Dialog open={!!revokeTarget} onClose={() => setRevokeTarget(null)}>

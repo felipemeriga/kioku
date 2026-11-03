@@ -4,15 +4,158 @@ Aggregates the per-turn rows in chat_usage. All queries are scoped to the
 authenticated caller (the service-role client bypasses RLS, so the user_id
 filter is the real gate)."""
 
+import re
 from collections import defaultdict
+from datetime import datetime, timezone
+from decimal import Decimal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from auth import get_current_user
 from db.client import get_supabase
 from services.pricing import estimate_cost_usd
 
 router = APIRouter(prefix="/api/usage")
+
+
+@router.get("/attribution")
+def usage_attribution(
+    month: str | None = Query(default=None), user_id: str = Depends(get_current_user)
+):
+    """Call-level, user-scoped list-cost ledger for a UTC month."""
+    month = month or datetime.now(timezone.utc).strftime("%Y-%m")
+    if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", month):
+        raise HTTPException(status_code=422, detail="month must be YYYY-MM")
+    year, number = map(int, month.split("-"))
+    next_month = f"{year + 1}-01" if number == 12 else f"{year}-{number + 1:02d}"
+    sb = get_supabase()
+    rows = []
+    offset = 0
+    while True:
+        page = (
+            sb.table("llm_usage_events")
+            .select(
+                "source,operation,folder_id,conversation_id,response_id,round_number,"
+                "model,input_tokens,output_tokens,cache_write_5m_tokens,"
+                "cache_write_1h_tokens,cache_read_tokens,list_cost_usd,created_at"
+            )
+            .eq("user_id", user_id)
+            .gte("created_at", f"{month}-01T00:00:00+00:00")
+            .lt("created_at", f"{next_month}-01T00:00:00+00:00")
+            .order("created_at", desc=True)
+            .range(offset, offset + 499)
+            .execute()
+            .data
+            or []
+        )
+        rows.extend(page)
+        if len(page) < 500:
+            break
+        offset += 500
+
+    folder_ids = list({r["folder_id"] for r in rows if r.get("folder_id")})
+    conversation_ids = list({r["conversation_id"] for r in rows if r.get("conversation_id")})
+    folders = (
+        (
+            sb.table("folders")
+            .select("id,name")
+            .eq("user_id", user_id)
+            .in_("id", folder_ids)
+            .execute()
+            .data
+            or []
+        )
+        if folder_ids
+        else []
+    )
+    conversations = (
+        (
+            sb.table("conversations")
+            .select("id,title")
+            .eq("user_id", user_id)
+            .in_("id", conversation_ids)
+            .execute()
+            .data
+            or []
+        )
+        if conversation_ids
+        else []
+    )
+    folder_names = {r["id"]: r.get("name") or "Untitled repository" for r in folders}
+    conversation_names = {r["id"]: r.get("title") or "Untitled" for r in conversations}
+    total = Decimal("0")
+    by_source: dict[str, Decimal] = defaultdict(Decimal)
+    by_folder: dict[str, Decimal] = defaultdict(Decimal)
+    by_response: dict[str, dict] = {}
+    unpriced = 0
+    for row in rows:
+        cost = row.get("list_cost_usd")
+        if cost is None:
+            unpriced += 1
+            continue
+        amount = Decimal(str(cost))
+        total += amount
+        by_source[row["source"]] += amount
+        if row["source"] == "mihari" and row.get("folder_id"):
+            by_folder[row["folder_id"]] += amount
+        if row.get("response_id"):
+            key = row["response_id"]
+            if key not in by_response:
+                by_response[key] = {
+                    "response_id": key,
+                    "conversation_id": row.get("conversation_id"),
+                    "title": conversation_names.get(row.get("conversation_id"), "Untitled"),
+                    "created_at": row["created_at"],
+                    "cost_usd": Decimal("0"),
+                    "rounds": [],
+                    "additional_calls": [],
+                }
+            by_response[key]["cost_usd"] += amount
+            call = {
+                "round": row["round_number"],
+                "model": row["model"],
+                "operation": row["operation"],
+                "cost_usd": str(amount),
+                "input_tokens": row["input_tokens"],
+                "output_tokens": row["output_tokens"],
+                "cache_write_tokens": (row["cache_write_5m_tokens"] + row["cache_write_1h_tokens"]),
+                "cache_read_tokens": row["cache_read_tokens"],
+            }
+            bucket = "rounds" if row["round_number"] is not None else "additional_calls"
+            by_response[key][bucket].append(call)
+    responses = list(by_response.values())
+    for response in responses:
+        response["cost_usd"] = str(response["cost_usd"])
+        response["rounds"].sort(key=lambda r: r["round"] or 0)
+    responses.sort(key=lambda r: r["created_at"], reverse=True)
+    mihari_calls = [
+        {
+            "created_at": r["created_at"],
+            "operation": r["operation"],
+            "repository": folder_names.get(r.get("folder_id"), "Unknown repository"),
+            "model": r["model"],
+            "cost_usd": r["list_cost_usd"],
+        }
+        for r in rows
+        if r["source"] == "mihari"
+    ]
+    return {
+        "month": month,
+        "total_cost_usd": str(total),
+        "unpriced_calls": unpriced,
+        "call_count": len(rows),
+        "by_source": {key: str(value) for key, value in by_source.items()},
+        "by_repository": [
+            {
+                "folder_id": key,
+                "name": folder_names.get(key, "Unknown repository"),
+                "cost_usd": str(value),
+            }
+            for key, value in sorted(by_folder.items(), key=lambda item: item[1], reverse=True)
+        ],
+        "responses": responses,
+        "mihari_calls": mihari_calls,
+    }
 
 
 @router.get("/conversations")

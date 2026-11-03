@@ -93,3 +93,76 @@ class TestUsageByMonth(unittest.TestCase):
         self.assertEqual(oct_row["output_tokens"], 600)
         self.assertAlmostEqual(oct_row["cost_usd"], 0.013, places=6)
         self.assertEqual(out[1]["cost_usd"], 3.0)
+
+
+class TestAttributedUsage(unittest.TestCase):
+    def test_sums_rounds_into_one_response_and_attributes_mihari(self):
+        from routes.usage import usage_attribution
+
+        rows = [
+            {
+                "source": "chat",
+                "operation": "answer",
+                "folder_id": None,
+                "conversation_id": "c1",
+                "response_id": "r1",
+                "round_number": 1,
+                "model": "claude-haiku-4-5-20251001",
+                "input_tokens": 10,
+                "output_tokens": 5,
+                "cache_write_5m_tokens": 0,
+                "cache_write_1h_tokens": 0,
+                "cache_read_tokens": 20,
+                "list_cost_usd": "0.000037",
+                "created_at": "2026-11-03T12:00:00Z",
+            },
+            {
+                "source": "chat",
+                "operation": "answer",
+                "folder_id": None,
+                "conversation_id": "c1",
+                "response_id": "r1",
+                "round_number": 2,
+                "model": "claude-haiku-4-5-20251001",
+                "input_tokens": 10,
+                "output_tokens": 5,
+                "cache_write_5m_tokens": 0,
+                "cache_write_1h_tokens": 0,
+                "cache_read_tokens": 0,
+                "list_cost_usd": "0.000035",
+                "created_at": "2026-11-03T12:00:01Z",
+            },
+            {
+                "source": "mihari",
+                "operation": "documentation",
+                "folder_id": "f1",
+                "conversation_id": None,
+                "response_id": None,
+                "round_number": None,
+                "model": "claude-haiku-4-5-20251001",
+                "input_tokens": 100,
+                "output_tokens": 10,
+                "cache_write_5m_tokens": 0,
+                "cache_write_1h_tokens": 0,
+                "cache_read_tokens": 0,
+                "list_cost_usd": "0.00015",
+                "created_at": "2026-11-03T12:00:02Z",
+            },
+        ]
+        sb = MagicMock()
+        tables = {name: MagicMock() for name in ("llm_usage_events", "folders", "conversations")}
+        sb.table.side_effect = tables.__getitem__
+        ledger_query = tables["llm_usage_events"].select().eq().gte().lt().order().range()
+        ledger_query.execute.return_value.data = rows
+        folder_query = tables["folders"].select().eq().in_()
+        folder_query.execute.return_value.data = [{"id": "f1", "name": "Kioku"}]
+        conversation_query = tables["conversations"].select().eq().in_()
+        conversation_query.execute.return_value.data = [{"id": "c1", "title": "Question"}]
+        with patch("routes.usage.get_supabase", return_value=sb):
+            result = usage_attribution(month="2026-11", user_id="u1")
+        assert result["total_cost_usd"] == "0.000222"
+        assert result["by_source"] == {"chat": "0.000072", "mihari": "0.00015"}
+        assert result["responses"][0]["title"] == "Question"
+        assert [item["round"] for item in result["responses"][0]["rounds"]] == [1, 2]
+        assert result["by_repository"][0]["name"] == "Kioku"
+        assert result["mihari_calls"][0]["operation"] == "documentation"
