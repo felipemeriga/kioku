@@ -65,6 +65,9 @@
 .learnings-session-card-summary p {
   margin: 0;
 }
+.learnings-session-overview {
+  margin-bottom: 24px;
+}
 .learnings-calendar-grid {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
