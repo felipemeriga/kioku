@@ -1,6 +1,7 @@
 """Exercise the actual backend review-plan prompt through native CLI transport."""
 
 import json
+import argparse
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,11 +12,16 @@ from soak import HERE
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--thinking-off", action="store_true")
+    args = parser.parse_args()
     sys.path.insert(0, str(HERE.parents[1] / "backend"))
     from routes import mihari
     import mcp_server
 
-    root = Path("/private/tmp/kioku-claude-poc-runtime/prompt-parity")
+    root = Path("/private/tmp/kioku-claude-poc-runtime") / (
+        "prompt-parity-thinking-off" if args.thinking_off else "prompt-parity"
+    )
     runner = NativeRunner(root / "calls")
     sections = {
         "overview": "Invoice worker receives and retries invoice delivery jobs.",
@@ -86,7 +92,7 @@ def main():
         "additionalProperties": False,
     }
     outcomes = []
-    for model in ["haiku", "sonnet"]:
+    for model in ["haiku"] if args.thinking_off else ["haiku", "sonnet"]:
         for label, paths, subject, diff, expected in scenarios:
             db = MagicMock()
             db.table.return_value.select.return_value.eq.return_value.eq.return_value.order.return_value.limit.return_value.execute.return_value.data = [
@@ -103,6 +109,7 @@ def main():
                     persist=False,
                     exclude_instructions=True,
                     system_prompt=kwargs["system"],
+                    thinking_tokens=0 if args.thinking_off else None,
                 )
                 records.append(record)
                 if record["returncode"]:

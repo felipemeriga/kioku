@@ -34,6 +34,8 @@ class NativeRunner:
         exclude_instructions=False,
         max_turns=8,
         on_event=None,
+        thinking_tokens=None,
+        autocompact=None,
     ):
         call_id = f"{time.time_ns()}-{uuid.uuid4().hex[:6]}"
         directory = self.runtime / call_id
@@ -94,6 +96,8 @@ class NativeRunner:
             args += ["--system-prompt", system_prompt]
         if safe_mode:
             args += ["--safe-mode"]
+        if autocompact:
+            args += ["--autocompact", str(autocompact)]
         env = os.environ.copy()
         # Force the native signed-in route; no API/provider credential fallback.
         for key in list(env):
@@ -101,6 +105,8 @@ class NativeRunner:
                 env.pop(key)
         env["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"] = "1"
         env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
+        if thinking_tokens is not None:
+            env["MAX_THINKING_TOKENS"] = str(thinking_tokens)
         started = time.monotonic()
         record = {
             "id": call_id,
@@ -109,6 +115,7 @@ class NativeRunner:
             "started_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "resume": resume,
             "persist": persist,
+            "thinking_tokens_override": thinking_tokens,
         }
         events = []
         with (directory / "stderr.txt").open("w") as stderr:

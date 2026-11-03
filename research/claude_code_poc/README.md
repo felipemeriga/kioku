@@ -40,6 +40,8 @@ fallbacks and never reads, copies, or proxies authentication credentials.
   one and two hours while the other soaks continue.
 - `protocol_cases.py`: explicit probes for stream-input routing, cross-directory
   resume, turn-limit termination and a host-controlled final-answer fallback.
+- `compaction.py`: large synthetic research history with a 100k native
+  compaction threshold and a resumed current-facts question.
 - `fixture_mcp.py`: minimal read-only synthetic MCP source; no production tools.
 - `test_native.py`: local process adapter regression tests without model calls.
 
@@ -59,6 +61,8 @@ python research/claude_code_poc/complex_repo.py
 python research/claude_code_poc/variants.py
 python research/claude_code_poc/variants.py --strict --revisions 4
 python research/claude_code_poc/local_chat.py
+python research/claude_code_poc/prompt_parity.py --thinking-off
+python research/claude_code_poc/compaction.py
 python research/claude_code_poc/report.py
 cd research/claude_code_poc && python -m unittest test_native.py
 ```
