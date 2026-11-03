@@ -7,6 +7,15 @@ import sys
 from pathlib import Path
 
 root = Path(sys.argv[1]).resolve()
+source_ids = {}
+
+
+def citation(path):
+    if path not in source_ids:
+        source_ids[path] = len(source_ids) + 1
+    return f"[{source_ids[path]}]"
+
+
 for line in sys.stdin:
     try:
         request = json.loads(line)
@@ -87,7 +96,7 @@ for line in sys.stdin:
                                         for item in ast.walk(node)
                                         if isinstance(item, ast.Call)
                                     ][:15]
-                                    text = f"[1] {relative}:{node.lineno} definition {node.name}; calls: {', '.join(calls)}"
+                                    text = f"{citation(relative)} {relative}:{node.lineno} definition {node.name}; calls: {', '.join(calls)}"
                                     evidence.append(
                                         (
                                             sum(term in text.lower() for term in terms),
@@ -97,8 +106,9 @@ for line in sys.stdin:
                         else:
                             lines = source.splitlines()
                             for offset in range(0, len(lines), 45):
-                                text = f"[1] {relative}:{offset + 1}\n" + "\n".join(
-                                    lines[offset : offset + 60]
+                                text = (
+                                    f"{citation(relative)} {relative}:{offset + 1}\n"
+                                    + "\n".join(lines[offset : offset + 60])
                                 )
                                 evidence.append(
                                     (sum(term in text.lower() for term in terms), text)

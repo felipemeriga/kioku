@@ -36,6 +36,10 @@ fallbacks and never reads, copies, or proxies authentication credentials.
   list-cost totals rather than incorrectly adding them once per turn.
 - `prompt_parity.py`: runs the actual backend review-plan prompt through the
   native CLI for six change classes on two models, using isolated backend data.
+- `concurrency.py`: repeats bounded one/two/four-process workloads at zero,
+  one and two hours while the other soaks continue.
+- `protocol_cases.py`: explicit probes for stream-input routing, cross-directory
+  resume, turn-limit termination and a host-controlled final-answer fallback.
 - `fixture_mcp.py`: minimal read-only synthetic MCP source; no production tools.
 - `test_native.py`: local process adapter regression tests without model calls.
 
