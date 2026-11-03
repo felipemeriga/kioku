@@ -3,14 +3,14 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from auth import get_current_user
-from db.client import get_supabase
+from db.client import get_supabase_thread_safe as get_supabase
 from routes._validation import require_uuid
 
 router = APIRouter(prefix="/api/notes")
 
 
 @router.get("")
-async def list_notes(
+def list_notes(
     root_folder_id: str | None = None,
     user_id: str = Depends(get_current_user),
 ):
@@ -26,7 +26,7 @@ async def list_notes(
 
 
 @router.delete("/{note_id}")
-async def delete_note(
+def delete_note(
     note_id: str,
     user_id: str = Depends(get_current_user),
 ):

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from auth import get_current_user
-from db.client import get_supabase
+from db.client import get_supabase_thread_safe as get_supabase
 from routes._validation import require_uuid
 from services.scope import validate_scope_folder
 
@@ -41,7 +41,7 @@ def _hash_key(key: str) -> str:
 
 
 @router.get("")
-async def list_api_keys(
+def list_api_keys(
     user_id: str = Depends(get_current_user),
 ) -> list[ApiKeyResponse]:
     """List all API keys for the user."""
@@ -85,7 +85,7 @@ async def list_api_keys(
 
 
 @router.post("")
-async def create_api_key(
+def create_api_key(
     body: CreateKeyRequest,
     user_id: str = Depends(get_current_user),
 ) -> CreateKeyResponse:
@@ -140,7 +140,7 @@ async def create_api_key(
 
 
 @router.delete("/{key_id}")
-async def revoke_api_key(
+def revoke_api_key(
     key_id: str,
     user_id: str = Depends(get_current_user),
 ):
