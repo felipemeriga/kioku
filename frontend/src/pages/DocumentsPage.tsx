@@ -539,7 +539,7 @@ export default function DocumentsPage() {
       <Box
         className="documents-content"
         sx={{
-          flex: 1,
+          flex: "1 0 auto",
           minHeight: 0,
           p: { xs: 2, md: 4 },
           pt: { xs: 0, md: 0 },
