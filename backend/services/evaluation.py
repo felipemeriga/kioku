@@ -113,7 +113,8 @@ async def evaluate_rag_pipeline(
         ground_truth = item.get("ground_truth")
 
         # Run the REAL prod agent loop (same path as the chat UI).
-        result = answer_question(
+        result = await asyncio.to_thread(
+            answer_question,
             user_message=question,
             user_id=user_id,
         )

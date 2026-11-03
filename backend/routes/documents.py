@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from arq import create_pool
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 from auth import get_current_user
 from db.client import get_supabase_thread_safe as get_supabase
@@ -64,6 +65,62 @@ DOCUMENT_EXTENSIONS = {
 MAX_DOCUMENT_SIZE = 50 * 1024 * 1024  # 50MB
 
 
+def _prepare_document_upload(
+    file_bytes: bytes, filename: str, folder_id: str | None, user_id: str, ext: str
+) -> dict:
+    """Run blocking Storage and database preparation in a worker thread."""
+    sb = get_supabase()
+
+    # Content-hash dedup at the front door — no work queued if we already have it.
+    content_hash = compute_content_hash(file_bytes)
+    if check_duplicate(content_hash, user_id):
+        return {"task_id": None, "duplicate": True, "chunks": 0}
+
+    # Route by media kind, upload bytes to Storage.
+    if ext in IMAGE_EXTENSIONS:
+        storage_path = upload_image_to_storage(file_bytes, user_id, content_hash, filename)
+        media_kind, storage_bucket = "image", "images"
+        media_url = storage_path
+    elif ext in AUDIO_EXTENSIONS:
+        storage_path = upload_audio_to_storage(file_bytes, user_id, content_hash, filename)
+        media_kind, storage_bucket = "audio", "audio"
+        media_url = storage_path
+    else:
+        storage_path = upload_document_to_storage(file_bytes, user_id, content_hash, filename)
+        media_kind, storage_bucket = "document", "documents"
+        media_url = storage_path
+
+    # Resolve root folder for scope filtering
+    root_folder_id = resolve_root_folder_id(folder_id, user_id) if folder_id else None
+
+    # Create ingestion_jobs row and enqueue the task.
+    # source_ref = filename (readable in UI). content-hash dedup upstream
+    # prevents concurrent same-file uploads from colliding on this constraint.
+    job_id = create_job(
+        sb,
+        user_id=user_id,
+        kind="upload",
+        source_ref=filename,
+        root_folder_id=root_folder_id,
+    )
+    return {
+        "task_id": job_id,
+        "payload": {
+            "job_id": job_id,
+            "user_id": user_id,
+            "folder_id": folder_id,
+            "root_folder_id": root_folder_id,
+            "storage_bucket": storage_bucket,
+            "storage_path": storage_path,
+            "filename": filename,
+            "source_type": EXTENSION_TO_TYPE.get(ext, "text"),
+            "media_kind": media_kind,
+            "media_url": media_url,
+            "content_hash": content_hash,
+        },
+    }
+
+
 @router.post("/upload")
 async def upload_document(
     file: UploadFile,
@@ -104,62 +161,21 @@ async def upload_document(
             detail=f"Document too large ({len(file_bytes) // 1024 // 1024}MB). Max is 50MB.",
         )
 
-    sb = get_supabase()
-
-    # Content-hash dedup at the front door — no work queued if we already have it.
-    content_hash = compute_content_hash(file_bytes)
-    if check_duplicate(content_hash, user_id):
-        return {"task_id": None, "duplicate": True, "chunks": 0}
-
-    # Route by media kind, upload bytes to Storage.
-    if ext in IMAGE_EXTENSIONS:
-        storage_path = upload_image_to_storage(file_bytes, user_id, content_hash, file.filename)
-        media_kind, storage_bucket = "image", "images"
-        media_url = storage_path
-    elif ext in AUDIO_EXTENSIONS:
-        storage_path = upload_audio_to_storage(file_bytes, user_id, content_hash, file.filename)
-        media_kind, storage_bucket = "audio", "audio"
-        media_url = storage_path
-    else:
-        storage_path = upload_document_to_storage(file_bytes, user_id, content_hash, file.filename)
-        media_kind, storage_bucket = "document", "documents"
-        media_url = storage_path
-
-    # Resolve root folder for scope filtering
-    root_folder_id = resolve_root_folder_id(folder_id, user_id) if folder_id else None
-
-    # Create ingestion_jobs row and enqueue the task.
-    # source_ref = filename (readable in UI). content-hash dedup upstream
-    # prevents concurrent same-file uploads from colliding on this constraint.
-    job_id = create_job(
-        sb,
-        user_id=user_id,
-        kind="upload",
-        source_ref=file.filename,
-        root_folder_id=root_folder_id,
+    prepared = await run_in_threadpool(
+        _prepare_document_upload, file_bytes, file.filename, folder_id, user_id, ext
     )
+    if prepared.get("duplicate"):
+        return prepared
     pool = await create_pool(_redis_settings())
     try:
         await pool.enqueue_job(
             "ingest_document_task",
-            {
-                "job_id": job_id,
-                "user_id": user_id,
-                "folder_id": folder_id,
-                "root_folder_id": root_folder_id,
-                "storage_bucket": storage_bucket,
-                "storage_path": storage_path,
-                "filename": file.filename,
-                "source_type": EXTENSION_TO_TYPE.get(ext, "text"),
-                "media_kind": media_kind,
-                "media_url": media_url,
-                "content_hash": content_hash,
-            },
+            prepared["payload"],
         )
     finally:
         await pool.close()
 
-    return {"task_id": job_id, "duplicate": False}
+    return {"task_id": prepared["task_id"], "duplicate": False}
 
 
 @router.get("/ingestion-status")
