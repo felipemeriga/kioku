@@ -1,9 +1,12 @@
 import asyncio
+import inspect
 import unittest
 from unittest.mock import MagicMock, patch
 
 
 def _run(coro):
+    if not inspect.isawaitable(coro):
+        return coro
     loop = asyncio.new_event_loop()
     try:
         return loop.run_until_complete(coro)

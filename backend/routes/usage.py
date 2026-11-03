@@ -169,7 +169,7 @@ def usage_attribution(
 
 
 @router.get("/conversations")
-async def usage_by_conversation(user_id: str = Depends(get_current_user)):
+def usage_by_conversation(user_id: str = Depends(get_current_user)):
     """Per-conversation token + cost totals, highest cost first."""
     sb = get_supabase()
     _require_usage_admin(sb, user_id)
@@ -219,7 +219,7 @@ async def usage_by_conversation(user_id: str = Depends(get_current_user)):
 
 
 @router.get("/monthly")
-async def usage_by_month(user_id: str = Depends(get_current_user)):
+def usage_by_month(user_id: str = Depends(get_current_user)):
     """Per-month token + cost totals, newest month first."""
     sb = get_supabase()
     _require_usage_admin(sb, user_id)
