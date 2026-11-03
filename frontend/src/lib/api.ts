@@ -419,7 +419,7 @@ export async function streamChat(
       body: JSON.stringify({
         conversation_id: conversationId,
         content,
-        model: model ?? "sonnet",
+        model: model ?? "haiku",
         mode: mode ?? "deep",
         debug: debug ?? false,
         scope_folder_id: filters?.scopeFolderId || null,

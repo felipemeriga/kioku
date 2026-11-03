@@ -216,6 +216,7 @@ export default function ChatPage() {
   return (
     <>
       <ChatArea
+        conversationId={selectedId}
         messages={messages}
         messagesLoading={
           messagesLoading || (conversationsLoading && !selectedId)
