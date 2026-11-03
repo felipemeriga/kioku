@@ -7,6 +7,7 @@ import logging
 from arq import create_pool
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 from auth import get_current_user
 from db.client import get_supabase_thread_safe as get_supabase
@@ -74,8 +75,7 @@ def list_configs(user_id: str = Depends(get_current_user)):
     return rows
 
 
-@router.post("/configs", response_model=ConfigResponse)
-async def connect(body: ConnectRequest, user_id: str = Depends(get_current_user)):
+def _insert_config(body: ConnectRequest, user_id: str) -> dict:
     sb = get_supabase()
     encrypted = encrypt_secret(body.integration_token)
     try:
@@ -96,6 +96,13 @@ async def connect(body: ConnectRequest, user_id: str = Depends(get_current_user)
         )
     except Exception as exc:
         raise HTTPException(status_code=409, detail=f"Config exists or invalid: {exc}") from exc
+
+    return inserted
+
+
+@router.post("/configs", response_model=ConfigResponse)
+async def connect(body: ConnectRequest, user_id: str = Depends(get_current_user)):
+    inserted = await run_in_threadpool(_insert_config, body, user_id)
 
     # Kick off the first sync immediately so the folder starts populating right
     # after connecting — instead of waiting for the scheduler's next tick. A
@@ -145,7 +152,7 @@ def disconnect(
     return {"deleted": True, "docs_deleted": delete_docs}
 
 
-async def _enqueue_sync(config_id: str, user_id: str, full_reconcile: bool) -> dict:
+def _prepare_sync(config_id: str, user_id: str) -> dict:
     if not _is_uuid(config_id):
         raise HTTPException(status_code=404, detail="Config not found")
     sb = get_supabase()
@@ -177,6 +184,14 @@ async def _enqueue_sync(config_id: str, user_id: str, full_reconcile: bool) -> d
         source_ref=config_id,
         root_folder_id=cfg["root_folder_id"],
     )
+    return {"job_id": job_id, "already_running": False}
+
+
+async def _enqueue_sync(config_id: str, user_id: str, full_reconcile: bool) -> dict:
+    prepared = await run_in_threadpool(_prepare_sync, config_id, user_id)
+    if prepared["already_running"]:
+        return prepared
+    job_id = prepared["job_id"]
     pool = await create_pool(_redis_settings())
     try:
         # Unique _job_id per enqueue (the fresh DB job_id). A deterministic id
