@@ -20,6 +20,21 @@ BLOCK_HEADING_RE = re.compile(
 )
 
 
+def parse_iso_instant(value: str) -> datetime:
+    """Accept PostgREST timestamps with any 1-6 digit microsecond fraction.
+
+    Python 3.10's fromisoformat accepts only certain fraction widths, while
+    Postgres trims trailing zeroes when serializing timestamptz values.
+    """
+    value = value.replace("Z", "+00:00")
+    value = re.sub(
+        r"\.(\d{1,6})(?=[+-]\d{2}:\d{2}$)",
+        lambda match: "." + match.group(1).ljust(6, "0"),
+        value,
+    )
+    return datetime.fromisoformat(value)
+
+
 def download_journal(bucket, path: str) -> bytes:
     """Retry a transient Storage failure once before reporting it to the caller."""
     try:
@@ -39,7 +54,7 @@ def entry_instant(entry: dict) -> datetime:
             raise ValueError("Invalid epoch milliseconds")
         return datetime.fromtimestamp(value / 1000, timezone.utc)
     if isinstance(value, str):
-        result = datetime.fromisoformat(value)
+        result = parse_iso_instant(value)
         if result.tzinfo is not None:
             return result
     raise ValueError("Invalid journal timestamp")
@@ -206,8 +221,8 @@ def read_journals_in_range(
     journals = []
     for row in rows:
         if tz and row.get("first_entry_at") and row.get("last_entry_at"):
-            first_local = datetime.fromisoformat(row["first_entry_at"]).astimezone(tz).date()
-            last_local = datetime.fromisoformat(row["last_entry_at"]).astimezone(tz).date()
+            first_local = parse_iso_instant(row["first_entry_at"]).astimezone(tz).date()
+            last_local = parse_iso_instant(row["last_entry_at"]).astimezone(tz).date()
             if last_local < first or first_local > last:
                 continue
         raw = download_journal(bucket, row["storage_path"])
@@ -267,8 +282,8 @@ def local_journal_days_indexed(
         first = row.get("first_entry_at")
         last = row.get("last_entry_at")
         if first and last:
-            first_day = datetime.fromisoformat(first).astimezone(tz).date()
-            last_day = datetime.fromisoformat(last).astimezone(tz).date()
+            first_day = parse_iso_instant(first).astimezone(tz).date()
+            last_day = parse_iso_instant(last).astimezone(tz).date()
             if first_day == last_day:
                 add(first_day, row, row["entry_count"])
                 continue
