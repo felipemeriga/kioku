@@ -145,19 +145,31 @@ def mihari_core(runner, repo, name, old_sha, head, calls):
             prompt + __import__("json").dumps(json),
             persist=False,
             timeout=150,
+            schema=(
+                {
+                    "type": "object",
+                    "properties": {
+                        "selected": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "enum": ["activity", "documentation"],
+                            },
+                        },
+                        "reviewed": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "required": ["selected", "reviewed"],
+                    "additionalProperties": False,
+                }
+                if operation == "review-plan"
+                else None
+            ),
         )
         calls.append(record)
         if record["returncode"] or record["is_error"]:
             raise RuntimeError(f"Claude {operation} failed")
         if operation == "review-plan":
-            raw = (
-                (record["result"] or "")
-                .strip()
-                .removeprefix("```json")
-                .removesuffix("```")
-                .strip()
-            )
-            return Response(__import__("json").loads(raw))
+            return Response(record["structured_output"])
         return Response({"ok": True, "updated": True})
 
     # requests is a shared module: patch only within this sequential real dispatcher.
@@ -184,6 +196,7 @@ def main():
     parser.add_argument("--runtime", type=Path, required=True)
     parser.add_argument("--duration", type=int, default=10800)
     parser.add_argument("--interval", type=int, default=180)
+    parser.add_argument("--resume-run", action="store_true")
     args = parser.parse_args()
     root = args.runtime.resolve()
     runner = NativeRunner(root)
@@ -199,9 +212,30 @@ def main():
             ["git", "rev-parse", "HEAD"], cwd=HERE, text=True
         ).strip(),
     }
+    if args.resume_run:
+        state = json.loads((root / "checkpoint.json").read_text())
+        started = state["started_monotonic"]
+        state.setdefault("supervisor_restarts", []).append(
+            {
+                "elapsed_s": time.monotonic() - started,
+                "reason": "structured review-plan recovery",
+            }
+        )
     checkpoint(root, state)
-    index = 0
+    index = len(state["cycles"])
     heads = {}
+    for previous in state["cycles"]:
+        if previous.get("checks"):
+            source = root / "repos" / previous["repo"]
+            sha = git(
+                source,
+                "log",
+                "-1",
+                "--format=%H",
+                f"--grep=revision {previous['index']}$",
+            )
+            if sha:
+                heads[previous["repo"]] = sha
     while time.monotonic() - started < args.duration or index < 3:
         cycle_start = time.monotonic()
         name = ["invoice-worker", "catalog-api", "notifications"][index % 3]

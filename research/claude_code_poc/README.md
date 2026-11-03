@@ -19,6 +19,16 @@ fallbacks and never reads, copies, or proxies authentication credentials.
 - `extended.py`: context length, JSON schema, same-session concurrency,
   nonpersisted-session behavior, changing repository facts, interruption recovery,
   and custom/default system-prompt overhead.
+- `local_mihari.py`: actual Mihari `main` and `process_repo`, local Git
+  polling/cloning/fetching, native Claude transport, per-repository sessions,
+  unchanged-HEAD no-op gating, injected review failure and next-pass recovery.
+  Only storage/auth/index-upload services are isolated fixture adapters.
+- `complex_repo.py`: real read-only Kioku source snapshot questions with
+  deterministic source-path validation, tested on Haiku and Sonnet.
+- `variants.py`: batched maintenance vs repeated session context over twelve
+  actual fixture revisions, structured outputs and source-grounded assertions.
+- `resources.py`: process RSS sampling for only POC process descendants, without
+  collecting process arguments or credentials.
 - `fixture_mcp.py`: minimal read-only synthetic MCP source; no production tools.
 - `test_native.py`: local process adapter regression tests without model calls.
 
@@ -33,6 +43,9 @@ OAuth and requires API/provider authentication.
 python research/claude_code_poc/soak.py --runtime /tmp/kioku-poc/soak --duration 10800
 python research/claude_code_poc/duplex.py --runtime /tmp/kioku-poc/duplex --duration 10800
 python research/claude_code_poc/extended.py
+python research/claude_code_poc/local_mihari.py
+python research/claude_code_poc/complex_repo.py
+python research/claude_code_poc/variants.py
 cd research/claude_code_poc && python -m unittest test_native.py
 ```
 
@@ -47,3 +60,11 @@ Official references used for the invocation contract:
 
 Research is ongoing; no three-hour result is claimed until both active soak
 checkpoints show `completed` and elapsed time of at least 10,800 seconds.
+
+The first dispatcher run exposed prose appended to requested JSON. The test
+preserves that failure and switches the review-plan adapter to native
+`--json-schema`. `--resume-run` resumes the experiment checkpoint without
+resetting its monotonic elapsed timer. A persistent duplex trial also exposed
+a false model refusal of an artificial token-recall prompt; its raw evidence
+is retained separately while the continuing trial uses realistic architecture
+decisions.

@@ -53,6 +53,18 @@ class NativeProcessTests(unittest.TestCase):
                 recovery = runner.call("recovery", "question")
                 self.assertEqual(recovery["result"], "RECOVERED")
 
+    def test_zero_exit_without_terminal_result_is_not_success(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            self.fake_cli(root, "print('non-json diagnostic')\n")
+            with patch.dict(os.environ, {"PATH": str(root)}):
+                result = NativeRunner(root / "runtime").call(
+                    "missing-result", "question"
+                )
+            self.assertEqual(result["returncode"], 0)
+            self.assertTrue(result["is_error"])
+            self.assertFalse(result["terminal_result_seen"])
+
 
 if __name__ == "__main__":
     unittest.main()

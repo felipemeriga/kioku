@@ -30,6 +30,8 @@ class NativeRunner:
         schema=None,
         kill_after=None,
         system_prompt=None,
+        safe_mode=False,
+        exclude_instructions=False,
     ):
         call_id = f"{time.time_ns()}-{uuid.uuid4().hex[:6]}"
         directory = self.runtime / call_id
@@ -59,6 +61,19 @@ class NativeRunner:
             "--max-turns",
             "8",
         ]
+        if exclude_instructions:
+            settings_index = args.index("--settings") + 1
+            args[settings_index] = json.dumps(
+                {
+                    "disableAllHooks": True,
+                    "claudeMdExcludes": [
+                        "**/CLAUDE.md",
+                        "**/AGENTS.md",
+                        "**/CLAUDE.local.md",
+                        "**/.claude/rules/**",
+                    ],
+                }
+            )
         if resume:
             args += ["--resume", resume]
         elif session_id:
@@ -75,6 +90,8 @@ class NativeRunner:
             args += ["--json-schema", json.dumps(schema)]
         if system_prompt:
             args += ["--system-prompt", system_prompt]
+        if safe_mode:
+            args += ["--safe-mode"]
         env = os.environ.copy()
         # Force the native signed-in route; no API/provider credential fallback.
         for key in list(env):
@@ -149,7 +166,8 @@ class NativeRunner:
                 "result": result.get("result"),
                 "structured_output": result.get("structured_output"),
                 "session_id": result.get("session_id"),
-                "is_error": result.get("is_error"),
+                "is_error": result.get("is_error", not bool(result)),
+                "terminal_result_seen": bool(result),
                 "subtype": result.get("subtype"),
                 "usage": result.get("usage"),
                 "list_cost_usd": result.get("total_cost_usd"),

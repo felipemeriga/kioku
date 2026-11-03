@@ -1,6 +1,8 @@
 """Read-only synthetic MCP source, no network or production credentials."""
 
+import ast
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -54,17 +56,63 @@ for line in sys.stdin:
                 }
             else:
                 evidence = []
+                terms = set(re.findall(r"[a-z_][a-z_0-9]{2,}", query.lower()))
                 for path in sorted(root.rglob("*")):
                     if (
                         path.is_file()
                         and ".git" not in path.parts
-                        and path.stat().st_size < 30000
+                        and path.stat().st_size < 200000
                     ):
-                        evidence.append(
-                            f"[1] {path.relative_to(root)}\n{path.read_text()}"
-                        )
+                        relative = str(path.relative_to(root))
+                        source = path.read_text()
+                        if (
+                            request.get("params", {}).get("name") == "code_graph_lookup"
+                            and path.suffix == ".py"
+                        ):
+                            try:
+                                tree = ast.parse(source)
+                            except SyntaxError:
+                                continue
+                            for node in ast.walk(tree):
+                                if isinstance(
+                                    node,
+                                    (
+                                        ast.FunctionDef,
+                                        ast.AsyncFunctionDef,
+                                        ast.ClassDef,
+                                    ),
+                                ):
+                                    calls = [
+                                        ast.unparse(item.func)
+                                        for item in ast.walk(node)
+                                        if isinstance(item, ast.Call)
+                                    ][:15]
+                                    text = f"[1] {relative}:{node.lineno} definition {node.name}; calls: {', '.join(calls)}"
+                                    evidence.append(
+                                        (
+                                            sum(term in text.lower() for term in terms),
+                                            text,
+                                        )
+                                    )
+                        else:
+                            lines = source.splitlines()
+                            for offset in range(0, len(lines), 45):
+                                text = f"[1] {relative}:{offset + 1}\n" + "\n".join(
+                                    lines[offset : offset + 60]
+                                )
+                                evidence.append(
+                                    (sum(term in text.lower() for term in terms), text)
+                                )
+                evidence.sort(key=lambda item: item[0], reverse=True)
                 result = {
-                    "content": [{"type": "text", "text": "\n\n".join(evidence)[:22000]}]
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "\n\n".join(text for _, text in evidence[:8])[
+                                :22000
+                            ],
+                        }
+                    ]
                 }
         elif method == "ping":
             result = {}
