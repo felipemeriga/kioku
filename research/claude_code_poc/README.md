@@ -1,0 +1,49 @@
+# Native Claude Code local research POC
+
+This branch is an isolated experiment. It does not change Kioku's app, deployment,
+billing, or production data. Synthetic fixtures and raw process output live under
+`/private/tmp/kioku-claude-poc-runtime`, outside the checkout. Native Claude Code
+uses the account's existing sign-in; the adapter removes API/provider environment
+fallbacks and never reads, copies, or proxies authentication credentials.
+
+## Experiments
+
+- `soak.py`: at least three real hours of periodic work across three evolving local
+  Git repositories. Covers read-only MCP retrieval/graph tools, fresh repository
+  maintenance, the real Mihari review dispatcher with an isolated CLI transport,
+  explicit session resume, stateless history, parallel sessions, tool failures,
+  and process cancellation/restart. The production DB/indexer/network are excluded.
+- `duplex.py`: three hours of a persistent native `stream-json` input/output
+  conversation with idle gaps, changing architecture decisions, and forced
+  process replacement with explicit session resume.
+- `extended.py`: context length, JSON schema, same-session concurrency,
+  nonpersisted-session behavior, changing repository facts, interruption recovery,
+  and custom/default system-prompt overhead.
+- `fixture_mcp.py`: minimal read-only synthetic MCP source; no production tools.
+- `test_native.py`: local process adapter regression tests without model calls.
+
+## Run
+
+Requires Python 3.10+, `requests`, `cryptography`, and the signed-in native `claude`
+executable. The actual tests began with Claude Code `2.1.285`. Do not use `--bare`
+for this subscription experiment: this version documents that bare mode skips
+OAuth and requires API/provider authentication.
+
+```sh
+python research/claude_code_poc/soak.py --runtime /tmp/kioku-poc/soak --duration 10800
+python research/claude_code_poc/duplex.py --runtime /tmp/kioku-poc/duplex --duration 10800
+python research/claude_code_poc/extended.py
+cd research/claude_code_poc && python -m unittest test_native.py
+```
+
+Checkpoints record real monotonic elapsed time, UTC start/finish, checks, call IDs,
+and failures. A successful native `result` frame reports a **list-price equivalent**,
+not the actual subscription charge. Raw output must not be uploaded without
+review: initialization events can contain local account/configuration metadata.
+
+Official references used for the invocation contract:
+- https://code.claude.com/docs/en/headless
+- https://code.claude.com/docs/en/cli-reference
+
+Research is ongoing; no three-hour result is claimed until both active soak
+checkpoints show `completed` and elapsed time of at least 10,800 seconds.
