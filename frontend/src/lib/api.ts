@@ -1083,9 +1083,10 @@ export interface AttributedUsage {
   unpriced_calls: number;
   call_count: number;
   by_source: Record<string, string>;
-  by_repository: { folder_id: string; name: string; cost_usd: string }[];
+  by_repository: { folder_id: string; name: string; cost_usd: string; owner: string; branch: string; last_run_at: string | null; last_error: string | null }[];
   responses: {
     response_id: string;
+    owner: string;
     title: string;
     created_at: string;
     cost_usd: string;
@@ -1111,6 +1112,7 @@ export interface AttributedUsage {
     }[];
   }[];
   mihari_calls: {
+    owner: string;
     created_at: string;
     operation: string;
     repository: string;

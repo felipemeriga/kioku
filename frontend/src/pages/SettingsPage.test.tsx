@@ -13,6 +13,9 @@ const api = vi.hoisted(() => ({
   createApiKey: vi.fn(),
   revokeApiKey: vi.fn(),
 }));
+vi.mock("../hooks/useAuth", () => ({
+  useAuth: () => ({ user: { email: "felipe.meriga@gmail.com" } }),
+}));
 vi.mock("../lib/api", () => ({ ...api, ApiError: class extends Error {} }));
 vi.mock("../components/NotionIntegrationSection", () => ({
   NotionIntegrationSection: () => <div>Notion settings</div>,
@@ -107,7 +110,9 @@ describe("Settings page", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("table")).toHaveTextContent("First");
     expect(screen.getByText("All recorded usage")).toBeInTheDocument();
-    expect(await screen.findByText("Mihari by repository")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Mihari · all watched repositories"),
+    ).toBeInTheDocument();
     expect(screen.getByText("Chat responses and rounds")).toBeInTheDocument();
   });
 

@@ -21,6 +21,9 @@ import {
   Tabs,
   Skeleton,
 } from "@mui/material";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+import { useAuth } from "../hooks/useAuth";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import { qk } from "../lib/queryKeys";
 import {
@@ -38,7 +41,7 @@ import { brand, fonts } from "../theme";
 
 type SettingsTab = "api-keys" | "integrations" | "mcp-client" | "usage";
 const fmtTokens = (n: number) => n.toLocaleString();
-const fmtCost = (n: number) => `$${n.toFixed(n > 0 && n < 0.01 ? 4 : 2)}`;
+const fmtCost = (n: number) => `$${n.toFixed(n > 0 && n < 0.01 ? 6 : 2)}`;
 const monthName = (month: string) =>
   new Date(`${month}-01T00:00:00Z`).toLocaleDateString(undefined, {
     month: "long",
@@ -118,6 +121,8 @@ function SettingsPanel({
 }
 
 export default function SettingsPage() {
+  const { user } = useAuth();
+  const isUsageAdmin = user?.email?.toLowerCase() === "felipe.meriga@gmail.com";
   const queryClient = useQueryClient();
   const keysQuery = useQuery({ queryKey: qk.apiKeys(), queryFn: fetchApiKeys });
   const scopesQuery = useQuery({
@@ -127,10 +132,12 @@ export default function SettingsPage() {
   const usageByConv = useQuery({
     queryKey: qk.usageConversations(),
     queryFn: fetchUsageByConversation,
+    enabled: isUsageAdmin,
   });
   const usageByMonth = useQuery({
     queryKey: qk.usageMonthly(),
     queryFn: fetchUsageByMonth,
+    enabled: isUsageAdmin,
   });
   const keys = keysQuery.data ?? [];
   const scopes = scopesQuery.data ?? [];
@@ -149,18 +156,17 @@ export default function SettingsPage() {
   const [keyName, setKeyName] = useState("Default");
   const [tabParams, setTabParams] = useSearchParams();
   const requestedTab = tabParams.get("tab");
-  const activeTab: SettingsTab = [
-    "api-keys",
-    "integrations",
-    "mcp-client",
-    "usage",
-  ].includes(requestedTab ?? "")
-    ? (requestedTab as SettingsTab)
-    : "api-keys";
+  const activeTab: SettingsTab =
+    ["api-keys", "integrations", "mcp-client", "usage"].includes(
+      requestedTab ?? "",
+    ) &&
+    (requestedTab !== "usage" || isUsageAdmin)
+      ? (requestedTab as SettingsTab)
+      : "api-keys";
   const attributedUsage = useQuery({
     queryKey: qk.usageAttribution(usageMonth),
     queryFn: () => fetchUsageAttribution(usageMonth),
-    enabled: activeTab === "usage",
+    enabled: isUsageAdmin && activeTab === "usage",
   });
 
   const handleGenerate = async () => {
@@ -305,7 +311,7 @@ export default function SettingsPage() {
         <Tab value="api-keys" label="API keys" />
         <Tab value="integrations" label="Integrations" />
         <Tab value="mcp-client" label="MCP client" />
-        <Tab value="usage" label="Usage" />
+        {isUsageAdmin && <Tab value="usage" label="Usage admin" />}
       </Tabs>
       {error && (
         <Alert
@@ -663,7 +669,7 @@ export default function SettingsPage() {
           </Box>
         </SettingsPanel>
       )}
-      {activeTab === "usage" && (
+      {isUsageAdmin && activeTab === "usage" && (
         <SettingsPanel
           title="Usage"
           description="Model call costs by source, repository, and chat response."
@@ -904,15 +910,40 @@ export default function SettingsPage() {
             <Typography component="h3" sx={sectionTitle}>
               Model call ledger
             </Typography>
-            <TextField
-              type="month"
-              label="Usage month (UTC)"
-              value={usageMonth}
-              onChange={(event) => setUsageMonth(event.target.value)}
-              size="small"
-              sx={{ mb: 2, ...inputStyle }}
-              slotProps={{ inputLabel: { shrink: true } }}
-            />
+            <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 3 }}>
+              <IconButton
+                aria-label="Previous month"
+                onClick={() => {
+                  const date = new Date(`${usageMonth}-01T12:00:00Z`);
+                  date.setUTCMonth(date.getUTCMonth() - 1);
+                  setUsageMonth(date.toISOString().slice(0, 7));
+                }}
+              >
+                <ChevronLeftIcon />
+              </IconButton>
+              <Typography
+                sx={{ minWidth: 160, textAlign: "center", fontWeight: 600 }}
+              >
+                {monthName(usageMonth)}
+              </Typography>
+              <IconButton
+                aria-label="Next month"
+                onClick={() => {
+                  const date = new Date(`${usageMonth}-01T12:00:00Z`);
+                  date.setUTCMonth(date.getUTCMonth() + 1);
+                  setUsageMonth(date.toISOString().slice(0, 7));
+                }}
+              >
+                <ChevronRightIcon />
+              </IconButton>
+              <Button
+                onClick={() =>
+                  setUsageMonth(new Date().toISOString().slice(0, 7))
+                }
+              >
+                This month
+              </Button>
+            </Box>
             {attributedUsage.isPending ? (
               <Typography role="status" sx={{ color: brand.muted }}>
                 Loading model calls…
@@ -942,7 +973,7 @@ export default function SettingsPage() {
                     ` · ${attributedUsage.data.unpriced_calls} calls with unknown pricing`}
                 </Typography>
                 <Typography component="h4" sx={sectionTitle}>
-                  Mihari by repository
+                  Mihari · all watched repositories
                 </Typography>
                 {attributedUsage.data.by_repository.length === 0 ? (
                   <Typography sx={{ color: brand.muted, fontSize: 14 }}>
@@ -959,7 +990,27 @@ export default function SettingsPage() {
                         borderBottom: `1px solid ${brand.line}`,
                       }}
                     >
-                      <Typography sx={{ fontSize: 14 }}>{repo.name}</Typography>
+                      <Box>
+                        <Typography sx={{ fontSize: 14 }}>
+                          {repo.name}
+                        </Typography>
+                        <Typography sx={{ fontSize: 12, color: brand.muted }}>
+                          {repo.owner} · {repo.branch} ·{" "}
+                          {repo.last_error ? "Needs attention" : "Watching"}
+                        </Typography>
+                        <Typography sx={{ fontSize: 12, color: brand.muted }}>
+                          {repo.last_run_at
+                            ? `Last checked ${new Date(repo.last_run_at).toLocaleString()}`
+                            : "Awaiting first check"}
+                        </Typography>
+                        {repo.last_error && (
+                          <Typography
+                            sx={{ fontSize: 12, color: "error.main" }}
+                          >
+                            {repo.last_error}
+                          </Typography>
+                        )}
+                      </Box>
                       <Typography sx={{ fontSize: 14 }}>
                         {fmtCost(Number(repo.cost_usd))}
                       </Typography>
@@ -991,7 +1042,7 @@ export default function SettingsPage() {
                         }}
                       >
                         <span>
-                          {response.title} ·{" "}
+                          {response.title} · {response.owner} ·{" "}
                           {new Date(response.created_at).toLocaleString()}
                         </span>
                         <span>
@@ -1053,7 +1104,8 @@ export default function SettingsPage() {
                     }}
                   >
                     <span>
-                      {call.repository} · {call.operation} · {call.model} ·{" "}
+                      {call.repository} · {call.owner} · {call.operation} ·{" "}
+                      {call.model} ·{" "}
                       {new Date(call.created_at).toLocaleString()}
                     </span>
                     <span>
