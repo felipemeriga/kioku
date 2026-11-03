@@ -18,7 +18,7 @@ class ChatRequest(BaseModel):
     content: str
     # Two independent knobs: which model, and the mode.
     # mode: plain (classic one-shot RAG) | agentic (tool loop) | deep (+ thinking)
-    model: Literal["haiku", "sonnet"] = "sonnet"
+    model: Literal["haiku", "sonnet"] = "haiku"
     mode: Literal["plain", "agentic", "deep"] = "deep"
     # When true, the stream ends with a debug frame (reasoning, tool calls,
     # retrieved chunks + rerank scores) for the UI's Inspect card.

@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   Box,
   Button,
@@ -24,6 +24,7 @@ const MODE_LABEL: Record<ChatMode, string> = {
 };
 
 interface ChatInputProps {
+  conversationId?: string | null;
   onSend: (
     message: string,
     filters?: ChatFilters,
@@ -39,6 +40,7 @@ interface ChatInputProps {
 }
 
 export default function ChatInput({
+  conversationId = null,
   onSend,
   disabled,
   scope,
@@ -49,10 +51,21 @@ export default function ChatInput({
   const [input, setInput] = useState("");
   const [uploading, setUploading] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<string | null>(null);
-  // Two independent knobs (default: Sonnet + Deep).
+  // Two independent knobs (default: Haiku + Deep).
   const [mode, setMode] = useState<ChatMode>("deep");
   const [modeAnchor, setModeAnchor] = useState<null | HTMLElement>(null);
-  const [model, setModel] = useState<ChatModel>("sonnet");
+  const [model, setModel] = useState<ChatModel>("haiku");
+  const previousConversationId = useRef(conversationId);
+  useEffect(() => {
+    if (previousConversationId.current !== conversationId) {
+      // Keep the chosen model when the first message creates the conversation.
+      // Reset when switching conversations or starting a blank one.
+      if (previousConversationId.current !== null || conversationId === null) {
+        setModel("haiku");
+      }
+      previousConversationId.current = conversationId;
+    }
+  }, [conversationId]);
   const [modelAnchor, setModelAnchor] = useState<null | HTMLElement>(null);
   // On by default so every response gets a persisted Inspect card.
   const [debug, setDebug] = useState(true);

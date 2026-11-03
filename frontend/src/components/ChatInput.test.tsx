@@ -35,13 +35,28 @@ describe("ChatInput", () => {
       "Ask a question about your documents..."
     );
     await user.type(input, "test message{Enter}");
-    // defaults: Sonnet + Deep + Debug on
+    // defaults: Haiku + Deep + Debug on
     expect(onSend).toHaveBeenCalledWith(
       "test message",
       undefined,
-      "sonnet",
+      "haiku",
       "deep",
       true
     );
+  });
+
+  it("starts another conversation on Haiku after selecting Sonnet", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn();
+    const view = renderWithProviders(
+      <ChatInput conversationId="first" onSend={onSend} disabled={false} />
+    );
+    await user.click(screen.getByText("Haiku"));
+    await user.click(screen.getByText("Sonnet — stronger reasoning"));
+    expect(screen.getByText("Sonnet")).toBeInTheDocument();
+    view.rerender(
+      <ChatInput conversationId="second" onSend={onSend} disabled={false} />
+    );
+    expect(screen.getByText("Haiku")).toBeInTheDocument();
   });
 });

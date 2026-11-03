@@ -22,6 +22,7 @@ import type {
 import { brand, fonts } from "../theme";
 
 interface ChatAreaProps {
+  conversationId?: string | null;
   messagesLoading?: boolean;
   messagesError?: string | null;
   onRetryMessages?: () => void;
@@ -51,6 +52,7 @@ const SUGGESTIONS = [
 ];
 
 export default function ChatArea({
+  conversationId,
   messagesLoading = false,
   messagesError = null,
   onRetryMessages,
@@ -252,6 +254,7 @@ export default function ChatArea({
         </Box>
       </Box>
       <ChatInput
+        conversationId={conversationId}
         onSend={onSend}
         disabled={isStreaming || messagesLoading || !!messagesError}
         scope={scope}
