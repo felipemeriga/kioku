@@ -180,6 +180,21 @@ def test_calendar_uses_index_without_downloading_single_local_day():
     sb.storage.from_.assert_not_called()
 
 
+def test_calendar_accepts_postgres_trimmed_fractional_seconds():
+    sb = MagicMock()
+    row = {
+        "journal_date": "2026-11-03",
+        "revision": 1,
+        "entry_count": 1,
+        "agents": ["codex"],
+        "first_entry_at": "2026-11-03T01:14:32.42+00:00",
+        "last_entry_at": "2026-11-03T01:14:32.42+00:00",
+    }
+    days = local_journal_days_indexed(sb, [row], ZoneInfo("America/Sao_Paulo"), 2026, 11)
+    assert days[0]["journal_date"] == "2026-11-02"
+    sb.storage.from_.assert_not_called()
+
+
 def test_calendar_survives_storage_failure_on_cross_midnight_day():
     sb = MagicMock()
     row = {
