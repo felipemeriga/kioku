@@ -22,7 +22,9 @@ fallbacks and never reads, copies, or proxies authentication credentials.
 - `local_mihari.py`: actual Mihari `main` and `process_repo`, local Git
   polling/cloning/fetching, native Claude transport, per-repository sessions,
   unchanged-HEAD no-op gating, injected review failure and next-pass recovery.
-  Only storage/auth/index-upload services are isolated fixture adapters.
+  Generated activity/documentation is persisted in the local fixture backend
+  and supplied to later passes. Only storage/auth/index-upload services are
+  isolated fixture adapters.
 - `complex_repo.py`: real read-only Kioku source snapshot questions with
   deterministic source-path validation, tested on Haiku and Sonnet.
 - `variants.py`: batched maintenance vs repeated session context over twelve
