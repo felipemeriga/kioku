@@ -25,6 +25,17 @@ def test_quarter_hour_schedule_covers_every_day():
     assert times[-1] == (23, 45)
 
 
+def test_retired_briefing_review_does_not_make_unchanged_head_stale():
+    head = "a" * 40
+    reviews = {
+        "overview": {"head_sha": head, "reviewed_at": "2026-11-02T10:00:00+00:00"},
+        "preferences": {"head_sha": "b" * 40, "reviewed_at": "2026-10-28T10:00:00+00:00"},
+    }
+    current = mihari.current_briefing_reviews(reviews)
+    assert list(current) == ["overview"]
+    assert all(item["head_sha"] == head for item in current.values())
+
+
 def test_activity_only_review_skips_expensive_briefing_generation(monkeypatch):
     monkeypatch.setattr(mihari, "API_URL", "http://api")
     monkeypatch.setattr(mihari, "decrypt", lambda _cipher: "key")
