@@ -856,39 +856,9 @@ def process_repo(repo: dict, key_row: dict) -> None:
             log(f"{name}: up-to-date ({remote_sha[:10]})")
             clone = DATA / repo["user_id"] / repo["folder_id"]
             if (clone / ".git").exists():
-                review_rows = rest_get(
-                    "repo_freshness",
-                    {
-                        "folder_id": f"eq.{repo['folder_id']}",
-                        "select": "section_reviews",
-                        "limit": "1",
-                    },
-                )
-                all_reviews = (review_rows[0].get("section_reviews") or {}) if review_rows else {}
-                # Old snapshots can retain removed areas such as preferences.
-                # Their stale SHAs must not trigger a model review every poll.
-                review = current_briefing_reviews(all_reviews)
-                latest = rest_get(
-                    "folder_summaries",
-                    {
-                        "folder_id": f"eq.{repo['folder_id']}",
-                        "select": "generated_at",
-                        "order": "generated_at.desc",
-                        "limit": "1",
-                    },
-                )
-                newest_review = max(
-                    (item.get("reviewed_at") or "" for item in review.values()), default=""
-                )
-                briefing_changed = bool(
-                    latest and latest[0].get("generated_at", "") > newest_review
-                )
-                if (
-                    not review
-                    or briefing_changed
-                    or any(item.get("head_sha") != remote_sha for item in review.values())
-                ):
-                    review_new_commits(clone, repo, remote_sha, remote_sha, git_env(kf.name))
+                # No source change means there is nothing for the model to review.
+                # A newly written briefing is already fresh at this HEAD; explicit
+                # refresh remains available through the trigger endpoint.
                 compute_freshness(clone, repo, git_env(kf.name))
             record({"last_error": None})
             return
