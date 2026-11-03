@@ -41,7 +41,7 @@ import { brand, fonts } from "../theme";
 
 type SettingsTab = "api-keys" | "integrations" | "mcp-client" | "usage";
 const fmtTokens = (n: number) => n.toLocaleString();
-const fmtCost = (n: number) => `$${n.toFixed(n > 0 && n < 0.01 ? 4 : 2)}`;
+const fmtCost = (n: number) => `$${n.toFixed(n > 0 && n < 0.01 ? 6 : 2)}`;
 const monthName = (month: string) =>
   new Date(`${month}-01T00:00:00Z`).toLocaleDateString(undefined, {
     month: "long",
