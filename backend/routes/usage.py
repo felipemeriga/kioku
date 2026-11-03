@@ -28,7 +28,7 @@ def _require_usage_admin(sb, user_id: str) -> None:
 def usage_attribution(
     month: str | None = Query(default=None), user_id: str = Depends(get_current_user)
 ):
-    """Call-level, user-scoped list-cost ledger for a UTC month."""
+    """Administrator-only, cross-user list-cost ledger for a UTC month."""
     month = month or datetime.now(timezone.utc).strftime("%Y-%m")
     if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", month):
         raise HTTPException(status_code=422, detail="month must be YYYY-MM")
@@ -70,6 +70,9 @@ def usage_attribution(
             break
         offset += 500
 
+    for owner_id in {row.get("user_id") for row in rows} - owners.keys() - {None}:
+        owner = sb.auth.admin.get_user_by_id(owner_id).user
+        owners[owner_id] = owner.email if owner else owner_id
     folder_ids = list({r["folder_id"] for r in rows + watched if r.get("folder_id")})
     conversation_ids = list({r["conversation_id"] for r in rows if r.get("conversation_id")})
     folders = (
@@ -107,6 +110,7 @@ def usage_attribution(
             if key not in by_response:
                 by_response[key] = {
                     "response_id": key,
+                    "owner": owners.get(row.get("user_id"), "Unknown user"),
                     "conversation_id": row.get("conversation_id"),
                     "title": conversation_names.get(row.get("conversation_id"), "Untitled"),
                     "created_at": row["created_at"],
@@ -136,6 +140,7 @@ def usage_attribution(
         {
             "created_at": r["created_at"],
             "operation": r["operation"],
+            "owner": owners.get(r.get("user_id"), "Unknown user"),
             "repository": folder_names.get(r.get("folder_id"), "Unknown repository"),
             "model": r["model"],
             "cost_usd": r["list_cost_usd"],

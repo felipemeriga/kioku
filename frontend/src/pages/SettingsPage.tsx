@@ -1042,7 +1042,7 @@ export default function SettingsPage() {
                         }}
                       >
                         <span>
-                          {response.title} ·{" "}
+                          {response.title} · {response.owner} ·{" "}
                           {new Date(response.created_at).toLocaleString()}
                         </span>
                         <span>
@@ -1104,7 +1104,8 @@ export default function SettingsPage() {
                     }}
                   >
                     <span>
-                      {call.repository} · {call.operation} · {call.model} ·{" "}
+                      {call.repository} · {call.owner} · {call.operation} ·{" "}
+                      {call.model} ·{" "}
                       {new Date(call.created_at).toLocaleString()}
                     </span>
                     <span>
