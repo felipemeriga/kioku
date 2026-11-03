@@ -1083,7 +1083,7 @@ export interface AttributedUsage {
   unpriced_calls: number;
   call_count: number;
   by_source: Record<string, string>;
-  by_repository: { folder_id: string; name: string; cost_usd: string }[];
+  by_repository: { folder_id: string; name: string; cost_usd: string; owner: string; branch: string; last_run_at: string | null; last_error: string | null }[];
   responses: {
     response_id: string;
     title: string;

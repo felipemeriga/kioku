@@ -13,6 +13,7 @@ def _run(coro):
 
 def _sb(usage_rows, conv_rows):
     sb = MagicMock()
+    sb.auth.admin.get_user_by_id.return_value.user.email = "felipe.meriga@gmail.com"
     usage_tbl = MagicMock()
     usage_tbl.select.return_value.eq.return_value.execute.return_value.data = usage_rows
     conv_tbl = MagicMock()
@@ -150,13 +151,27 @@ class TestAttributedUsage(unittest.TestCase):
             },
         ]
         sb = MagicMock()
-        tables = {name: MagicMock() for name in ("llm_usage_events", "folders", "conversations")}
+        sb.auth.admin.get_user_by_id.return_value.user.email = "felipe.meriga@gmail.com"
+        tables = {
+            name: MagicMock()
+            for name in ("llm_usage_events", "folders", "conversations", "watched_repos")
+        }
         sb.table.side_effect = tables.__getitem__
-        ledger_query = tables["llm_usage_events"].select().eq().gte().lt().order().range()
+        tables["watched_repos"].select().execute.return_value.data = [
+            {
+                "user_id": "other-user",
+                "folder_id": "f1",
+                "remote_url": "git@example/repo",
+                "branch": "main",
+                "last_run_at": None,
+                "last_error": None,
+            }
+        ]
+        ledger_query = tables["llm_usage_events"].select().gte().lt().order().range()
         ledger_query.execute.return_value.data = rows
-        folder_query = tables["folders"].select().eq().in_()
+        folder_query = tables["folders"].select().in_()
         folder_query.execute.return_value.data = [{"id": "f1", "name": "Kioku"}]
-        conversation_query = tables["conversations"].select().eq().in_()
+        conversation_query = tables["conversations"].select().in_()
         conversation_query.execute.return_value.data = [{"id": "c1", "title": "Question"}]
         with patch("routes.usage.get_supabase", return_value=sb):
             result = usage_attribution(month="2026-11", user_id="u1")
@@ -166,3 +181,20 @@ class TestAttributedUsage(unittest.TestCase):
         assert [item["round"] for item in result["responses"][0]["rounds"]] == [1, 2]
         assert result["by_repository"][0]["name"] == "Kioku"
         assert result["mihari_calls"][0]["operation"] == "documentation"
+
+
+def test_usage_admin_rejects_other_users_before_reading_usage():
+    from fastapi import HTTPException
+
+    from routes.usage import usage_attribution
+
+    sb = MagicMock()
+    sb.auth.admin.get_user_by_id.return_value.user.email = "other@example.com"
+    with patch("routes.usage.get_supabase", return_value=sb):
+        try:
+            usage_attribution(month="2026-11", user_id="other")
+        except HTTPException as exc:
+            assert exc.status_code == 403
+        else:
+            raise AssertionError("admin access must be enforced")
+    sb.table.assert_not_called()

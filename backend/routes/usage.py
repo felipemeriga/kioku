@@ -18,6 +18,12 @@ from services.pricing import estimate_cost_usd
 router = APIRouter(prefix="/api/usage")
 
 
+def _require_usage_admin(sb, user_id: str) -> None:
+    user = sb.auth.admin.get_user_by_id(user_id).user
+    if not user or (user.email or "").lower() != "felipe.meriga@gmail.com":
+        raise HTTPException(status_code=403, detail="Usage administration is restricted")
+
+
 @router.get("/attribution")
 def usage_attribution(
     month: str | None = Query(default=None), user_id: str = Depends(get_current_user)
@@ -29,17 +35,28 @@ def usage_attribution(
     year, number = map(int, month.split("-"))
     next_month = f"{year + 1}-01" if number == 12 else f"{year}-{number + 1:02d}"
     sb = get_supabase()
+    _require_usage_admin(sb, user_id)
+    watched = (
+        sb.table("watched_repos")
+        .select("user_id,folder_id,remote_url,branch,last_sha,last_run_at,last_error")
+        .execute()
+        .data
+        or []
+    )
+    owners = {}
+    for owner_id in {repo["user_id"] for repo in watched}:
+        owner = sb.auth.admin.get_user_by_id(owner_id).user
+        owners[owner_id] = owner.email if owner else owner_id
     rows = []
     offset = 0
     while True:
         page = (
             sb.table("llm_usage_events")
             .select(
-                "source,operation,folder_id,conversation_id,response_id,round_number,"
+                "user_id,source,operation,folder_id,conversation_id,response_id,round_number,"
                 "model,input_tokens,output_tokens,cache_write_5m_tokens,"
                 "cache_write_1h_tokens,cache_read_tokens,list_cost_usd,created_at"
             )
-            .eq("user_id", user_id)
             .gte("created_at", f"{month}-01T00:00:00+00:00")
             .lt("created_at", f"{next_month}-01T00:00:00+00:00")
             .order("created_at", desc=True)
@@ -53,29 +70,16 @@ def usage_attribution(
             break
         offset += 500
 
-    folder_ids = list({r["folder_id"] for r in rows if r.get("folder_id")})
+    folder_ids = list({r["folder_id"] for r in rows + watched if r.get("folder_id")})
     conversation_ids = list({r["conversation_id"] for r in rows if r.get("conversation_id")})
     folders = (
-        (
-            sb.table("folders")
-            .select("id,name")
-            .eq("user_id", user_id)
-            .in_("id", folder_ids)
-            .execute()
-            .data
-            or []
-        )
+        (sb.table("folders").select("id,name").in_("id", folder_ids).execute().data or [])
         if folder_ids
         else []
     )
     conversations = (
         (
-            sb.table("conversations")
-            .select("id,title")
-            .eq("user_id", user_id)
-            .in_("id", conversation_ids)
-            .execute()
-            .data
+            sb.table("conversations").select("id,title").in_("id", conversation_ids).execute().data
             or []
         )
         if conversation_ids
@@ -147,11 +151,12 @@ def usage_attribution(
         "by_source": {key: str(value) for key, value in by_source.items()},
         "by_repository": [
             {
-                "folder_id": key,
-                "name": folder_names.get(key, "Unknown repository"),
-                "cost_usd": str(value),
+                **repo,
+                "name": folder_names.get(repo["folder_id"], repo["remote_url"]),
+                "owner": owners.get(repo["user_id"], repo["user_id"]),
+                "cost_usd": str(by_folder.get(repo["folder_id"], Decimal("0"))),
             }
-            for key, value in sorted(by_folder.items(), key=lambda item: item[1], reverse=True)
+            for repo in watched
         ],
         "responses": responses,
         "mihari_calls": mihari_calls,
@@ -162,6 +167,7 @@ def usage_attribution(
 async def usage_by_conversation(user_id: str = Depends(get_current_user)):
     """Per-conversation token + cost totals, highest cost first."""
     sb = get_supabase()
+    _require_usage_admin(sb, user_id)
     rows = (
         sb.table("chat_usage")
         .select("conversation_id, model, input_tokens, output_tokens")
@@ -211,6 +217,7 @@ async def usage_by_conversation(user_id: str = Depends(get_current_user)):
 async def usage_by_month(user_id: str = Depends(get_current_user)):
     """Per-month token + cost totals, newest month first."""
     sb = get_supabase()
+    _require_usage_admin(sb, user_id)
     rows = (
         sb.table("chat_usage")
         .select("model, input_tokens, output_tokens, created_at")
