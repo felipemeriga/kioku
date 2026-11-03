@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
 from arq import create_pool
@@ -112,7 +111,7 @@ async def connect(body: ConnectRequest, user_id: str = Depends(get_current_user)
 
 
 @router.delete("/configs/{config_id}")
-async def disconnect(
+def disconnect(
     config_id: str,
     delete_docs: bool = False,
     user_id: str = Depends(get_current_user),
@@ -250,7 +249,7 @@ def _compute_pending(cfg: dict) -> PendingResponse:
 
 
 @router.get("/configs/{config_id}/pending", response_model=PendingResponse)
-async def list_pending(config_id: str, user_id: str = Depends(get_current_user)):
+def list_pending(config_id: str, user_id: str = Depends(get_current_user)):
     """What would a Reconcile ingest right now? Pages in Notion that are
     missing from kioku or edited since their last ingest. Walks the live
     Notion API, so expect a few seconds on large trees."""
@@ -269,13 +268,13 @@ async def list_pending(config_id: str, user_id: str = Depends(get_current_user))
         raise HTTPException(status_code=404, detail="Config not found")
 
     try:
-        return await asyncio.to_thread(_compute_pending, rows[0])
+        return _compute_pending(rows[0])
     except Exception as exc:  # noqa: BLE001 — surface Notion API failures as 502
         raise HTTPException(status_code=502, detail=f"Notion enumeration failed: {exc}") from exc
 
 
 @router.get("/pages", response_model=list[NotionPageOption])
-async def list_pages(
+def list_pages(
     integration_token: str,
     query: str = "",
     user_id: str = Depends(get_current_user),  # noqa: ARG001 — enforces auth

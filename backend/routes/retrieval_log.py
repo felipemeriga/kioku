@@ -11,13 +11,13 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from auth import get_current_user
-from db.client import get_supabase
+from db.client import get_supabase_thread_safe as get_supabase
 
 router = APIRouter(prefix="/api/retrieval-log")
 
 
 @router.get("")
-async def list_recent(
+def list_recent(
     folder_id: str | None = None,
     limit: int = 50,
     user_id: str = Depends(get_current_user),
@@ -40,7 +40,7 @@ async def list_recent(
 
 
 @router.get("/stats")
-async def stats(
+def stats(
     folder_id: str | None = None,
     since_days: int = 30,
     user_id: str = Depends(get_current_user),

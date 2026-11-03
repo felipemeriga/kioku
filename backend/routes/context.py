@@ -5,14 +5,14 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 
 from auth import get_current_user
-from db.client import get_supabase
+from db.client import get_supabase_thread_safe as get_supabase
 from routes._validation import require_uuid
 
 router = APIRouter(prefix="/api/context")
 
 
 @router.get("")
-async def list_context(
+def list_context(
     root_folder_id: str | None = None,
     user_id: str = Depends(get_current_user),
 ):
@@ -33,7 +33,7 @@ async def list_context(
 
 
 @router.delete("/clear")
-async def clear_context(
+def clear_context(
     root_folder_id: str,
     user_id: str = Depends(get_current_user),
 ):
@@ -47,7 +47,7 @@ async def clear_context(
 
 
 @router.delete("/{context_id}")
-async def delete_context_entry(
+def delete_context_entry(
     context_id: str,
     user_id: str = Depends(get_current_user),
 ):

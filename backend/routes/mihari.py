@@ -24,7 +24,7 @@ from anthropic import BadRequestError
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from db.client import get_supabase
+from db.client import get_supabase_thread_safe as get_supabase
 from services.crypto import decrypt_secret, encrypt_secret
 from services.usage_ledger import UsageAttribution, save_usage, usage_row
 
@@ -200,7 +200,7 @@ class ReviewCompleteRequest(BaseModel):
 
 
 @router.post("/review-complete")
-async def review_complete(body: ReviewCompleteRequest, request: Request):
+def review_complete(body: ReviewCompleteRequest, request: Request):
     """Record inspection separately from content changes and generation dates."""
     user_id, scope_id, _ = _api_key_auth(request)
     sb = get_supabase()
@@ -276,7 +276,7 @@ def _generate_ed25519() -> tuple[str, str, str]:
 
 
 @router.post("/key")
-async def get_or_create_key(request: Request):
+def get_or_create_key(request: Request):
     """Idempotent: returns the user's mihari public key, creating the pair on
     first call. The same key serves every repo and every computer the user
     links from."""
@@ -351,7 +351,7 @@ def _ls_remote_with_key(private_pem: str, remote_url: str, branch: str) -> tuple
 
 
 @router.post("/test-access")
-async def test_access(body: TestAccessRequest, request: Request):
+def test_access(body: TestAccessRequest, request: Request):
     """Can the user's mihari key read this remote? Runs a real ls-remote."""
     user_id, _scope, _raw = _api_key_auth(request)
     sb = get_supabase()
@@ -396,7 +396,7 @@ class ActivityRefreshRequest(BaseModel):
 
 
 @router.post("/activity")
-async def refresh_activity(body: ActivityRefreshRequest, request: Request):
+def refresh_activity(body: ActivityRefreshRequest, request: Request):
     """Fold new commits into the briefing's activity section with a bounded
     Haiku call. User-edited sections stay untouched."""
     user_id, scope_id, _raw = _api_key_auth(request)
@@ -503,7 +503,7 @@ class SectionRefreshRequest(BaseModel):
 
 
 @router.post("/section")
-async def refresh_section(body: SectionRefreshRequest, request: Request):
+def refresh_section(body: SectionRefreshRequest, request: Request):
     """Fold the CURRENT content of changed files into one concrete briefing
     section (deployment/how_it_runs) via a cheap
     Haiku call — the same treatment activity gets, extended to the path-driven
@@ -656,7 +656,7 @@ class RegroundRequest(BaseModel):
 
 
 @router.post("/reground")
-async def reground_holistic(body: RegroundRequest, request: Request):
+def reground_holistic(body: RegroundRequest, request: Request):
     """Re-ground the HOLISTIC sections (architecture + overview) from the repo's
     current key files + structure. Mihari runs this periodically (~twice a
     month) so a repo stays fresh without a manual `kioku init --force`. Unlike
@@ -826,7 +826,7 @@ class DocumentationRefreshRequest(BaseModel):
 
 
 @router.post("/documentation")
-async def refresh_documentation(body: DocumentationRefreshRequest, request: Request):
+def refresh_documentation(body: DocumentationRefreshRequest, request: Request):
     """Revise the durable detailed guide only when commit review selected it."""
     user_id, scope_id, _ = _api_key_auth(request)
     sb = get_supabase()
@@ -922,7 +922,7 @@ class RegisterRepoRequest(BaseModel):
 
 
 @router.post("/repos")
-async def register_repo(body: RegisterRepoRequest, request: Request):
+def register_repo(body: RegisterRepoRequest, request: Request):
     """Register (or refresh) a repo for watching. Idempotent on
     (user, remote_url) so linking the same repo from a second computer just
     re-binds. Stores the CLI's own api key (encrypted) so Mihari indexes

@@ -211,7 +211,7 @@ class MintApiKeyRequest(BaseModel):
 
 
 @router.post("/mint-api-key")
-async def mint_api_key(
+def mint_api_key(
     body: MintApiKeyRequest,
     user_id: str = Depends(get_current_user),
 ) -> dict[str, Any]:
@@ -224,7 +224,7 @@ async def mint_api_key(
 
     # Reuse the underlying create path — same validation, same delete-
     # existing-scoped-key behavior. Returns {key, id, ...}.
-    result = await create_api_key(
+    result = create_api_key(
         CreateKeyRequest(name=body.name, scope_folder_id=body.scope_folder_id),
         user_id=user_id,
     )
