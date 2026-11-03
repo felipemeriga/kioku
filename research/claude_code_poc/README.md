@@ -29,6 +29,11 @@ fallbacks and never reads, copies, or proxies authentication credentials.
   actual fixture revisions, structured outputs and source-grounded assertions.
 - `resources.py`: process RSS sampling for only POC process descendants, without
   collecting process arguments or credentials.
+- `local_chat.py`: standalone localhost SSE adapter testing stateless and
+  stateful conversation history, partial text, and answer persistence after
+  a browser-like client disconnect. It is not integrated into the Kioku app.
+- `report.py`: aggregates metrics and normalizes cumulative native session
+  list-cost totals rather than incorrectly adding them once per turn.
 - `fixture_mcp.py`: minimal read-only synthetic MCP source; no production tools.
 - `test_native.py`: local process adapter regression tests without model calls.
 
@@ -46,6 +51,9 @@ python research/claude_code_poc/extended.py
 python research/claude_code_poc/local_mihari.py
 python research/claude_code_poc/complex_repo.py
 python research/claude_code_poc/variants.py
+python research/claude_code_poc/variants.py --strict --revisions 4
+python research/claude_code_poc/local_chat.py
+python research/claude_code_poc/report.py
 cd research/claude_code_poc && python -m unittest test_native.py
 ```
 
@@ -67,4 +75,6 @@ preserves that failure and switches the review-plan adapter to native
 resetting its monotonic elapsed timer. A persistent duplex trial also exposed
 a false model refusal of an artificial token-recall prompt; its raw evidence
 is retained separately while the continuing trial uses realistic architecture
-decisions.
+decisions. `total_cost_usd` is cumulative over a session, including explicit
+resume across processes; `usage` is per turn. Cancellation can leave usage
+unreported. These figures do not measure the remaining subscription allowance.

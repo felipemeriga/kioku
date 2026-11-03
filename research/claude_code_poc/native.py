@@ -32,6 +32,8 @@ class NativeRunner:
         system_prompt=None,
         safe_mode=False,
         exclude_instructions=False,
+        max_turns=8,
+        on_event=None,
     ):
         call_id = f"{time.time_ns()}-{uuid.uuid4().hex[:6]}"
         directory = self.runtime / call_id
@@ -59,7 +61,7 @@ class NativeRunner:
             "--effort",
             "low",
             "--max-turns",
-            "8",
+            str(max_turns),
         ]
         if exclude_instructions:
             settings_index = args.index("--settings") + 1
@@ -142,6 +144,8 @@ class NativeRunner:
                         except json.JSONDecodeError:
                             continue
                         events.append(event)
+                        if on_event is not None:
+                            on_event(event)
                         if "first_event_s" not in record:
                             record["first_event_s"] = time.monotonic() - started
                         if event.get("type") == "stream_event":
@@ -171,6 +175,16 @@ class NativeRunner:
                 "subtype": result.get("subtype"),
                 "usage": result.get("usage"),
                 "list_cost_usd": result.get("total_cost_usd"),
+                "list_cost_usd_is_cumulative": True,
+                "served_model": next(
+                    (
+                        event.get("model")
+                        for event in events
+                        if event.get("type") == "system"
+                        and event.get("subtype") == "init"
+                    ),
+                    None,
+                ),
                 "model_usage": result.get("modelUsage"),
                 "num_turns": result.get("num_turns"),
                 "permission_denials": result.get("permission_denials"),

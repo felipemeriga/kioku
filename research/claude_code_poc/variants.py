@@ -1,6 +1,7 @@
 """Batch maintenance and repeated repository-session retention comparisons."""
 
 import json
+import argparse
 from pathlib import Path
 
 from native import NativeRunner
@@ -8,7 +9,13 @@ from soak import fixture
 
 
 def main():
-    root = Path("/private/tmp/kioku-claude-poc-runtime/variants")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--strict", action="store_true")
+    parser.add_argument("--revisions", type=int, default=12)
+    args = parser.parse_args()
+    root = Path("/private/tmp/kioku-claude-poc-runtime") / (
+        "variants-strict" if args.strict else "variants"
+    )
     runner = NativeRunner(root / "calls")
     checks = []
     session = None
@@ -30,7 +37,16 @@ def main():
         ],
         "additionalProperties": False,
     }
-    for revision in range(12):
+    if args.strict:
+        schema["properties"]["selected"]["items"]["enum"] = [
+            "overview",
+            "architecture",
+            "how_it_runs",
+            "deployment",
+            "activity",
+            "documentation",
+        ]
+    for revision in range(args.revisions):
         repo, attempts = fixture(root, "batch-worker", revision)
         sources = "\n\n".join(
             f"--- {p.relative_to(repo)} ---\n{p.read_text()}"
@@ -48,6 +64,11 @@ def main():
             "unless supplied evidence establishes actual deployment. Do not invent facts.\n"
             + sources
         )
+        if args.strict:
+            prompt = (
+                "Valid briefing area names are overview, architecture, how_it_runs, deployment, activity, documentation.\n"
+                + prompt
+            )
         for mode in ["stateless", "stateful"]:
             record = runner.call(
                 f"batch-{mode}-revision-{revision}",
