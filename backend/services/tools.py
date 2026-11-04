@@ -114,7 +114,8 @@ TOOL_DEFINITIONS = [
                     "type": "string",
                     "description": (
                         "Symbol name (function/class/method) for definition, references, "
-                        "or impact. Bare name — no parentheses or module prefix."
+                        "or impact. Prefer the full indexed symbol when known; bare names "
+                        "are also accepted. Empty results may include definition suggestions."
                     ),
                 },
                 "path": {
