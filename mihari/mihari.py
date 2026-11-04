@@ -129,6 +129,29 @@ def submit_native_job(url, headers, payload):
         time.sleep(min(2 ** min(attempt, 3), remaining))
 
 
+def read_native_result(url, headers, deadline):
+    """Reconnect to the same durable job during a rolling runner restart."""
+    attempt = 0
+    while (remaining := deadline - time.monotonic()) > 0:
+        try:
+            response = requests.get(
+                url, headers=headers, timeout=(min(3, remaining), min(30, remaining))
+            )
+        except (requests.ConnectionError, requests.Timeout):
+            pass
+        else:
+            if response.status_code not in (502, 503, 504):
+                response.raise_for_status()
+                return response
+        if attempt == 0:
+            log("Tsukai result temporarily unavailable; reconnecting to the same durable job")
+        attempt += 1
+        remaining = deadline - time.monotonic()
+        if remaining > 0:
+            time.sleep(min(2 ** min(attempt, 3), remaining))
+    raise RuntimeError("Maintenance result unavailable; durable job retained for retry")
+
+
 def maintenance_post(url, *, headers, json, timeout, _repair=True, _batches=3):
     """Direct model transport after backend authorization and immutable prepare.
 
@@ -170,8 +193,7 @@ def maintenance_post(url, *, headers, json, timeout, _repair=True, _batches=3):
     native_wait = 780 if operation in {"documentation", "reground"} else min(timeout, 780)
     deadline = time.monotonic() + native_wait
     while time.monotonic() < deadline:
-        result = requests.get(runner + f"/v1/jobs/{job}/result", headers=runner_headers, timeout=30)
-        result.raise_for_status()
+        result = read_native_result(runner + f"/v1/jobs/{job}/result", runner_headers, deadline)
         outcome = result.json()
         status = outcome.get("status")
         if status in ("completed", "failed", "cancelled", "uncertain"):

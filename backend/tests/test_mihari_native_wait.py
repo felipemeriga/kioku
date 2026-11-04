@@ -107,3 +107,54 @@ def test_runner_restart_retries_one_unchanged_admission(monkeypatch, failure):
         assert module.submit_native_job("http://runner/v1/jobs", {}, payload).status_code == 202
         assert len(calls) == 2
     assert payload == {"idempotency_key": "immutable-request", "prompt": "Original evidence"}
+
+
+@pytest.mark.parametrize("failure", ["connection", "timeout", "unavailable", "persistent", "auth"])
+def test_result_reconnect_preserves_job_and_original_deadline(monkeypatch, failure):
+    for key in ("SUPABASE_URL", "KIOKU_MCP_URL", "KIOKU_API_URL"):
+        monkeypatch.setenv(key, "http://fixture")
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "fixture")
+    spec = importlib.util.spec_from_file_location(
+        "mihari_result_fixture", Path(__file__).parents[2] / "mihari/mihari.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    clock, calls = [0], []
+    url = "http://runner/v1/jobs/immutable-job/result"
+    capability = {"X-Tsukai-Capability": "bound-to-original-job"}
+
+    def get(request_url, **kwargs):
+        calls.append(request_url)
+        assert kwargs["headers"] is capability
+        if failure == "auth":
+            raise module.requests.HTTPError("403 denied")
+        if len(calls) == 1 and failure in {"connection", "timeout"}:
+            raise (
+                module.requests.ConnectionError
+                if failure == "connection"
+                else module.requests.Timeout
+            )("runner restarting")
+        status = (
+            503
+            if failure == "persistent" or (failure == "unavailable" and len(calls) == 1)
+            else 200
+        )
+        return SimpleNamespace(status_code=status, raise_for_status=lambda: None)
+
+    monkeypatch.setattr(module.requests, "get", get)
+    monkeypatch.setattr(module.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(
+        module.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds)
+    )
+    if failure == "auth":
+        with pytest.raises(module.requests.HTTPError):
+            module.read_native_result(url, capability, 30)
+        assert len(calls) == 1 and clock[0] == 0
+    elif failure == "persistent":
+        with pytest.raises(RuntimeError, match="durable job retained"):
+            module.read_native_result(url, capability, 30)
+        assert clock[0] == 30 and len(calls) < 10
+    else:
+        assert module.read_native_result(url, capability, 30).status_code == 200
+        assert len(calls) == 2
+    assert set(calls) == {url}
