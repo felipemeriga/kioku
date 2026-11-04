@@ -27,7 +27,7 @@ BEGIN
     before_body:=intro || E'\n\nDefault polling interval is 15 seconds.';
     after_body:=intro || E'\n\nDefault polling interval is 20 seconds.';
     pointer:=left(intro,900) || E'\n\nFull architecture docs available — call get_repo_documentation.';
-    baseline:=jsonb_build_object('documentation',jsonb_build_object('content',pointer,'status','auto','provenance','agent_mcp','updated_by','agent_mcp','updated_at','2000-01-01T00:00:00Z'));
+    baseline:=jsonb_build_object('documentation',jsonb_build_object('content',pointer,'status','auto','provenance','agent_mcp','updated_by','agent_mcp','updated_at','2000-01-01T00:00:00Z')) || jsonb_build_object('overview',jsonb_build_object('content','Unchanged overview'));
     INSERT INTO folder_summaries(folder_id,user_id,kind,content,sections)
     VALUES(folder_id,owner_id,'repo',jsonb_build_object('sections',baseline),baseline);
     INSERT INTO repo_documentation(id,folder_id,user_id,content,abstract) VALUES(old_doc,folder_id,owner_id,before_body,left(intro,900));
@@ -70,7 +70,7 @@ BEGIN
     INSERT INTO folders VALUES ('20000000-0000-0000-0000-000000000003',owner_id,'repo');
     INSERT INTO repo_documentation(id,user_id,folder_id,content,abstract) VALUES('40000000-0000-0000-0000-000000000098',owner_id,'20000000-0000-0000-0000-000000000003','Other folder guide','Other');
     PERFORM set_briefing_section(folder_id,owner_id,'documentation',(current_sections->'documentation') || '{"document_revision":"40000000-0000-0000-0000-000000000098","updated_at":"2099-01-01T00:00:00Z"}'::jsonb);
-    PERFORM set_briefing_section(folder_id,owner_id,'overview',jsonb_build_object('content',null,'document_revision',new_doc));
+    PERFORM set_briefing_section(folder_id,owner_id,'overview',(current_sections->'overview') || jsonb_build_object('document_revision',new_doc));
     IF (SELECT count(*) FROM folder_summaries)<>summaries_count THEN RAISE EXCEPTION 'invalid or identical document reference manufactured freshness'; END IF;
     SELECT count(*) INTO documents_count FROM repo_documentation;
     -- User-owned content remains protected even when the full document differs.
