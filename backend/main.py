@@ -32,9 +32,11 @@ from services.ai.chat import reconciliation_loop, revoked_cancellation_loop
 from services.ai.consumption import consumption_loop
 from services.ai.native_tools import NativeToolAuth, native_mcp
 from services.ai.native_tools import router as native_tools_router
+from services.logging_config import configure_transport_logging
 from services.notion_sync.sync_engine import sync_loop
 
 load_dotenv()
+configure_transport_logging()
 
 
 def notion_scheduler_enabled() -> bool:
