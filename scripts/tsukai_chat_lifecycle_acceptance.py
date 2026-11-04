@@ -386,12 +386,59 @@ def web_search(client, config):
     }
 
 
+def restart_recall(client, config):
+    path = Path(config["state"]).parent / "restart-recall-plan.json"
+    seed = json.loads(path.read_text())
+    request = body(
+        config,
+        seed["conversation_id"],
+        "What acceptance code did I ask you to remember? Reply only with that code.",
+    )
+    request.update(
+        {
+            "model": seed["model"],
+            "mode": seed["mode"],
+            "scope_filename": seed["scope_filename"],
+            "rebuild_from_committed_history": False,
+        }
+    )
+    final, deltas = terminal(client, request)
+    if seed["nonce"] not in final.get("replace", "") or not deltas:
+        raise CheckFailure(
+            "Same-image restart recall lost the committed seeded nonce or streaming"
+        )
+    execution = (final.get("debug") or {}).get("execution") or {}
+    usage = execution.get("usage") or {}
+    if "resume" not in usage.get("attribution", ""):
+        raise CheckFailure("Post-restart job has no actual native resume attribution")
+    return {
+        "case": "same_image_restart_recall",
+        "conversation_id": seed["conversation_id"],
+        "turn_id": request["turn_id"],
+        "job_id": final["job_id"],
+        "message_id": final["message_id"],
+        "delta_frames": deltas,
+        "rebuild_from_committed_history": False,
+        "nonce_sha256": seed["nonce_sha256"],
+        "prior_message_id": seed["last_assistant_message_id"],
+        "native_resume_attribution": usage["attribution"],
+        "attempt_timings": execution.get("timings"),
+        "usage": usage,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument(
         "--case",
-        choices=("reconnect", "cancel-rebuild", "policy-switch", "web-search"),
+        choices=(
+            "reconnect",
+            "cancel-rebuild",
+            "policy-switch",
+            "web-search",
+            "restart-recall",
+        ),
         required=True,
     )
     args = parser.parse_args()
@@ -415,6 +462,7 @@ def main():
                 "cancel-rebuild": cancel_rebuild,
                 "policy-switch": policy_switch,
                 "web-search": web_search,
+                "restart-recall": restart_recall,
             }[args.case]
             result = action(client, config)
         record = {
