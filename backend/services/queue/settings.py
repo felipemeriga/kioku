@@ -21,6 +21,7 @@ from dotenv import load_dotenv
 # etc. uvicorn's main.py loads it too — this makes both entry points work.
 load_dotenv()
 
+from services.agent_evidence_jobs import agent_evidence_maintenance  # noqa: E402
 from services.queue.tasks import (  # noqa: E402 — env must load before task imports
     embed_and_store_batch_task,
     embed_code_chunks_task,
@@ -67,11 +68,20 @@ class WorkerSettings:
         ingest_document_task,
         ingest_notion_page_task,
         notion_sync_task,
+        agent_evidence_maintenance,
     ]
     on_startup = _reap_stale_jobs
     # Also reap every 5 minutes so a job that goes stale while the worker is up
     # (no restart, no new enqueue) still self-heals.
-    cron_jobs = [cron(_reap_stale_jobs, minute=set(range(0, 60, 5)), run_at_startup=False)]
+    cron_jobs = [
+        cron(_reap_stale_jobs, minute=set(range(0, 60, 5)), run_at_startup=False),
+        cron(
+            agent_evidence_maintenance,
+            second={0, 30},
+            run_at_startup=True,
+            job_id="agent-evidence-maintenance",
+        ),
+    ]
     # Keep bulk indexing from saturating the database used by interactive reads.
     max_jobs: int = int(os.environ.get("INGEST_WORKER_CONCURRENCY", "3"))
     job_timeout: int = 60 * 60  # 1 hour hard cap per task

@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from routes.agent_evidence import router as agent_evidence_router
 
 from db.client import get_supabase_thread_safe
 from routes.api_keys import router as api_keys_router
@@ -69,6 +70,7 @@ app.include_router(ingestion_jobs_router)
 app.include_router(learnings_router)
 app.include_router(briefing_router)
 app.include_router(cli_router)
+app.include_router(agent_evidence_router)
 app.include_router(retrieval_log_router)
 app.include_router(usage_router)
 app.include_router(remotes_router)
