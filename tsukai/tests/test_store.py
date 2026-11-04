@@ -205,6 +205,59 @@ async def test_expire_queued_deadline_independent_of_full_process_slots(store):
     await store.admit(request(profile="chat", conversation_id="deadline"))
 
 
+async def test_three_chat_burst_waits_for_root_slot_without_borrowing_child_lane(
+    store, monkeypatch
+):
+    clock = time.time()
+    monkeypatch.setattr("tsukai.store.time.time", lambda: clock)
+    roots = []
+    for i in range(2):
+        await store.admit(request(profile="chat", conversation_id=f"burst{i}"))
+        roots.append(await store.claim("worker"))
+    waiting = await store.admit(request(profile="chat", conversation_id="burst2"))
+    assert waiting["queue_deadline"] - waiting["created_at"] == 330
+    assert await store.claim("worker") is None
+
+    # Both normal roots may legitimately execute beyond the old30s queue limit.
+    clock += 29
+    for root in roots:
+        await store.heartbeat(root["attempt"])
+    clock += 2
+    assert await store.expire_queued() == 0
+    assert await store.claim("worker") is None
+    child = await store.admit(
+        request(
+            profile="metadata_child",
+            ai_depth=1,
+            operation="text_to_sql",
+            parent_job_id=roots[0]["job"]["id"],
+            root_job_id=roots[0]["job"]["id"],
+        )
+    )
+    child_claim = await store.claim("worker")
+    assert child_claim["job"]["id"] == child["id"]
+    assert await store.claim("worker") is None
+    await store.finish(roots[1]["attempt"], "completed", result={"text": "ok", "usage": {}})
+    third = await store.claim("worker")
+    assert third["job"]["id"] == waiting["id"]
+    assert third["attempt"]["deadline"] - clock == 300
+
+
+async def test_chat_queue_has_absolute_expiry_and_background_bound_is_unchanged(store, monkeypatch):
+    clock = time.time()
+    monkeypatch.setattr("tsukai.store.time.time", lambda: clock)
+    chat = await store.admit(request(profile="chat", conversation_id="bounded"))
+    background = await store.admit(request())
+    assert background["queue_deadline"] - background["created_at"] == 1800
+    clock += 329
+    assert await store.expire_queued() == 0
+    clock += 2
+    assert await store.expire_queued() == 1
+    assert (await store.get(chat["id"]))["error"]["code"] == "queue_timeout"
+    assert (await store.get(background["id"]))["status"] == "queued"
+    await store.admit(request(profile="chat", conversation_id="bounded"))
+
+
 async def test_fairness_chat_priority_aging_and_actual_maintenance_caller(store):
     from tsukai.tables import jobs
 

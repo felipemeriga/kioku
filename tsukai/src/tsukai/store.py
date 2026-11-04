@@ -253,7 +253,10 @@ class Store:
                     next_seq=1,
                     created_at=now,
                     updated_at=now,
-                    queue_deadline=now + (30 if request.profile == "chat" else 1800),
+                    # A burst's third root must be able to wait for either occupied
+                    # 300s root slot, with 30s scheduling grace. Keep the queue bounded
+                    # without increasing native concurrency or the execution limit.
+                    queue_deadline=now + (330 if request.profile == "chat" else 1800),
                     cancel_requested=False,
                 )
             )
