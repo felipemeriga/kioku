@@ -31,6 +31,7 @@ services:
       - TSUKAI_CAPABILITY_KEY=${TSUKAI_CAPABILITY_KEY:-}
       - TSUKAI_CREDENTIAL_OWNER_ID=${TSUKAI_CREDENTIAL_OWNER_ID:-}
       - TSUKAI_NATIVE_TASKS=${TSUKAI_NATIVE_TASKS:-}
+      - TSUKAI_MIHARI_NATIVE=${TSUKAI_MIHARI_NATIVE:-false}
       - TSUKAI_NATIVE_MCP_URL=${TSUKAI_NATIVE_MCP_URL:-http://kioku-backend:8000/internal/tsukai/mcp/}
     networks:
       kioku:
