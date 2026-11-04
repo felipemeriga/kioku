@@ -45,8 +45,24 @@ def test_disabled_capture_still_processes_erasure_receipts():
         patch("services.agent_evidence_jobs.enabled", return_value=False),
         patch("services.agent_evidence_jobs.get_supabase_thread_safe", return_value="db"),
         patch("services.agent_evidence_jobs.purge_evidence_outbox") as purge,
+        patch("services.agent_evidence_jobs.purge_tombstoned_sessions") as tombstones,
         patch("services.agent_evidence_jobs.reap_evidence") as capture,
     ):
         asyncio.run(agent_evidence_maintenance({}))
     purge.assert_called_once_with("db")
+    tombstones.assert_called_once_with("db")
     capture.assert_not_called()
+
+
+def test_tombstone_purge_respects_storage_bulk_limit():
+    from services.agent_evidence_jobs import purge_session
+
+    sb = MagicMock()
+    records = [{"object_id": str(index), "storage_path": str(index)} for index in range(1000)]
+    with patch("services.agent_evidence_jobs.EvidenceStore") as store:
+        query = store.return_value._query.return_value.eq.return_value.limit.return_value
+        query.execute.return_value = SimpleNamespace(data=records)
+        store.return_value.prefix.return_value = "private/session"
+        purge_session(sb, {"id": "session", "user_id": "owner", "folder_id": "folder"})
+    calls = sb.storage.from_.return_value.remove.call_args_list
+    assert [len(call.args[0]) for call in calls] == [1000, 1]

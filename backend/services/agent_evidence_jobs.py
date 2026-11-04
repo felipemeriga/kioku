@@ -113,8 +113,8 @@ def purge_session(sb, s):
     paths = [row["storage_path"] for row in rows if row.get("storage_path")]
     # Parent tombstones retain native identities, including empty metadata-only archives.
     paths.append(store.prefix(s, deleted=True) + "/manifest.json")
-    if paths:
-        sb.storage.from_(BUCKET).remove(paths)
+    for start in range(0, len(paths), 1000):
+        sb.storage.from_(BUCKET).remove(paths[start : start + 1000])
     if len(rows) >= 1000:
         # Delete metadata only for purged objects so the next pass advances.
         sb.table("agent_evidence_objects").delete().eq("session_id", s["id"]).eq(
@@ -132,6 +132,24 @@ def purge_session(sb, s):
             "producer_gaps": {},
         }
     ).eq("id", s["id"]).eq("user_id", s["user_id"]).execute()
+
+
+def purge_tombstoned_sessions(sb):
+    sessions = (
+        sb.table("agent_evidence_sessions")
+        .select("*")
+        .not_.is_("deleted_at", "null")
+        .is_("purged_at", "null")
+        .order("deleted_at")
+        .limit(25)
+        .execute()
+        .data
+    )
+    for session in sessions:
+        try:
+            purge_session(sb, session)
+        except Exception as exc:
+            log.warning("evidence session purge retry code=%s", type(exc).__name__)
 
 
 def reap_evidence(sb, after_id=None):
@@ -178,6 +196,7 @@ def reap_evidence(sb, after_id=None):
 async def agent_evidence_maintenance(ctx):
     # A disabled capture feature must not disable account/folder erasure.
     await asyncio.to_thread(purge_evidence_outbox, get_supabase_thread_safe())
+    await asyncio.to_thread(purge_tombstoned_sessions, get_supabase_thread_safe())
     if not enabled():
         return
     ctx["evidence_cursor"] = await asyncio.to_thread(
