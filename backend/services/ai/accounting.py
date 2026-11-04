@@ -61,3 +61,4 @@ def record_job_usage(
             source=source,
             outcome=attempt.get("status"),
         )
+    return attempts

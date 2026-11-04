@@ -18,7 +18,7 @@ from ragas.metrics import (
     LLMContextPrecisionWithoutReference,
 )
 
-from services.llm import MODEL_FOR_TASK, Task, get_client
+from services.llm import MODEL_FOR_TASK, Task, api_only_client
 from services.rag import answer_question
 
 _executor = ThreadPoolExecutor(max_workers=1)
@@ -60,7 +60,11 @@ def _get_ragas_llm():
     """
     from ragas.llms import llm_factory
 
-    llm = llm_factory(MODEL_FOR_TASK[Task.EVAL_JUDGE], provider="anthropic", client=get_client())
+    llm = llm_factory(
+        MODEL_FOR_TASK[Task.EVAL_JUDGE],
+        provider="anthropic",
+        client=api_only_client(Task.EVAL_JUDGE),
+    )
     # Claude API rejects requests with both temperature and top_p set;
     # RAGAS sets both. Patch _map_provider_params to drop top_p. Also cap
     # max_tokens to 512 — judge outputs are short structured payloads

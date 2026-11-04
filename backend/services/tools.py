@@ -258,6 +258,7 @@ def execute_tool(
     scope_filename: str | None = None,
     debug_retrieval: list | None = None,
     citations: CitationRegistry | None = None,
+    full_debug: bool = False,
 ) -> str:
     """Execute a tool call and return the result as a string.
 
@@ -282,6 +283,41 @@ def execute_tool(
             created_after=tool_input.get("created_after"),
             created_before=tool_input.get("created_before"),
         )
+        if full_debug and results:
+            sb = get_supabase()
+            for table, kind in (("documents", "document"), ("code_chunks", "code")):
+                selected = [
+                    r for r in results if (r.get("source_type") == "code") == (kind == "code")
+                ]
+                ids = [r["id"] for r in selected if r.get("id")]
+                if not ids:
+                    continue
+                columns = (
+                    "id,folder_id,file_hash" if kind == "code" else "id,folder_id,content_hash"
+                )
+                rows = (
+                    sb.table(table)
+                    .select(columns)
+                    .eq("user_id", user_id)
+                    .in_("id", ids)
+                    .execute()
+                    .data
+                    or []
+                )
+                authoritative = {str(row["id"]): row for row in rows}
+                for result in selected:
+                    row = authoritative.get(str(result.get("id")))
+                    if row is None or row["folder_id"] not in (scope_folder_ids or []):
+                        result["_outside_execution_scope"] = True
+                        continue
+                    result["metadata"] = {
+                        **(result.get("metadata") or {}),
+                        "folder_id": row["folder_id"],
+                        "source_id": str(row["id"]),
+                        "revision_id": row.get("file_hash") or row.get("content_hash"),
+                        "snapshot_availability": "file content hash; indexed HEAD unavailable",
+                    }
+            results = [r for r in results if not r.get("_outside_execution_scope")]
         if not results:
             return "No relevant documents found in the knowledge base."
         chunks = []
@@ -324,7 +360,21 @@ def execute_tool(
                         "similarity": r.get("similarity"),
                         "date": str(r.get("created_at") or "")[:10] or None,
                         "last_updated": str(r.get("last_updated") or "")[:10] or None,
-                        "content": (r.get("content") or "")[:1200],
+                        "content": (
+                            (r.get("content") or "")
+                            if full_debug
+                            else (r.get("content") or "")[:1200]
+                        ),
+                        **(
+                            {
+                                "metadata": meta,
+                                "source_id": r.get("id"),
+                                "folder_id": meta.get("folder_id"),
+                                "citation_number": citations.register(r) if citations else None,
+                            }
+                            if full_debug
+                            else {}
+                        ),
                     }
                 )
         return "\n\n---\n\n".join(chunks)
