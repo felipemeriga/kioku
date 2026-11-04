@@ -69,6 +69,7 @@ class JobRequest(StrictModel):
 
 
 class Capability(StrictModel):
+    admin: bool = False
     iss: str
     aud: Literal["tsukai"]
     sub: Literal["backend", "mcp", "mihari"]

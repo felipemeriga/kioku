@@ -26,7 +26,10 @@ async def store(tmp_path):
                 / "supabase/migrations/20261104090000_tsukai_execution.sql"
             )
             lifecycle = migration.parent / "20261104110000_tsukai_execution_lifecycle.sql"
-            migration_text = migration.read_text() + "\n" + lifecycle.read_text()
+            timings = migration.parent / "20261104120000_tsukai_attempt_timings.sql"
+            migration_text = (
+                migration.read_text() + "\n" + lifecycle.read_text() + "\n" + timings.read_text()
+            )
             script = "\n".join(
                 line for line in migration_text.splitlines() if not line.lstrip().startswith("--")
             )

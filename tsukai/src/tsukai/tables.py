@@ -50,6 +50,8 @@ attempts = Table(
     Column("lease_until", Float, nullable=False),
     Column("deadline", Float, nullable=False),
     Column("started_at", Float, nullable=False),
+    Column("first_event_at", Float),
+    Column("first_text_at", Float),
     Column("finished_at", Float),
     Column("native_session_id", String(36), nullable=False),
     Column("resume", Boolean, nullable=False),

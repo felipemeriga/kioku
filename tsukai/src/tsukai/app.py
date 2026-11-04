@@ -84,6 +84,67 @@ def create_app(settings=None, store=None, native=None):
             status_code=200 if good else 503,
         )
 
+    @app.get("/v1/admin/active-sessions")
+    async def admin_active_sessions(request: Request):
+        from datetime import datetime, timezone
+
+        cap = capability(request, settings, allow_admin=True)
+        if (
+            not cap.admin
+            or cap.sub != "backend"
+            or cap.operations != ["runtime.sessions.read"]
+            or cap.profiles
+            or cap.folder_ids
+            or cap.tool_allowlist
+            or cap.ai_depth
+            or cap.parent_job_id
+            or cap.root_job_id
+        ):
+            raise HTTPException(403, "runtime_admin_capability_required")
+        rows, queued = await store.active_sessions()
+        active = []
+        for row in rows:
+            process = scheduler.native.processes.get(row["active_attempt_id"])
+            state = "starting" if row["worker_id"] == scheduler.worker_id else "remote"
+            if process:
+                state = "running" if process.returncode is None else "finishing"
+            if row["cancel_requested"]:
+                state = "cancelling"
+            req = row["request"]
+            active.append(
+                {
+                    "job_id": row["id"],
+                    "attempt_id": row["active_attempt_id"],
+                    "native_session_id": row["native_session_id"],
+                    "owner_id": row["owner_id"],
+                    "caller": row["caller"],
+                    "conversation_id": row["conversation_id"],
+                    "folder_ids": req["folder_ids"],
+                    "operation": req["operation"],
+                    "profile": req["profile"],
+                    "model_requested": req["model"],
+                    "native_cli_version": settings.native_version,
+                    "state": state,
+                    "started_at": datetime.fromtimestamp(
+                        row["started_at"], timezone.utc
+                    ).isoformat(),
+                    "elapsed_seconds": round(max(0, time.time() - row["started_at"]), 3),
+                    "pid": process.pid if process and process.returncode is None else None,
+                }
+            )
+        return {
+            "schema_version": 1,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "sessions": active,
+            "queued_counts": {
+                "total": sum(queued.values()),
+                **{
+                    profile: queued.get(profile, 0)
+                    for profile in ("chat", "completion", "metadata_child")
+                },
+            },
+        }
+
     @app.post("/v1/jobs", status_code=202)
     async def submit(request: Request):
         cap = capability(request, settings)

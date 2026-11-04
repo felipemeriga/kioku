@@ -18,7 +18,7 @@ def service_auth(request: Request, settings):
         raise HTTPException(401, "service_auth_required")
 
 
-def capability(request: Request, settings, allow_cleanup=False) -> Capability:
+def capability(request: Request, settings, allow_cleanup=False, allow_admin=False) -> Capability:
     service_auth(request, settings)
     try:
         raw = jwt.decode(
@@ -32,10 +32,19 @@ def capability(request: Request, settings, allow_cleanup=False) -> Capability:
         cap = Capability.model_validate(raw)
         if cap.exp - cap.iat > 900 or cap.exp <= cap.iat or cap.iat > time.time() + 5:
             raise ValueError("invalid lifetime")
-        if cap.owner_id not in settings.entitled_owners and not (
-            allow_cleanup
-            and cap.sub == "backend"
-            and set(cap.operations).issubset({"session.delete", "account.delete"})
+        if (
+            cap.owner_id not in settings.entitled_owners
+            and not (
+                allow_cleanup
+                and cap.sub == "backend"
+                and set(cap.operations).issubset({"session.delete", "account.delete"})
+            )
+            and not (
+                allow_admin
+                and cap.admin
+                and cap.sub == "backend"
+                and cap.operations == ["runtime.sessions.read"]
+            )
         ):
             raise HTTPException(403, "subscription_owner_not_entitled")
         return cap

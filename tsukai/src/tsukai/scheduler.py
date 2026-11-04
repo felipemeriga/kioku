@@ -352,22 +352,18 @@ class Scheduler:
         await self.store.cancel(job_id)
         for attempt_id, task in list(self.tasks.items()):
             # Task ownership is local; heartbeat catches remote cancellations.
-            process = self.native.processes.get(attempt_id)
-            if process:
-                # Store lookup avoids cancelling another job's native process.
-                async with self.store.engine.connect() as conn:
-                    from sqlalchemy import select
+            # Cancel configuration/mint IO too, before a native process has started.
+            async with self.store.engine.connect() as conn:
+                from sqlalchemy import select
 
-                    from .tables import attempts
+                from .tables import attempts
 
-                    owner = (
-                        await conn.execute(
-                            select(attempts.c.job_id).where(attempts.c.id == attempt_id)
-                        )
-                    ).scalar_one()
-                if owner == job_id and attempt_id not in self.cancelling:
-                    self.cancelling.add(attempt_id)
-                    task.cancel()
+                owner = (
+                    await conn.execute(select(attempts.c.job_id).where(attempts.c.id == attempt_id))
+                ).scalar_one_or_none()
+            if owner == job_id and attempt_id not in self.cancelling:
+                self.cancelling.add(attempt_id)
+                task.cancel()
 
     async def drain(self):
         self.draining = True
