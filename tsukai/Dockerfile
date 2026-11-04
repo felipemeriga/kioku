@@ -1,6 +1,6 @@
 # Native binary is installed only during image build, never on service startup.
 FROM debian:bookworm-slim AS claude
-ARG CLAUDE_VERSION=2.1.285
+ARG CLAUDE_VERSION=2.1.318
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl bash \
     && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL https://claude.ai/install.sh | bash -s -- "${CLAUDE_VERSION}" \

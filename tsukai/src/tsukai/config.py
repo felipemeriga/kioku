@@ -3,6 +3,8 @@
 import os
 from dataclasses import dataclass, field
 
+NATIVE_VERSION = "2.1.318"
+
 
 @dataclass
 class Settings:
@@ -21,7 +23,7 @@ class Settings:
         default_factory=lambda: os.getenv("TSUKAI_WORKSPACE_DIR", "/data/workspaces")
     )
     native_bin: str = field(default_factory=lambda: os.getenv("TSUKAI_NATIVE_BIN", "claude"))
-    native_version: str = "2.1.285"
+    native_version: str = NATIVE_VERSION
     backend_url: str = field(default_factory=lambda: os.getenv("TSUKAI_BACKEND_URL", ""))
     redis_url: str = field(default_factory=lambda: os.getenv("TSUKAI_REDIS_URL", ""))
     auth_probe: bool = field(

@@ -9,7 +9,7 @@ import time
 import uuid
 
 if "--version" in sys.argv:
-    print("2.1.285 (Claude Code)")
+    print("2.1.318 (Claude Code)")
     raise SystemExit
 prompt = sys.stdin.read()
 session = (

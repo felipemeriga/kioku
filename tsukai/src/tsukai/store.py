@@ -14,6 +14,7 @@ from sqlalchemy import and_, delete, func, insert, select, text, update
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from .config import NATIVE_VERSION
 from .protocol import TERMINAL, JobRequest
 from .tables import acks, attempts, events, jobs, locks, metadata, sessions, tombstones
 
@@ -121,7 +122,7 @@ class Store:
             "tools": sorted(request.tool_allowlist),
             "thinking_tokens": request.thinking_tokens,
             "max_tokens": request.max_tokens,
-            "native_cli": "2.1.285",
+            "native_cli": NATIVE_VERSION,
             "host_prompt_version": "kioku-grounded-v1",
         }
         if request.response_schema is not None:

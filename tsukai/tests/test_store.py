@@ -368,3 +368,27 @@ async def test_private_diagnostic_retention_preserves_usage(store):
         )
         assert row["diagnostic"] is None and row["usage"] == usage
     assert (await store.get(job["id"]))["request"]["prompt"] == "[expired diagnostic evidence]"
+
+
+async def test_pinned_cli_upgrade_requires_explicit_rebuild_of_existing_native_mapping(
+    store, monkeypatch
+):
+    import tsukai.store as store_module
+
+    req = request(profile="chat", conversation_id="versioned")
+    with monkeypatch.context() as old:
+        old.setattr(store_module, "NATIVE_VERSION", "2.1.285")
+        await store.admit(req)
+        seed = await store.claim("old-worker")
+        await store.finish(seed["attempt"], "completed", result={"text": "old", "usage": {}})
+    import uuid
+
+    next_turn = req.model_copy(update={"idempotency_key": str(uuid.uuid4())})
+    with pytest.raises(Conflict, match="conversation_policy_changed"):
+        await store.admit(next_turn)
+    rebuilt = next_turn.model_copy(
+        update={"idempotency_key": str(uuid.uuid4()), "rebuild_from_committed_history": True}
+    )
+    await store.admit(rebuilt)
+    claim = await store.claim("new-worker")
+    assert not claim["attempt"]["resume"]

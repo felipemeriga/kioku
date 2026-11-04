@@ -12,6 +12,7 @@ from sqlalchemy import select
 
 from .auth import authorize, capability, service_auth
 from .config import Settings
+from .models import CatalogUnavailable, ModelCatalog
 from .protocol import TERMINAL, Ack, JobRequest, StrictModel
 from .scheduler import Scheduler
 from .store import Conflict, Store
@@ -35,6 +36,7 @@ def create_app(settings=None, store=None, native=None):
             else None
         )
     scheduler = Scheduler(store, settings, native) if store else None
+    model_catalog = ModelCatalog(settings)
 
     @asynccontextmanager
     async def lifespan(app):
@@ -49,6 +51,7 @@ def create_app(settings=None, store=None, native=None):
 
     app = FastAPI(title="Tsukai", version="1", lifespan=lifespan, docs_url=None, redoc_url=None)
     app.state.scheduler = scheduler
+    app.state.model_catalog = model_catalog
 
     @app.exception_handler(Conflict)
     async def conflict_handler(request, exc):
@@ -151,6 +154,26 @@ def create_app(settings=None, store=None, native=None):
             },
         }
 
+    @app.get("/v1/models")
+    async def supported_models(request: Request):
+        cap = capability(request, settings)
+        if (
+            cap.sub != "backend"
+            or cap.operations != ["runtime.models.read"]
+            or cap.profiles
+            or cap.folder_ids
+            or cap.tool_allowlist
+            or cap.ai_depth
+            or cap.parent_job_id
+            or cap.root_job_id
+            or cap.admin
+        ):
+            raise HTTPException(403, "model_catalog_capability_required")
+        try:
+            return await model_catalog.get()
+        except CatalogUnavailable:
+            raise HTTPException(503, "model_catalog_unavailable") from None
+
     @app.post("/v1/jobs", status_code=202)
     async def submit(request: Request):
         cap = capability(request, settings)
@@ -173,7 +196,18 @@ def create_app(settings=None, store=None, native=None):
         ).hexdigest()
         authorize(cap, req, digest)
         if req.model not in settings.allowed_models:
-            raise HTTPException(422, "unsupported_model")
+            if not req.model.startswith("claude-"):
+                raise HTTPException(422, "unsupported_model")
+            try:
+                catalog = await model_catalog.get()
+            except CatalogUnavailable:
+                raise HTTPException(503, "model_catalog_unavailable") from None
+            if catalog["stale"]:
+                raise HTTPException(503, "model_catalog_unavailable")
+            if req.model not in {
+                row["resolvedModel"] for row in catalog["models"] if row["selectable"]
+            }:
+                raise HTTPException(422, "unsupported_model")
         if "repair_error" in req.metadata:
             raise HTTPException(422, "reserved_metadata_key")
         job = await store.admit(req, request_sha256=digest)
