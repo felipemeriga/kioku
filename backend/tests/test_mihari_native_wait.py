@@ -160,3 +160,58 @@ def test_result_reconnect_preserves_job_and_original_deadline(monkeypatch, failu
         assert module.read_native_result(url, capability, 30).status_code == 200
         assert len(calls) == 2
     assert set(calls) == {url}
+
+
+@pytest.mark.parametrize(
+    "failure", ["lost_response", "html_gateway", "persistent", "json_provider", "auth"]
+)
+def test_idempotent_control_calls_retry_only_transport_and_non_json_gateway(monkeypatch, failure):
+    for key in ("SUPABASE_URL", "KIOKU_MCP_URL", "KIOKU_API_URL"):
+        monkeypatch.setenv(key, "http://fixture")
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "fixture")
+    spec = importlib.util.spec_from_file_location(
+        "mihari_control_fixture", Path(__file__).parents[2] / "mihari/mihari.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    clock, calls = [0], []
+    payload = {"preparation_id": "immutable-preparation", "job_id": "durable-job"}
+    auth = {"Authorization": "fixture"}
+
+    def post(url, **kwargs):
+        calls.append(url)
+        assert kwargs["json"] is payload and kwargs["headers"] is auth
+        if failure == "lost_response" and len(calls) == 1:
+            raise module.requests.Timeout("response lost after server committed")
+        if failure == "auth":
+            return SimpleNamespace(status_code=403)
+        if failure == "json_provider":
+            return SimpleNamespace(
+                status_code=502, json=lambda: {"detail": "maintenance execution: quota_limited"}
+            )
+        if failure == "persistent" or (failure == "html_gateway" and len(calls) == 1):
+
+            def non_json():
+                raise ValueError("HTML Bad Gateway")
+
+            return SimpleNamespace(status_code=502, json=non_json)
+        return SimpleNamespace(status_code=200)
+
+    monkeypatch.setattr(module.requests, "post", post)
+    monkeypatch.setattr(module.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(
+        module.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds)
+    )
+    url = "http://backend/api/mihari/execution/publish"
+    if failure == "persistent":
+        with pytest.raises(RuntimeError, match="durable preparation retained"):
+            module.maintenance_control_post(url, headers=auth, json=payload)
+        assert clock[0] == 60 and len(calls) < 20
+    else:
+        response = module.maintenance_control_post(url, headers=auth, json=payload)
+        if failure in {"json_provider", "auth"}:
+            assert response.status_code == (502 if failure == "json_provider" else 403)
+            assert len(calls) == 1 and clock[0] == 0
+        else:
+            assert response.status_code == 200 and len(calls) == 2
+    assert set(calls) == {url}
