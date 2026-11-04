@@ -160,3 +160,17 @@ async def test_explicit_rebuild_changes_generation_and_policy(store):
     third = await store.claim("worker")
     assert third["attempt"]["resume"]
     assert third["attempt"]["native_session_id"] == second["attempt"]["native_session_id"]
+
+
+async def test_two_postgres_workers_share_admission_and_claim_fence(store):
+    if store.engine.dialect.name != "postgresql":
+        pytest.skip("distributed PostgreSQL lock acceptance runs in CI")
+    other = Store(store.engine.url.render_as_string(hide_password=False))
+    try:
+        req = request()
+        first, second = await asyncio.gather(store.admit(req), other.admit(req))
+        assert first["id"] == second["id"]
+        claims = await asyncio.gather(store.claim("one"), other.claim("two"))
+        assert sum(c is not None for c in claims) == 1
+    finally:
+        await other.engine.dispose()

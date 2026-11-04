@@ -266,6 +266,36 @@ class Store:
                 if now > job["queue_deadline"]:
                     await self._terminal(conn, job, "failed", error={"code": "queue_timeout"})
                     continue
+                if child:
+                    parent_id = job["request"]["parent_job_id"]
+                    parent = (
+                        (await conn.execute(select(jobs).where(jobs.c.id == parent_id)))
+                        .mappings()
+                        .first()
+                    )
+                    parent_attempt = (
+                        (
+                            await conn.execute(
+                                select(attempts).where(
+                                    attempts.c.job_id == parent_id,
+                                    attempts.c.status == "running",
+                                    attempts.c.lease_until > now,
+                                )
+                            )
+                        )
+                        .mappings()
+                        .first()
+                    )
+                    if (
+                        not parent
+                        or parent["status"] != "running"
+                        or parent["cancel_requested"]
+                        or not parent_attempt
+                    ):
+                        await self._terminal(
+                            conn, job, "failed", error={"code": "metadata_parent_inactive"}
+                        )
+                        continue
                 chosen = dict(job)
                 break
             if chosen is None:
@@ -319,7 +349,7 @@ class Store:
                 worker_id=worker_id,
                 status="running",
                 lease_until=now + 30,
-                deadline=now + 300,
+                deadline=min(now + 300, parent_attempt["deadline"]) if req.ai_depth else now + 300,
                 started_at=now,
                 native_session_id=native_id,
                 resume=resume,
@@ -363,6 +393,23 @@ class Store:
             or current["lease_until"] <= time.time()
         ):
             raise Fenced("attempt_lease_lost")
+        job = (
+            (await conn.execute(select(jobs).where(jobs.c.id == attempt["job_id"])))
+            .mappings()
+            .one()
+        )
+        if job["profile"] == "metadata_child":
+            parent = (
+                (
+                    await conn.execute(
+                        select(jobs).where(jobs.c.id == job["request"]["parent_job_id"])
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            if not parent or parent["status"] != "running" or parent["cancel_requested"]:
+                raise Fenced("metadata_parent_inactive")
         return current
 
     async def heartbeat(self, attempt):

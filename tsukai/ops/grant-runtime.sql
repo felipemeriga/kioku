@@ -2,7 +2,8 @@
 -- Create/provision a dedicated LOGIN role/password separately through private secret storage.
 -- This script never accepts or prints a password. Role must not inherit privileged roles.
 \set ON_ERROR_STOP on
-SELECT CASE WHEN rolsuper OR rolbypassrls THEN 1/0 ELSE 1 END
+SELECT 1 / ((NOT rolsuper AND NOT rolbypassrls AND NOT rolinherit
+              AND NOT EXISTS (SELECT 1 FROM pg_auth_members WHERE member=pg_roles.oid))::int)
 FROM pg_roles WHERE rolname = :'runtime_role';
 GRANT USAGE ON SCHEMA public TO :"runtime_role";
 SELECT format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.%I TO %I', name, :'runtime_role')
