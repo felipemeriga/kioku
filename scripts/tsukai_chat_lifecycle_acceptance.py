@@ -50,6 +50,16 @@ def conversation(client, config, label):
         json={"title": config["fixture_name"] + " " + label},
     )
     response.raise_for_status()
+    save(
+        config["evidence"],
+        {
+            "kind": "fixture_created",
+            "conversation_id": identifier,
+            "fixture_name": config["fixture_name"],
+            "case": label,
+        },
+        append=True,
+    )
     return identifier
 
 

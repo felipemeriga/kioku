@@ -110,6 +110,17 @@ def probe(config, read_only=False):
                 json={"title": config["fixture_name"] + " " + key},
             )
             response.raise_for_status()
+            save(
+                config["evidence"],
+                {
+                    "kind": "fixture_created",
+                    "conversation_id": conversation,
+                    "fixture_name": config["fixture_name"],
+                    "model": model,
+                    "mode": mode,
+                },
+                append=True,
+            )
             save(state_path, state)
         fixture = state["conversations"][key]
         conversation, nonce = fixture["id"], fixture["nonce"]
