@@ -481,3 +481,65 @@ def test_absent_document_prepare_inspects_without_starting_model(configured, mon
             {"p_folder_id": "folder", "p_user_id": "owner", "p_head_sha": "a" * 40},
         )
     ]
+
+
+def test_documentation_policy_changes_invalidate_pending_request_not_reviewed_heads(
+    configured, monkeypatch
+):
+    from services.maintenance.operations import GUIDES
+
+    snapshot = {
+        "operation": "documentation",
+        "input": {"head_sha": "a" * 40},
+        "current": {"id": "doc", "content": "Existing guide"},
+        "expected_sections": {"documentation": {"content": "Abstract"}},
+        "documentation_revision": "doc",
+    }
+    monkeypatch.setattr(execution, "capture", lambda *_: (snapshot, None))
+    db = DB()
+    first = execution.prepare(db, "owner", "folder", "documentation", snapshot["input"])
+    identical = execution.prepare(db, "owner", "folder", "documentation", snapshot["input"])
+    assert first["preparation_id"] == identical["preparation_id"]
+    old_request = json.loads(json.dumps(first["request"]))
+    monkeypatch.setitem(
+        GUIDES, "documentation", GUIDES["documentation"] + " Changed instruction policy."
+    )
+    changed = execution.prepare(db, "owner", "folder", "documentation", snapshot["input"])
+    assert changed["preparation_id"] != first["preparation_id"]
+    assert (
+        changed["request"]["metadata"]["prompt_policy_sha256"]
+        != old_request["metadata"]["prompt_policy_sha256"]
+    )
+    assert first["request"] == old_request
+    assert len(db.rows["maintenance_preparations"]) == 2
+    db.rows["repo_freshness"] = [
+        {
+            "folder_id": "folder",
+            "user_id": "owner",
+            "section_reviews": {"documentation": {"head_sha": "a" * 40}},
+        }
+    ]
+    assert (
+        execution.prepare(db, "owner", "folder", "documentation", snapshot["input"])["engine"]
+        == "skip"
+    )
+    assert len(db.rows["maintenance_preparations"]) == 2
+
+
+def test_documentation_policy_does_not_change_unrelated_operation_identity(configured, monkeypatch):
+    from services.maintenance.operations import GUIDES
+
+    snapshot = {
+        "operation": "activity",
+        "input": {"head_sha": "a" * 40},
+        "current": {},
+        "expected_sections": {},
+    }
+    monkeypatch.setattr(execution, "capture", lambda *_: (snapshot, None))
+    db = DB()
+    first = execution.prepare(db, "owner", "folder", "activity", snapshot["input"])
+    monkeypatch.setitem(GUIDES, "documentation", "A different documentation policy")
+    again = execution.prepare(db, "owner", "folder", "activity", snapshot["input"])
+    assert again["preparation_id"] == first["preparation_id"]
+    assert again["request"] == first["request"]
+    assert "prompt_policy_sha256" not in again["request"]["metadata"]

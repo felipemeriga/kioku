@@ -348,7 +348,12 @@ def prepare(sb, owner, folder, operation, payload):
             }
     built = build_request(snapshot)
     preparation = str(uuid4())
-    key = digest({"owner": owner, "folder": folder, "snapshot": snapshot})
+    identity = {"owner": owner, "folder": folder, "snapshot": snapshot}
+    if operation == "documentation":
+        # A pending request authored under older maintenance instructions must
+        # not shadow a changed documentation policy at the same source snapshot.
+        identity["prompt_policy_sha256"] = digest(built)
+    key = digest(identity)
     request = {
         "schema_version": 1,
         "idempotency_key": "maintenance:" + key,
@@ -378,6 +383,8 @@ def prepare(sb, owner, folder, operation, payload):
         "ai_depth": 0,
         "metadata": {"maintenance_operation": operation, "input_digest": digest(snapshot)},
     }
+    if operation == "documentation":
+        request["metadata"]["prompt_policy_sha256"] = identity["prompt_policy_sha256"]
     record = {
         "id": preparation,
         "user_id": owner,

@@ -77,11 +77,21 @@ GUIDES = {
         "useful detail."
     ),
     "documentation": (
-        "Revise the focused detailed architecture and operations guide using "
-        "current sources and principal-branch changes. Preserve unaffected "
-        "details. Explain components, interfaces, run/test/deploy and gotchas in "
-        "readable Markdown, beginning with a short plain-language summary. Avoid "
-        "evidence diaries, commit history or speculative claims."
+        "Maintain the existing detailed guide incrementally using current sources "
+        "and the principal-branch diff; this is not initial documentation generation. "
+        "Preserve valid headings, organization, unaffected paragraphs and verified "
+        "facts. Make only the edits required by changed source facts or corrections "
+        "to claims demonstrably contradicted by supplied evidence. Do not expand a "
+        "small change into a rewritten guide, new sections or generic best practices. "
+        "Do not invent commands, manual test plans, deployment mechanisms or "
+        "recommendations. Remove existing unsupported recommendations; deployment "
+        "facts require supplied workflow or deployment configuration evidence. "
+        "Check any retained runnable example against source prerequisites, database "
+        "bootstrap order and actual side effects; a dry run is not necessarily "
+        "read-only. Correct or remove inconsistent examples and comments rather "
+        "than preserving misleading instructions. Avoid commit history, earlier "
+        "defaults, evidence diaries and speculative claims. Return the full updated "
+        "Markdown document, keeping its existing level of detail and presentation."
     ),
     "learnings": (
         "Extract at most four durable discoveries, decisions or corrections from "
