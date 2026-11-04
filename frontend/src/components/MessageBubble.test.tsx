@@ -10,7 +10,7 @@ describe("MessageBubble", () => {
       <>
         <MessageBubble role="user" content="Question" />
         <MessageBubble role="assistant" content="Answer" />
-      </>
+      </>,
     );
     for (const role of ["user", "assistant"]) {
       const surface = screen.getByTestId(`${role}-message-surface`);
@@ -26,7 +26,7 @@ describe("MessageBubble", () => {
 
   it("renders assistant message with markdown", () => {
     renderWithProviders(
-      <MessageBubble role="assistant" content="**bold text**" />
+      <MessageBubble role="assistant" content="**bold text**" />,
     );
     expect(screen.getByText("bold text")).toBeInTheDocument();
   });
@@ -69,7 +69,7 @@ describe("MessageBubble citations", () => {
         role="assistant"
         content="Foo [1] bar [2]."
         citations={[docCite, codeCite]}
-      />
+      />,
     );
     expect(screen.getAllByTestId("citation-chip")).toHaveLength(2);
     expect(screen.getByTestId("citation-sources")).toBeInTheDocument();
@@ -82,7 +82,7 @@ describe("MessageBubble citations", () => {
         role="assistant"
         content={"See [1].\n\n```\narr[1] = x\n```\n"}
         citations={[docCite]}
-      />
+      />,
     );
     // Only the prose [1] becomes a chip; the one inside the code fence does not.
     expect(screen.getAllByTestId("citation-chip")).toHaveLength(1);
@@ -97,7 +97,7 @@ describe("MessageBubble citations", () => {
         content="Foo [1]."
         citations={[docCite]}
         onOpenDocument={onOpenDocument}
-      />
+      />,
     );
     fireEvent.click(screen.getByTestId("citation-chip"));
     expect(onOpenDocument).toHaveBeenCalledWith("notes.pdf", "f1");
@@ -110,20 +110,20 @@ describe("MessageBubble citations", () => {
         role="assistant"
         content="Foo [2]."
         citations={[codeCite]}
-      />
+      />,
     );
     fireEvent.click(screen.getByTestId("citation-chip"));
     expect(open).toHaveBeenCalledWith(
       "https://github.com/org/repo/blob/main/pkg/x.py#L10",
       "_blank",
-      "noopener,noreferrer"
+      "noopener,noreferrer",
     );
     open.mockRestore();
   });
 
   it("shows no footer when the message has no citations", () => {
     renderWithProviders(
-      <MessageBubble role="assistant" content="Just text, no refs." />
+      <MessageBubble role="assistant" content="Just text, no refs." />,
     );
     expect(screen.queryByTestId("citation-sources")).toBeNull();
   });
@@ -138,7 +138,7 @@ describe("bounded source previews", () => {
         content="See [1]."
         citations={[docCite]}
         onOpenDocument={open}
-      />
+      />,
     );
     const marker = screen.getByTestId("citation-chip");
     expect(marker.tagName).toBe("BUTTON");
@@ -157,18 +157,18 @@ describe("bounded source previews", () => {
 
   it("shows short plain-text snippets instead of raw fences and repeated whitespace", async () => {
     const excerpt = `\`\`\`typescript\nconst sample = \`safe\`;\n${"value   ".repeat(
-      100
+      100,
     )}\n\`\`\``;
     const { container } = renderWithProviders(
       <MessageBubble
         role="assistant"
         content="See [1]."
         citations={[{ ...docCite, excerpt }]}
-      />
+      />,
     );
     const marker = screen.getByTestId("citation-chip");
     vi.spyOn(marker, "getBoundingClientRect").mockReturnValue(
-      new DOMRect(100, 200, 20, 20)
+      new DOMRect(100, 200, 20, 20),
     );
     fireEvent.mouseOver(marker);
     const tooltip = await screen.findByRole("tooltip");
@@ -197,15 +197,15 @@ describe("bounded source previews", () => {
           },
         ]}
         onOpenDocument={open}
-      />
+      />,
     );
     fireEvent.click(screen.getByTestId("citation-chip"));
     expect(open).not.toHaveBeenCalled();
     expect(await screen.findByRole("dialog")).toHaveTextContent(
-      "Retrieved source"
+      "Retrieved source",
     );
     expect(screen.getByTestId("source-excerpt-text")).toHaveTextContent(
-      "A verified retrieved excerpt."
+      "A verified retrieved excerpt.",
     );
   });
 
@@ -215,14 +215,14 @@ describe("bounded source previews", () => {
         role="assistant"
         content="See [2]."
         citations={[{ ...codeCite, url: null }]}
-      />
+      />,
     );
     fireEvent.click(screen.getByTestId("citation-source"));
     expect(await screen.findByRole("dialog")).toHaveTextContent(
-      "Retrieved code excerpt"
+      "Retrieved code excerpt",
     );
     expect(screen.getByTestId("source-excerpt-text")).toHaveTextContent(
-      "def foo(): ..."
+      "def foo(): ...",
     );
   });
 
@@ -232,16 +232,17 @@ describe("bounded source previews", () => {
       <MessageBubble
         role="assistant"
         content={`${longUrl}\n\n\`inline-${"value".repeat(
-          80
+          80,
         )}\`\n\n\`\`\`text\n${longUrl}\n\`\`\``}
-      />
+      />,
     );
     const pre = container.querySelector("pre")!;
     expect(getComputedStyle(pre).maxWidth).toBe("100%");
     expect(getComputedStyle(pre).overflowX).toBe("auto");
     expect(getComputedStyle(pre).whiteSpace).toBe("pre");
     expect(
-      getComputedStyle(screen.getByTestId("assistant-message-surface")).minWidth
+      getComputedStyle(screen.getByTestId("assistant-message-surface"))
+        .minWidth,
     ).toBe("0px");
   });
 });
@@ -258,7 +259,7 @@ describe("compact source list", () => {
         role="assistant"
         content={citations.map((c) => `[${c.number}]`).join(" ")}
         citations={citations}
-      />
+      />,
     );
     expect(screen.getByRole("list", { name: "Sources" })).toBeInTheDocument();
     expect(screen.getAllByRole("listitem")).toHaveLength(19);
@@ -284,7 +285,7 @@ describe("compact source list", () => {
               "[repo: org/repo] [file: very/deep/path/config.md] [lines: 12-24] A `verified` fact.",
           },
         ]}
-      />
+      />,
     );
     const row = screen.getByTestId("citation-source");
     expect(row).toHaveTextContent("config.md");
@@ -292,13 +293,13 @@ describe("compact source list", () => {
     expect(row.textContent).not.toContain("[repo:");
     const marker = screen.getByTestId("citation-chip");
     vi.spyOn(marker, "getBoundingClientRect").mockReturnValue(
-      new DOMRect(100, 200, 20, 20)
+      new DOMRect(100, 200, 20, 20),
     );
     fireEvent.mouseOver(marker);
     const tooltip = await screen.findByRole("tooltip");
     expect(tooltip).toHaveTextContent("very/deep/path/config.md");
     expect(screen.getByTestId("citation-preview")).toHaveTextContent(
-      "A verified fact."
+      "A verified fact.",
     );
     expect(tooltip.textContent).not.toMatch(/\[(?:repo|file|lines):/);
     fireEvent.click(row);
@@ -321,7 +322,7 @@ it("cleans actual space-delimited retrieval metadata and Code wrappers", async (
             "[repo kioku] [file frontend/src/api.ts:10-20] [symbol request()] A verified fact.",
         },
       ]}
-    />
+    />,
   );
   const row = screen.getByTestId("citation-source");
   expect(row).toHaveTextContent("api.ts");
@@ -329,13 +330,13 @@ it("cleans actual space-delimited retrieval metadata and Code wrappers", async (
   expect(row.textContent).not.toMatch(/\[(?:Code|repo|file|symbol)/);
   const marker = screen.getByTestId("citation-chip");
   vi.spyOn(marker, "getBoundingClientRect").mockReturnValue(
-    new DOMRect(100, 200, 20, 20)
+    new DOMRect(100, 200, 20, 20),
   );
   fireEvent.mouseOver(marker);
   const tooltip = await screen.findByRole("tooltip");
   expect(tooltip).toHaveTextContent("frontend/src/api.ts");
   expect(screen.getByTestId("citation-preview")).toHaveTextContent(
-    "A verified fact."
+    "A verified fact.",
   );
   expect(tooltip.textContent).not.toMatch(/\[(?:Code|repo|file|symbol)/);
 });
@@ -353,13 +354,41 @@ it("uses the filename from a raw Code wrapper when file metadata is absent", () 
           excerpt: "A fact.",
         },
       ]}
-    />
+    />,
   );
   expect(screen.getByTestId("citation-source")).toHaveTextContent("api.ts");
   expect(screen.getByTestId("citation-source")).toHaveTextContent(
-    "Lines 10-20"
+    "Lines 10-20",
   );
   expect(screen.getByTestId("citation-source").textContent).not.toContain(
-    "request()"
+    "request()",
   );
+});
+
+it.each([
+  [42.34, "42.3s"],
+  [125, "2m 5s"],
+])("shows saved completion duration %s", (seconds, label) => {
+  renderWithProviders(
+    <MessageBubble
+      role="assistant"
+      content="Answer"
+      debug={{
+        reasoning: [],
+        tool_calls: [],
+        retrieval: [],
+        timing_only: true,
+        timings: { total_seconds: seconds as number },
+      }}
+    />,
+  );
+  expect(screen.getByText(`Completed in ${label}`)).toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "Inspect response" }),
+  ).not.toBeInTheDocument();
+});
+
+it("does not invent durations for historical messages without timing", () => {
+  renderWithProviders(<MessageBubble role="assistant" content="Old answer" />);
+  expect(screen.queryByText(/Completed in/)).not.toBeInTheDocument();
 });
