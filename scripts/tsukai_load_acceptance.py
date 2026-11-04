@@ -92,8 +92,7 @@ def run(config, scenario="metadata-first"):
     def job(index):
         content = (
             (
-                "Use the query_documents_metadata tool to count documents "
-                "in this exact fixture scope. "
+                "Use the query_documents_metadata tool to count distinct uploaded document files in this exact fixture scope. "
                 "Report the count briefly, then say load-metadata-complete."
             )
             if index == 0 and scenario == "metadata-first"
@@ -151,7 +150,47 @@ def run(config, scenario="metadata-first"):
                 "query_documents_metadata" in tool.get("name", "") for tool in tools
             )
         ):
-            raise CheckFailure("Real load job did not invoke the reserved metadata-child path")
+            raise CheckFailure(
+                "Real load job did not invoke the reserved metadata-child path"
+            )
+        metadata_count = None
+        if index == 0 and scenario == "metadata-first":
+            metadata_tool = next(
+                tool
+                for tool in tools
+                if "query_documents_metadata" in tool.get("name", "")
+            )
+            if metadata_tool.get("is_error") or not metadata_tool.get("artifact_id"):
+                raise CheckFailure(
+                    "Metadata-child tool failed or lacks its actual result artifact"
+                )
+            with httpx.Client(**options) as client:
+                artifact = client.get(
+                    f"/api/chat/jobs/{final['job_id']}/artifacts/{metadata_tool['artifact_id']}"
+                )
+                artifact.raise_for_status()
+                payload = artifact.json()
+            answer = json.loads(payload["result"])
+            metadata_count = (answer.get("data") or {}).get("count")
+            if answer.get("operation") != "count_files" or not isinstance(
+                metadata_count, int
+            ):
+                raise CheckFailure(
+                    "Actual metadata-child artifact has no typed distinct-file count"
+                )
+            if (
+                "expected_document_count" in config
+                and metadata_count != config["expected_document_count"]
+            ):
+                raise CheckFailure(
+                    "Actual metadata-child count differs from current fixture documents"
+                )
+            if (payload["trace"].get("effective_scope") or {}).get("folder_ids") != [
+                config["folder_id"]
+            ]:
+                raise CheckFailure(
+                    "Actual metadata-child result scope differs from the fixture"
+                )
         result = {
             "index": index,
             "conversation_id": identifiers[index],
@@ -162,6 +201,7 @@ def run(config, scenario="metadata-first"):
             "attempt_timings": execution.get("timings"),
             "usage": execution.get("usage"),
             "tool_names": [tool.get("name") for tool in tools],
+            "metadata_count": metadata_count,
         }
         save(
             config["evidence"],
