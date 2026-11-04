@@ -14,6 +14,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import stat
 import time
 import uuid
@@ -371,6 +372,20 @@ def probe(config, read_only=False):
         ]
         if len(saved) != 1 or nonce not in saved[0]["content"]:
             raise CheckFailure("Terminal answer was not persisted exactly once")
+        used_citations = {
+            int(number) for number in re.findall(r"\[(\d+)\]", saved[0]["content"])
+        }
+        available_citations = {
+            citation["number"] for citation in terminal.get("citations") or []
+        }
+        if (
+            config.get("require_citations")
+            and seed
+            and (not used_citations or not used_citations.issubset(available_citations))
+        ):
+            raise CheckFailure(
+                "Answer does not actually cite its verified available sources"
+            )
         response = client.get(f"/api/chat/turns/{turn}")
         response.raise_for_status()
         if response.json()["state"] not in {"committed", "acknowledged"}:
@@ -394,6 +409,7 @@ def probe(config, read_only=False):
             "token_frames": token_count,
             "progress_stages": sorted(progress),
             "citations": len(terminal.get("citations") or []),
+            "used_citation_numbers": sorted(used_citations),
             "answer_sha256": hashlib.sha256(saved[0]["content"].encode()).hexdigest(),
             "answer_words": len(saved[0]["content"].split()),
         }
