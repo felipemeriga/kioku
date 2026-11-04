@@ -1,7 +1,7 @@
 # Durable agent originals alongside the existing journal
 
 **Date:** 2026-11-04
-**Status:** Implementation specification; application changes have not been made. Review the interactive Learnings/originals prototype before starting feature implementation.
+**Status:** Prototype approved for multi-agent implementation on 2026-11-04, including native session IDs beside the agent label in both reader layouts. Implementation and integration validation are in progress; deployment remains gated.
 **Integration baseline:** `origin/main` at `5c5eb1c6f03ec7cf65455cfa9c7c4f26cc9eb2ad`. The older `fix/folder-browser-history` checkout does not contain the current journal implementation. Implement against a baseline containing the journal, not by rebuilding it from that older checkout.
 **Scope:** Claude Code and Codex original evidence, local durability, authenticated upload, private Storage, database navigation indexes, and a shared original-evidence reader. Preserve the existing journal extraction, daily files, summaries, calendar, and current-learnings pipeline.
 
@@ -221,6 +221,8 @@ All routes below are proposed additions under `/api/agent-evidence`; require sco
 The transaction acknowledgement requires durable immutable objects plus a durable canonical database manifest/receipt and processing intent. It does not require a completed UI projection. Repeated commit after a lost response returns the original receipt without creating another event set.
 
 A child can finish before its parent's first upload. Create an owner-scoped parent placeholder when the authenticated ancestry is known; publish the child relationship without requiring nonexistent parent bodies. Root/parent/child manifest metadata and revision updates must use a consistent lock order and the same CAS discipline. A root with no captured main transcript is explicitly pending. Child evidence remains discoverable through database ancestry while the single root Storage manifest is being refreshed.
+
+Batch identity includes its original `base_revision`. After a stale-CAS response, create a new batch ID with the current revision; never mutate a previously registered batch. Journal aliases are finalized on Stop and transferred in bounded batches independently of new objects. Gap metadata is a bounded current snapshot per producer; repeated codes may carry an aggregate count while the local manifest retains the individual evidence locators. Neither metadata backlogs nor network failures may prevent local transcript capture.
 
 ### No false Storage/database atomicity
 
