@@ -1,0 +1,119 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "iss": {
+      "title": "Iss",
+      "type": "string"
+    },
+    "aud": {
+      "const": "tsukai",
+      "title": "Aud",
+      "type": "string"
+    },
+    "sub": {
+      "enum": [
+        "backend",
+        "mcp",
+        "mihari"
+      ],
+      "title": "Sub",
+      "type": "string"
+    },
+    "owner_id": {
+      "title": "Owner Id",
+      "type": "string"
+    },
+    "folder_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Folder Ids",
+      "type": "array"
+    },
+    "operations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Operations",
+      "type": "array"
+    },
+    "profiles": {
+      "items": {
+        "enum": [
+          "completion",
+          "chat",
+          "metadata_child"
+        ],
+        "type": "string"
+      },
+      "title": "Profiles",
+      "type": "array"
+    },
+    "tool_allowlist": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Tool Allowlist",
+      "type": "array"
+    },
+    "iat": {
+      "title": "Iat",
+      "type": "integer"
+    },
+    "exp": {
+      "title": "Exp",
+      "type": "integer"
+    },
+    "jti": {
+      "title": "Jti",
+      "type": "string"
+    },
+    "ai_depth": {
+      "default": 0,
+      "enum": [
+        0,
+        1
+      ],
+      "title": "Ai Depth",
+      "type": "integer"
+    },
+    "parent_job_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Job Id"
+    },
+    "root_job_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Root Job Id"
+    }
+  },
+  "required": [
+    "iss",
+    "aud",
+    "sub",
+    "owner_id",
+    "folder_ids",
+    "operations",
+    "profiles",
+    "iat",
+    "exp",
+    "jti"
+  ],
+  "title": "Capability",
+  "type": "object"
+}
