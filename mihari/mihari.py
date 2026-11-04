@@ -257,15 +257,12 @@ def maintenance_post(url, *, headers, json, timeout, _repair=True, _batches=3):
         detail = publication.json().get("detail", "")
     except (ValueError, AttributeError):
         detail = ""
+    failure_code = (outcome.get("error") or {}).get("code")
     recoverable_budget = (
         publication.status_code == 502
         and outcome.get("status") == "failed"
-        and (outcome.get("error") or {}).get("code") in {"native_error_max_turns", "wall_timeout"}
-        and detail
-        in {
-            "maintenance execution: native_error_max_turns",
-            "maintenance execution: wall_timeout",
-        }
+        and failure_code in {"native_error_max_turns", "wall_timeout"}
+        and detail == f"maintenance execution: {failure_code}"
     )
     invalid_result = (
         publication.status_code == 409
