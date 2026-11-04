@@ -32,6 +32,7 @@ class Settings:
     idle_seconds: float = 120
     wall_seconds: float = 300
     kill_grace_seconds: float = 5
+    heartbeat_seconds: float = 5
     drain_seconds: float = 120
     spool_bytes: int = 16 * 1024 * 1024
     subscriber_bytes: int = 1024 * 1024

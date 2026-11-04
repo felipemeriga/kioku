@@ -9,6 +9,7 @@ import tempfile
 import time
 from pathlib import Path
 
+from .cancellation import complete_cleanup
 from .structured import native_schema, unwrap_native_output
 from .usage import usage_record
 from .validation import NativeError, repair_diagnostic, validate_result
@@ -166,6 +167,7 @@ class NativeRunner:
         final = None
         init_seen = False
         stderr_task = None
+        read_task = None
         try:
             proc = await asyncio.create_subprocess_exec(
                 *args,
@@ -343,34 +345,39 @@ class NativeRunner:
                 exc.uncertain = proc is not None
             raise
         finally:
-            if "read_task" in locals() and not read_task.done():
-                read_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await read_task
-            if stderr_task and not stderr_task.done():
-                stderr_task.cancel()
-            if stderr_task:
-                with contextlib.suppress(asyncio.CancelledError, Exception):
-                    await stderr_task
-            if proc is not None:
 
-                async def discard(stream):
-                    with contextlib.suppress(Exception):
-                        while await stream.read(16384):
-                            pass
+            async def cleanup():
+                if read_task and not read_task.done():
+                    read_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await read_task
+                if stderr_task and not stderr_task.done():
+                    stderr_task.cancel()
+                if stderr_task:
+                    with contextlib.suppress(asyncio.CancelledError, Exception):
+                        await stderr_task
+                if proc is not None:
 
-                drains = [
-                    asyncio.create_task(discard(stream)) for stream in (proc.stdout, proc.stderr)
-                ]
-                await self.stop(attempt["id"])
-                _, pending = await asyncio.wait(
-                    drains, timeout=max(0.2, self.settings.kill_grace_seconds)
-                )
-                for drain in pending:
-                    drain.cancel()
-                await asyncio.gather(*drains, return_exceptions=True)
-                # Escaped holders must not leave subprocess pipe transports waiting forever.
-                if pending and proc._transport is not None:
-                    proc._transport.close()
-            self.processes.pop(attempt["id"], None)
-            Path(config_path).unlink(missing_ok=True)
+                    async def discard(stream):
+                        with contextlib.suppress(Exception):
+                            while await stream.read(16384):
+                                pass
+
+                    drains = [
+                        asyncio.create_task(discard(stream))
+                        for stream in (proc.stdout, proc.stderr)
+                    ]
+                    await self.stop(attempt["id"])
+                    _, pending = await asyncio.wait(
+                        drains, timeout=max(0.2, self.settings.kill_grace_seconds)
+                    )
+                    for drain in pending:
+                        drain.cancel()
+                    await asyncio.gather(*drains, return_exceptions=True)
+                    # Escaped holders must not leave subprocess pipe transports waiting forever.
+                    if pending and proc._transport is not None:
+                        proc._transport.close()
+                self.processes.pop(attempt["id"], None)
+                Path(config_path).unlink(missing_ok=True)
+
+            await complete_cleanup(cleanup(), 3 * self.settings.kill_grace_seconds + 2)
