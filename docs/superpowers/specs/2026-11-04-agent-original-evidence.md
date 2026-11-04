@@ -1,7 +1,7 @@
 # Durable agent originals alongside the existing journal
 
 **Date:** 2026-11-04
-**Status:** Implementation specification; application changes have not been made.
+**Status:** Implementation specification; application changes have not been made. Review the interactive Learnings/originals prototype before starting feature implementation.
 **Integration baseline:** `origin/main` at `5c5eb1c6f03ec7cf65455cfa9c7c4f26cc9eb2ad`. The older `fix/folder-browser-history` checkout does not contain the current journal implementation. Implement against a baseline containing the journal, not by rebuilding it from that older checkout.
 **Scope:** Claude Code and Codex original evidence, local durability, authenticated upload, private Storage, database navigation indexes, and a shared original-evidence reader. Preserve the existing journal extraction, daily files, summaries, calendar, and current-learnings pipeline.
 
@@ -279,6 +279,10 @@ Do not expose public bucket URLs, local paths as navigable links, service keys o
 
 The design-agent review is incorporated here. Preserve `LearningsPanel` layout, journal summaries, overview, browser-timezone calendar and current-learnings navigation. Add `View evidence` beside an existing journal entry and `Open full transcript` on a session/drawer. Add a small original-session listing entry point in the repository Learnings area for evidence captured without a journal; do not pollute the summary calendar's counts with raw event counts.
 
+### Prototype review gate
+
+Review the [interactive prototype](../prototypes/learnings-originals-standalone.html) before implementing production features. Its [editable source](../prototypes/learnings-originals.html) uses illustrative local sample data and makes no backend calls. It is a review artifact, not the production frontend or a deployed archive viewer. Confirm the journal-to-evidence flow, drawer/full-page continuity, long-session navigation, child drill-down and missing-evidence presentation first; incorporate requested changes into this section and the shared API fixtures before UI implementation begins.
+
 ### Shared components and routes
 
 Proposed files:
@@ -328,7 +332,7 @@ Render user/assistant and tool calls/results distinctly. Collapse long outputs; 
 
 Use separate visible states: `Captured through ...`, `Sync pending`, `Processing evidence`, `Capture incomplete`, `Original evidence unavailable`, `Deleted evidence`. Show `Session ended` only with a reliable lifecycle signal; a local interruption is not proof of remote sync completion. Inline gaps distinguish truncated-before-capture, missing attachment, unreadable payload, unsupported display schema and bounded viewer preview. Local-only pending detail is available through CLI; the web cannot magically observe an offline computer and must show its last acknowledged state.
 
-Keep the current visual identity and tokens (`frontend/src/theme.ts`, `design-system/README.md`): existing surfaces, Rubik body, JetBrains Mono for raw/code; restrained cyan for evidence, magenta actions, amber incomplete and red failure with text/icons. No new palette or decorative dashboard. Semantic buttons, keyboard expansion, drawer focus trap/Escape/return focus, ordinary links on full page, readable widths, reduced motion and accessible status announcements are acceptance requirements.
+Keep the current visual identity and tokens (`frontend/src/theme.ts`, `design-system/README.md`): existing surfaces, IBM Plex Sans body, IBM Plex Mono for raw/code; restrained cyan for evidence, magenta actions, amber incomplete and red failure with text/icons. No new palette or decorative dashboard. Semantic buttons, keyboard expansion, drawer focus trap/Escape/return focus, ordinary links on full page, readable widths, reduced motion and accessible status announcements are acceptance requirements.
 
 ## 11. Retention, deletion and operational boundaries
 
