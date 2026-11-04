@@ -90,3 +90,41 @@ def test_known_provider_failure_classification_is_unchanged(text, code):
         validate_result(request(), {"subtype": "success", "is_error": True, "errors": [text]})
     assert caught.value.code == code
     assert not caught.value.retryable
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "You've hit your 5-hour limit · resets 9:50pm (UTC)",
+        "You've hit your weekly limit · resets Friday",
+        "You've hit your limit · resets 9:50pm",
+        "You have hit your weekly limit",
+        "You’ve hit your 5-hour limit",
+        "RATE LIMIT: retry later",
+    ],
+)
+def test_explicit_native_subscription_limits_are_classified_without_blind_retry(text):
+    with pytest.raises(NativeError) as caught:
+        validate_result(request(), {"subtype": "success", "is_error": True, "result": text})
+    error = caught.value
+    assert error.code == "quota_limited"
+    assert not error.retryable and not error.uncertain
+    assert error.diagnostic["provider_error"]["result"] == text
+    assert str(error) == "quota_limited"
+
+
+def test_quota_phrase_in_successful_answer_is_not_a_provider_failure():
+    text = "You've hit your 5-hour limit · resets 9:50pm (UTC)"
+    assert validate_result(
+        request(), {"subtype": "success", "is_error": False, "result": text}
+    ) == (text, None)
+
+
+def test_unspecified_limit_error_remains_unknown_and_nonretryable():
+    with pytest.raises(NativeError) as caught:
+        validate_result(
+            request(),
+            {"subtype": "success", "is_error": True, "result": "The limit field is invalid"},
+        )
+    assert caught.value.code == "native_provider_error"
+    assert not caught.value.retryable
