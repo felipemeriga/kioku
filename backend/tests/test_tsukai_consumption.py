@@ -134,3 +134,32 @@ def test_running_failed_consumer_remains_pending_until_terminal_usage_exists():
     usage.assert_not_called()
     client.acknowledge.assert_not_called()
     assert "processed" not in sb.table.return_value.update.call_args.args[0]
+
+
+def test_readiness_receipt_copies_all_retry_attempts_under_operational_category():
+    from services.ai.accounting import record_job_usage
+
+    client = MagicMock()
+    client.usage.return_value = {
+        "attempts": [
+            {"attempt_id": "failed-attempt", "status": "failed", "usage": {"output_tokens": 2}},
+            {
+                "attempt_id": "successful-attempt",
+                "status": "completed",
+                "usage": {"output_tokens": 5},
+            },
+        ]
+    }
+    with patch("services.ai.accounting.record_native_usage") as persist:
+        record_job_usage(
+            client,
+            ExecutionScope("owner"),
+            "readiness",
+            "haiku",
+            "probe",
+            source="runtime.readiness",
+        )
+    assert persist.call_count == 2
+    assert [call.args[3].usage["output_tokens"] for call in persist.call_args_list] == [2, 5]
+    assert [call.kwargs["outcome"] for call in persist.call_args_list] == ["failed", "completed"]
+    assert all(call.kwargs["source"] == "runtime.readiness" for call in persist.call_args_list)
