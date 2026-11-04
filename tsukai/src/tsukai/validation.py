@@ -29,8 +29,12 @@ def validate_result(req, result):
             x in lower for x in ("no conversation found", "session not found", "session corrupted")
         ):
             raise NativeError("native_session_missing")
-        if any(x in lower for x in ("rate limit", "usage limit", "quota", "overloaded")):
-            raise NativeError("quota_limited")
+        if any(
+            x in lower for x in ("rate limit", "usage limit", "quota", "overloaded")
+        ) or re.search(
+            r"\byou(?:['’]ve| have) hit your (?:(?:\d+[- ]hour|weekly) )?limit\b", lower
+        ):
+            raise NativeError("quota_limited", diagnostic=provider_diagnostic(result))
         if "refresh" in lower and "another" in lower:
             raise NativeError("refresh_contention", True)
         if result.get("subtype") == "success":
