@@ -1,0 +1,53 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "job_id": {
+      "title": "Job Id",
+      "type": "string"
+    },
+    "attempt_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Attempt Id"
+    },
+    "seq": {
+      "title": "Seq",
+      "type": "integer"
+    },
+    "type": {
+      "title": "Type",
+      "type": "string"
+    },
+    "data": {
+      "additionalProperties": true,
+      "title": "Data",
+      "type": "object"
+    },
+    "created_at": {
+      "title": "Created At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "job_id",
+    "attempt_id",
+    "seq",
+    "type",
+    "data",
+    "created_at"
+  ],
+  "title": "Event",
+  "type": "object"
+}

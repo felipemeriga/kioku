@@ -157,7 +157,13 @@ class TestAttributedUsage(unittest.TestCase):
         sb.auth.admin.get_user_by_id.return_value.user.email = "felipe.meriga@gmail.com"
         tables = {
             name: MagicMock()
-            for name in ("llm_usage_events", "folders", "conversations", "watched_repos")
+            for name in (
+                "llm_usage_events",
+                "folders",
+                "conversations",
+                "watched_repos",
+                "tsukai_native_usage",
+            )
         }
         sb.table.side_effect = tables.__getitem__
         tables["watched_repos"].select().execute.return_value.data = [
@@ -170,6 +176,9 @@ class TestAttributedUsage(unittest.TestCase):
                 "last_error": None,
             }
         ]
+        tables[
+            "tsukai_native_usage"
+        ].select().gte().lt().order().range().execute.return_value.data = []
         ledger_query = tables["llm_usage_events"].select().gte().lt().order().range()
         ledger_query.execute.return_value.data = rows
         folder_query = tables["folders"].select().in_()

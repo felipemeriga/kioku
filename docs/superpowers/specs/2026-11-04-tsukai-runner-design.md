@@ -123,7 +123,7 @@ Mihari's target key includes owner/repo/head_sha/operation/prompt-policy version
 
 ## Timeout/cancellation/restarts
 
-Suggested configurable defaults: queue deadline chat30s/background30min; first native event timeout30s; progress inactivity120s; chat wall timeout300s; maintenance operation wall timeout300s, repository pass15min; max native tool rounds 8 for agentic chat; completion profiles have no retrieval tools. These are design bounds, not measured guarantees. Compaction can pause text but typed progress/heartbeat continues; no-token-timeout is not a valid kill criterion alone.
+Runtime queue deadline: chat330s/background30min. Integrated three-request burst testing showed that the proposed30s chat wait expired the third request while both permitted root slots were still executing normally. The330s bound allows one300s execution plus30s scheduling grace, with visible queued status and cancellation; it does not increase concurrency. Other suggested defaults: first native event timeout30s; progress inactivity120s; chat wall timeout300s; maintenance operation wall timeout300s, repository pass15min; max native tool rounds 8 for agentic chat; completion profiles have no retrieval tools. These are design bounds, not measured guarantees. Compaction can pause text but typed progress/heartbeat continues; no-token-timeout is not a valid kill criterion alone.
 
 Explicit cancellation is distinct from HTTP disconnect. Cancel API persists request, sends SIGTERM to dedicated process group, waits5s then SIGKILL, reaps children, writes cancellation terminal event. Cancellation does not undo an already accepted result/domain commit; idempotent cancel returns current terminal state. Native partial state after cancelled turn is quarantined or version-tested reconciled before next resume. Browser disconnect simply detaches subscriber; generation proceeds.
 
@@ -279,7 +279,7 @@ All policy values here are proposed configuration defaults. Final acceptance may
 |---|---|
 | Runner replicas / total concurrent native processes | 1 / 3 (2 root + 1 reserved child) |
 | Concurrent maintenance jobs / queue capacity | 1 / 100 |
-| Chat queue deadline / maintenance queue deadline | 30s / 30min |
+| Chat queue deadline / maintenance queue deadline | 330s / 30min |
 | First native event / inactivity / chat wall limit | 30s / 120s / 300s |
 | Per-maintenance-operation / repository-pass wall limit | 300s / 15min |
 | Lease heartbeat / expiry | 5s / 30s |

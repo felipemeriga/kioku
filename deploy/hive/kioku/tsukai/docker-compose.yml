@@ -1,0 +1,56 @@
+# One replica; drain and stop the predecessor before replacing this service.
+# Release promotion replaces this bootstrap tag with an immutable tag + digest.
+services:
+  tsukai:
+    image: felipemeriga1/kioku-tsukai:0.1.0-bootstrap
+    pull_policy: always
+    container_name: kioku-tsukai
+    user: "1000:1000"
+    init: true
+    restart: unless-stopped
+    read_only: true
+    stop_grace_period: 150s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:?runner OAuth credential required}
+      - TSUKAI_DATABASE_URL=${TSUKAI_DATABASE_URL:?dedicated PostgreSQL role required}
+      - TSUKAI_DATABASE_CA_FILE=/etc/kioku/supabase-ca.crt
+      - TSUKAI_SERVICE_TOKEN=${TSUKAI_SERVICE_TOKEN:?runner transport credential required}
+      - TSUKAI_CAPABILITY_KEY=${TSUKAI_CAPABILITY_KEY:?capability signer required}
+      - TSUKAI_CAPABILITY_ISSUER=${TSUKAI_CAPABILITY_ISSUER:-kioku-backend}
+      - TSUKAI_ENTITLED_OWNER_IDS=${TSUKAI_ENTITLED_OWNER_IDS:?explicit entitled owner IDs required}
+      - TSUKAI_AUTH_PROBE=${TSUKAI_AUTH_PROBE:-true}
+      - TSUKAI_BACKEND_URL=${TSUKAI_BACKEND_URL:-http://kioku-backend:8000}
+      - TSUKAI_REDIS_URL=${TSUKAI_REDIS_URL:-redis://kioku-redis:6379/0}
+      - TSUKAI_WORKSPACE_DIR=/data/workspaces
+      - CLAUDE_CONFIG_DIR=/state/claude
+    volumes:
+      - tsukai-native-state:/state
+      - tsukai-workspaces:/data
+      - ${TSUKAI_DATABASE_CA_PATH:-/root/.config/kioku/runner/supabase-ca.crt}:/etc/kioku/supabase-ca.crt:ro
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=128m,uid=1000,gid=1000,mode=1770
+      - /home/runner:rw,nosuid,nodev,size=32m,uid=1000,gid=1000,mode=0700
+    mem_limit: 2g
+    cpus: 2
+    pids_limit: 128
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8788/health/live', timeout=2).close()"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    # Internal HTTP/SSE only; no ports or Traefik labels.
+    networks:
+      - kioku
+volumes:
+  tsukai-native-state:
+    name: kioku-tsukai-native-state
+  tsukai-workspaces:
+    name: kioku-tsukai-workspaces
+networks:
+  kioku:
+    external: true
+    name: kioku

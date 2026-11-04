@@ -1,0 +1,196 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "idempotency_key": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Idempotency Key",
+      "type": "string"
+    },
+    "owner_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Owner Id",
+      "type": "string"
+    },
+    "caller": {
+      "enum": [
+        "backend",
+        "mcp",
+        "mihari"
+      ],
+      "title": "Caller",
+      "type": "string"
+    },
+    "operation": {
+      "maxLength": 100,
+      "minLength": 1,
+      "pattern": "^[a-z][a-z0-9_.-]*$",
+      "title": "Operation",
+      "type": "string"
+    },
+    "profile": {
+      "default": "completion",
+      "enum": [
+        "completion",
+        "chat",
+        "metadata_child"
+      ],
+      "title": "Profile",
+      "type": "string"
+    },
+    "prompt": {
+      "maxLength": 1000000,
+      "minLength": 1,
+      "title": "Prompt",
+      "type": "string"
+    },
+    "system_prompt": {
+      "default": "",
+      "maxLength": 100000,
+      "title": "System Prompt",
+      "type": "string"
+    },
+    "model": {
+      "default": "claude-sonnet-4-6",
+      "maxLength": 100,
+      "pattern": "^[a-zA-Z0-9_.-]+$",
+      "title": "Model",
+      "type": "string"
+    },
+    "max_tokens": {
+      "default": 4096,
+      "maximum": 64000,
+      "minimum": 1,
+      "title": "Max Tokens",
+      "type": "integer"
+    },
+    "max_turns": {
+      "default": 8,
+      "maximum": 30,
+      "minimum": 1,
+      "title": "Max Turns",
+      "type": "integer"
+    },
+    "thinking_tokens": {
+      "default": 0,
+      "maximum": 32000,
+      "minimum": 0,
+      "title": "Thinking Tokens",
+      "type": "integer"
+    },
+    "response_schema": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Response Schema"
+    },
+    "conversation_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Conversation Id"
+    },
+    "rebuild_from_committed_history": {
+      "default": false,
+      "title": "Rebuild From Committed History",
+      "type": "boolean"
+    },
+    "folder_ids": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Folder Ids",
+      "type": "array"
+    },
+    "tool_allowlist": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 30,
+      "title": "Tool Allowlist",
+      "type": "array"
+    },
+    "tool_capability_ref": {
+      "anyOf": [
+        {
+          "maxLength": 512,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Tool Capability Ref"
+    },
+    "parent_job_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Job Id"
+    },
+    "root_job_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Root Job Id"
+    },
+    "ai_depth": {
+      "default": 0,
+      "enum": [
+        0,
+        1
+      ],
+      "title": "Ai Depth",
+      "type": "integer"
+    },
+    "metadata": {
+      "additionalProperties": true,
+      "title": "Metadata",
+      "type": "object"
+    }
+  },
+  "required": [
+    "idempotency_key",
+    "owner_id",
+    "caller",
+    "operation",
+    "prompt"
+  ],
+  "title": "JobRequest",
+  "type": "object"
+}

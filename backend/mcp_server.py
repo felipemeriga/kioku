@@ -1,10 +1,15 @@
 """MCP server exposing knowledge base tools over SSE transport."""
 
+import asyncio
 import contextvars
 import hashlib
+import inspect
 import json
 import os
+import time
 from datetime import datetime, timedelta, timezone
+from functools import wraps
+from urllib.parse import parse_qs, urlsplit
 
 from dotenv import load_dotenv
 
@@ -15,6 +20,7 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from db.client import get_supabase
+from services.ai.scope import ExecutionScope, execution_scope
 from services.embeddings import embed_query
 from services.evaluation import evaluate_rag_pipeline
 from services.folder_summary.briefing_schema import snapshot_sections
@@ -25,6 +31,29 @@ from services.text_to_sql import generate_and_execute_sql
 MCP_PORT = int(os.environ.get("MCP_PORT", "8001"))
 
 mcp = FastMCP("Kioku Second Brain", host="0.0.0.0", port=MCP_PORT)
+
+
+def offloaded_tool():
+    """Register sync tools as explicitly offloaded async MCP callables.
+
+    Keep the original Python callable for existing internal/test callers; the
+    MCP registry always receives a nonblocking async callable.
+    """
+
+    def register(function):
+        if inspect.iscoroutinefunction(function):
+            mcp.tool()(function)
+        else:
+
+            @wraps(function)
+            async def offloaded(*args, **kwargs):
+                return await asyncio.to_thread(function, *args, **kwargs)
+
+            mcp.tool()(offloaded)
+        return function
+
+    return register
+
 
 # Per-request user_id via contextvars (safe for concurrent connections)
 _current_user_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
@@ -43,7 +72,18 @@ def _verify_api_key(key: str) -> tuple[str, str] | None:
         sb.table("api_keys").select("user_id, scope_folder_id").eq("key_hash", key_hash).execute()
     )
     if result.data and result.data[0].get("scope_folder_id"):
-        return result.data[0]["user_id"], result.data[0]["scope_folder_id"]
+        row = result.data[0]
+        current = (
+            sb.table("folders")
+            .select("id")
+            .eq("id", row["scope_folder_id"])
+            .eq("user_id", row["user_id"])
+            .limit(1)
+            .execute()
+            .data
+        )
+        if current:
+            return row["user_id"], row["scope_folder_id"]
     return None
 
 
@@ -269,7 +309,7 @@ def _folder_tree_under_scope(
     )
 
 
-@mcp.tool()
+@offloaded_tool()
 async def knowledge_base_search(
     query: str,
     folder: str | None = None,
@@ -306,16 +346,16 @@ async def knowledge_base_search(
 
     folder_ids: list[str] | None = None
     if folder:
-        resolved_id, resolved = resolve_focus_folder(
-            sb, scope_folder_id=scope_folder_id, user_id=user_id, focus=folder
+        resolved_id, resolved = await asyncio.to_thread(
+            resolve_focus_folder, sb, scope_folder_id=scope_folder_id, user_id=user_id, focus=folder
         )
         if resolved_id is None:
             return f"Error: {resolved}"
-        folder_ids = _descendant_folder_ids(sb, resolved_id, user_id)
+        folder_ids = await asyncio.to_thread(_descendant_folder_ids, sb, resolved_id, user_id)
 
     # Tool is async so FastMCP's own event loop drives retrieve_knowledge directly
     # (previously we tried asyncio.run which nested loops and crashed).
-    embedding = embed_query(query)
+    embedding = await asyncio.to_thread(embed_query, query)
     result = await retrieve_knowledge(
         sb,
         embedding=embedding,
@@ -351,7 +391,7 @@ async def knowledge_base_search(
     return "\n\n---\n\n".join(parts)
 
 
-@mcp.tool()
+@offloaded_tool()
 def query_documents_metadata(question: str) -> str:
     """Query structured metadata about uploaded documents using natural language.
 
@@ -364,6 +404,14 @@ def query_documents_metadata(question: str) -> str:
     if not _current_user_id.get():
         return "Error: Not authenticated. Provide a valid API key."
 
+    from services.ai.registry import engine_for
+
+    if engine_for("text_to_sql", _current_user_id.get()) == "tsukai":
+        from services.ai.metadata import metadata_query
+
+        user_id = _current_user_id.get()
+        folder_ids = _descendant_folder_ids(get_supabase(), _current_scope_folder_id.get(), user_id)
+        return metadata_query(question, {"owner_id": user_id, "folder_ids": folder_ids})
     result = generate_and_execute_sql(
         question, _current_user_id.get(), _current_scope_folder_id.get()
     )
@@ -392,7 +440,7 @@ def _doc_scope_ids(sb, user_id: str, folder: str | None):
     return _descendant_folder_ids(sb, base, user_id), None
 
 
-@mcp.tool()
+@offloaded_tool()
 def list_documents(folder: str | None = None) -> str:
     """List the source documents stored in the knowledge base for this scope —
     one line per file with its chunk count, type, and date.
@@ -444,7 +492,7 @@ def list_documents(folder: str | None = None) -> str:
     return "\n".join(lines)
 
 
-@mcp.tool()
+@offloaded_tool()
 def read_document(filename: str, folder: str | None = None) -> str:
     """Return the full text of a stored document (all chunks, in order) so you
     can verify whether its content is still accurate before updating/deleting.
@@ -477,7 +525,7 @@ def read_document(filename: str, folder: str | None = None) -> str:
     return f"# {filename} ({len(rows)} chunks)\n\n{body}"
 
 
-@mcp.tool()
+@offloaded_tool()
 def update_document(filename: str, new_content: str, folder: str | None = None) -> str:
     """Replace a document's content with a corrected/updated version — re-chunks
     and re-embeds it so search reflects the new text.
@@ -521,7 +569,7 @@ def update_document(filename: str, new_content: str, folder: str | None = None) 
     return f"Updated '{filename}': re-embedded {res['chunks']} chunks."
 
 
-@mcp.tool()
+@offloaded_tool()
 def delete_document(filename: str, folder: str | None = None) -> str:
     """Permanently remove a document (all its chunks) from the knowledge base.
 
@@ -562,7 +610,7 @@ def delete_document(filename: str, folder: str | None = None) -> str:
     return f"Deleted '{filename}' ({len(existing)} chunks)."
 
 
-@mcp.tool()
+@offloaded_tool()
 def add_document(filename: str, content: str, folder: str | None = None) -> str:
     """Create a NEW document in the knowledge base from the given text — chunks
     and embeds it so it's immediately searchable.
@@ -616,7 +664,7 @@ def add_document(filename: str, content: str, folder: str | None = None) -> str:
     )
 
 
-@mcp.tool()
+@offloaded_tool()
 def save_note(title: str, content: str) -> str:
     """Save a structured note (decision, learning, observation) to the knowledge base.
 
@@ -662,7 +710,7 @@ def save_note(title: str, content: str) -> str:
     return f"Note saved: '{title}' (id: {result.data[0]['id']})"
 
 
-@mcp.tool()
+@offloaded_tool()
 def list_notes(query: str = "") -> str:
     """List notes in the current scope, optionally filtered by a search query.
 
@@ -701,7 +749,7 @@ def list_notes(query: str = "") -> str:
     return "\n".join(lines)
 
 
-@mcp.tool()
+@offloaded_tool()
 def delete_note(note_id: str) -> str:
     """Delete a note by ID.
 
@@ -724,7 +772,7 @@ def delete_note(note_id: str) -> str:
     return "Note deleted."
 
 
-@mcp.tool()
+@offloaded_tool()
 def set_context(key: str, value: str) -> str:
     """Set a context entry (ephemeral working memory, 7-day TTL).
 
@@ -755,7 +803,7 @@ def set_context(key: str, value: str) -> str:
     return f"Context set: {key}"
 
 
-@mcp.tool()
+@offloaded_tool()
 def get_context(key: str) -> str:
     """Get a single context value by key.
 
@@ -780,7 +828,7 @@ def get_context(key: str) -> str:
     return result.data[0]["value"]
 
 
-@mcp.tool()
+@offloaded_tool()
 def list_context() -> str:
     """List all active context entries in the current scope."""
     if not _current_user_id.get():
@@ -804,7 +852,7 @@ def list_context() -> str:
     return "\n".join(lines)
 
 
-@mcp.tool()
+@offloaded_tool()
 def clear_context(key: str = "") -> str:
     """Clear context entries. If key is provided, clear only that key. Otherwise clear all.
 
@@ -826,7 +874,7 @@ def clear_context(key: str = "") -> str:
     return f"Context cleared: {'key=' + key if key else 'all'}"
 
 
-@mcp.tool()
+@offloaded_tool()
 async def evaluate_retrieval(questions: str) -> str:
     """Evaluate the RAG pipeline quality using RAGAS metrics.
 
@@ -882,7 +930,7 @@ async def evaluate_retrieval(questions: str) -> str:
     return "\n".join(lines)
 
 
-@mcp.tool()
+@offloaded_tool()
 def list_folders_in_scope() -> str:
     """Discover the folder subtree accessible to this API key.
 
@@ -922,7 +970,7 @@ def list_folders_in_scope() -> str:
     )
 
 
-@mcp.tool()
+@offloaded_tool()
 def get_folder_briefing_schema() -> str:
     """Return the canonical shape of a folder briefing.
 
@@ -931,7 +979,7 @@ def get_folder_briefing_schema() -> str:
     notes on how to author it. Use with update_folder_briefing_section
     when you learn something the user hasn't captured yet.
     """
-    from services.folder_summary.briefing import (
+    from services.folder_summary.briefing_schema import (
         BRIEFING_SCHEMA_VERSION,
         SECTION_KEYS,
     )
@@ -967,7 +1015,7 @@ def get_folder_briefing_schema() -> str:
     return json.dumps(schema, indent=2, ensure_ascii=False)
 
 
-@mcp.tool()
+@offloaded_tool()
 def get_folder_briefing(folder: str | None = None) -> str:
     """Read the briefing for a repo folder inside your scope.
 
@@ -995,7 +1043,7 @@ def get_folder_briefing(folder: str | None = None) -> str:
         return "Error: Not authenticated. Provide a valid API key."
     if not _current_scope_folder_id.get():
         return "Error: No folder scope on this API key."
-    from services.folder_summary.briefing import empty_briefing, snapshot_sections
+    from services.folder_summary.briefing_schema import empty_briefing, snapshot_sections
     from services.folder_summary.repo import (
         get_folder,
         get_latest_summary,
@@ -1058,7 +1106,7 @@ def get_folder_briefing(folder: str | None = None) -> str:
     return json.dumps(payload, indent=2, ensure_ascii=False)
 
 
-@mcp.tool()
+@offloaded_tool()
 def replace_folder_briefing(
     sections: str,
     pin_all: bool = False,
@@ -1086,7 +1134,7 @@ def replace_folder_briefing(
     """
     if not _current_user_id.get():
         return "Error: Not authenticated."
-    from services.folder_summary.briefing import (
+    from services.folder_summary.briefing_schema import (
         SECTION_KEYS,
         empty_briefing,
         new_section,
@@ -1152,7 +1200,7 @@ def replace_folder_briefing(
     )
 
 
-@mcp.tool()
+@offloaded_tool()
 def save_repo_documentation(
     content: str,
     abstract: str,
@@ -1174,7 +1222,7 @@ def save_repo_documentation(
     """
     if not _current_user_id.get():
         return "Error: Not authenticated."
-    from services.folder_summary.briefing import (
+    from services.folder_summary.briefing_schema import (
         empty_briefing,
         new_section,
     )
@@ -1238,7 +1286,7 @@ def save_repo_documentation(
     )
 
 
-@mcp.tool()
+@offloaded_tool()
 def get_repo_documentation(folder: str | None = None) -> str:
     """Return this repo's FULL detailed documentation (large markdown).
 
@@ -1287,7 +1335,7 @@ def get_repo_documentation(folder: str | None = None) -> str:
 _DOC_DUMP_CHAR_CAP = 300_000
 
 
-@mcp.tool()
+@offloaded_tool()
 def read_folder_documents(folder: str | None = None) -> str:
     """Return the FULL text of documents relevant to this repo folder.
 
@@ -1403,7 +1451,7 @@ def read_folder_documents(folder: str | None = None) -> str:
     return intro + "".join(parts) + footer
 
 
-@mcp.tool()
+@offloaded_tool()
 def update_folder_briefing_section(
     section: str,
     content: str,
@@ -1431,7 +1479,7 @@ def update_folder_briefing_section(
     """
     if not _current_user_id.get():
         return "Error: Not authenticated."
-    from services.folder_summary.briefing import (
+    from services.folder_summary.briefing_schema import (
         SECTION_KEYS,
         empty_briefing,
         new_section,
@@ -1523,7 +1571,7 @@ def update_folder_briefing_section(
     return f"Updated section '{section}' (status={'pinned' if pin else 'auto'})."
 
 
-@mcp.tool()
+@offloaded_tool()
 def get_folder_orientation(
     folder: str | None = None,
     folder_name: str | None = None,
@@ -1692,6 +1740,7 @@ class ApiKeyAuthMiddleware:
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
+        self._session_scopes: dict[str, tuple[str, str, float]] = {}
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -1724,16 +1773,79 @@ class ApiKeyAuthMiddleware:
             return
 
         api_key = auth_value.split(" ", 1)[1]
-        result = _verify_api_key(api_key)
+        result = await asyncio.to_thread(_verify_api_key, api_key)
         if not result:
             response = JSONResponse({"error": "Invalid or unscoped API key"}, status_code=401)
             await response(scope, receive, send)
             return
 
         user_id, scope_folder_id = result
-        _current_user_id.set(user_id)
-        _current_scope_folder_id.set(scope_folder_id)
-        await self.app(scope, receive, send)
+        session = headers.get(b"mcp-session-id", b"").decode()
+        query_session = parse_qs(scope.get("query_string", b"").decode()).get("session_id", [""])[0]
+        session_key = (
+            "mcp:" + session if session else ("sse:" + query_session if query_session else None)
+        )
+        if session_key:
+            bound = self._session_scopes.get(session_key)
+            if bound is None or bound[:2] != (user_id, scope_folder_id):
+                await JSONResponse(
+                    {"error": "MCP session does not belong to this API key scope"}, status_code=403
+                )(scope, receive, send)
+                return
+            self._session_scopes[session_key] = (user_id, scope_folder_id, time.monotonic())
+
+        def bind(key: str):
+            self._session_scopes[key] = (user_id, scope_folder_id, time.monotonic())
+            if len(self._session_scopes) > 8192:
+                oldest = min(self._session_scopes, key=lambda item: self._session_scopes[item][2])
+                self._session_scopes.pop(oldest, None)
+
+        endpoint_buffer = bytearray()
+        endpoint_bound = False
+
+        async def scoped_send(message):
+            nonlocal endpoint_bound
+            if message["type"] == "http.response.start":
+                response_headers = dict(message.get("headers", []))
+                identifier = response_headers.get(b"mcp-session-id")
+                if identifier and message["status"] < 400:
+                    bind("mcp:" + identifier.decode())
+            elif path == "/sse" and not endpoint_bound and message["type"] == "http.response.body":
+                endpoint_buffer.extend(message.get("body", b"")[:2048])
+                text = endpoint_buffer.decode(errors="replace").replace("\r\n", "\n")
+                lines = text.split("\n\n", 1)[0].splitlines() if "\n\n" in text else []
+                for line in lines:
+                    if line.startswith("data:") and "session_id=" in line:
+                        endpoint = line[5:].strip()
+                        identifier = parse_qs(urlsplit(endpoint).query).get("session_id", [""])[0]
+                        if identifier:
+                            bind("sse:" + identifier)
+                            endpoint_bound = True
+                            break
+                if len(endpoint_buffer) >= 2048:
+                    endpoint_bound = True
+            await send(message)
+
+        user_token = _current_user_id.set(user_id)
+        scope_token = _current_scope_folder_id.set(scope_folder_id)
+        try:
+            with execution_scope(
+                ExecutionScope(
+                    user_id,
+                    tuple(
+                        await asyncio.to_thread(
+                            _descendant_folder_ids, get_supabase(), scope_folder_id, user_id
+                        )
+                    ),
+                    caller="mcp",
+                )
+            ):
+                await self.app(scope, receive, scoped_send)
+        finally:
+            _current_user_id.reset(user_token)
+            _current_scope_folder_id.reset(scope_token)
+            if session_key and scope.get("method") == "DELETE":
+                self._session_scopes.pop(session_key, None)
 
 
 # ── Code graph tools ────────────────────────────────────────────────
@@ -1776,7 +1888,7 @@ def _agent_journal_repo(sb, folder: str | None) -> tuple[str | None, str | None]
     return folder_id, None
 
 
-@mcp.tool()
+@offloaded_tool()
 def get_agent_journal(folder: str, date: str) -> str:
     """Read the private Markdown agent journal for one repository and local date.
 
@@ -1795,7 +1907,7 @@ def get_agent_journal(folder: str, date: str) -> str:
         return json.dumps({"status": "error", "error": str(exc)})
 
 
-@mcp.tool()
+@offloaded_tool()
 def list_agent_journal_days(folder: str, year: int) -> str:
     """List days with agent activity in a repository for a calendar year.
 
@@ -1824,7 +1936,7 @@ def list_agent_journal_days(folder: str, year: int) -> str:
     return json.dumps({"status": "ok", "days": rows})
 
 
-@mcp.tool()
+@offloaded_tool()
 def get_repo_learnings(folder: str) -> str:
     """Read current source-linked learnings, excluding retired conclusions.
 
@@ -1850,7 +1962,7 @@ def get_repo_learnings(folder: str) -> str:
     return json.dumps({"status": "ok", "learnings": rows})
 
 
-@mcp.tool()
+@offloaded_tool()
 def sync_agent_journal(
     folder: str, date: str, markdown: str, base_revision: int, content_sha256: str
 ) -> str:
@@ -1884,7 +1996,7 @@ def sync_agent_journal(
         return json.dumps({"status": "error", "error": "Journal sync failed; retry later"})
 
 
-@mcp.tool()
+@offloaded_tool()
 def code_search(
     query: str,
     folder: str | None = None,
@@ -1949,7 +2061,7 @@ def code_search(
     return "\n".join(lines)
 
 
-@mcp.tool()
+@offloaded_tool()
 def find_definition(symbol: str, folder: str | None = None) -> str:
     """Find indexed definitions of a function, type, or method. Read the
     current local file for exact behavior or when the index may be stale.
@@ -1980,7 +2092,7 @@ def find_definition(symbol: str, folder: str | None = None) -> str:
     return "\n".join(lines)
 
 
-@mcp.tool()
+@offloaded_tool()
 def find_references(symbol: str, folder: str | None = None) -> str:
     """Find indexed uses and callers of a symbol. Results may omit sites;
     use local source search when completeness matters.
@@ -2008,7 +2120,7 @@ def find_references(symbol: str, folder: str | None = None) -> str:
     return "\n".join(lines)
 
 
-@mcp.tool()
+@offloaded_tool()
 def outline(path: str, folder: str | None = None) -> str:
     """List indexed symbols under a file or directory. Read the local file
     when its current contents matter.
@@ -2040,7 +2152,7 @@ def outline(path: str, folder: str | None = None) -> str:
     return "\n".join(lines)
 
 
-@mcp.tool()
+@offloaded_tool()
 def impact_of(symbol: str, depth: int = 2, folder: str | None = None) -> str:
     """Blast radius: what transitively depends on a symbol (callers of callers)
     up to `depth` hops — use before changing something to see what it affects.
@@ -2093,7 +2205,7 @@ def _startup_healthcheck() -> None:
         if not os.environ.get("ANTHROPIC_API_KEY"):
             print("  ✗ Anthropic      ANTHROPIC_API_KEY not set")
         else:
-            print(f"  ✓ Anthropic      api key present ({os.environ['ANTHROPIC_API_KEY'][:8]}…)")
+            print("  ✓ Anthropic      api key present")
     except Exception as exc:  # noqa: BLE001
         print(f"  ✗ Anthropic      {str(exc)[:120]}")
 

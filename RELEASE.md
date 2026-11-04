@@ -36,7 +36,7 @@ Configure these in the Kioku GitHub repository before enabling production releas
 | Existing `ANTHROPIC_API_KEY`, `VOYAGE_API_KEY` secrets             | Retrieval evaluation gate                                                                                            |
 | `DOKPLOY_API_KEY` secret                                           | Read access to Dokploy deployment history for every affected Compose service                                         |
 | `DOKPLOY_URL` variable                                             | HTTPS Dokploy origin, without `/api` or another path                                                                 |
-| `DOKPLOY_COMPOSE_IDS` variable                                     | JSON mapping `backend`, `worker`, `mcp`, `frontend`, `mihari` to their Compose IDs                                   |
+| `DOKPLOY_COMPOSE_IDS` variable                                     | JSON mapping `backend`, `worker`, `mcp`, `frontend`, `mihari`, `tsukai` to their Compose IDs                                   |
 | Optional `DOKPLOY_DEPLOY_TIMEOUT_SECONDS` variable                 | Verification timeout (default 900 seconds, maximum 3600)                                                             |
 
 Repository workflow permissions must permit `GITHUB_TOKEN` contents writes. Main
@@ -65,7 +65,8 @@ IDs. Use the `mihari` key even during the legacy watcher transition. For example
   "worker": "compose-id",
   "mcp": "compose-id",
   "frontend": "compose-id",
-  "mihari": "compose-id"
+  "mihari": "compose-id",
+  "tsukai": "compose-id"
 }
 ```
 
@@ -153,3 +154,43 @@ cd cli && npm ci && npm test
 Do not run the prepare/promote commands against production branches as a local
 "test": they are release orchestration helpers. Unit tests use temporary fixtures;
 the native executable smoke does not install a service or change agent settings.
+
+
+## Tsukai runner rollout
+
+Tsukai is an independent `tsukai` package and image. Changes under `tsukai/`
+release only that image; its Python project and lock version are advanced with
+`.release/versions.json`. Shared protocol changes must also touch their affected
+consumers. Configure its dedicated Dokploy Compose ID before merging runner code,
+and copy `deploy/hive/kioku/tsukai/docker-compose.yml` into Hive first. Replace the
+bootstrap tag with the first validated image digest before starting the service.
+Never deploy the bootstrap tag itself. Release promotion patches only that image.
+
+Provision a dedicated PostgreSQL role scoped to Tsukai tables and configure
+`TSUKAI_DATABASE_URL`, `TSUKAI_SERVICE_TOKEN`, and `TSUKAI_CAPABILITY_KEY`. The
+backend receives the transport token and capability key; it never receives the
+runner OAuth credential. Inject `CLAUDE_CODE_OAUTH_TOKEN` exclusively into Tsukai.
+The existing private operator file is `/root/.config/kioku/runner/.env` (0600 in a
+0700 directory); never copy its contents to logs, Git, or image build arguments.
+Operator provisioning must pass environment without echoing or inspecting values.
+Native subprocesses enforce a separate environment allowlist.
+
+Deploy one replica on the internal `kioku` network, with no public route. Preserve
+both named volumes and the database as a consistent recovery set. The single-host
+volumes do not provide host-failure HA. Encrypt restricted native-state backups or
+reprovision authentication separately; never put auth backups in document storage.
+
+Start with all provider routes set to API. Verify `/health/live`, cached
+`/health/ready` after its actual authenticated model probe, a scoped fixture MCP
+request, durable event replay, resume after container replacement, and independent
+health responsiveness under load before enabling the entitlement owner pilot.
+Readiness probes must not issue inference on every HTTP healthcheck.
+
+For credential rotation or image replacement, call `POST /internal/drain` using
+the service transport credential, wait for active work or the 120-second drain
+deadline, then stop the old instance before starting the replacement. Compose
+allows 150 seconds for shutdown. A changed Dokploy environment requires container
+recreation. Verify actual authentication and the scoped fixture before reopening
+admission. Do not downgrade the native CLI against writable live state without a
+snapshot and compatibility check. Roll back routing explicitly while preserving
+native session mappings and canonical conversation history.

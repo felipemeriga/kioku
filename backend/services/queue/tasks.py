@@ -22,6 +22,7 @@ try:
 except ImportError:  # pragma: no cover - fallback for older codebases
     from db.client import get_supabase as get_supabase_thread_safe  # type: ignore
 
+from services.ai.scope import document_scope, execution_scope
 from services.chunker import chunk_text, contextualized_text
 from services.contextual import contextualize_chunks
 from services.crypto import decrypt_secret
@@ -302,7 +303,8 @@ async def _ingest_notion_page_task_impl(ctx: dict, payload: dict) -> None:
 
     # Contextual retrieval: situating blurbs from the full page markdown, shipped
     # with the chunks for the batch task to embed (see embed_and_store_batch_task).
-    contexts = await asyncio.to_thread(contextualize_chunks, markdown, chunks)
+    with execution_scope(document_scope(payload["user_id"], leaf_folder_id)):
+        contexts = await asyncio.to_thread(contextualize_chunks, markdown, chunks)
 
     offset = 0
     for batch in batches:
@@ -679,7 +681,9 @@ async def ingest_document_task(ctx: dict, payload: dict) -> None:
         # Contextual retrieval: generate per-chunk situating blurbs here, where
         # the whole document is in hand (one cached doc reused across chunks),
         # and ship them alongside the chunks for the batch task to embed.
-        contexts = await asyncio.to_thread(contextualize_chunks, text, chunks)
+        folder_id = payload.get("folder_id")
+        with execution_scope(document_scope(payload["user_id"], folder_id)):
+            contexts = await asyncio.to_thread(contextualize_chunks, text, chunks)
 
         offset = 0
         for batch in batches:

@@ -582,7 +582,24 @@ export default function DocumentsPage() {
         </Stack>
 
         {(error || subFoldersQuery.isError) && (
-          <Alert severity="error" sx={{ mb: 2 }}>
+          <Alert
+            severity="error"
+            sx={{ mb: 2 }}
+            action={
+              <Button
+                color="inherit"
+                size="small"
+                disabled={docsLoading || subFoldersQuery.isFetching}
+                onClick={() => {
+                  if (error) void loadDocuments().catch(() => {});
+                  if (subFoldersQuery.isError)
+                    void subFoldersQuery.refetch({ throwOnError: false });
+                }}
+              >
+                Retry
+              </Button>
+            }
+          >
             {error || "Couldn’t load folders. Please try again."}
           </Alert>
         )}

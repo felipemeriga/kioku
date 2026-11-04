@@ -129,3 +129,90 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.sha }}
       - run: python3 -m unittest discover -s scripts/release -p 'test_*.py' -v
+
+  tsukai-tests:
+    name: Tsukai Runtime & PostgreSQL
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        credentials:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+        env:
+          POSTGRES_PASSWORD: fixture-admin-only
+          POSTGRES_DB: tsukai_fixture
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d tsukai_fixture"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TSUKAI_TEST_ADMIN_DATABASE_URL: postgresql+asyncpg://postgres:fixture-admin-only@localhost:5432/tsukai_fixture
+      TSUKAI_TEST_DATABASE_URL: postgresql+asyncpg://tsukai_fixture_runtime:fixture-runtime-only@localhost:5432/tsukai_fixture
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --project tsukai --frozen
+      - name: Provision isolated fixture roles
+        env:
+          PGPASSWORD: fixture-admin-only
+        run: >-
+          psql -h localhost -U postgres -d tsukai_fixture -v ON_ERROR_STOP=1
+          -c "CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE service_role NOLOGIN;
+          CREATE ROLE tsukai_fixture_runtime LOGIN PASSWORD 'fixture-runtime-only' NOSUPERUSER NOBYPASSRLS NOINHERIT;"
+      - run: uv run --project tsukai ruff check tsukai
+      - run: uv run --project tsukai ruff format --check tsukai
+      - run: uv run --project tsukai pytest tsukai/tests -v
+      - name: Verify runtime grants can be applied twice after schema upgrade
+        env:
+          PGPASSWORD: fixture-admin-only
+        run: |
+          psql -h localhost -U postgres -d tsukai_fixture -v runtime_role=tsukai_fixture_runtime -f tsukai/ops/grant-runtime.sql
+          psql -h localhost -U postgres -d tsukai_fixture -v runtime_role=tsukai_fixture_runtime -f tsukai/ops/grant-runtime.sql
+          PGPASSWORD=fixture-runtime-only psql -h localhost -U tsukai_fixture_runtime -d tsukai_fixture -v ON_ERROR_STOP=1 -c 'SELECT count(*) FROM public.tsukai_tombstones;'
+      - name: Verify operational usage receipts with restricted PostgreSQL writes
+        env:
+          PGPASSWORD: fixture-admin-only
+        run: |
+          createdb -h localhost -U postgres tsukai_readiness_fixture
+          for sql in \
+            supabase/migrations/20261104090000_tsukai_execution.sql \
+            supabase/migrations/20261104110000_tsukai_execution_lifecycle.sql \
+            supabase/migrations/20261104120000_tsukai_attempt_timings.sql \
+            backend/tests/sql/tsukai_readiness_fixture.sql \
+            supabase/migrations/20261104220000_tsukai_readiness_usage_receipts.sql \
+            backend/tests/sql/tsukai_readiness_acceptance.sql; do
+            psql -h localhost -U postgres -d tsukai_readiness_fixture -v ON_ERROR_STOP=1 -f "$sql"
+          done
+          psql -h localhost -U postgres -d tsukai_readiness_fixture -v ON_ERROR_STOP=1 -c "ALTER ROLE tsukai_readiness_fixture_runtime PASSWORD 'fixture-readiness-only';"
+          PGPASSWORD=fixture-readiness-only psql -h localhost -U tsukai_readiness_fixture_runtime -d tsukai_readiness_fixture -v ON_ERROR_STOP=1 -c "UPDATE public.tsukai_attempts SET status='completed',finished_at=3 WHERE id='fresh-probe';"
+      - name: Verify maintenance publication SQL and document revision freshness
+        env:
+          PGPASSWORD: fixture-admin-only
+        run: |
+          createdb -h localhost -U postgres tsukai_maintenance_fixture
+          for sql in \
+            backend/tests/fixtures/maintenance/schema.sql \
+            supabase/migrations/20261022010000_briefing_append_only_refresh.sql \
+            supabase/migrations/20261029170000_repo_learnings.sql \
+            supabase/migrations/20261104140000_mihari_prepared_execution.sql \
+            supabase/migrations/20261104150000_mihari_retry_ack.sql \
+            supabase/migrations/20261104210000_mihari_absent_documentation.sql \
+            supabase/migrations/20261104230000_mihari_document_body_publication.sql \
+            backend/tests/fixtures/maintenance/service_role.sql \
+            backend/tests/fixtures/maintenance/publication.sql \
+            backend/tests/fixtures/maintenance/documentation.sql \
+            backend/tests/fixtures/maintenance/retry.sql \
+            backend/tests/fixtures/maintenance/learnings.sql \
+            backend/tests/fixtures/maintenance/absent_documentation.sql \
+            backend/tests/fixtures/maintenance/documentation_body_only.sql; do
+            psql -h localhost -U postgres -d tsukai_maintenance_fixture -v ON_ERROR_STOP=1 -f "$sql"
+          done

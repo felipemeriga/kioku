@@ -17,6 +17,7 @@ services:
       - KIOKU_MCP_URL=https://kioku.mcp.${DOMAIN}/sse
       - KIOKU_API_URL=https://kioku.api.${DOMAIN}
       - MIHARI_SCHEDULE=*/15
+      - MIHARI_TSUKAI_SERVICE_TOKEN=${TSUKAI_SERVICE_TOKEN:-}
     volumes:
       - ${MIHARI_DATA_PATH:-/root/kioku-mihari/data}:/data
     networks:

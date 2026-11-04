@@ -90,6 +90,7 @@ def test_activity_only_review_skips_expensive_briefing_generation(monkeypatch):
         return Response({"ok": True})
 
     monkeypatch.setattr(mihari.requests, "post", post)
+    monkeypatch.setattr(mihari, "maintenance_post", post)
     activity = []
     monkeypatch.setattr(mihari, "refresh_activity", lambda *_a, **_k: activity.append(True))
     mihari.review_new_commits(
@@ -148,7 +149,7 @@ def _setup_reground(monkeypatch, posted):
         posted["n"] += 1
         return _R()
 
-    monkeypatch.setattr(mihari.requests, "post", fake_post)
+    monkeypatch.setattr(mihari, "maintenance_post", fake_post)
 
 
 def test_reground_skips_when_not_forced(monkeypatch):
@@ -306,7 +307,7 @@ def test_failed_reground_attempt_has_cooldown_on_same_head(monkeypatch, tmp_path
         def json(self):
             return {"updated": False}
 
-    monkeypatch.setattr(mihari.requests, "post", lambda *a, **k: posted.append(k) or Response())
+    monkeypatch.setattr(mihari, "maintenance_post", lambda *a, **k: posted.append(k) or Response())
     repo = {"folder_id": "f1", "remote_url": "r", "api_key_encrypted": "x"}
     mihari.maybe_reground_holistic(tmp_path, repo, {})
     mihari.maybe_reground_holistic(tmp_path, repo, {})
@@ -349,7 +350,7 @@ def test_guide_upgrade_uses_grounded_repo_context_without_new_commits(monkeypatc
             return {"updated": True}
 
     monkeypatch.setattr(
-        mihari.requests, "post", lambda *a, **k: posted.append(k["json"]) or Response()
+        mihari, "maintenance_post", lambda *a, **k: posted.append(k["json"]) or Response()
     )
     mihari.refresh_sections(
         tmp_path,
@@ -571,3 +572,238 @@ def test_legacy_trigger_header_remains_accepted(monkeypatch):
         {"X-Watcher-Token": "test-token"}, '{"folder_id":"f1","target":"index"}'
     )
     assert status == 404  # Auth succeeded; the requested repo was not found.
+
+
+def test_direct_maintenance_sends_model_only_to_runner_and_publishes_job_id(monkeypatch):
+    monkeypatch.setattr(mihari, "API_URL", "https://backend")
+    monkeypatch.setenv("MIHARI_TSUKAI_SERVICE_TOKEN", "runner-service")
+    submitted = {
+        "owner_id": "u1",
+        "caller": "mihari",
+        "profile": "completion",
+        "idempotency_key": "immutable",
+        "prompt": "supplied evidence",
+        "conversation_id": None,
+        "tool_allowlist": [],
+    }
+    calls = []
+
+    class Response:
+        status_code = 200
+
+        def __init__(self, body):
+            self.body = body
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self.body
+
+    def post(url, **kwargs):
+        calls.append((url, kwargs))
+        if url.endswith("/execution/prepare"):
+            return Response(
+                {
+                    "engine": "tsukai",
+                    "url": "https://runner",
+                    "capability": "bound-token",
+                    "preparation_id": "prepared",
+                    "request": submitted,
+                }
+            )
+        if url == "https://runner/v1/jobs":
+            assert kwargs["json"] == submitted
+            assert kwargs["headers"]["X-Tsukai-Capability"] == "bound-token"
+            return Response({"job_id": "job-1"})
+        assert url.endswith("/execution/publish")
+        assert kwargs["json"] == {
+            "folder_id": "f1",
+            "preparation_id": "prepared",
+            "job_id": "job-1",
+        }
+        return Response({"ok": True, "updated": True})
+
+    monkeypatch.setattr(mihari.requests, "post", post)
+    monkeypatch.setattr(
+        mihari.requests,
+        "get",
+        lambda *_a, **_k: Response(
+            {"status": "completed", "result": {"text": "untrusted model output"}}
+        ),
+    )
+    result = mihari.maintenance_post(
+        "https://backend/api/mihari/activity",
+        headers={"Authorization": "Bearer rag_key"},
+        json={"folder_id": "f1", "head_sha": "a" * 40},
+        timeout=30,
+    )
+    assert result.json()["updated"]
+    assert len(calls) == 3
+
+
+def test_failed_direct_job_reports_job_id_for_backend_usage_capture(monkeypatch):
+    monkeypatch.setattr(mihari, "API_URL", "https://backend")
+    monkeypatch.setenv("MIHARI_TSUKAI_SERVICE_TOKEN", "runner-service")
+    calls = []
+
+    class Response:
+        def __init__(self, body):
+            self.body = body
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self.body
+
+    def post(url, **kwargs):
+        calls.append(url)
+        if url.endswith("/execution/prepare"):
+            return Response(
+                {
+                    "engine": "tsukai",
+                    "url": "https://runner",
+                    "capability": "token",
+                    "preparation_id": "prep",
+                    "request": {},
+                }
+            )
+        if url.endswith("/execution/publish"):
+            assert kwargs["json"] == {
+                "folder_id": "f1",
+                "preparation_id": "prep",
+                "job_id": "job-1",
+            }
+            raise RuntimeError("failed outcome retained by backend")
+        return Response({"job_id": "job-1"})
+
+    monkeypatch.setattr(mihari.requests, "post", post)
+    monkeypatch.setattr(mihari.requests, "get", lambda *_a, **_k: Response({"status": "failed"}))
+    with pytest.raises(RuntimeError, match="failed"):
+        mihari.maintenance_post(
+            "https://backend/api/mihari/activity", headers={}, json={"folder_id": "f1"}, timeout=30
+        )
+    assert calls[-1].endswith("/execution/publish")
+
+
+def test_partial_pass_retry_skips_activity_completes_review_and_advances_sha(monkeypatch, tmp_path):
+    """Worker retry uses the real skip gate and backend review-complete guard.
+
+    The SQL retry fixture independently checks replacement-plan ACK reseeding.
+    """
+    from fastapi.testclient import TestClient
+
+    from main import app
+    from routes import mihari as routes
+    from services.maintenance import execution
+    from tests.test_maintenance_execution import DB
+
+    head = "b" * 40
+    repo = {
+        "id": "r1",
+        "user_id": "owner",
+        "folder_id": "folder",
+        "remote_url": "repo",
+        "branch": "main",
+        "last_sha": "a" * 40,
+        "api_key_encrypted": "cipher",
+    }
+    clone = tmp_path / "owner" / "folder"
+    (clone / ".git").mkdir(parents=True)
+    state = {"head_sha": head, "selected": ["activity", "deployment"], "acknowledged": []}
+    reviews = {}
+    db = DB(
+        {
+            "maintenance_review_passes": [state],
+            "repo_freshness": [
+                {"folder_id": "folder", "user_id": "owner", "section_reviews": reviews}
+            ],
+        }
+    )
+    state.update(folder_id="folder", user_id="owner")
+    monkeypatch.setattr(routes, "_api_key_auth", lambda _: ("owner", "folder", "rag_key"))
+    monkeypatch.setattr(routes, "get_supabase", lambda: db)
+    monkeypatch.setattr("mcp_server._descendant_folder_ids", lambda *_: ["folder"])
+    monkeypatch.setenv("TSUKAI_MIHARI_NATIVE", "true")
+    monkeypatch.setenv("TSUKAI_CREDENTIAL_OWNER_ID", "owner")
+    monkeypatch.setattr(
+        execution,
+        "capture",
+        lambda *_: ({"expected_sections": {"activity": {}}, "input": {}}, None),
+    )
+    monkeypatch.setattr(mihari, "API_URL", "http://testserver")
+    monkeypatch.setattr(mihari, "DATA", tmp_path)
+    monkeypatch.setattr(mihari, "decrypt", lambda _: "key")
+    monkeypatch.setattr(mihari, "git_env", lambda _: {})
+    monkeypatch.setattr(mihari, "run_git", lambda *_a, **_k: (0, head, ""))
+    monkeypatch.setattr(mihari, "rest_get", lambda *_: [{"name": "repo"}])
+    monkeypatch.setattr(mihari, "seed_bindings", lambda *_: None)
+    monkeypatch.setattr(mihari, "kioku_index", lambda *_: (True, ""))
+    monkeypatch.setattr(mihari, "compute_freshness", lambda *_: None)
+    recorded, plans, activity_skips = [], [], []
+    monkeypatch.setattr(
+        mihari,
+        "rest_patch",
+        lambda table, _filters, patch: recorded.append(patch) if table == "watched_repos" else None,
+    )
+    client = TestClient(app)
+
+    def plan(*_a, **_k):
+        plans.append(True)
+        # This is the DB state asserted by retry.sql after a replacement plan.
+        state["acknowledged"] = [
+            name for name in state["selected"] if (reviews.get(name) or {}).get("head_sha") == head
+        ]
+        return type(
+            "Response",
+            (),
+            {
+                "raise_for_status": lambda _: None,
+                "json": lambda _: {"selected": state["selected"], "reviewed": state["selected"]},
+            },
+        )()
+
+    def activity(*_a, **_k):
+        if "activity" in reviews:
+            result = execution.prepare(db, "owner", "folder", "activity", {"head_sha": head})
+            assert result["engine"] == "skip"
+            activity_skips.append(True)
+        else:
+            reviews["activity"] = {"head_sha": head}
+            state["acknowledged"].append("activity")
+
+    def deployment(*_a, **_k):
+        if len(plans) == 1:
+            raise RuntimeError("deployment failed")
+        state["acknowledged"].append("deployment")
+        reviews["deployment"] = {"head_sha": head}
+
+    monkeypatch.setattr(mihari, "maintenance_post", plan)
+    monkeypatch.setattr(mihari, "refresh_activity", activity)
+    monkeypatch.setattr(mihari, "refresh_sections", deployment)
+    monkeypatch.setattr(
+        mihari.requests,
+        "post",
+        lambda url, **kwargs: client.post("/api/mihari/review-complete", json=kwargs["json"]),
+    )
+    mihari.process_repo(repo, {"private_key_encrypted": "cipher"})
+    assert not any(p.get("last_sha") == head for p in recorded)
+    assert (
+        client.post(
+            "/api/mihari/review-complete",
+            json={"folder_id": "folder", "head_sha": head, "reviewed": state["selected"]},
+        ).status_code
+        == 409
+    )
+    mihari.process_repo(repo, {"private_key_encrypted": "cipher"})
+    assert activity_skips == [True]
+    assert recorded[-1]["last_sha"] == head
+    assert recorded[-1]["last_error"] is None
+    assert (
+        client.post(
+            "/api/mihari/review-complete",
+            json={"folder_id": "folder", "head_sha": head, "reviewed": state["selected"]},
+        ).status_code
+        == 200
+    )

@@ -151,7 +151,9 @@ def _folder_names(sb, folder_ids: list[str]) -> dict[str, str]:
     return {r["id"]: r["name"] for r in rows}
 
 
-def _code_graph_lookup(tool_input: dict, scope_folder_ids: list[str] | None) -> str:
+def _code_graph_lookup(
+    tool_input: dict, scope_folder_ids: list[str] | None, scope_filename: str | None = None
+) -> str:
     """Query the code graph across every repo in scope. Symbols/edges are
     per-folder, so we fan out over the scope folders and label each hit with
     its repo — that's what makes the lookup cross-repo."""
@@ -179,20 +181,28 @@ def _code_graph_lookup(tool_input: dict, scope_folder_ids: list[str] | None) -> 
         repo = names.get(fid, fid)
         if op == "definition":
             for r in graph_store.find_definition(sb, folder_id=fid, symbol=symbol):
+                if scope_filename and r.get("file") != scope_filename:
+                    continue
                 lines.append(
                     f"[{repo}] {r['kind']} {r['symbol']} — {r['file']}:{r['start_line']}{_when(r)}"
                 )
         elif op == "references":
             for r in graph_store.find_references(sb, folder_id=fid, symbol=symbol):
+                if scope_filename and r.get("ref_file") != scope_filename:
+                    continue
                 lines.append(f"[{repo}] {r['relation']} at {r['ref_file']}:{r['ref_line']}")
         elif op == "impact":
             for r in graph_store.impact_of(sb, folder_id=fid, symbol=symbol):
+                if scope_filename and r.get("file") != scope_filename:
+                    continue
                 lines.append(
                     f"[{repo}] depth {r['depth']}: {r['symbol']} — "
                     f"{r['file']}:{r['start_line']}{_when(r)}"
                 )
         elif op == "outline":
             for r in graph_store.outline(sb, folder_id=fid, path=path):
+                if scope_filename and r.get("file") != scope_filename:
+                    continue
                 lines.append(
                     f"[{repo}] {r['kind']} {r['symbol']} — {r['file']}:{r['start_line']}{_when(r)}"
                 )
@@ -258,6 +268,7 @@ def execute_tool(
     scope_filename: str | None = None,
     debug_retrieval: list | None = None,
     citations: CitationRegistry | None = None,
+    full_debug: bool = False,
 ) -> str:
     """Execute a tool call and return the result as a string.
 
@@ -282,6 +293,51 @@ def execute_tool(
             created_after=tool_input.get("created_after"),
             created_before=tool_input.get("created_before"),
         )
+        if full_debug and results:
+            sb = get_supabase()
+            for table, kind in (("documents", "document"), ("code_chunks", "code")):
+                selected = [
+                    r for r in results if (r.get("source_type") == "code") == (kind == "code")
+                ]
+                ids = [r["id"] for r in selected if r.get("id")]
+                if not ids:
+                    for result in selected:
+                        result["_outside_execution_scope"] = True
+                    continue
+                columns = (
+                    "id,folder_id,file_hash,file"
+                    if kind == "code"
+                    else "id,folder_id,content_hash,source_filename"
+                )
+                rows = (
+                    sb.table(table)
+                    .select(columns)
+                    .eq("user_id", user_id)
+                    .in_("id", ids)
+                    .execute()
+                    .data
+                    or []
+                )
+                authoritative = {str(row["id"]): row for row in rows}
+                for result in selected:
+                    row = authoritative.get(str(result.get("id")))
+                    if row is None or row["folder_id"] not in (scope_folder_ids or []):
+                        result["_outside_execution_scope"] = True
+                        continue
+                    actual_filename = (
+                        row.get("file") if kind == "code" else row.get("source_filename")
+                    )
+                    if scope_filename and actual_filename != scope_filename:
+                        result["_outside_execution_scope"] = True
+                        continue
+                    result["metadata"] = {
+                        **(result.get("metadata") or {}),
+                        "folder_id": row["folder_id"],
+                        "source_id": str(row["id"]),
+                        "revision_id": row.get("file_hash") or row.get("content_hash"),
+                        "snapshot_availability": "file content hash; indexed HEAD unavailable",
+                    }
+            results = [r for r in results if not r.get("_outside_execution_scope")]
         if not results:
             return "No relevant documents found in the knowledge base."
         chunks = []
@@ -324,7 +380,21 @@ def execute_tool(
                         "similarity": r.get("similarity"),
                         "date": str(r.get("created_at") or "")[:10] or None,
                         "last_updated": str(r.get("last_updated") or "")[:10] or None,
-                        "content": (r.get("content") or "")[:1200],
+                        "content": (
+                            (r.get("content") or "")
+                            if full_debug
+                            else (r.get("content") or "")[:1200]
+                        ),
+                        **(
+                            {
+                                "metadata": meta,
+                                "source_id": r.get("id"),
+                                "folder_id": meta.get("folder_id"),
+                                "citation_number": citations.register(r) if citations else None,
+                            }
+                            if full_debug
+                            else {}
+                        ),
                     }
                 )
         return "\n\n---\n\n".join(chunks)
@@ -347,7 +417,7 @@ def execute_tool(
         return "\n\n---\n\n".join(parts)
 
     if tool_name == "code_graph_lookup":
-        return _code_graph_lookup(tool_input, scope_folder_ids)
+        return _code_graph_lookup(tool_input, scope_folder_ids, scope_filename)
 
     if tool_name == "recent_changes":
         return _recent_changes(user_id, scope_folder_ids)
