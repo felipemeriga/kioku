@@ -151,3 +151,33 @@ it("exposes typed native rebuild recovery for a pre-job SSE policy conflict", as
   expect(api.requiresNativeRebuild(failure)).toBe(true);
   expect(fetch).toHaveBeenCalledTimes(1);
 });
+
+it("preserves native recovery codes while exposing only a human API message", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            detail: {
+              code: "conversation_needs_rebuild",
+              diagnostic: "secret=hidden",
+            },
+          }),
+          { status: 409, headers: { "content-type": "application/json" } },
+        ),
+    ),
+  );
+  const error = await api
+    .streamChat("conversation", "question", vi.fn(), vi.fn())
+    .catch((err) => err);
+  expect(error).toBeInstanceOf(api.ApiError);
+  expect(error.status).toBe(409);
+  expect(error.detail).toEqual({ code: "conversation_needs_rebuild" });
+  expect(api.requiresNativeRebuild(error)).toBe(true);
+  expect(error.userMessage).toBe(
+    "Rebuild this session from saved history to continue.",
+  );
+  expect(error.userMessage).not.toMatch(/hidden|diagnostic|[{}]/);
+  expect(fetch).toHaveBeenCalledTimes(1);
+});

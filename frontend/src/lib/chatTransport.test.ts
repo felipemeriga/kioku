@@ -6,6 +6,141 @@ const response = (data: string) => new Response(data, { status: 200 });
 const headers = async () => ({ Authorization: "Bearer fixture" });
 const pause = async () => undefined;
 
+it.each([
+  ["cancelled", "Response cancelled."],
+  ["quota_limited", "usage limit"],
+  ["reauth_required", "signed in again"],
+  ["wall_timeout", "took too long"],
+  ["conversation_policy_changed", "model or mode changed"],
+  ["conversation_needs_rebuild", "saved history"],
+  ["execution_uncertain", "could not be confirmed"],
+  ["unverified_citation", "sources could not be verified"],
+  ["tool_backend_unavailable", "temporarily unavailable"],
+  ["invalid_tool_backend", "could not be connected"],
+  ["prelaunch_failed", "could not be started"],
+])(
+  "renders %s without serializing native diagnostics",
+  async (code, message) => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      response(
+        event({
+          error: { code, usage_complete: false, diagnostic: "secret=hidden" },
+        }),
+      ),
+    );
+    const error = await runChatTransport({
+      payload: {},
+      headers,
+      fetcher,
+      pause,
+      onFrame: vi.fn(),
+    }).catch((err) => err);
+    expect(error.code).toBe(code);
+    expect(error.status).toBe(500);
+    expect(error.message).toContain(message);
+    expect(error.message).not.toMatch(/usage_complete|hidden|[{}]/);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  },
+);
+
+it("handles cancellation received from GET replay without another POST", async () => {
+  const fetcher = vi
+    .fn<typeof fetch>()
+    .mockResolvedValueOnce(
+      response(event({ job_id: "job", event_id: 1, stage: "thinking" })),
+    )
+    .mockResolvedValueOnce(
+      response(
+        event({
+          job_id: "job",
+          event_id: 2,
+          error: { code: "cancelled", usage_complete: false },
+        }),
+      ),
+    );
+  await expect(
+    runChatTransport({
+      payload: { turn_id: "turn" },
+      headers,
+      fetcher,
+      pause,
+      onFrame: vi.fn(),
+    }),
+  ).rejects.toMatchObject({
+    code: "cancelled",
+    message: "Response cancelled.",
+  });
+  expect(fetcher.mock.calls.map((call) => call[1]?.method)).toEqual([
+    "POST",
+    "GET",
+  ]);
+  expect(fetcher.mock.calls[1][0]).toBe("/api/chat/jobs/job/events?after=1");
+});
+
+it("renders a cancelled saved turn humanly before replaying any events", async () => {
+  const fetcher = vi
+    .fn<typeof fetch>()
+    .mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: "turn",
+          job_id: "job",
+          conversation_id: "conversation",
+          state: "cancelled",
+          error_code: "cancelled",
+        }),
+      ),
+    );
+  await expect(
+    runChatTransport({
+      payload: {},
+      resume: {
+        turn_id: "turn",
+        job_id: "job",
+        conversation_id: "conversation",
+      },
+      headers,
+      fetcher,
+      pause,
+      onFrame: vi.fn(),
+    }),
+  ).rejects.toMatchObject({
+    code: "cancelled",
+    status: 409,
+    message: "Response cancelled.",
+  });
+  expect(fetcher).toHaveBeenCalledTimes(1);
+});
+
+it.each([
+  [{ debug: "secret=hidden" }, "Chat request failed. Please try again."],
+  [
+    '{"code":"internal","secret":"hidden"}',
+    "Chat request failed. Please try again.",
+  ],
+  ["<html>hidden</html>", "Chat request failed. Please try again."],
+  [
+    "No documents match the selected folder.",
+    "No documents match the selected folder.",
+  ],
+])(
+  "keeps safe legacy text and hides arbitrary diagnostic errors",
+  async (error, message) => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(response(event({ error })));
+    await expect(
+      runChatTransport({
+        payload: {},
+        headers,
+        fetcher,
+        pause,
+        onFrame: vi.fn(),
+      }),
+    ).rejects.toMatchObject({ message });
+  },
+);
+
 describe("durable native chat transport", () => {
   it("reconnects after last processed event and deduplicates deltas before canonical replacement", async () => {
     const fetcher = vi
@@ -249,19 +384,17 @@ it("aborts a remounted listener without retrying or cancelling server execution"
 });
 
 it("reports a saved terminal quota failure without reposting or an event replay loop", async () => {
-  const fetcher = vi
-    .fn<typeof fetch>()
-    .mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          id: "turn",
-          job_id: "job",
-          conversation_id: "conversation",
-          state: "failed",
-          error_code: "quota_limited",
-        }),
-      ),
-    );
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        id: "turn",
+        job_id: "job",
+        conversation_id: "conversation",
+        state: "failed",
+        error_code: "quota_limited",
+      }),
+    ),
+  );
   await expect(
     runChatTransport({
       payload: {},
