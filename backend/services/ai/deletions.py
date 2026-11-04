@@ -45,7 +45,7 @@ def reconcile_deletions():
                     )
                     path = f"/v1/conversations/{row['conversation_id']}/delete"
                 status = client.delete_domain(path, body)
-                tombstone = status["tombstone_id"]
+                tombstone = status["deletion_id"]
             sb.table("tsukai_domain_deletions").update(
                 {
                     "tombstone_id": tombstone,
