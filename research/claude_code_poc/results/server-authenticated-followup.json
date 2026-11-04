@@ -1,0 +1,471 @@
+{
+  "scope": "authenticated isolated server research; no production writes",
+  "recorded_at_utc": "2026-11-04T02:15:53Z",
+  "cohorts": {
+    "host-authenticated": {
+      "recorded_calls": 9,
+      "successful_calls": 8,
+      "forced_cancellations": 1,
+      "median_success_latency_s": 3.5635,
+      "models": [
+        "claude-haiku-5-5"
+      ],
+      "checks.json": [
+        {
+          "name": "stateful-chat",
+          "passed": true,
+          "call_ids": [
+            "1793757789551570551-ab2a2c",
+            "1793757792576211209-6cbdbe"
+          ]
+        },
+        {
+          "name": "stateless-chat",
+          "passed": true,
+          "call_ids": [
+            "1793757794880904549-a5d059"
+          ]
+        },
+        {
+          "name": "mcp-maintenance",
+          "passed": true,
+          "call_ids": [
+            "1793757798984455042-42fb0c"
+          ]
+        },
+        {
+          "name": "changed-source",
+          "passed": true,
+          "call_ids": [
+            "1793757805288240194-38001f"
+          ]
+        },
+        {
+          "name": "parallel-isolation",
+          "passed": true,
+          "call_ids": [
+            "1793757810168269444-6fbd8b",
+            "1793757810169757161-185402"
+          ]
+        },
+        {
+          "name": "cancel-and-recover",
+          "passed": true,
+          "call_ids": [
+            "1793757814466021793-91fe42",
+            "1793757815265518581-8ecc56"
+          ]
+        }
+      ]
+    },
+    "container-authenticated": {
+      "recorded_calls": 10,
+      "successful_calls": 9,
+      "forced_cancellations": 1,
+      "median_success_latency_s": 6.838,
+      "models": [
+        "claude-haiku-4-5-20251001"
+      ],
+      "checks.json": [
+        {
+          "name": "stateful-chat",
+          "passed": true,
+          "call_ids": [
+            "1793757849579515060-752691",
+            "1793757854174887687-95fec0"
+          ]
+        },
+        {
+          "name": "stateless-chat",
+          "passed": true,
+          "call_ids": [
+            "1793757857520767013-d486cb"
+          ]
+        },
+        {
+          "name": "mcp-maintenance",
+          "passed": true,
+          "call_ids": [
+            "1793757864360307284-783826"
+          ]
+        },
+        {
+          "name": "changed-source",
+          "passed": true,
+          "call_ids": [
+            "1793757872456106373-75d9cd"
+          ]
+        },
+        {
+          "name": "parallel-isolation",
+          "passed": true,
+          "call_ids": [
+            "1793757877027451054-4a9bb8",
+            "1793757877028074256-1ef6d5"
+          ]
+        },
+        {
+          "name": "cancel-and-recover",
+          "passed": true,
+          "call_ids": [
+            "1793757885196551037-adde4f",
+            "1793757885590246300-e9c0b8"
+          ]
+        }
+      ],
+      "restart-result.json": {
+        "passed": true,
+        "session_preserved": true,
+        "elapsed_s": 3.37,
+        "result": "Based on our earlier conversation:\n\n- **Database Pattern:** PostgreSQL outbox\n- **Idempotency Key:** event_id"
+      }
+    },
+    "actual-mihari": {
+      "recorded_calls": 12,
+      "successful_calls": 12,
+      "forced_cancellations": 0,
+      "median_success_latency_s": 5.906000000000001,
+      "models": [
+        "claude-haiku-5-5"
+      ],
+      "checks.json": {
+        "initial_three_repos_reviewed": true,
+        "isolated_per_repo_sessions": true,
+        "unchanged_heads_no_model_calls": true,
+        "failure_retains_old_sha": true,
+        "next_pass_recovers": true,
+        "fresh_session_on_new_pass": true,
+        "indexing_scope": "fixture inventory stub; no embedding or production upload",
+        "updated_documentation_mentions_current_attempts": true
+      }
+    },
+    "broker-authenticated": {
+      "recorded_calls": 6,
+      "successful_calls": 6,
+      "forced_cancellations": 0,
+      "median_success_latency_s": 4.107,
+      "models": [
+        "claude-haiku-5-5"
+      ],
+      "checks.json": {
+        "first": {
+          "event": {
+            "broker_result": "Acknowledged: for this conversation, we've adopted a PostgreSQL outbox pattern with `event_id` as the idempotency key.",
+            "returncode": 0,
+            "session_id": "1c7c6022-a41f-4a32-86ff-566824bdc3ed",
+            "elapsed_s": 3.637
+          },
+          "elapsed_s": 3.6398886530660093,
+          "first_text_s": 2.590539891971275,
+          "event_counts": {
+            "stream_event": 13,
+            "result": 1,
+            "broker": 1
+          }
+        },
+        "stateful_recall": {
+          "passed": true,
+          "event": {
+            "broker_result": "We selected the PostgreSQL outbox pattern, with `event_id` as the idempotency key.",
+            "returncode": 0,
+            "session_id": "1c7c6022-a41f-4a32-86ff-566824bdc3ed",
+            "elapsed_s": 2.053
+          },
+          "elapsed_s": 2.054732342949137,
+          "first_text_s": 1.2524366369470954,
+          "event_counts": {
+            "stream_event": 10,
+            "result": 1,
+            "broker": 1
+          }
+        },
+        "stateless_recall": {
+          "passed": true,
+          "event": {
+            "broker_result": "The prior decision, as you've described it, was a **PostgreSQL transactional outbox** pattern, keyed on **`event_id`**.\n\nI haven't checked this against the repository in this session, so I can't confirm the exact table name, column definitions, or where the decision was recorded. If you want that confirmed from source, I can search the codebase or decision records for the outbox table and `event_id` usage.",
+            "returncode": 0,
+            "session_id": "63139ce5-f5d4-4bea-b933-cd9e44be3129",
+            "elapsed_s": 4.577
+          },
+          "elapsed_s": 4.579744620015845,
+          "first_text_s": 3.2594328550621867,
+          "event_counts": {
+            "stream_event": 40,
+            "result": 1,
+            "broker": 1
+          }
+        },
+        "maintenance": {
+          "passed": true,
+          "event": {
+            "broker_result": "**MAX_ATTEMPTS is 7.** It's defined at `worker.py:1`.\n\n**The idempotency key is `event_id`.** The README states \"Idempotency uses event_id.\" In `worker.py`, the `deliver(event_id)` function at line 2 takes `event_id` and returns it. The code itself doesn't contain any other idempotency logic, so the key is documented in the README rather than enforced in the code I found.\n\nThe README also says \"Deployment is not established,\" so I have no evidence of how or where this worker runs.",
+            "returncode": 0,
+            "session_id": "25a54c6e-4725-439c-8d60-ca08266261b6",
+            "elapsed_s": 5.381
+          },
+          "elapsed_s": 5.382909859064966,
+          "first_text_s": 3.935493021039292,
+          "event_counts": {
+            "stream_event": 66,
+            "result": 1,
+            "broker": 1
+          }
+        },
+        "concurrent_health": {
+          "passed": true,
+          "event": {
+            "healthy": true
+          },
+          "elapsed_s": 0.0010986390989273787,
+          "first_text_s": null,
+          "event_counts": {
+            "broker": 1
+          }
+        },
+        "same_session_lock": {
+          "passed": true,
+          "event": {
+            "error": "session_busy"
+          },
+          "elapsed_s": 0.0005220971070230007,
+          "first_text_s": null,
+          "event_counts": {
+            "broker": 1
+          }
+        },
+        "streaming": {
+          "passed": true,
+          "first_text_s": 2.590539891971275,
+          "events": {
+            "stream_event": 13,
+            "result": 1,
+            "broker": 1
+          }
+        },
+        "session_id": "1c7c6022-a41f-4a32-86ff-566824bdc3ed"
+      }
+    },
+    "image-runner": {
+      "recorded_calls": 11,
+      "successful_calls": 11,
+      "forced_cancellations": 0,
+      "median_success_latency_s": 4.736,
+      "models": [
+        "claude-haiku-4-5-20251001"
+      ],
+      "checks.json": {
+        "first": {
+          "event": {
+            "broker_result": "I acknowledge that for this conversation, we are using PostgreSQL outbox pattern with event_id as the idempotency key.",
+            "returncode": 0,
+            "session_id": "95b40059-4b8d-4eb3-bb6f-f87effc85d47",
+            "elapsed_s": 2.506
+          },
+          "elapsed_s": 2.507779091829434,
+          "first_text_s": 1.6002463409677148,
+          "event_counts": {
+            "stream_event": 12,
+            "result": 1,
+            "broker": 1
+          }
+        },
+        "stateful_recall": {
+          "passed": true,
+          "event": {
+            "broker_result": "We selected the PostgreSQL outbox pattern with event_id as the idempotency key.",
+            "returncode": 0,
+            "session_id": "95b40059-4b8d-4eb3-bb6f-f87effc85d47",
+            "elapsed_s": 2.291
+          },
+          "elapsed_s": 2.292071745963767,
+          "first_text_s": 1.4915032689459622,
+          "event_counts": {
+            "stream_event": 9,
+            "result": 1,
+            "broker": 1
+          }
+        },
+        "stateless_recall": {
+          "passed": true,
+          "event": {
+            "broker_result": "# PostgreSQL Outbox Pattern Recall\n\nBased on your prior decision context, you adopted **PostgreSQL outbox** with **event_id** as the key component.\n\nHowever, I don't have the specific details from your earlier conversation about:\n\n1. **Exact database pattern variant** \u2014 whether you chose:\n   - Classic outbox (events table + separate publish mechanism)\n   - Transactional outbox (single transaction covering business logic + event capture)\n   - Outbox with polling\n   - Outbox with CDC (Change Data Capture)\n\n2. **event_id key specifics** \u2014 such as:\n   - UUID or sequential integer format\n   - Primary key vs. unique constraint usage\n   - Partitioning strategy\n\nTo give you precise implementation details, I'd need to either:\n- Review the prior message thread where these decisions were documented\n- Access any design documents or code you've created since then\n\n**Can you provide context about which specific outbox variant and event_id key scheme you selected?** That will help me give you accurate recall rather than assumptions.",
+            "returncode": 0,
+            "session_id": "14c195ba-d558-463a-88b5-0d9d9af8545e",
+            "elapsed_s": 4.904
+          },
+          "elapsed_s": 4.906067112926394,
+          "first_text_s": 1.5567917020525783,
+          "event_counts": {
+            "stream_event": 107,
+            "result": 1,
+            "broker": 1
+          }
+        },
+        "maintenance": {
+          "passed": true,
+          "event": {
+            "broker_result": "Based on the repository source:\n\n**MAX_ATTEMPTS**: `7` (defined in worker.py)\n\n**Idempotency Key**: `event_id` is used for idempotency. According to the README, \"Idempotency uses event_id.\"\n\nNo deployment evidence is present in the current repository state.",
+            "returncode": 0,
+            "session_id": "b4f97fd1-e9b1-4e84-a866-fc7a6fb54070",
+            "elapsed_s": 4.736
+          },
+          "elapsed_s": 4.738021661993116,
+          "first_text_s": 1.5541826020926237,
+          "event_counts": {
+            "stream_event": 69,
+            "result": 1,
+            "broker": 1
+          }
+        },
+        "concurrent_health": {
+          "passed": true,
+          "event": {
+            "healthy": true
+          },
+          "elapsed_s": 0.0011716291774064302,
+          "first_text_s": null,
+          "event_counts": {
+            "broker": 1
+          }
+        },
+        "same_session_lock": {
+          "passed": true,
+          "event": {
+            "error": "session_busy"
+          },
+          "elapsed_s": 0.0006542180199176073,
+          "first_text_s": null,
+          "event_counts": {
+            "broker": 1
+          }
+        },
+        "streaming": {
+          "passed": true,
+          "first_text_s": 1.6002463409677148,
+          "events": {
+            "stream_event": 12,
+            "result": 1,
+            "broker": 1
+          }
+        },
+        "session_id": "95b40059-4b8d-4eb3-bb6f-f87effc85d47"
+      },
+      "checks-before-history-prompt-fix.json": {
+        "first": {
+          "event": {
+            "broker_result": "I acknowledge that we're using PostgreSQL outbox pattern with event_id as the idempotency key for this conversation.",
+            "returncode": 0,
+            "session_id": "37dbefc0-f441-4800-ae61-dc9f315395ed",
+            "elapsed_s": 2.837
+          },
+          "elapsed_s": 2.8395491319242865,
+          "first_text_s": 2.1250801770947874,
+          "event_counts": {
+            "stream_event": 12,
+            "result": 1,
+            "broker": 1
+          }
+        },
+        "stateful_recall": {
+          "passed": true,
+          "event": {
+            "broker_result": "We selected the PostgreSQL outbox pattern with event_id as the idempotency key.",
+            "returncode": 0,
+            "session_id": "37dbefc0-f441-4800-ae61-dc9f315395ed",
+            "elapsed_s": 2.875
+          },
+          "elapsed_s": 2.8764483898412436,
+          "first_text_s": 2.059591521974653,
+          "event_counts": {
+            "stream_event": 8,
+            "result": 1,
+            "broker": 1
+          }
+        },
+        "stateless_recall": {
+          "passed": false,
+          "event": {
+            "broker_result": "I don't have access to previous conversation history or decision records about your PostgreSQL outbox implementation. To answer your question about which database pattern and key were chosen, I would need to:\n\n1. **Review your codebase** - Check migration files, schema definitions, or documentation\n2. **Access decision logs** - Look for ADR (Architecture Decision Records) or meeting notes\n3. **Examine the actual implementation** - See the table structure and key configuration\n\nCould you help me by:\n- Sharing the relevant schema or migration files?\n- Pointing me to where this decision was documented?\n- Describing what you remember about the choice (e.g., was it a composite key, surrogate key, etc.)?\n\nOnce I have access to that information, I can tell you exactly which pattern and key structure were adopted for your PostgreSQL outbox.",
+            "returncode": 0,
+            "session_id": "801228cb-f4e0-4dcd-b835-664aaec98c90",
+            "elapsed_s": 5.243
+          },
+          "elapsed_s": 5.244961112970486,
+          "first_text_s": 2.661075791111216,
+          "event_counts": {
+            "stream_event": 78,
+            "result": 1,
+            "broker": 1
+          }
+        },
+        "maintenance": {
+          "passed": true,
+          "event": {
+            "broker_result": "Based on the repository inspection, here's what I found:\n\n## MAX_ATTEMPTS\n**Value: 7**\n- Source: `worker.py:1`\n- This is defined as a constant in the worker module\n\n## Idempotency Key\n**Uses: `event_id`**\n- Source: `README.md:1`\n- The idempotency mechanism is based on the `event_id` parameter\n- The `deliver(event_id)` function takes this as its argument and returns it\n\n## Important Note on Deployment\nAccording to the README: **\"Deployment is not established.\"** - There is no active deployment for this worker, so I'm not inventing any deployment evidence as requested.",
+            "returncode": 0,
+            "session_id": "977c0ba3-a811-473d-a762-088b4a603db3",
+            "elapsed_s": 5.501
+          },
+          "elapsed_s": 5.503239771118388,
+          "first_text_s": 1.693571015028283,
+          "event_counts": {
+            "stream_event": 95,
+            "result": 1,
+            "broker": 1
+          }
+        },
+        "concurrent_health": {
+          "passed": true,
+          "event": {
+            "healthy": true
+          },
+          "elapsed_s": 0.00163371697999537,
+          "first_text_s": null,
+          "event_counts": {
+            "broker": 1
+          }
+        },
+        "same_session_lock": {
+          "passed": true,
+          "event": {
+            "error": "session_busy"
+          },
+          "elapsed_s": 0.0010989189613610506,
+          "first_text_s": null,
+          "event_counts": {
+            "broker": 1
+          }
+        },
+        "streaming": {
+          "passed": true,
+          "first_text_s": 2.1250801770947874,
+          "events": {
+            "stream_event": 12,
+            "result": 1,
+            "broker": 1
+          }
+        },
+        "session_id": "37dbefc0-f441-4800-ae61-dc9f315395ed"
+      }
+    }
+  },
+  "limits": "small fixture samples; native model output still requires semantic review; no actual token-expiry/refresh cycle forced",
+  "additional_evidence": {
+    "old_cli_cross_cwd_resume": "Failed No conversation found, then stable cwd succeeded3.37s",
+    "new_image_container_recreated_resume": {
+      "passed": true,
+      "elapsed_s": 2.6181581530254334
+    },
+    "model_readiness_good": {
+      "state": "healthy",
+      "elapsed_s": 2.349
+    },
+    "model_readiness_isolated_empty_auth": {
+      "state": "reauth_required",
+      "elapsed_s": 0.814
+    },
+    "six_unit_tests": "passed",
+    "docker_compose_config": "passed",
+    "temporary_services": "stopped"
+  }
+}

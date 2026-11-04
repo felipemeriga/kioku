@@ -1,0 +1,21 @@
+# Standalone research runner; no Kioku application image or credentials included.
+FROM debian:bookworm-slim AS claude
+ARG CLAUDE_VERSION=2.1.285
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl bash \
+    && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL https://claude.ai/install.sh | bash -s -- "${CLAUDE_VERSION}" \
+    && cp -L /root/.local/bin/claude /usr/local/bin/claude
+
+FROM python:3.12-slim-bookworm
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --uid 1000 --create-home runner \
+    && mkdir -p /state/claude /data /poc \
+    && chown -R runner:runner /state /data /poc \
+    && chmod 0700 /state /state/claude /data
+COPY --from=claude /usr/local/bin/claude /usr/local/bin/claude
+COPY native.py fixture_mcp.py server_poc.py broker_client.py auth_health.py /poc/
+ENV HOME=/home/runner CLAUDE_CONFIG_DIR=/state/claude
+USER 1000:1000
+WORKDIR /poc
+CMD ["python", "/poc/server_poc.py", "--runtime", "/data", "--broker"]

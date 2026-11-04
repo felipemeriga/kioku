@@ -1,0 +1,333 @@
+{
+  "concurrency/checks.json": [
+    {
+      "hour": 0,
+      "model": "haiku",
+      "fanout": 1,
+      "wall_time_s": 3.103,
+      "successes": 1,
+      "isolation_correct": true,
+      "call_ids": [
+        "1793743901957849000-e0e310"
+      ]
+    },
+    {
+      "hour": 0,
+      "model": "haiku",
+      "fanout": 2,
+      "wall_time_s": 3.177,
+      "successes": 2,
+      "isolation_correct": true,
+      "call_ids": [
+        "1793743905060122000-9a589e",
+        "1793743905060235000-15b738"
+      ]
+    },
+    {
+      "hour": 0,
+      "model": "haiku",
+      "fanout": 4,
+      "wall_time_s": 3.437,
+      "successes": 4,
+      "isolation_correct": true,
+      "call_ids": [
+        "1793743908237460000-8bb9fc",
+        "1793743908237610000-573bf4",
+        "1793743908238016000-c7ef64",
+        "1793743908238349000-4ce958"
+      ]
+    },
+    {
+      "hour": 0,
+      "model": "sonnet",
+      "fanout": 4,
+      "wall_time_s": 4.665,
+      "successes": 4,
+      "isolation_correct": true,
+      "call_ids": [
+        "1793743911675628000-2b3d5f",
+        "1793743911675825000-759eec",
+        "1793743911676389000-9be218",
+        "1793743911677462000-d3ef78"
+      ]
+    },
+    {
+      "hour": 1,
+      "model": "haiku",
+      "fanout": 1,
+      "wall_time_s": 2.936,
+      "successes": 1,
+      "isolation_correct": true,
+      "call_ids": [
+        "1793747501973437000-91ced8"
+      ]
+    },
+    {
+      "hour": 1,
+      "model": "haiku",
+      "fanout": 2,
+      "wall_time_s": 3.121,
+      "successes": 2,
+      "isolation_correct": true,
+      "call_ids": [
+        "1793747504907999000-f112f9",
+        "1793747504908095000-90caac"
+      ]
+    },
+    {
+      "hour": 1,
+      "model": "haiku",
+      "fanout": 4,
+      "wall_time_s": 3.015,
+      "successes": 4,
+      "isolation_correct": true,
+      "call_ids": [
+        "1793747508029857000-7ed048",
+        "1793747508029992000-6819ff",
+        "1793747508030108000-b9f937",
+        "1793747508030503000-a4086a"
+      ]
+    },
+    {
+      "hour": 1,
+      "model": "sonnet",
+      "fanout": 4,
+      "wall_time_s": 4.988,
+      "successes": 4,
+      "isolation_correct": true,
+      "call_ids": [
+        "1793747511045193000-73cd10",
+        "1793747511045307000-78fe95",
+        "1793747511045576000-a45283",
+        "1793747511045780000-f3522e"
+      ]
+    },
+    {
+      "hour": 2,
+      "model": "haiku",
+      "fanout": 1,
+      "wall_time_s": 3.198,
+      "successes": 1,
+      "isolation_correct": true,
+      "call_ids": [
+        "1793751102317041000-b4f4ca"
+      ]
+    },
+    {
+      "hour": 2,
+      "model": "haiku",
+      "fanout": 2,
+      "wall_time_s": 3.317,
+      "successes": 2,
+      "isolation_correct": true,
+      "call_ids": [
+        "1793751105513965000-9f56ec",
+        "1793751105514075000-11852c"
+      ]
+    },
+    {
+      "hour": 2,
+      "model": "haiku",
+      "fanout": 4,
+      "wall_time_s": 3.229,
+      "successes": 4,
+      "isolation_correct": true,
+      "call_ids": [
+        "1793751108831735000-a5b9c4",
+        "1793751108831907000-824e1e",
+        "1793751108832010000-d1a23c",
+        "1793751108832439000-8113b5"
+      ]
+    },
+    {
+      "hour": 2,
+      "model": "sonnet",
+      "fanout": 4,
+      "wall_time_s": 4.925,
+      "successes": 4,
+      "isolation_correct": true,
+      "call_ids": [
+        "1793751112061650000-db0b74",
+        "1793751112061761000-88e41c",
+        "1793751112061877000-9e3a56",
+        "1793751112062322000-652d2e"
+      ]
+    }
+  ],
+  "local-mihari-v2/checks.json": {
+    "initial_three_repos_reviewed": true,
+    "isolated_per_repo_sessions": true,
+    "unchanged_heads_no_model_calls": true,
+    "failure_retains_old_sha": true,
+    "next_pass_recovers": true,
+    "fresh_session_on_new_pass": true,
+    "indexing_scope": "fixture inventory stub; no embedding or production upload",
+    "updated_documentation_mentions_current_attempts": true
+  },
+  "local-chat/checks.json": [
+    {
+      "mode": "stateless",
+      "check": "http-roundtrip-and-recall",
+      "passed": true,
+      "responses": [
+        {
+          "text": "Acknowledged: for the synthetic invoice worker, PostgreSQL outbox pattern with event_id deduplication ensures reliable, idempotent event processing.",
+          "done": true,
+          "first_token_s": 2.2552800830453634,
+          "errors": [],
+          "elapsed_s": 3.249147375114262
+        },
+        {
+          "text": "We chose PostgreSQL with the outbox pattern and event_id deduplication for reliable, idempotent event delivery in the synthetic invoice worker.",
+          "done": true,
+          "first_token_s": 2.1024586246348917,
+          "errors": [],
+          "elapsed_s": 3.071091666817665
+        }
+      ]
+    },
+    {
+      "mode": "stateful",
+      "check": "http-roundtrip-and-recall",
+      "passed": true,
+      "responses": [
+        {
+          "text": "Acknowledged: You're using PostgreSQL's outbox pattern with event_id deduplication for the synthetic invoice worker to ensure reliable, idempotent event publishing.",
+          "done": true,
+          "first_token_s": 2.3978672078810632,
+          "errors": [],
+          "elapsed_s": 3.5177932921797037
+        },
+        {
+          "text": "PostgreSQL with the outbox pattern and event_id deduplication for idempotent event delivery.",
+          "done": true,
+          "first_token_s": 1.6083309170790017,
+          "errors": [],
+          "elapsed_s": 2.5426070000976324
+        }
+      ]
+    },
+    {
+      "mode": "stateful",
+      "check": "disconnect-generation-persists",
+      "passed": true,
+      "client_partial_chars": 1,
+      "persisted_chars": 1894
+    },
+    {
+      "mode": "stateful",
+      "check": "active-job-does-not-block-state-and-serializes-conversation",
+      "passed": true,
+      "state_probe_s": 0.002087417058646679,
+      "same_conversation_errors": [
+        "Conversation already has an active turn"
+      ]
+    }
+  ],
+  "history-quality/checks.json": [
+    {
+      "custom_system": false,
+      "case": 0,
+      "exact_recall": false,
+      "result": "9c56006d",
+      "call_id": "1793748705618427000-5d0e77"
+    },
+    {
+      "custom_system": false,
+      "case": 1,
+      "exact_recall": true,
+      "result": "POC-invoice-worker-1-9c56006d",
+      "call_id": "1793748709063246000-2cd26f"
+    },
+    {
+      "custom_system": false,
+      "case": 2,
+      "exact_recall": true,
+      "result": "POC-invoice-worker-2-9c56006d",
+      "call_id": "1793748713276416000-2bf020"
+    },
+    {
+      "custom_system": false,
+      "case": 3,
+      "exact_recall": true,
+      "result": "POC-invoice-worker-3-9c56006d",
+      "call_id": "1793748716166281000-c6f76f"
+    },
+    {
+      "custom_system": true,
+      "case": 0,
+      "exact_recall": true,
+      "result": "POC-invoice-worker-0-9c56006d",
+      "call_id": "1793748718923552000-29acd9"
+    },
+    {
+      "custom_system": true,
+      "case": 1,
+      "exact_recall": true,
+      "result": "POC-invoice-worker-1-9c56006d",
+      "call_id": "1793748722178600000-79a66f"
+    },
+    {
+      "custom_system": true,
+      "case": 2,
+      "exact_recall": true,
+      "result": "POC-invoice-worker-2-9c56006d",
+      "call_id": "1793748725500634000-e0ec2b"
+    },
+    {
+      "custom_system": true,
+      "case": 3,
+      "exact_recall": true,
+      "result": "POC-invoice-worker-3-9c56006d",
+      "call_id": "1793748728458845000-262a47"
+    }
+  ],
+  "compaction/additional-checks.json": {
+    "call_ids": [
+      "1793744673863934000-c737ec",
+      "1793744685037445000-8695ff"
+    ],
+    "boundary_count": 1,
+    "boundaries": [
+      {
+        "type": "system",
+        "subtype": "compact_boundary",
+        "uuid": "f4142092-9b3b-4d23-8579-4fe8959b4558",
+        "compact_metadata": {
+          "trigger": "auto",
+          "pre_tokens": 132887,
+          "post_tokens": 39879,
+          "cumulative_dropped_tokens": 93008,
+          "duration_ms": 6869,
+          "preserved_segment": {
+            "head_uuid": "3af1b90a-77f7-458d-b17c-e7e245a268fa",
+            "anchor_uuid": "834c816d-db39-43db-bd50-4cabe0d2e60a",
+            "tail_uuid": "5f490d42-968f-4a25-b642-5100e338aaae"
+          },
+          "preserved_messages": {
+            "anchor_uuid": "834c816d-db39-43db-bd50-4cabe0d2e60a",
+            "uuids": [
+              "3af1b90a-77f7-458d-b17c-e7e245a268fa",
+              "c3c0358c-3491-475d-997b-28d9ac63d498",
+              "5f490d42-968f-4a25-b642-5100e338aaae"
+            ],
+            "all_uuids": [
+              "3af1b90a-77f7-458d-b17c-e7e245a268fa",
+              "c3c0358c-3491-475d-997b-28d9ac63d498",
+              "5f490d42-968f-4a25-b642-5100e338aaae"
+            ]
+          }
+        },
+        "logical_parent_uuid": "5f490d42-968f-4a25-b642-5100e338aaae",
+        "session_id": "5ac8ce2c-726a-4b17-8868-7448da4f9ce8"
+      }
+    ],
+    "final_fact_retained": true
+  },
+  "compaction/quality-checks.json": {
+    "source_correction_call": "1793744759382310000-e73460",
+    "correction_result": "**Corrected Final Adopted Facts:**\n\n**Queue Transport:** PostgreSQL outbox pattern with event_id-based idempotency\n\n**Error Policy:**\n- **401/403 HTTP:** Permanent failures \u2014 not retried\n- **429/503 HTTP:** Transient failures \u2014 retried\n\nNo backoff algorithm, maximum attempts, or dead-lettering behavior was adopted. Retry mechanics remain unspecified.",
+    "recall_call": "1793744762248818000-1f4d6d",
+    "recall_result": "**No backoff strategy has been verified or adopted.**\n\nThe only established facts are:\n- 401/403 \u2192 permanent (no retry)\n- 429/503 \u2192 transient (retried)\n\nBackoff algorithm, timing, or retry count remain unspecified."
+  }
+}

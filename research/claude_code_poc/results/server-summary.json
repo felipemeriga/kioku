@@ -1,0 +1,21 @@
+{
+  "phase": "sequential, after both local 3h runs completed",
+  "native_version": "2.1.207",
+  "server_os": "Ubuntu x86_64 Linux",
+  "ram_mib": 15992,
+  "auth_status_claim": "loggedIn true, claude.ai Max",
+  "actual_model_error": "Failed to authenticate: OAuth session expired and could not be refreshed",
+  "live_model_checks": "blocked by native server authentication; nine attempted subprocesses, including forced cancellation",
+  "isolated_container_native_version_succeeded": true,
+  "isolated_container_empty_home_auth": "loggedIn false, authMethod none",
+  "isolated_container_limits": {
+    "memory_mib": 256,
+    "cpus": 1,
+    "network": "none",
+    "rootfs": "read-only"
+  },
+  "container_to_host_unix_broker_health_s": 0.0013682048302143812,
+  "container_to_host_actual_auth_error_s": 1.3495469328481704,
+  "credentials_transferred": false,
+  "production_containers_modified": false
+}

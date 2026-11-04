@@ -1,0 +1,29 @@
+# Isolated Dokploy Compose example; never applied to production by this POC.
+services:
+  native-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.runner
+      args:
+        CLAUDE_VERSION: "2.1.285"
+    user: "1000:1000"
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,size=128m
+      - /home/runner:rw,nosuid,size=32m,uid=1000,gid=1000
+    volumes:
+      - native-state:/state
+      - native-jobs:/data
+    mem_limit: 1g
+    cpus: 2
+    pids_limit: 128
+    healthcheck:
+      test: ["CMD", "python", "/poc/broker_client.py", "--socket", "/data/broker.sock", "--health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    # No public ports. A future Kioku adapter can share the jobs volume/socket.
+volumes:
+  native-state:
+  native-jobs:
