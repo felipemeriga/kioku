@@ -37,6 +37,52 @@ def save(path, value, append=False):
         os.fsync(stream.fileno())
 
 
+def prepare_seed(
+    state, key, create_conversation, filename=None, reuse=False, nonce=None
+):
+    """Bookkeeping only: pending admission retries must preserve exact intent."""
+    if state.get("pending"):
+        return state["conversations"][key], False
+    nonce = nonce or "tsukai-e2e-" + uuid.uuid4().hex[:12]
+    if reuse and key in state["conversations"]:
+        fixture = state["conversations"][key]
+        fixture.setdefault("first_nonce", fixture["nonce"])
+        fixture.update({"nonce": nonce, "initial_seed": False})
+        return fixture, False
+    fixture = {
+        "id": create_conversation(),
+        "nonce": nonce,
+        "first_nonce": nonce,
+        "filename": filename,
+        "initial_seed": True,
+    }
+    state["conversations"][key] = fixture
+    return fixture, True
+
+
+def message_content(fixture, seed, reuse, question):
+    if not seed:
+        if reuse:
+            return "Reply with the FIRST acceptance code from the beginning of this conversation and the CURRENT acceptance code from the most recent update. Label each code clearly."
+        return (
+            "What acceptance code did I ask you to remember? Reply only with that code."
+        )
+    if not reuse:
+        prefix = f"Remember this acceptance code: {fixture['nonce']}. Include it in your answer. "
+    elif fixture.get("initial_seed"):
+        prefix = f"The FIRST and CURRENT acceptance codes are both {fixture['nonce']}. Keep the FIRST code unchanged throughout this conversation. Include the CURRENT code in your answer. "
+    else:
+        prefix = f"Replace the CURRENT acceptance code with {fixture['nonce']}. Keep the FIRST acceptance code from the beginning of this conversation unchanged. Include the CURRENT code in your answer. "
+    return prefix + question
+
+
+def required_codes(fixture, seed, reuse):
+    codes = {fixture["nonce"]}
+    if reuse and not seed:
+        codes.add(fixture.get("first_nonce", fixture["nonce"]))
+    return codes
+
+
 def probe(config, read_only=False):
     if not config["fixture_name"].startswith("tsukai-e2e-"):
         raise ValueError("Isolated tsukai-e2e-* fixture required")
@@ -57,6 +103,7 @@ def probe(config, read_only=False):
     model, mode = combinations[(state["cycle"] // 2) % len(combinations)]
     key = f"{model}-{mode}"
     seed = state["cycle"] % 2 == 0
+    reuse = bool(config.get("reuse_conversations", False))
     with httpx.Client(
         base_url=config["url"].rstrip("/"),
         headers={"Authorization": "Bearer " + token_path.read_text().strip()},
@@ -137,46 +184,49 @@ def probe(config, read_only=False):
             result = {"kind": "real_http_read_only", "checks": checks}
             save(config["evidence"], result, append=True)
             return result
-        if seed and not state.get("pending"):
-            response = client.post("/api/conversations")
-            response.raise_for_status()
-            conversation = response.json()["id"]
-            nonce = "tsukai-e2e-" + uuid.uuid4().hex[:12]
-            state["conversations"][key] = {
-                "id": conversation,
-                "nonce": nonce,
-                "filename": config.get("scope_filename"),
-            }
-            response = client.patch(
-                f"/api/conversations/{conversation}",
-                json={"title": config["fixture_name"] + " " + key},
+        if seed:
+
+            def create():
+                response = client.post("/api/conversations")
+                response.raise_for_status()
+                return response.json()["id"]
+
+            fixture, created = prepare_seed(
+                state, key, create, config.get("scope_filename"), reuse
             )
-            response.raise_for_status()
-            save(
-                config["evidence"],
-                {
-                    "kind": "fixture_created",
-                    "conversation_id": conversation,
-                    "fixture_name": config["fixture_name"],
-                    "model": model,
-                    "mode": mode,
-                },
-                append=True,
-            )
+            if created:
+                conversation = fixture["id"]
+                response = client.patch(
+                    f"/api/conversations/{conversation}",
+                    json={"title": config["fixture_name"] + " " + key},
+                )
+                response.raise_for_status()
+                save(
+                    config["evidence"],
+                    {
+                        "kind": "fixture_created",
+                        "conversation_id": conversation,
+                        "fixture_name": config["fixture_name"],
+                        "model": model,
+                        "mode": mode,
+                    },
+                    append=True,
+                )
             save(state_path, state)
         fixture = state["conversations"][key]
         conversation, nonce = fixture["id"], fixture["nonce"]
         turn = state.get("pending", {}).get("turn_id") or str(uuid.uuid4())
-        content = (
-            (
-                f"Remember this acceptance code: {nonce}. Include it in your answer. "
-                + config.get("seed_question", "Reply briefly with the acceptance code.")
-            )
-            if seed
-            else (
-                "What acceptance code did I ask you to remember? Reply only with that code."
-            )
+        content = message_content(
+            fixture,
+            seed,
+            reuse,
+            config.get("seed_question", "Reply briefly with the acceptance code."),
         )
+        codes = required_codes(fixture, seed, reuse)
+        if not seed and any(code in content for code in codes):
+            raise CheckFailure(
+                "Recall prompt must never inject expected acceptance codes"
+            )
         long_sample = state["cycle"] == 2 and not state.get("long_sample_done")
         if long_sample:
             content += " For this one streaming sample, write at least 150 words explaining your answer."
@@ -252,7 +302,7 @@ def probe(config, read_only=False):
         if (
             not terminal
             or not terminal.get("message_id")
-            or nonce not in terminal.get("replace", "")
+            or any(code not in terminal.get("replace", "") for code in codes)
         ):
             raise CheckFailure(
                 "Missing durable terminal answer or incorrect stateful recall"
@@ -370,7 +420,7 @@ def probe(config, read_only=False):
         saved = [
             message for message in messages if message["id"] == terminal["message_id"]
         ]
-        if len(saved) != 1 or nonce not in saved[0]["content"]:
+        if len(saved) != 1 or any(code not in saved[0]["content"] for code in codes):
             raise CheckFailure("Terminal answer was not persisted exactly once")
         used_citations = {
             int(number) for number in re.findall(r"\[(\d+)\]", saved[0]["content"])
@@ -395,6 +445,15 @@ def probe(config, read_only=False):
             "model": model,
             "mode": mode,
             "seed": seed,
+            "reuse_conversations": reuse,
+            "first_and_current_verified": reuse and not seed,
+            "first_nonce_sha256": hashlib.sha256(
+                fixture.get("first_nonce", nonce).encode()
+            ).hexdigest(),
+            "current_nonce_sha256": hashlib.sha256(nonce.encode()).hexdigest(),
+            "committed_assistant_messages": sum(
+                message["role"] == "assistant" for message in messages
+            ),
             "long_stream_sample": long_sample,
             "active_admin_observation": admin_observation,
             "attempt_timings": attempt_timings,
