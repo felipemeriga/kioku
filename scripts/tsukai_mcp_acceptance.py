@@ -31,10 +31,12 @@ def text_content(result):
     text = "\n".join(item.text for item in result.content if item.type == "text")
     if not text.strip():
         raise CheckFailure("MCP tool returned no text")
+    if text.lstrip().lower().startswith(("error:", "query failed:", "error reading")):
+        raise CheckFailure("MCP tool returned a textual service error")
     return text
 
 
-async def probe(config, metadata=False):
+async def probe(config, metadata=False, surfaces=False):
     if not config["folder_name"].startswith("tsukai-e2e-"):
         raise ValueError("An isolated tsukai-e2e-* scope is required")
     if not config["expected_marker"].strip():
@@ -76,6 +78,70 @@ async def probe(config, metadata=False):
                 "briefing_sha256": hashlib.sha256(briefing.encode()).hexdigest(),
                 "metadata": metadata,
             }
+            if surfaces:
+                folder = config["folder_name"]
+                symbol = config.get("graph_symbol", "run_once")
+                path = config.get("graph_path", "worker.py")
+                calls = [
+                    ("get_folder_orientation", {"folder": folder}, folder),
+                    ("list_folders_in_scope", {}, folder),
+                    (
+                        "read_folder_documents",
+                        {"folder": folder},
+                        config["expected_marker"],
+                    ),
+                    ("get_repo_documentation", {"folder": folder}, None),
+                    (
+                        "knowledge_base_search",
+                        {"folder": folder, "query": config["expected_marker"]},
+                        config["expected_marker"],
+                    ),
+                    ("outline", {"folder": folder, "path": path}, symbol),
+                    ("find_definition", {"folder": folder, "symbol": symbol}, path),
+                    ("find_references", {"folder": folder, "symbol": symbol}, path),
+                    (
+                        "impact_of",
+                        {"folder": folder, "symbol": symbol, "depth": 2},
+                        path,
+                    ),
+                    (
+                        "code_search",
+                        {
+                            "folder": folder,
+                            "query": "poll pending SQLite reminders and deliver each reminder",
+                            "language": "python",
+                            "top_k": 3,
+                        },
+                        path,
+                    ),
+                ]
+                result["surfaces"] = []
+                for name, arguments, expected in calls:
+                    if name not in names:
+                        raise CheckFailure(
+                            "Required real MCP read surface is missing: " + name
+                        )
+                    started = time.monotonic()
+                    value = await session.call_tool(name, arguments)
+                    try:
+                        answer = text_content(value)
+                    except CheckFailure:
+                        raise CheckFailure(
+                            "Actual MCP read surface returned an error: " + name
+                        ) from None
+                    available = not answer.startswith("No documentation saved yet")
+                    if expected and expected not in answer:
+                        raise CheckFailure(
+                            "Actual MCP read surface lacks fixture evidence: " + name
+                        )
+                    result["surfaces"].append(
+                        {
+                            "name": name,
+                            "available": available,
+                            "seconds": time.monotonic() - started,
+                            "sha256": hashlib.sha256(answer.encode()).hexdigest(),
+                        }
+                    )
             if metadata:
                 pending = asyncio.create_task(
                     session.call_tool(
@@ -130,12 +196,17 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--metadata", action="store_true")
+    parser.add_argument(
+        "--surfaces",
+        action="store_true",
+        help="Read all fixture document/search/graph surfaces after real indexing",
+    )
     args = parser.parse_args()
     logging.disable(logging.CRITICAL)
     config = {}
     try:
         config = json.loads(args.config.read_text())
-        result = asyncio.run(probe(config, args.metadata))
+        result = asyncio.run(probe(config, args.metadata, args.surfaces))
     except Exception as exc:
         # SDK exception trees may contain headers or response bodies. Preserve
         # only the exit status here; investigate privately in the real services.
