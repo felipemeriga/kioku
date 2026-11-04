@@ -31,6 +31,11 @@ def finish_receipt(receipt: dict):
     ).eq("job_id", receipt["job_id"]).execute()
     client = client_for(scope, receipt["operation"], receipt["profile"])
     try:
+        # Only a terminal job has immutable final attempt counters. Copying usage
+        # before checking status can freeze a partial snapshot during a transition.
+        status = client.status(receipt["job_id"])["status"]
+        if status not in {"completed", "failed", "cancelled", "uncertain"}:
+            raise RuntimeError("consumption awaits a terminal native job")
         record_job_usage(
             client,
             scope,
@@ -39,14 +44,11 @@ def finish_receipt(receipt: dict):
             receipt["job_id"],
             source=receipt["consumer"],
         )
-        status = client.status(receipt["job_id"])["status"]
         acknowledge = status == "completed" and receipt["payload"].get(
             "acknowledge_completed", True
         )
         if acknowledge:
             client.acknowledge(receipt["job_id"], scope.caller, receipt["reference"])
-        elif status not in {"completed", "failed", "cancelled", "uncertain"}:
-            raise RuntimeError("consumption awaits a terminal native job")
         sb.table("tsukai_completion_receipts").update(
             {
                 "processed": True,

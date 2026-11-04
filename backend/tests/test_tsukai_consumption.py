@@ -30,6 +30,9 @@ def test_receipt_copies_usage_before_ack_and_records_completion():
     sb, client = MagicMock(), MagicMock()
     client.status.return_value = {"status": "completed"}
     calls = []
+    client.status.side_effect = lambda *args: (
+        calls.append("terminal-status") or {"status": "completed"}
+    )
     client.acknowledge.side_effect = lambda *args: calls.append("ack")
     receipt = {
         "job_id": "job",
@@ -49,7 +52,7 @@ def test_receipt_copies_usage_before_ack_and_records_completion():
         ),
     ):
         finish_receipt(receipt)
-    assert calls == ["usage", "ack"]
+    assert calls == ["terminal-status", "usage", "ack"]
     assert sb.table.return_value.update.call_args.args[0] == {
         "processed": True,
         "acknowledged": True,
@@ -128,6 +131,6 @@ def test_running_failed_consumer_remains_pending_until_terminal_usage_exists():
     ):
         with pytest.raises(RuntimeError, match="terminal"):
             finish_receipt(receipt)
-    usage.assert_called_once()
+    usage.assert_not_called()
     client.acknowledge.assert_not_called()
     assert "processed" not in sb.table.return_value.update.call_args.args[0]
