@@ -89,6 +89,21 @@ def run(config):
                 ("health", "/health", {}),
                 ("folders", "/api/folders", {}),
                 ("documents", "/api/documents", {"folder_id": config["folder_id"]}),
+                ("conversations", "/api/conversations", {}),
+                (
+                    "existing_learnings",
+                    f"/api/folders/{config['journal_folder_id']}/learnings",
+                    {},
+                ),
+                (
+                    "existing_calendar",
+                    f"/api/folders/{config['journal_folder_id']}/learning-days",
+                    {
+                        "year": config["journal_year"],
+                        "month": config["journal_month"],
+                        "timezone": "America/Sao_Paulo",
+                    },
+                ),
             ]:
                 start = time.monotonic()
                 response = client.get(path, params=params, timeout=10)
@@ -115,6 +130,8 @@ def run(config):
                                 "caller",
                                 "state",
                                 "pid",
+                                "conversation_id",
+                                "folder_ids",
                             )
                         }
                         for session in sessions
@@ -136,13 +153,27 @@ def run(config):
         raise CheckFailure(
             "Existing HTTP reads exceeded the bounded load responsiveness threshold"
         )
+    root_counts = [
+        sum(
+            session.get("conversation_id") in identifiers
+            for session in sample["sessions"]
+        )
+        for sample in samples
+    ]
+    if max(root_counts) > 2:
+        raise CheckFailure(
+            "Actual root concurrency exceeded configured two-root capacity"
+        )
     if not any(
         sum(
-            session.get("profile") == "metadata_child" for session in sample["sessions"]
+            session.get("profile") == "metadata_child"
+            and session.get("folder_ids") == [config["folder_id"]]
+            for session in sample["sessions"]
         )
         >= 1
         and sum(
-            session.get("profile") != "metadata_child" for session in sample["sessions"]
+            session.get("conversation_id") in identifiers
+            for session in sample["sessions"]
         )
         >= 2
         for sample in samples
