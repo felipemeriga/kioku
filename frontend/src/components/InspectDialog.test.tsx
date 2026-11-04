@@ -159,6 +159,8 @@ it("links code chunks to their verified GitHub source and exact line range", () 
         },
       ]}
       trace={{
+        reasoning: [],
+        tool_calls: [],
         retrieval: [
           {
             source: "src/schema.proto:10-20",
@@ -191,6 +193,8 @@ it("opens document chunks in the existing preview flow", () => {
       onClose={onClose}
       onOpenDocument={onOpenDocument}
       trace={{
+        reasoning: [],
+        tool_calls: [],
         retrieval: [
           {
             source: "guide.pdf",
