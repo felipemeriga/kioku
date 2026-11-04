@@ -410,6 +410,9 @@ def publish_turn(turn: dict, result, *, attempt_id: str | None = None) -> str:
     citations = sources_for(
         evidence_job, "plain" if request["profile"] == "completion" else attempt_id
     )
+    from services.citations import enrich_source_urls
+
+    enrich_source_urls(get_supabase_thread_safe(), turn["owner_id"], citations)
     import re
 
     cited = {int(n) for n in re.findall(r"\[(\d+)\]", result.text)}

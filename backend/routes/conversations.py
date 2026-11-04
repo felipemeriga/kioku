@@ -141,6 +141,13 @@ def get_conversation(conversation_id: str, user_id: str = Depends(get_current_us
         )
         rejected_ids = {turn["user_message_id"] for turn in rejected}
         visible_messages = [m for m in visible_messages if m["id"] not in rejected_ids]
+    from services.citations import enrich_source_urls
+
+    enrich_source_urls(
+        sb,
+        user_id,
+        [citation for message in visible_messages for citation in message.get("citations") or []],
+    )
     return {**conv.data[0], "messages": visible_messages, "active_execution": active_execution}
 
 
