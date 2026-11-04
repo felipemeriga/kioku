@@ -25,7 +25,12 @@ class Fenced(Conflict):
 
 class Store:
     def __init__(self, url: str, workspace_dir="/data/workspaces"):
-        self.engine = create_async_engine(url, pool_pre_ping=True)
+        options = {"pool_pre_ping": True}
+        if url.startswith("postgresql+asyncpg://"):
+            # Leave headroom under the dedicated role's six-connection limit.
+            # SQL work is short-lived; model execution never holds a connection.
+            options.update(pool_size=4, max_overflow=0, pool_timeout=5)
+        self.engine = create_async_engine(url, **options)
         self.workspace_dir = workspace_dir
         self._local_lock = asyncio.Lock()
 

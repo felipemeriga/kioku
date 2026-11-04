@@ -3,9 +3,11 @@
 -- This script never accepts or prints a password. Role must not inherit privileged roles.
 \set ON_ERROR_STOP on
 BEGIN;
-SELECT 1 / ((NOT rolsuper AND NOT rolbypassrls AND NOT rolinherit
-              AND NOT EXISTS (SELECT 1 FROM pg_auth_members WHERE member=pg_roles.oid))::int)
-FROM pg_roles WHERE rolname = :'runtime_role';
+SELECT 1 / count(*)::int
+FROM pg_roles WHERE rolname = :'runtime_role'
+  AND NOT rolsuper AND NOT rolbypassrls AND NOT rolinherit
+  AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication
+  AND NOT EXISTS (SELECT 1 FROM pg_auth_members WHERE member=pg_roles.oid);
 GRANT USAGE ON SCHEMA public TO :"runtime_role";
 SELECT format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.%I TO %I', name, :'runtime_role')
 FROM unnest(ARRAY['tsukai_jobs','tsukai_attempts','tsukai_events','tsukai_sessions',
