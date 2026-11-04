@@ -99,7 +99,10 @@ GUIDES = {
         "proposals, failed attempts or untested hypotheses. Agent implementation "
         "claims are reported, not verified. Reuse existing topic keys, retire "
         "only on explicit contradiction. Cite exact source IDs and a verbatim "
-        "supporting quote. git_sha is nullable and must occur verbatim in cited "
+        "supporting quote of 12-250 characters copied as one contiguous substring "
+        "from a cited entry, preserving Markdown backticks and punctuation. Never "
+        "join excerpts with ellipses or paraphrase the quote. git_sha is nullable "
+        "and must occur verbatim in cited "
         "text; only backend determines main membership."
     ),
 }
@@ -152,6 +155,18 @@ def build_request(snapshot):
     if op in ("how_it_runs", "deployment") and isinstance(snapshot.get("current"), dict):
         if set(snapshot["current"]) != set(SHAPES[op]):
             raise ValueError("unsupported current section shape")
+    schema = shape_schema(shape)
+    if op == "learnings":
+        updates = schema["properties"]["updates"]
+        updates["maxItems"] = 4
+        fields = updates["items"]["properties"]
+        fields["evidence_quote"].update(minLength=12, maxLength=250)
+        fields["statement"].update(minLength=10, maxLength=650)
+        fields["topic_key"]["pattern"] = r"^[a-z0-9-]{3,80}$"
+        fields["source_ids"]["minItems"] = 1
+        fields["source_ids"]["items"]["enum"] = [
+            entry["id"] for entry in snapshot["input"]["new_entries"]
+        ] or ["__no_source_available__"]
     return {
         "system": (
             "Maintain accurate repository knowledge from supplied evidence only. "
@@ -173,7 +188,7 @@ def build_request(snapshot):
                 }
             )
         ),
-        "schema": shape_schema(shape),
+        "schema": schema,
         "max_tokens": 4000 if op in ("reground", "documentation") else 2400,
         "task": "folder_summary_reground"
         if op in ("reground", "documentation")

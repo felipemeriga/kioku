@@ -120,7 +120,7 @@ def mint_tool_capability(body: ToolCapabilityRequest, request: Request):
         algorithm="HS256",
     )
     # Deployment config is a server registry, never an incoming URL.
-    return {"mcp_url": os.environ["TSUKAI_NATIVE_MCP_URL"], "capability": grant}
+    return {"mcp_url": os.environ["TSUKAI_NATIVE_MCP_URL"].rstrip("/") + "/", "capability": grant}
 
 
 def authenticate_tool(token: str) -> dict:

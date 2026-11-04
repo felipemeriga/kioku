@@ -11,7 +11,7 @@ from uuid import uuid4
 import httpx
 import jwt
 
-from services.ai.client import TsukaiClient
+from services.ai.client import ExecutionError, TsukaiClient
 from services.ai.scope import ExecutionScope, sign_capability
 from services.maintenance.operations import (
     build_request,
@@ -738,7 +738,17 @@ def publish(sb, owner, folder, preparation, job_id):
             raise ValueError("execution does not match immutable preparation")
         track_terminal_usage(sb, row, job_id, job.get("status"))
         verified = True
-        result = client.result(job_id)
+        try:
+            result = client.result(job_id)
+        except ExecutionError as exc:
+            # A confirmed terminal timeout cannot be recovered by polling the
+            # same immutable failed job. Reuse the existing single repair budget.
+            # Never retry active, uncertain, cancelled or auth-failed executions.
+            if job.get("status") == "failed" and exc.code == "wall_timeout":
+                sb.table("maintenance_preparations").update(
+                    {"validation_error": "execution wall_timeout; return a concise complete result"}
+                ).eq("id", preparation).eq("user_id", owner).execute()
+            raise
         try:
             value = validate_result(
                 row["snapshot"], result.structured if result.structured is not None else result.text
