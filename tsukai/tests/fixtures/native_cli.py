@@ -3,8 +3,10 @@
 
 import json
 import os
+import subprocess
 import sys
 import time
+import uuid
 
 if "--version" in sys.argv:
     print("2.1.285 (Claude Code)")
@@ -30,19 +32,29 @@ if "PERMISSION" in prompt:
     emit({"type": "permission_request", "private": "secret"})
     time.sleep(30)
 if "AUTH" in prompt:
+    emit({"type": "system", "subtype": "init", "session_id": session})
     emit(
         {
             "type": "result",
+            "session_id": session,
             "is_error": True,
             "subtype": "error",
             "result": "OAuth login expired private-diagnostic",
         }
     )
     raise SystemExit(1)
-if "MISSING" in prompt:
+if prompt == "MISSING":
     emit({"type": "system", "secret": "private-diagnostic"})
     raise SystemExit
-emit({"type": "system", "subtype": "init", "private": "private-diagnostic"})
+if "NO_INIT" not in prompt:
+    emit(
+        {
+            "type": "system",
+            "subtype": "init",
+            "session_id": str(uuid.uuid4()) if "FOREIGN_INIT" in prompt else session,
+            "private": "private-diagnostic",
+        }
+    )
 emit(
     {
         "type": "stream_event",
@@ -50,6 +62,24 @@ emit(
     }
 )
 emit({"type": "stream_event", "event": {"delta": {"type": "text_delta", "text": "Provisional "}}})
+if "ORPHAN" in prompt:
+    child = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import signal,time;signal.signal(signal.SIGTERM,signal.SIG_IGN);time.sleep(60)",
+        ]
+    )
+    time.sleep(0.1)
+    emit(
+        {
+            "type": "stream_event",
+            "event": {"delta": {"type": "text_delta", "text": "child:" + str(child.pid)}},
+        }
+    )
+    raise SystemExit
+if "TEXT_EOF" in prompt:
+    raise SystemExit
 result = {
     "type": "result",
     "subtype": "success",
@@ -78,4 +108,12 @@ if "--json-schema" in sys.argv:
     result["structured_output"] = {"answer": "grounded"}
     if "INVALID" in prompt and "Previous attempt failed validation" not in prompt:
         result["structured_output"] = {"answer": 17}
+if "MISSING_FINAL_ID" in prompt:
+    result.pop("session_id")
+if "FOREIGN_FINAL" in prompt:
+    result["session_id"] = str(uuid.uuid4())
+if "AGGREGATE" in prompt:
+    result["modelUsage"]["fixture"]["outputTokens"] = 2000
 emit(result)
+if "NONZERO" in prompt:
+    raise SystemExit(1)

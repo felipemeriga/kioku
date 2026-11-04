@@ -25,10 +25,10 @@ async def store(tmp_path):
                 Path(__file__).parents[2]
                 / "supabase/migrations/20261104090000_tsukai_execution.sql"
             )
+            lifecycle = migration.parent / "20261104110000_tsukai_execution_lifecycle.sql"
+            migration_text = migration.read_text() + "\n" + lifecycle.read_text()
             script = "\n".join(
-                line
-                for line in migration.read_text().splitlines()
-                if not line.lstrip().startswith("--")
+                line for line in migration_text.splitlines() if not line.lstrip().startswith("--")
             )
             for statement in script.split(";"):
                 if statement.strip():

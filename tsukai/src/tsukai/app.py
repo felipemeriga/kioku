@@ -57,6 +57,8 @@ def create_app(settings=None, store=None, native=None):
         job = await store.get(job_id)
         if job is None or job["owner_id"] != cap.owner_id:
             raise HTTPException(404, "job_not_found")
+        if await store.scope_deleted(job["owner_id"], job["conversation_id"]):
+            raise HTTPException(410, "execution_scope_deleted")
         authorize(cap, JobRequest.model_validate(job["request"]))
         return cap, job
 
@@ -138,7 +140,8 @@ def create_app(settings=None, store=None, native=None):
         for job in found:
             try:
                 authorize(cap, JobRequest.model_validate(job["request"]))
-                result.append(job)
+                if not await store.scope_deleted(job["owner_id"], job["conversation_id"]):
+                    result.append(job)
             except HTTPException:
                 continue
         return {"jobs": result}
@@ -158,6 +161,11 @@ def create_app(settings=None, store=None, native=None):
             "error": job["error"],
             "request_sha256": job["request_sha256"],
         }
+
+    @app.get("/v1/jobs/{job_id}/usage")
+    async def get_usage(job_id: str, request: Request):
+        await scoped_job(request, job_id)
+        return {"job_id": job_id, "attempts": await store.attempt_usage(job_id)}
 
     @app.post("/v1/jobs/{job_id}/ack")
     async def ack_result(job_id: str, body: Ack, request: Request):
@@ -271,6 +279,62 @@ def create_app(settings=None, store=None, native=None):
         # Domain middleware sanitizes evidence and persists private full artifacts.
         await store.tool_event(job_id, body.attempt_id, body.type, body.data)
         return {"accepted": True}
+
+    async def admit_deletion(request, conversation_id=None):
+        cap = capability(request, settings, allow_cleanup=True)
+        raw = await request.body()
+        if len(raw) > 4096:
+            raise HTTPException(413, "request_too_large")
+        try:
+            body = json.loads(raw)
+        except ValueError:
+            raise HTTPException(422, "invalid_deletion_request") from None
+        expected = {"owner_id": cap.owner_id, "action": "delete_account"}
+        operation, profiles = "account.delete", []
+        if conversation_id is not None:
+            expected = {
+                "owner_id": cap.owner_id,
+                "conversation_id": conversation_id,
+                "action": "delete_conversation",
+            }
+            operation, profiles = "session.delete", ["chat"]
+        digest = hashlib.sha256(
+            json.dumps(body, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        if (
+            body != expected
+            or cap.sub != "backend"
+            or cap.operations != [operation]
+            or cap.profiles != profiles
+            or cap.request_sha256 != digest
+            or cap.ai_depth
+            or cap.parent_job_id
+            or cap.root_job_id
+            or cap.tool_allowlist
+        ):
+            raise HTTPException(403, "cleanup_capability_mismatch")
+        record = await store.begin_deletion(cap.owner_id, conversation_id)
+        scheduler.wake.set()
+        return {"deletion_id": record["id"], "status": record["status"]}
+
+    @app.post("/v1/conversations/{conversation_id}/delete", status_code=202)
+    async def delete_conversation(conversation_id: str, request: Request):
+        return await admit_deletion(request, conversation_id)
+
+    @app.post("/v1/account/delete", status_code=202)
+    async def delete_account(request: Request):
+        return await admit_deletion(request)
+
+    @app.get("/v1/deletions/{deletion_id}")
+    async def deletion_status(deletion_id: str, request: Request):
+        cap = capability(request, settings, allow_cleanup=True)
+        record = await store.deletion(deletion_id)
+        if record is None or record["owner_sha256"] != store.hash_id(cap.owner_id):
+            raise HTTPException(404, "deletion_not_found")
+        operation = "account.delete" if record["conversation_sha256"] == "*" else "session.delete"
+        if cap.sub != "backend" or cap.operations != [operation]:
+            raise HTTPException(403, "cleanup_capability_mismatch")
+        return {"deletion_id": deletion_id, "status": record["status"]}
 
     @app.post("/internal/recheck-auth")
     async def recheck_auth(request: Request):

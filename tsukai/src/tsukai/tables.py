@@ -55,6 +55,7 @@ attempts = Table(
     Column("resume", Boolean, nullable=False),
     Column("counter_segment", String(36), nullable=False),
     Column("usage", JSON),
+    Column("diagnostic", JSON),
     Column("error", JSON),
     UniqueConstraint("job_id", "number"),
 )
@@ -99,4 +100,18 @@ acks = Table(
     Column("consumer", String(100), primary_key=True),
     Column("reference", String(512), nullable=False),
     Column("created_at", Float, nullable=False),
+)
+
+tombstones = Table(
+    "tsukai_tombstones",
+    metadata,
+    Column("id", String(64), primary_key=True),
+    Column("owner_sha256", String(64), nullable=False),
+    Column("conversation_sha256", String(64), nullable=False),
+    Column("status", String(20), nullable=False),
+    Column("job_ids", JSON, nullable=False),
+    Column("session_keys", JSON, nullable=False),
+    Column("artifacts", JSON, nullable=False),
+    Column("created_at", Float, nullable=False),
+    Column("updated_at", Float, nullable=False),
 )

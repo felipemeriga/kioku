@@ -174,3 +174,94 @@ async def test_two_postgres_workers_share_admission_and_claim_fence(store):
         assert sum(c is not None for c in claims) == 1
     finally:
         await other.engine.dispose()
+
+
+async def test_expire_queued_deadline_independent_of_full_process_slots(store):
+    roots = []
+    for i in range(2):
+        job = await store.admit(request(profile="chat", conversation_id=f"busy{i}"))
+        roots.append(job)
+        await store.claim("worker")
+    child = request(
+        profile="metadata_child",
+        ai_depth=1,
+        operation="text_to_sql",
+        parent_job_id=roots[0]["id"],
+        root_job_id=roots[0]["id"],
+    )
+    await store.admit(child)
+    await store.claim("worker")
+    waiting = await store.admit(request(profile="chat", conversation_id="deadline"))
+    from tsukai.tables import jobs
+
+    async with store.transaction() as conn:
+        await conn.execute(
+            update(jobs).where(jobs.c.id == waiting["id"]).values(queue_deadline=time.time() - 1)
+        )
+    assert await store.expire_queued() == 1
+    assert (await store.get(waiting["id"]))["error"]["code"] == "queue_timeout"
+    assert await store.claim("worker") is None
+    # Expiring an unstarted turn releases its conversation admission lock.
+    await store.admit(request(profile="chat", conversation_id="deadline"))
+
+
+async def test_fairness_chat_priority_aging_and_actual_maintenance_caller(store):
+    from tsukai.tables import jobs
+
+    completed = await store.admit(request())
+    first = await store.claim("worker")
+    await store.finish(first["attempt"], "completed", result={"text": "ok", "usage": {}})
+    a = await store.admit(request())
+    b = await store.admit(request().model_copy(update={"owner_id": "other"}))
+    picked = await store.claim("worker")
+    assert picked["job"]["id"] == b["id"]  # Least recently served owner wins same aged class.
+    await store.finish(picked["attempt"], "completed", result={"text": "ok", "usage": {}})
+    chat = await store.admit(request(profile="chat", conversation_id="priority"))
+    picked = await store.claim("worker")
+    assert picked["job"]["id"] == chat["id"]
+    await store.finish(picked["attempt"], "completed", result={"text": "ok", "usage": {}})
+    async with store.transaction() as conn:
+        await conn.execute(
+            update(jobs).where(jobs.c.id == a["id"]).values(created_at=time.time() - 121)
+        )
+    await store.admit(request(profile="chat", conversation_id="new-chat"))
+    picked = await store.claim("worker")
+    assert picked["job"]["id"] == a["id"]  # Two-minute-old completion outranks new chat.
+    maintenance = await store.admit(
+        request().model_copy(update={"owner_id": "maint", "caller": "mihari"})
+    )
+    picked_maintenance = await store.claim("worker")
+    assert picked_maintenance["job"]["id"] == maintenance["id"]
+    assert (await store.get(completed["id"]))["status"] == "completed"
+
+
+async def test_private_diagnostic_retention_preserves_usage(store):
+    from sqlalchemy import select
+
+    from tsukai.tables import jobs
+
+    job = await store.admit(request())
+    claim = await store.claim("worker")
+    usage = {"list_equivalent_usd": 0.123, "complete": True}
+    await store.finish(
+        claim["attempt"],
+        "failed",
+        result={"text": "", "usage": usage},
+        error={"code": "invalid_structured_output"},
+        diagnostic={"invalid_response": "private evidence"},
+    )
+    async with store.transaction() as conn:
+        old = time.time() - 31 * 86400
+        await conn.execute(
+            update(attempts).where(attempts.c.id == claim["attempt"]["id"]).values(finished_at=old)
+        )
+        await conn.execute(update(jobs).where(jobs.c.id == job["id"]).values(updated_at=old))
+    await store.prune()
+    async with store.engine.connect() as conn:
+        row = (
+            (await conn.execute(select(attempts).where(attempts.c.id == claim["attempt"]["id"])))
+            .mappings()
+            .one()
+        )
+        assert row["diagnostic"] is None and row["usage"] == usage
+    assert (await store.get(job["id"]))["request"]["prompt"] == "[expired diagnostic evidence]"

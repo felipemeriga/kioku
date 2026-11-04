@@ -171,3 +171,10 @@ jobs:
       - run: uv run --project tsukai ruff check tsukai
       - run: uv run --project tsukai ruff format --check tsukai
       - run: uv run --project tsukai pytest tsukai/tests -v
+      - name: Verify runtime grants can be applied twice after schema upgrade
+        env:
+          PGPASSWORD: fixture-admin-only
+        run: |
+          psql -h localhost -U postgres -d tsukai_fixture -v runtime_role=tsukai_fixture_runtime -f tsukai/ops/grant-runtime.sql
+          psql -h localhost -U postgres -d tsukai_fixture -v runtime_role=tsukai_fixture_runtime -f tsukai/ops/grant-runtime.sql
+          PGPASSWORD=fixture-runtime-only psql -h localhost -U tsukai_fixture_runtime -d tsukai_fixture -v ON_ERROR_STOP=1 -c 'SELECT count(*) FROM public.tsukai_tombstones;'

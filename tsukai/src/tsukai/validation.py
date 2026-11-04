@@ -9,8 +9,9 @@ from .protocol import CompletionEnvelope
 
 
 class NativeError(Exception):
-    def __init__(self, code, retryable=False):
+    def __init__(self, code, retryable=False, *, uncertain=False, result=None, diagnostic=None):
         self.code, self.retryable = code, retryable
+        self.uncertain, self.result, self.diagnostic = uncertain, result, diagnostic
         super().__init__(code)
 
 
@@ -43,15 +44,79 @@ def validate_result(req, result):
         raise NativeError("invalid_native_result")
     if req.response_schema:
         if structured is None:
-            raise NativeError("invalid_structured_output", True)
+            raise NativeError(
+                "invalid_structured_output",
+                True,
+                diagnostic=repair_diagnostic(result, [{"message": "structured_output is absent"}]),
+            )
         errors = list(Draft202012Validator(req.response_schema).iter_errors(structured))
         if errors:
-            raise NativeError("invalid_structured_output", True)
+            raise NativeError(
+                "invalid_structured_output", True, diagnostic=repair_diagnostic(result, errors)
+            )
         if isinstance(structured, dict) and "outcome" in structured:
             try:
                 CompletionEnvelope.model_validate(structured)
-            except ValueError:
-                raise NativeError("invalid_completion_envelope", True) from None
+            except ValueError as exc:
+                raise NativeError(
+                    "invalid_completion_envelope",
+                    True,
+                    diagnostic=repair_diagnostic(result, [{"message": str(exc)}]),
+                ) from None
     if not text and structured is None:
         raise NativeError("empty_native_result", True)
     return text, structured
+
+
+def sanitize_private(value):
+    """Redact credential-shaped fields/text before retaining private model diagnostics."""
+    if isinstance(value, dict):
+        return {
+            key: "[REDACTED]"
+            if re.search(
+                r"authorization|password|secret|credential|oauth|api[_-]?key|access[_-]?token",
+                key,
+                re.I,
+            )
+            else sanitize_private(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [sanitize_private(item) for item in value]
+    if isinstance(value, str):
+        value = re.sub(r"(?i)bearer\s+[a-z0-9._~+/-]+=*", "Bearer [REDACTED]", value)
+        return re.sub(r"\bsk-[a-zA-Z0-9_-]{8,}", "[REDACTED]", value)
+    return value
+
+
+def repair_diagnostic(result, errors):
+    details = []
+    for error in errors[:30]:
+        if isinstance(error, dict):
+            details.append(error)
+        else:
+            details.append(
+                {
+                    "path": list(error.absolute_path),
+                    "schema_path": list(error.absolute_schema_path),
+                    "validator": error.validator,
+                    "message": error.message,
+                }
+            )
+    data = sanitize_private(
+        {
+            "invalid_response": result.get("structured_output", result.get("result")),
+            "validation_errors": details,
+        }
+    )
+    encoded = json.dumps(data)
+    if len(encoded.encode()) > 65536:
+        return {
+            "invalid_response": encoded.encode()[:48000].decode(errors="ignore"),
+            "validation_errors": [
+                {**error, "message": str(error.get("message", ""))[:256]}
+                for error in data["validation_errors"][:5]
+            ],
+            "truncated": True,
+        }
+    return data
