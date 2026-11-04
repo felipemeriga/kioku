@@ -200,11 +200,95 @@ def cancel_rebuild(client, config):
     }
 
 
+def policy_switch(client, config):
+    state = json.loads(Path(config["state"]).read_text())
+    fixture = state["conversations"]["haiku-agentic"]
+    identifier, marker = fixture["id"], fixture["nonce"]
+    changed = body(
+        config,
+        identifier,
+        "What acceptance code did I ask you to remember? Reply only with that code.",
+    )
+    changed.update({"model": "sonnet", "mode": "deep"})
+    rejected = False
+    status = None
+    try:
+        with client.stream("POST", "/api/chat", json=changed) as response:
+            status = response.status_code
+            if status == 409:
+                rejected = True
+            elif status == 200:
+                for line in response.iter_lines():
+                    if line.startswith("data: "):
+                        frame = json.loads(line[6:])
+                        if frame.get("error"):
+                            rejected = True
+                        if frame.get("done") and not frame.get("error"):
+                            raise CheckFailure(
+                                "Changed policy silently resumed without explicit rebuild"
+                            )
+            else:
+                response.raise_for_status()
+    except httpx.RemoteProtocolError:
+        # Admission may terminate the initial SSE before a job frame. Its
+        # durable turn state must still explain the controlled rejection.
+        pass
+    response = client.get(f"/api/chat/turns/{changed['turn_id']}")
+    response.raise_for_status()
+    denied = response.json()
+    if denied.get("state") == "failed" and denied.get("error_code") in {
+        "admission_rejected",
+        "conversation_policy_changed",
+        "conversation_needs_rebuild",
+    }:
+        rejected = True
+    if not rejected:
+        raise CheckFailure(
+            "Model/mode switch did not expose controlled policy rejection"
+        )
+    rebuilt = {
+        **changed,
+        "turn_id": str(uuid.uuid4()),
+        "rebuild_from_committed_history": True,
+    }
+    final, deltas = terminal(client, rebuilt)
+    if marker not in final.get("replace", "") or not deltas:
+        raise CheckFailure(
+            "Haiku-agentic to Sonnet-deep rebuild lost committed conversation history"
+        )
+    usage = ((final.get("debug") or {}).get("execution") or {}).get("usage") or {}
+    if not any("sonnet" in model.lower() for model in usage.get("model_usage", {})):
+        raise CheckFailure(
+            "Policy rebuild has no actual Sonnet model usage attribution"
+        )
+    return {
+        "case": "same_conversation_model_mode_switch",
+        "conversation_id": identifier,
+        "from_model": "haiku",
+        "from_mode": "agentic",
+        "to_model": "sonnet",
+        "to_mode": "deep",
+        "rejected_turn_id": changed["turn_id"],
+        "initial_http_status": status,
+        "rejected_state": denied.get("state"),
+        "rejected_error_code": denied.get("error_code"),
+        "rebuild_explicit": True,
+        "rebuilt_turn_id": rebuilt["turn_id"],
+        "job_id": final["job_id"],
+        "message_id": final["message_id"],
+        "delta_frames": deltas,
+        "history_preserved": True,
+        "usage": usage,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument(
-        "--case", choices=("reconnect", "cancel-rebuild"), required=True
+        "--case",
+        choices=("reconnect", "cancel-rebuild", "policy-switch"),
+        required=True,
     )
     args = parser.parse_args()
     logging.disable(logging.CRITICAL)
@@ -222,11 +306,12 @@ def main():
             headers={"Authorization": "Bearer " + token.read_text().strip()},
             timeout=httpx.Timeout(180, connect=20),
         ) as client:
-            result = (
-                reconnect(client, config)
-                if args.case == "reconnect"
-                else cancel_rebuild(client, config)
-            )
+            action = {
+                "reconnect": reconnect,
+                "cancel-rebuild": cancel_rebuild,
+                "policy-switch": policy_switch,
+            }[args.case]
+            result = action(client, config)
         record = {
             "ok": True,
             "kind": "real_http_lifecycle",
