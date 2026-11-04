@@ -66,3 +66,54 @@ def test_default_api_and_owner_only_explicit_native(monkeypatch):
     assert engine_for("query_rewrite", "owner") == "tsukai"
     with pytest.raises(ValueError, match="unverified"):
         engine_for("image_ocr", "owner")
+
+
+def test_expired_replay_fetches_canonical_result_without_new_inference():
+    methods = []
+
+    def handler(request):
+        methods.append((request.method, request.url.path))
+        if request.url.path.endswith("events"):
+            return httpx.Response(410)
+        return httpx.Response(
+            200,
+            json={
+                "job_id": "job",
+                "status": "completed",
+                "result": {"text": "canonical"},
+            },
+        )
+
+    client = TsukaiClient("http://tsukai", "s", "g", transport=httpx.MockTransport(handler))
+    events = list(client.events("job", cursor=99))
+    assert events[0]["type"] == "replay.expired"
+    assert events[0]["data"]["result"]["text"] == "canonical"
+    assert all(method == "GET" for method, _ in methods)
+    client.close()
+
+
+@pytest.mark.parametrize("outcome", ["needs_input", "failed"])
+def test_nonpublishable_structured_outcomes_fail(outcome):
+    client = TsukaiClient(
+        "http://tsukai",
+        "s",
+        "g",
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                json={
+                    "status": "completed",
+                    "result": {
+                        "text": "question",
+                        "structured": {
+                            "outcome": outcome,
+                            "data": None,
+                        },
+                    },
+                },
+            )
+        ),
+    )
+    with pytest.raises(ExecutionError, match=outcome):
+        client.result("job")
+    client.close()

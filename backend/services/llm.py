@@ -8,6 +8,8 @@ from functools import cache
 import anthropic
 from langsmith.wrappers import wrap_anthropic
 
+from services.ai.facade import native_completion
+from services.ai.scope import ExecutionScope
 from services.usage_ledger import UsageAttribution, current_usage, save_usage, usage_row
 
 
@@ -132,6 +134,27 @@ def complete(
 
     Pass thinking_budget to enable extended thinking (must be < max_tokens).
     """
+    active = current_usage()
+    scoped = attribution or (active[0] if active else None)
+    native = native_completion(
+        operation=task.value,
+        model=MODEL_FOR_TASK[task],
+        messages=messages,
+        system=system,
+        max_tokens=max_tokens,
+        tools=tools,
+        fallback_scope=(
+            ExecutionScope(
+                scoped.user_id,
+                (scoped.folder_id,) if scoped.folder_id else (),
+                caller="mihari" if scoped.source == "mihari" else "backend",
+            )
+            if scoped
+            else None
+        ),
+    )
+    if native is not None:
+        return native
     kwargs = _build_kwargs(
         task=task,
         messages=messages,
