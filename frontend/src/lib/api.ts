@@ -302,6 +302,8 @@ export interface DebugRetrievalChunk {
   content: string;
 }
 export interface DebugToolCall {
+  origin?: string;
+  query?: string;
   round?: number;
   artifact_id?: string;
   started_at?: string;
@@ -314,8 +316,8 @@ export interface DebugToolCall {
   };
   status?: string;
   name: string;
-  input: unknown;
-  result_preview: string;
+  input?: unknown;
+  result_preview?: string;
   is_error?: boolean;
 }
 export interface DebugReasoningStep {

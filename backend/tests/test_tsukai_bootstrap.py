@@ -213,8 +213,14 @@ def test_preparation_retrieves_current_scoped_evidence_and_plain_stays_unchanged
         == "CURRENT guide fact [1]"
     )
     assert trace.call_args.args[2] == ("plain" if mode == "plain" else "bootstrap")
+    assert trace.call_args.args[4]["input"] == {"query": "guide?"}
+    assert trace.call_args.args[4]["effective_scope"]["filename"] == "guide.md"
     if mode != "plain":
         assert trace.call_args.args[4]["origin"] == "backend_bootstrap"
+    else:
+        assert trace.call_args.args[4]["origin"] == "backend_retrieval"
+        assert trace.call_args.args[4]["native_tool_use_id"] is None
+        assert "no native tool call" in trace.call_args.args[4]["native_tool_use_id_availability"]
     assert turn["request"]["profile"] == ("completion" if mode == "plain" else "chat")
 
 

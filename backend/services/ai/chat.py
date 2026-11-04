@@ -211,9 +211,17 @@ def prepare_turn(
             folders,
             {
                 "name": "knowledge_base_search",
+                "origin": "backend_retrieval",
+                "native_tool_use_id": None,
+                "native_tool_use_id_availability": "Backend retrieval; no native tool call",
+                "input": {"query": content},
                 "conversation_id": conversation_id,
                 "query": content,
-                "effective_scope": {"user_id": owner_id, "folder_ids": folders},
+                "effective_scope": {
+                    "user_id": owner_id,
+                    "folder_ids": folders,
+                    "filename": filename,
+                },
                 "status": "completed",
                 "sources": retrieval,
             },
@@ -257,6 +265,7 @@ def prepare_turn(
             {
                 "name": "knowledge_base_search",
                 "origin": "backend_bootstrap",
+                "input": {"query": content},
                 "native_call_id": None,
                 "native_call_id_unavailable_reason": "Backend initial retrieval before CLI launch",
                 "conversation_id": conversation_id,

@@ -60,6 +60,9 @@ export default function InspectDialog({
   const reasoning = trace.reasoning ?? [];
   const toolCalls = trace.tool_calls ?? [];
   const chunks = trace.retrieval ?? [];
+  const hasBackendRetrieval = toolCalls.some((t) =>
+    ["backend_retrieval", "backend_bootstrap"].includes(t.origin ?? ""),
+  );
 
   return (
     <Dialog
@@ -168,7 +171,9 @@ export default function InspectDialog({
             trace.execution ? "Execution" : `Reasoning (${reasoning.length})`
           }
         />
-        <Tab label={`Tool calls (${toolCalls.length})`} />
+        <Tab
+          label={`${hasBackendRetrieval ? "Retrieval and tools" : "Tool calls"} (${toolCalls.length})`}
+        />
         <Tab label={`Chunks (${chunks.length})`} />
       </Tabs>
 
@@ -244,6 +249,14 @@ export default function InspectDialog({
                       border: `1px solid ${brand.cyan}44`,
                     }}
                   />
+                  {t.origin === "backend_bootstrap" ||
+                  t.origin === "backend_retrieval" ? (
+                    <Typography sx={{ color: brand.muted, fontSize: 12 }}>
+                      {t.origin === "backend_bootstrap"
+                        ? "Backend initial retrieval"
+                        : "Backend retrieval"}
+                    </Typography>
+                  ) : null}
                   <Typography sx={{ color: brand.muted, fontSize: 12 }}>
                     {t.round !== undefined
                       ? `round ${t.round}`
@@ -261,7 +274,13 @@ export default function InspectDialog({
                 <Typography sx={{ color: brand.muted, fontSize: 13, mb: 0.5 }}>
                   input
                 </Typography>
-                <Pre>{JSON.stringify(t.input, null, 2)}</Pre>
+                <Pre>
+                  {t.input != null
+                    ? JSON.stringify(t.input, null, 2)
+                    : t.query
+                      ? JSON.stringify({ query: t.query }, null, 2)
+                      : "No input recorded."}
+                </Pre>
                 <Typography
                   sx={{
                     color: brand.muted,
