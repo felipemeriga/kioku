@@ -84,8 +84,8 @@ Official references used for the invocation contract:
 - https://code.claude.com/docs/en/cli-reference
 
 Both local three-hour runs completed. See [RESULTS.md](RESULTS.md) and the safe
-aggregate artifacts under `results/`. Server model calls are blocked by an expired
-native OAuth session; container/broker plumbing was tested independently.
+aggregate artifacts under `results/`. The authenticated server follow-up is in [SERVER_RESULTS.md](SERVER_RESULTS.md);
+host/container chat, Mihari, streaming and restart recovery were exercised.
 
 The first dispatcher run exposed prose appended to requested JSON. The test
 preserves that failure and switches the review-plan adapter to native

@@ -7,11 +7,10 @@ Claude Code can supply model/tool rounds for isolated Mihari maintenance and
 streaming conversations. It needs an application adapter; the coding harness is
 not a direct replacement for Kioku's agent contract.
 
-The sequential server phase confirmed the native binary and isolated
-container-to-host broker work, but actual model requests fail because the
-server's existing OAuth session is expired. `auth status` alone incorrectly
-suggested a usable sign-in. Live server model validation requires native login
-on that server; no Mac credentials were transferred.
+The initial server phase found expired native authentication. After the operator
+completed native login, the follow-up passed live host/container conversation and
+Mihari tests. See [SERVER_RESULTS.md](SERVER_RESULTS.md) for measurements,
+container restart recovery, deployment examples and unattended auth operations.
 
 Nothing in this branch changes production application code, routes, billing,
 briefings, journals, or conversations. The PR stays draft.
@@ -134,26 +133,10 @@ to this experiment.
 
 ## Server phase
 
-meriga-server has Ubuntu x86_64, 16GB RAM and an existing native Claude install.
-Actual print requests fail with `Failed to authenticate: OAuth session expired
-and could not be refreshed`, despite `auth status` reporting logged in.
-
-The current Kioku backend image can execute the native binary in an isolated
-container with 256MiB/1CPU, read-only root filesystem, tmpfs, network disabled,
-and an empty home. It correctly has no authentication. No host credentials
-were mounted into that container.
-
-A separate credential-free container reached a private host Unix socket broker
-with a 1.37ms health response. Its request reached the host's native CLI and
-returned the real OAuth error in 1.35s. The broker caps native concurrency at 2,
-disables hooks/built-in tools, and uses only synthetic retrieval fixtures.
-Production containers/routes were not modified.
-
-The backend currently has no native session/auth mount. Mihari has a /data
-mount for watcher state. A future adapter needs explicit durable native session
-storage, auth renewal health checks, bounded subprocesses, cancellation policies,
-and separate execution from interactive API workers. Native host brokerage is
-one tested deployment-plumbing option, not an adopted architecture.
+The initial expired-login evidence remains in `results/server-summary.json`.
+The authenticated follow-up and safe artifacts are documented in
+[SERVER_RESULTS.md](SERVER_RESULTS.md). No Mac credentials were transferred;
+production containers/routes were not changed.
 
 ## Provisional recommendation
 
@@ -165,8 +148,9 @@ but needs native session storage, a per-conversation mutex, prompt versioning,
 and robust accounting. A persistent process belongs to one active conversation,
 not a multi-user routing pool or every historical chat.
 
-Next decision requires successful native reauthentication and live server
-workloads. This research does not authorize a production cutover.
+Live server execution is now validated. Production integration, operational
+limits and account provisioning remain separate decisions; this research does
+not authorize a production cutover.
 
 ## Reproduction and references
 
