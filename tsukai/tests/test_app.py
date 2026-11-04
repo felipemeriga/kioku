@@ -407,3 +407,62 @@ async def test_account_cleanup_survives_owner_deentitlement_and_blocks_all_new_w
     assert (
         await client.post("/v1/jobs", json=payload, headers=headers(settings, payload))
     ).status_code == 409
+
+
+async def test_admin_lists_only_active_sessions_and_forbids_owner_capabilities(app_client):
+    app, client, settings = app_client
+    idle = body(profile="chat", conversation_id="idle")
+    idle_auth = headers(settings, idle)
+    completed = (await client.post("/v1/jobs", json=idle, headers=idle_auth)).json()
+    await terminal(client, completed["result_url"], idle_auth)
+    payload = body(profile="chat", conversation_id="active")
+    payload["prompt"] = "SLEEP"
+    normal = headers(settings, payload)
+    submitted = (await client.post("/v1/jobs", json=payload, headers=normal)).json()
+    for _ in range(100):
+        if app.state.scheduler.native.processes:
+            break
+        await asyncio.sleep(0.02)
+    assert (await client.get("/v1/admin/active-sessions", headers=normal)).status_code == 403
+    admin = headers(
+        settings,
+        payload,
+        admin=True,
+        operations=["runtime.sessions.read"],
+        profiles=[],
+        folder_ids=[],
+        tool_allowlist=[],
+    )
+    response = await client.get("/v1/admin/active-sessions", headers=admin)
+    assert response.status_code == 200
+    active = response.json()["sessions"]
+    assert len(active) == 1
+    assert active[0]["job_id"] == submitted["job_id"]
+    assert active[0]["conversation_id"] == "active" and active[0]["native_session_id"]
+    assert active[0]["state"] == "running" and active[0]["pid"] is not None
+    assert active[0]["owner_id"] == "owner" and active[0]["elapsed_seconds"] >= 0
+    for forbidden in ("prompt", "workspace", "environment", "headers", "SLEEP"):
+        assert forbidden not in json.dumps(response.json())
+    # A read-only admin grant grants no inference permission, even with admin=true.
+    assert (await client.post("/v1/jobs", json=payload, headers=admin)).status_code == 403
+    await client.post(f"/v1/jobs/{submitted['job_id']}/cancel", headers=normal)
+
+
+async def test_usage_exposes_observed_native_timings_without_invented_browser_latency(app_client):
+    _, client, settings = app_client
+    payload = body()
+    auth = headers(settings, payload)
+    submitted = (await client.post("/v1/jobs", json=payload, headers=auth)).json()
+    await terminal(client, submitted["result_url"], auth)
+    response = await client.get(f"/v1/jobs/{submitted['job_id']}/usage", headers=auth)
+    attempt = response.json()["attempts"][0]
+    assert attempt["started_at"] and attempt["finished_at"]
+    assert attempt["first_event_at"] and attempt["first_text_at"]
+    assert (
+        0
+        <= attempt["first_event_seconds"]
+        <= attempt["first_text_seconds"]
+        <= attempt["elapsed_seconds"]
+    )
+    assert attempt["queue_wait_seconds"] >= 0
+    assert "browser" not in json.dumps(attempt)

@@ -1,6 +1,11 @@
 {
   "additionalProperties": false,
   "properties": {
+    "admin": {
+      "default": false,
+      "title": "Admin",
+      "type": "boolean"
+    },
     "iss": {
       "title": "Iss",
       "type": "string"

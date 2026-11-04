@@ -514,6 +514,14 @@ class Store:
     async def append(self, attempt, kind, data):
         async with self.transaction() as conn:
             await self._owned(conn, attempt)
+            await conn.execute(
+                update(attempts)
+                .where(attempts.c.id == attempt["id"])
+                .values(
+                    first_event_at=attempt.get("first_event_at"),
+                    first_text_at=attempt.get("first_text_at"),
+                )
+            )
             return await self._event(conn, attempt["job_id"], kind, data, attempt["id"])
 
     async def _terminal(self, conn, job, status, result=None, error=None, attempt_id=None):
@@ -559,6 +567,8 @@ class Store:
                 .values(
                     status=status,
                     finished_at=time.time(),
+                    first_event_at=attempt.get("first_event_at"),
+                    first_text_at=attempt.get("first_text_at"),
                     error=error,
                     usage=result.get("usage") if result else None,
                     diagnostic=diagnostic,
@@ -862,11 +872,75 @@ class Store:
                 )
             )
 
+    async def active_sessions(self):
+        now = time.time()
+        async with self.engine.connect() as conn:
+            rows = (
+                (
+                    await conn.execute(
+                        select(
+                            jobs,
+                            attempts.c.id.label("active_attempt_id"),
+                            attempts.c.native_session_id,
+                            attempts.c.started_at,
+                            attempts.c.worker_id,
+                        )
+                        .join(attempts, attempts.c.job_id == jobs.c.id)
+                        .where(
+                            jobs.c.status == "running",
+                            attempts.c.status == "running",
+                            attempts.c.lease_until > now,
+                        )
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            queued = (
+                await conn.execute(
+                    select(jobs.c.profile, func.count())
+                    .where(jobs.c.status == "queued")
+                    .group_by(jobs.c.profile)
+                )
+            ).all()
+            return [dict(row) for row in rows], dict(queued)
+
+    @staticmethod
+    def attempt_timings(row, created_at):
+        def iso(value):
+            return (
+                datetime.fromtimestamp(value, timezone.utc).isoformat()
+                if value is not None
+                else None
+            )
+
+        start = row["started_at"]
+        return {
+            **{
+                key: iso(row[key])
+                for key in ("started_at", "first_event_at", "first_text_at", "finished_at")
+            },
+            "queue_wait_seconds": max(0, start - created_at),
+            "elapsed_seconds": max(0, (row["finished_at"] or time.time()) - start),
+            "first_event_seconds": row["first_event_at"] - start
+            if row["first_event_at"] is not None
+            else None,
+            "first_text_seconds": row["first_text_at"] - start
+            if row["first_text_at"] is not None
+            else None,
+        }
+
     async def attempt_usage(self, job_id):
         async with self.engine.connect() as conn:
             job = (
-                await conn.execute(select(jobs.c.request).where(jobs.c.id == job_id))
-            ).scalar_one()
+                (
+                    await conn.execute(
+                        select(jobs.c.request, jobs.c.created_at).where(jobs.c.id == job_id)
+                    )
+                )
+                .mappings()
+                .one()
+            )
             rows = (
                 (
                     await conn.execute(
@@ -883,7 +957,8 @@ class Store:
                     "attempt_id": row["id"],
                     "number": row["number"],
                     "status": row["status"],
-                    "model": job["model"],
+                    "model": job["request"]["model"],
+                    **self.attempt_timings(row, job["created_at"]),
                     "native_session_id": row["native_session_id"],
                     "counter_segment": row["counter_segment"],
                     "usage": row["usage"],

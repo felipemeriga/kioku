@@ -233,6 +233,8 @@ class NativeRunner:
                     event = json.loads(line)
                 except (json.JSONDecodeError, UnicodeDecodeError):
                     raise NativeError("invalid_native_ndjson") from None
+                if not first:
+                    attempt["first_event_at"] = time.time()
                 first = True
                 kind = event.get("type")
                 if kind == "system" and event.get("subtype") == "init":
@@ -242,6 +244,7 @@ class NativeRunner:
                 elif kind == "stream_event":
                     delta = event.get("event", {}).get("delta", {})
                     if delta.get("type") == "text_delta":
+                        attempt.setdefault("first_text_at", time.time())
                         value = delta.get("text", "")
                         for offset in range(0, len(value), 4000):
                             await emit(
