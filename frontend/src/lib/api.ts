@@ -1238,6 +1238,8 @@ export function requiresNativeRebuild(error: unknown): boolean {
   const detail = error.detail as { code?: string } | undefined;
   return (
     detail?.code === "conversation_policy_changed" ||
-    detail?.code === "conversation_needs_rebuild"
+    detail?.code === "conversation_needs_rebuild" ||
+    detail?.code === "cancelled" ||
+    detail?.code === "execution_uncertain"
   );
 }
