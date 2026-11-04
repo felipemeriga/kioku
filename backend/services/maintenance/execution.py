@@ -301,6 +301,218 @@ def acknowledge_absent_documentation(sb, owner, folder, head):
     )
 
 
+MAINTENANCE_MODEL = "claude-sonnet-4-6"
+MAINTENANCE_MAX_TURNS = 3
+
+
+def completion_system(built):
+    return built["system"] + (
+        " Wrap operation data in the standardized completion envelope: "
+        "schema_version=1, outcome, data, missing_inputs, failure, warnings. "
+        "Use needs_input with missing field/reason if evidence is insufficient; "
+        "do not ask questions."
+    )
+
+
+def request_matches_policy(row):
+    built, request = build_request(row["snapshot"]), row["request"]
+    return (
+        request["prompt"] == built["prompt"]
+        and request["system_prompt"] == completion_system(built)
+        and request["max_tokens"] == built["max_tokens"]
+        and request["response_schema"] == completion_schema(built["schema"])
+        and request["max_turns"] == MAINTENANCE_MAX_TURNS
+        and request["model"] == MAINTENANCE_MODEL
+    )
+
+
+def recover_review_plan(sb, owner, folder, payload, snapshot):
+    """Resume the accepted pass across its own partial publications, not new edits."""
+    passes = (
+        sb.table("maintenance_review_passes")
+        .select("preparation_id")
+        .eq("user_id", owner)
+        .eq("folder_id", folder)
+        .eq("head_sha", payload["head_sha"])
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not passes:
+        return None
+    rows = (
+        sb.table("maintenance_preparations")
+        .select("*")
+        .eq("id", passes[0]["preparation_id"])
+        .eq("user_id", owner)
+        .eq("folder_id", folder)
+        .eq("head_sha", payload["head_sha"])
+        .eq("operation", "review_plan")
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows:
+        return None
+    row = rows[0]
+    old = row["snapshot"]
+    if (
+        old.get("input") != payload
+        or not row.get("execution_job_id")
+        or not row.get("publication")
+        or row.get("validation_error")
+    ):
+        return None
+    if not request_matches_policy(row):
+        return None
+    before, current = old.get("expected_sections", {}), snapshot["expected_sections"]
+    if set(before) != set(current):
+        return None
+    changed = [name for name in before if before[name] != current[name]]
+    reviews = snapshot.get("expected_reviews", {})
+    old_reviews = old.get("expected_reviews", {})
+    review_changes = [name for name in reviews if reviews[name] != old_reviews.get(name)]
+    if not changed and not review_changes:
+        return (
+            row
+            if old.get("documentation_revision") == snapshot.get("documentation_revision")
+            else None
+        )
+    # Only the current accepted pass's own published work can explain drift.
+    published = (
+        sb.table("maintenance_preparations")
+        .select("*")
+        .eq("user_id", owner)
+        .eq("folder_id", folder)
+        .eq("head_sha", payload["head_sha"])
+        .order("created_at", desc=True)
+        .limit(30)
+        .execute()
+        .data
+        or []
+    )
+    # A review-only marker does not change evidence. The original accepted plan
+    # already inspected these exact unchanged section revisions.
+    proven = {
+        name
+        for name in review_changes
+        if name not in changed
+        and name in row["publication"].get("reviewed", [])
+        and (reviews.get(name) or {}).get("head_sha") == payload["head_sha"]
+    }
+    proof_reads = 0
+    documentation_proven = old.get("documentation_revision") == snapshot.get(
+        "documentation_revision"
+    )
+    for item in published:
+        if set(changed + review_changes).issubset(proven) and documentation_proven:
+            break
+        names = (item.get("publication") or {}).get("sections", [])
+        needed = (set(names) & set(changed + review_changes)) - proven
+        if (
+            not needed
+            or not item.get("execution_job_id")
+            or item.get("validation_error")
+            or item.get("created_at", "") < row.get("created_at", "")
+        ):
+            continue
+        if any(
+            (current[name] or {}).get("provenance") != "auto"
+            or (current[name] or {}).get("updated_by") != "mihari"
+            or (reviews.get(name) or {}).get("head_sha") != payload["head_sha"]
+            for name in needed
+            if name in changed
+        ):
+            continue
+        if proof_reads >= 6:
+            return None
+        proof_reads += 1
+        client = TsukaiClient(
+            os.environ["TSUKAI_URL"],
+            os.environ["TSUKAI_SERVICE_TOKEN"],
+            capability(owner, folder, item["request"]),
+        )
+        try:
+            result = client.result(item["execution_job_id"])
+            value = validate_result(
+                item["snapshot"],
+                result.structured if result.structured is not None else result.text,
+            )
+        finally:
+            client.close()
+        op = item["operation"]
+        outputs = value if op == "reground" else {op: value}
+        for name in needed:
+            if name == "documentation":
+                # Full document revision and body must agree, not just its abstract.
+                docs = (
+                    sb.table("repo_documentation")
+                    .select("id,content")
+                    .eq("user_id", owner)
+                    .eq("folder_id", folder)
+                    .eq("id", snapshot.get("documentation_revision"))
+                    .limit(1)
+                    .execute()
+                    .data
+                    or []
+                )
+                if docs and docs[0]["content"] == value.get("content"):
+                    documentation_proven = True
+                    proven.add(name)
+            elif name in outputs and (current[name] or {}).get("content") == outputs[name]:
+                proven.add(name)
+    if set(changed + review_changes).issubset(proven) and documentation_proven:
+        return row
+    return None
+
+
+def recover_ordered_preparation(sb, owner, folder, operation, snapshot):
+    """Legacy graph rows had no ORDER BY; their immutable prompt is still valid."""
+    if operation != "reground":
+        return None
+
+    def normalized(value):
+        return {
+            **value,
+            **{key: sorted(value.get(key, []), key=digest) for key in ("symbols", "edges")},
+        }
+
+    rows = (
+        sb.table("maintenance_preparations")
+        .select("*")
+        .eq("user_id", owner)
+        .eq("folder_id", folder)
+        .eq("head_sha", snapshot["input"]["head_sha"])
+        .eq("operation", operation)
+        .order("created_at", desc=True)
+        .limit(30)
+        .execute()
+        .data
+        or []
+    )
+    for row in rows:
+        if row.get("validation_error") or normalized(row["snapshot"]) != normalized(snapshot):
+            continue
+        if request_matches_policy(row):
+            return row
+    return None
+
+
+def prepared_response(owner, folder, record):
+    request = record["request"]
+    return {
+        "ok": True,
+        "engine": "tsukai",
+        "preparation_id": record["id"],
+        "request": request,
+        "capability": capability(owner, folder, request),
+        "url": os.environ["TSUKAI_URL"],
+        "expires_at": int(time.time()) + 900,
+    }
+
+
 def prepare(sb, owner, folder, operation, payload):
     reconcile_usage(sb, owner, folder)
     reconcile_acknowledgements(sb, owner, folder)
@@ -346,13 +558,26 @@ def prepare(sb, owner, folder, operation, payload):
                 "reviewed": [],
                 "reason": "HEAD already reviewed",
             }
+    if operation == "review_plan":
+        recovered = recover_review_plan(sb, owner, folder, payload, snapshot)
+        if recovered:
+            return prepared_response(owner, folder, recovered)
+    recovered = recover_ordered_preparation(sb, owner, folder, operation, snapshot)
+    if recovered:
+        return prepared_response(owner, folder, recovered)
     built = build_request(snapshot)
     preparation = str(uuid4())
     identity = {"owner": owner, "folder": folder, "snapshot": snapshot}
-    if operation == "documentation":
-        # A pending request authored under older maintenance instructions must
-        # not shadow a changed documentation policy at the same source snapshot.
-        identity["prompt_policy_sha256"] = digest(built)
+    # Transport/formatter policy is part of every operation's immutable identity.
+    identity["prompt_policy_sha256"] = digest(
+        {
+            "built": built,
+            "system": completion_system(built),
+            "schema": completion_schema(built["schema"]),
+            "model": MAINTENANCE_MODEL,
+            "max_turns": MAINTENANCE_MAX_TURNS,
+        }
+    )
     key = digest(identity)
     request = {
         "schema_version": 1,
@@ -362,16 +587,10 @@ def prepare(sb, owner, folder, operation, payload):
         "operation": "mihari." + operation,
         "profile": "completion",
         "prompt": built["prompt"],
-        "system_prompt": built["system"]
-        + (
-            " Wrap operation data in the standardized completion envelope: "
-            "schema_version=1, outcome, data, missing_inputs, failure, warnings. "
-            "Use needs_input with missing field/reason if evidence is insufficient; "
-            "do not ask questions."
-        ),
-        "model": "claude-sonnet-4-6",
+        "system_prompt": completion_system(built),
+        "model": MAINTENANCE_MODEL,
         "max_tokens": built["max_tokens"],
-        "max_turns": 1,
+        "max_turns": MAINTENANCE_MAX_TURNS,
         "thinking_tokens": 0,
         "response_schema": completion_schema(built["schema"]),
         "conversation_id": None,
@@ -383,8 +602,7 @@ def prepare(sb, owner, folder, operation, payload):
         "ai_depth": 0,
         "metadata": {"maintenance_operation": operation, "input_digest": digest(snapshot)},
     }
-    if operation == "documentation":
-        request["metadata"]["prompt_policy_sha256"] = identity["prompt_policy_sha256"]
+    request["metadata"]["prompt_policy_sha256"] = identity["prompt_policy_sha256"]
     record = {
         "id": preparation,
         "user_id": owner,
@@ -470,15 +688,7 @@ def prepare(sb, owner, folder, operation, payload):
             .execute()
             .data
         )
-    return {
-        "ok": True,
-        "engine": "tsukai",
-        "preparation_id": record["id"],
-        "request": request,
-        "capability": capability(owner, folder, request),
-        "url": os.environ["TSUKAI_URL"],
-        "expires_at": int(time.time()) + 900,
-    }
+    return prepared_response(owner, folder, record)
 
 
 def publish(sb, owner, folder, preparation, job_id):

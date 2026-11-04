@@ -108,6 +108,9 @@ def test_reground_preserves_pinned_overview(monkeypatch):
         def eq(self, *_args):
             return self
 
+        def order(self, *_args):
+            return self
+
         def limit(self, *_args):
             return self
 

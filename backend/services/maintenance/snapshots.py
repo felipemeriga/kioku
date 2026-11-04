@@ -75,6 +75,9 @@ def capture(sb, owner, folder, operation, payload):
         extra["symbols"] = (
             sb.table("repo_symbols")
             .select("file,symbol,kind")
+            .order("file")
+            .order("symbol")
+            .order("kind")
             .eq("folder_id", folder)
             .eq("user_id", owner)
             .limit(100)
@@ -85,6 +88,10 @@ def capture(sb, owner, folder, operation, payload):
         extra["edges"] = (
             sb.table("repo_edges")
             .select("ref_file,src_node_id,dst_node_id,relation")
+            .order("ref_file")
+            .order("src_node_id")
+            .order("dst_node_id")
+            .order("relation")
             .eq("folder_id", folder)
             .eq("user_id", owner)
             .limit(50)
