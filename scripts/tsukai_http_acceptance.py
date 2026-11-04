@@ -66,6 +66,7 @@ def probe(config, read_only=False):
             paths = [
                 ("folders", "/api/folders", {}),
                 ("documents", "/api/documents", {"folder_id": config["folder_id"]}),
+                ("conversations", "/api/conversations", {}),
                 ("breadcrumbs", f"/api/folders/{config['folder_id']}/breadcrumbs", {}),
                 ("learnings", f"/api/folders/{config['folder_id']}/learnings", {}),
                 (
@@ -79,6 +80,26 @@ def probe(config, read_only=False):
                 ),
                 ("active_sessions", "/api/usage/native/active-sessions", {}),
             ]
+            if config.get("journal_folder_id"):
+                existing = config["journal_folder_id"]
+                paths.extend(
+                    [
+                        (
+                            "existing_learnings",
+                            f"/api/folders/{existing}/learnings",
+                            {},
+                        ),
+                        (
+                            "existing_calendar",
+                            f"/api/folders/{existing}/learning-days",
+                            {
+                                "year": config["journal_year"],
+                                "month": config["journal_month"],
+                                "timezone": "America/Sao_Paulo",
+                            },
+                        ),
+                    ]
+                )
             checks = []
             for name, path, params in paths:
                 began = time.monotonic()
@@ -87,13 +108,29 @@ def probe(config, read_only=False):
                 data = response.json()
                 if name == "active_sessions" and data.get("available") is not True:
                     raise CheckFailure("Native admin telemetry is unavailable")
-                if name == "learning_days" and not isinstance(data.get("days"), list):
+                if name in {"learning_days", "existing_calendar"} and not isinstance(
+                    data.get("days"), list
+                ):
                     raise CheckFailure("Learning calendar response has wrong shape")
+                if name == "existing_calendar" and not data["days"]:
+                    raise CheckFailure(
+                        "Known nonempty existing journal calendar returned no days"
+                    )
                 checks.append(
                     {
                         "name": name,
                         "seconds": time.monotonic() - began,
                         "status": response.status_code,
+                        "item_count": len(data)
+                        if isinstance(data, list)
+                        else len(
+                            data.get(
+                                "days", data.get("learnings", data.get("sessions", []))
+                            )
+                        ),
+                        "sha256": hashlib.sha256(
+                            json.dumps(data, sort_keys=True).encode()
+                        ).hexdigest(),
                     }
                 )
             result = {"kind": "real_http_read_only", "checks": checks}
