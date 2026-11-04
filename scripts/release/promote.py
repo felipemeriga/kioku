@@ -8,6 +8,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import bootstrap
 from deployment import configuration, wait_for_deployments
 from release import dump, git, update_hive
 
@@ -158,7 +159,10 @@ def main():
                 break
         else:
             raise RuntimeError("Hive push failed; release drafts retained for retry")
+        initial_tsukai = bootstrap.start(hive, hive_sha, plan, results, deploy_config)
         proof = wait_for_deployments(plan, hive_sha, config=deploy_config)
+        if initial_tsukai:
+            bootstrap.finish(hive_sha, deploy_config, proof)
         manifest = json.loads((root / "release-manifest.json").read_text())
         manifest.update({"hive_commit": hive_sha, "verified_deployments": proof})
         dump(root / "release-manifest.json", manifest)
