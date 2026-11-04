@@ -73,7 +73,7 @@ jobs:
           PY
           git config user.name 'felipemeriga'
           git config user.email 'felipemeriga@users.noreply.github.com'
-          git add .release backend/pyproject.toml backend/uv.lock cli/package.json cli/package-lock.json cli/src frontend/package.json frontend/package-lock.json
+          git add .release backend/pyproject.toml backend/uv.lock tsukai/pyproject.toml tsukai/uv.lock cli/package.json cli/package-lock.json cli/src frontend/package.json frontend/package-lock.json
           if ! git diff --cached --quiet; then
             git commit -m 'chore(release): bump affected package versions'
             # A normal fast-forward push fails safely if main advanced or branch

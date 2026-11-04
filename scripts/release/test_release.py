@@ -38,7 +38,8 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(affected(["frontend/src/App.tsx"]), ["frontend"])
         self.assertEqual(affected(["mihari/mihari.py"]), ["mihari"])
         self.assertEqual(affected(["README.md", "docs/design.md"]), [])
-        self.assertEqual(len(affected(["scripts/release/release.py"])), 5)
+        self.assertEqual(len(affected(["scripts/release/release.py"])), 6)
+        self.assertEqual(affected(["tsukai/src/tsukai/native.py"]), ["tsukai"])
 
     def test_versions_patch_and_lockfiles_stay_consistent(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -82,6 +83,70 @@ class ReleaseTests(unittest.TestCase):
                 'name = "other"\nversion = "4.0.0"',
                 (root / "backend/uv.lock").read_text(),
             )
+
+    def test_tsukai_version_and_lock_are_bumped_together(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".release").mkdir()
+            (root / ".release/versions.json").write_text('{"tsukai":"0.1.0"}')
+            (root / "tsukai").mkdir()
+            (root / "tsukai/pyproject.toml").write_text(
+                '[project]\nname = "kioku-tsukai"\nversion = "0.1.0"\n'
+            )
+            (root / "tsukai/uv.lock").write_text(
+                '[[package]]\nname = "kioku-tsukai"\nversion = "0.1.0"\n'
+            )
+            self.assertEqual(bump_packages(root, ["tsukai"]), {"tsukai": "0.1.1"})
+            for file in ("pyproject.toml", "uv.lock"):
+                self.assertIn('version = "0.1.1"', (root / "tsukai" / file).read_text())
+            self.assertEqual(
+                json.loads((root / ".release/versions.json").read_text())["tsukai"],
+                "0.1.1",
+            )
+
+    def test_tsukai_hive_promotion_only_patches_runner_image(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "kioku/tsukai/docker-compose.yml"
+            path.parent.mkdir(parents=True)
+            original = "    image: felipemeriga1/kioku-tsukai:bootstrap\n    environment:\n      - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}\n"
+            path.write_text(original)
+            image = {
+                "package": "tsukai",
+                "image": "felipemeriga1/kioku-tsukai",
+                "tag": "0.1.1-abcdef",
+            }
+            result = {**image, "digest": "sha256:" + "a" * 64}
+            update_hive(root, {"images": [image]}, [result])
+            self.assertEqual(
+                path.read_text(),
+                original.replace(":bootstrap", ":0.1.1-abcdef@sha256:" + "a" * 64),
+            )
+
+    def test_tsukai_plan_builds_only_its_own_context(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with (
+                patch(
+                    "release.git",
+                    side_effect=[
+                        "",
+                        "head",
+                        "head",
+                        "",
+                        "release/deployed-base",
+                        "tsukai/src/tsukai/app.py",
+                    ],
+                ),
+                patch("release.release_levels", return_value={"tsukai": "patch"}),
+                patch("release.bump_packages", return_value={"tsukai": "0.1.1"}),
+            ):
+                plan = prepare(root, "head")
+            self.assertFalse(plan["cli"])
+            self.assertEqual(len(plan["images"]), 1)
+            self.assertEqual(plan["images"][0]["package"], "tsukai")
+            self.assertEqual(plan["images"][0]["context"], "tsukai")
+            self.assertEqual(plan["images"][0]["dockerfile"], "tsukai/Dockerfile")
 
     def test_invalid_version_rejected(self):
         with self.assertRaises(ValueError):
