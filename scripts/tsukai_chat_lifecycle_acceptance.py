@@ -6,6 +6,7 @@ Synthetic conversations and accounting records are preserved for later cleanup.
 """
 
 import argparse
+import hashlib
 import json
 import logging
 import stat
@@ -23,7 +24,23 @@ def frames(response):
         if line.startswith("data: "):
             frame = json.loads(line[6:])
             if frame.get("error"):
-                raise CheckFailure("Lifecycle stream emitted a native error")
+                identities = []
+                for key in ("job_id", "turn_id"):
+                    try:
+                        identities.append(
+                            key + "=" + str(uuid.UUID(str(frame.get(key))))
+                        )
+                    except ValueError:
+                        pass
+                digest = hashlib.sha256(
+                    json.dumps(frame["error"], sort_keys=True).encode()
+                ).hexdigest()
+                raise CheckFailure(
+                    "Lifecycle stream emitted a native error; "
+                    + "; ".join(identities)
+                    + "; error_sha256="
+                    + digest
+                )
             yield frame
 
 
