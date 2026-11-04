@@ -17,6 +17,8 @@ export async function runChatTransport(options: {
   onFrame: (frame: ChatFrame) => void;
   fetcher?: typeof fetch;
   pause?: (ms: number) => Promise<void>;
+  resume?: { turn_id: string; job_id: string; conversation_id: string };
+  signal?: AbortSignal;
 }): Promise<void> {
   const fetcher = options.fetcher ?? fetch;
   const pause =
@@ -25,7 +27,7 @@ export async function runChatTransport(options: {
   let jobId: string | undefined;
   let cursor = 0;
   let first = true;
-  const turnId = options.payload.turn_id;
+  const turnId = options.resume?.turn_id ?? options.payload.turn_id;
   let knownNative = false;
 
   async function recover(): Promise<void> {
@@ -33,6 +35,7 @@ export async function runChatTransport(options: {
     for (let attempt = 0; attempt < 5; attempt++) {
       const response = await fetcher(`/api/chat/turns/${turnId}`, {
         headers: await options.headers(),
+        signal: options.signal,
       });
       if (response.ok) {
         const turn = await response.json();
@@ -50,6 +53,8 @@ export async function runChatTransport(options: {
           );
         }
         // A durable prepared turn proves the exact same-key POST is safe.
+        if (options.resume)
+          throw new ChatTransportError("Saved execution is not accepted", 409);
         first = true;
         return;
       }
@@ -65,6 +70,35 @@ export async function runChatTransport(options: {
     );
   }
 
+  if (options.resume) {
+    const response = await fetcher(`/api/chat/turns/${turnId}`, {
+      headers: await options.headers(),
+      signal: options.signal,
+    });
+    if (!response.ok)
+      throw new ChatTransportError(
+        "Could not recover saved execution",
+        response.status,
+      );
+    const turn = await response.json();
+    if (
+      turn.id !== turnId ||
+      turn.conversation_id !== options.resume.conversation_id ||
+      turn.job_id !== options.resume.job_id
+    ) {
+      throw new ChatTransportError("Saved execution identity changed", 409);
+    }
+    if (["failed", "cancelled", "uncertain"].includes(turn.state)) {
+      const code =
+        typeof turn.error_code === "string"
+          ? turn.error_code
+          : `Execution ${turn.state}`;
+      throw new ChatTransportError(code, 409, code);
+    }
+    jobId = options.resume.job_id;
+    knownNative = true;
+    first = false;
+  }
   for (let retry = 0; retry < 4; retry++) {
     let response: Response;
     try {
@@ -72,6 +106,7 @@ export async function runChatTransport(options: {
         first ? "/api/chat" : `/api/chat/jobs/${jobId}/events?after=${cursor}`,
         {
           method: first ? "POST" : "GET",
+          signal: options.signal,
           headers: await options.headers(),
           ...(first ? { body: JSON.stringify(options.payload) } : {}),
         },
@@ -156,6 +191,7 @@ export async function runChatTransport(options: {
       }
       throw new ChatTransportError("Response ended before a terminal event");
     } catch (error) {
+      if (options.signal?.aborted) throw error;
       if (error instanceof ChatTransportError && error.status > 0) throw error;
       if (retry === 3) throw error;
       await pause(250 * 2 ** retry);

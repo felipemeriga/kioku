@@ -52,7 +52,46 @@ def get_conversation(conversation_id: str, user_id: str = Depends(get_current_us
         .order("created_at")
         .execute()
     )
-    return {**conv.data[0], "messages": messages.data}
+    active_execution = None
+    from services.ai.registry import engine_for
+
+    if any(engine_for(op, user_id) == "tsukai" for op in ("rag_agent", "rag_agent_sonnet")):
+        from services.ai.chat import turn_scope
+
+        turns = (
+            sb.table("tsukai_chat_turns")
+            .select("*")
+            .eq("owner_id", user_id)
+            .eq("conversation_id", conversation_id)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if (
+            turns
+            and turns[0].get("job_id")
+            and not turns[0].get("assistant_message_id")
+            and turns[0]["state"] in {"prepared", "submitted", "failed", "cancelled", "uncertain"}
+        ):
+            turn = turns[0]
+            try:
+                turn_scope(turn)
+            except HTTPException as exc:
+                if exc.status_code not in (403, 404):
+                    raise
+            else:
+                intent = turn["request"]["metadata"]["intent"]
+                active_execution = {
+                    "state": turn["state"],
+                    "turn_id": turn["id"],
+                    "job_id": turn["job_id"],
+                    "conversation_id": conversation_id,
+                    "model": intent["model"],
+                    "mode": intent["mode"],
+                }
+    return {**conv.data[0], "messages": messages.data, "active_execution": active_execution}
 
 
 @router.patch("/{conversation_id}")

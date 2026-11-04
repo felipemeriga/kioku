@@ -25,12 +25,13 @@ const MODE_LABEL: Record<ChatMode, string> = {
 
 interface ChatInputProps {
   conversationId?: string | null;
+  restoredSettings?: { model: ChatModel; mode: ChatMode };
   onSend: (
     message: string,
     filters?: ChatFilters,
     model?: ChatModel,
     mode?: ChatMode,
-    debug?: boolean
+    debug?: boolean,
   ) => void;
   disabled: boolean;
   /** Active RAG scope for this conversation (chip + picker managed above). */
@@ -41,6 +42,7 @@ interface ChatInputProps {
 
 export default function ChatInput({
   conversationId = null,
+  restoredSettings,
   onSend,
   disabled,
   scope,
@@ -66,6 +68,14 @@ export default function ChatInput({
       previousConversationId.current = conversationId;
     }
   }, [conversationId]);
+  const restoredModel = restoredSettings?.model;
+  const restoredMode = restoredSettings?.mode;
+  useEffect(() => {
+    if (restoredModel && restoredMode) {
+      setModel(restoredModel);
+      setMode(restoredMode);
+    }
+  }, [restoredModel, restoredMode]);
   const [modelAnchor, setModelAnchor] = useState<null | HTMLElement>(null);
   // On by default so every response gets a persisted Inspect card.
   const [debug, setDebug] = useState(true);

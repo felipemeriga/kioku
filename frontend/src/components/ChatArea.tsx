@@ -23,6 +23,7 @@ import { brand, fonts } from "../theme";
 
 interface ChatAreaProps {
   conversationId?: string | null;
+  restoredSettings?: { model: ChatModel; mode: ChatMode };
   messagesLoading?: boolean;
   messagesError?: string | null;
   onRetryMessages?: () => void;
@@ -35,7 +36,7 @@ interface ChatAreaProps {
     filters?: ChatFilters,
     model?: ChatModel,
     mode?: ChatMode,
-    debug?: boolean
+    debug?: boolean,
   ) => void;
   scope?: ChatScope | null;
   onPickScope?: () => void;
@@ -53,6 +54,7 @@ const SUGGESTIONS = [
 
 export default function ChatArea({
   conversationId,
+  restoredSettings,
   messagesLoading = false,
   messagesError = null,
   onRetryMessages,
@@ -254,6 +256,7 @@ export default function ChatArea({
         </Box>
       </Box>
       <ChatInput
+        restoredSettings={restoredSettings}
         conversationId={conversationId}
         onSend={onSend}
         disabled={isStreaming || messagesLoading || !!messagesError}

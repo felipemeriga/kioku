@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Conversation, Message } from "../lib/api";
+import type { Conversation, Message, NativeChatExecution } from "../lib/api";
 import {
   fetchConversations,
   createConversation as apiCreateConversation,
@@ -22,6 +22,9 @@ export function useConversations() {
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [messagesError, setMessagesError] = useState<string | null>(null);
   const [messageAttempt, setMessageAttempt] = useState(0);
+  const [executionOwner, setExecutionOwner] = useState<string | null>(null);
+  const [activeExecution, setActiveExecution] =
+    useState<NativeChatExecution | null>(null);
 
   const listQuery = useQuery({
     queryKey: qk.conversationsForUser(ownerId),
@@ -35,14 +38,14 @@ export function useConversations() {
       queryClient.invalidateQueries({
         queryKey: qk.conversationsForUser(ownerId),
       }),
-    [queryClient, ownerId]
+    [queryClient, ownerId],
   );
 
   const createConversation = useCallback(async () => {
     const conv = await apiCreateConversation();
     queryClient.setQueryData<Conversation[]>(
       qk.conversationsForUser(ownerId),
-      (prev) => [conv, ...(prev ?? [])]
+      (prev) => [conv, ...(prev ?? [])],
     );
     setSelectedId(conv.id);
     setMessages([]);
@@ -82,15 +85,20 @@ export function useConversations() {
   // Load messages for the selected conversation; chat streaming then appends
   // to this local state live via setMessages.
   useEffect(() => {
-    if (!selectedId) return;
+    if (!selectedId || !ownerId) return;
     let active = true;
     void Promise.resolve().then(async () => {
       if (!active) return;
       setMessagesLoading(true);
       setMessagesError(null);
+      setActiveExecution(null);
       try {
         const conv = await fetchConversation(selectedId);
-        if (active) setMessages(conv.messages);
+        if (active) {
+          setMessages(conv.messages);
+          setActiveExecution(conv.active_execution ?? null);
+          setExecutionOwner(ownerId);
+        }
       } catch (error) {
         if (active) {
           setMessages([]);
@@ -103,7 +111,7 @@ export function useConversations() {
     return () => {
       active = false;
     };
-  }, [selectedId, messageAttempt]);
+  }, [selectedId, messageAttempt, ownerId]);
 
   const selectConversation = useCallback(
     (id: string) => {
@@ -113,11 +121,11 @@ export function useConversations() {
       setMessagesLoading(true);
       setSelectedId(id);
     },
-    [selectedId]
+    [selectedId],
   );
   const retryMessages = useCallback(
     () => setMessageAttempt((attempt) => attempt + 1),
-    []
+    [],
   );
 
   const removeConversation = useCallback(
@@ -125,7 +133,7 @@ export function useConversations() {
       await apiDeleteConversation(id);
       const prev =
         queryClient.getQueryData<Conversation[]>(
-          qk.conversationsForUser(ownerId)
+          qk.conversationsForUser(ownerId),
         ) ?? [];
       const remaining = prev.filter((c) => c.id !== id);
       queryClient.setQueryData(qk.conversationsForUser(ownerId), remaining);
@@ -137,7 +145,7 @@ export function useConversations() {
         setMessagesLoading(!!next);
       }
     },
-    [queryClient, selectedId, ownerId]
+    [queryClient, selectedId, ownerId],
   );
 
   return {
@@ -147,6 +155,7 @@ export function useConversations() {
       ? messageFromError(listQuery.error)
       : null,
     selectedId,
+    activeExecution: executionOwner === ownerId ? activeExecution : null,
     messages,
     messagesLoading,
     messagesError,
