@@ -9,6 +9,7 @@ import argparse
 import hashlib
 import json
 import logging
+import re
 import stat
 import time
 import uuid
@@ -320,12 +321,75 @@ def policy_switch(client, config):
     }
 
 
+def web_search(client, config):
+    identifier = conversation(client, config, "public-web-search")
+    query = "site:docs.python.org/3/tutorial/ official Python tutorial"
+    request = body(
+        config,
+        identifier,
+        "Use web_search exactly once with this exact public query: "
+        + query
+        + ". Summarize what the official Python tutorial teaches in one sentence "
+        "and include its direct official source link. Send no fixture content or identifiers to search.",
+    )
+    final, deltas = terminal(client, request)
+    tools = (final.get("debug") or {}).get("tool_calls") or []
+    web = [tool for tool in tools if tool.get("name") == "web_search"]
+    if len(web) != 1 or web[0].get("is_error") or not deltas:
+        raise CheckFailure("Actual web-search call/streaming gate failed")
+    artifact_id = web[0].get("artifact_id")
+    if not artifact_id:
+        raise CheckFailure("Actual web-search result artifact missing")
+    offset, parts, trace = 0, [], {}
+    while True:
+        response = client.get(
+            f"/api/chat/jobs/{final['job_id']}/artifacts/{artifact_id}",
+            params={"offset": offset, "limit": 16384},
+        )
+        response.raise_for_status()
+        artifact = response.json()
+        parts.append(artifact["result"])
+        trace = artifact["trace"]
+        if artifact.get("next_offset") is None:
+            break
+        offset = artifact["next_offset"]
+        if offset > 100000:
+            raise CheckFailure("Synthetic public web result exceeds probe bound")
+    actual_query = trace.get("query") or (trace.get("input") or {}).get("query")
+    if actual_query != query:
+        raise CheckFailure("Web tool query differs from approved fixed public query")
+    visible = "".join(parts)
+    answer_links = re.findall(
+        r"https://docs\.python\.org/[^\s)\]<>]+", final["replace"]
+    )
+    supported_links = [link for link in answer_links if link in visible]
+    if not supported_links:
+        raise CheckFailure(
+            "Web answer has no actual official-source link supported by tool artifact"
+        )
+    return {
+        "case": "public_web_search",
+        "conversation_id": identifier,
+        "turn_id": request["turn_id"],
+        "job_id": final["job_id"],
+        "message_id": final["message_id"],
+        "delta_frames": deltas,
+        "artifact_id": artifact_id,
+        "artifact_characters": len(visible),
+        "artifact_sha256": hashlib.sha256(visible.encode()).hexdigest(),
+        "public_query": actual_query,
+        "verified_official_links": supported_links,
+        "numbered_citations": len(final.get("citations") or []),
+        "citation_type": "verified inline official URL",
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument(
         "--case",
-        choices=("reconnect", "cancel-rebuild", "policy-switch"),
+        choices=("reconnect", "cancel-rebuild", "policy-switch", "web-search"),
         required=True,
     )
     args = parser.parse_args()
@@ -348,6 +412,7 @@ def main():
                 "reconnect": reconnect,
                 "cancel-rebuild": cancel_rebuild,
                 "policy-switch": policy_switch,
+                "web-search": web_search,
             }[args.case]
             result = action(client, config)
         record = {
