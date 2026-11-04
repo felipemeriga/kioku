@@ -1,3 +1,4 @@
+import { evidenceHookCapabilities } from "../lib/agent-evidence-capabilities.js";
 /** Durable hook dispatch + bounded deterministic capture worker. No model calls. */
 import { execFileSync, spawn } from "node:child_process";
 import {
@@ -307,6 +308,7 @@ export function evidenceStatus(root: string): Record<string, unknown> {
   const sources = sourcesInRepo(root);
   return {
     enabled: evidenceEnabled(root),
+    hook_capabilities: evidenceHookCapabilities(root),
     sessions: sources.map((source) => {
       const m = readManifest(root, source),
         sync = readJson<Record<string, unknown>>(
