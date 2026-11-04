@@ -10,11 +10,16 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--socket", default="/broker/broker.sock")
     parser.add_argument("--health", action="store_true")
+    parser.add_argument("--resume")
+    parser.add_argument(
+        "--prompt",
+        default="Answer one sentence: why is event_id useful for idempotency?",
+    )
     args = parser.parse_args()
     request = (
         {"action": "health"}
         if args.health
-        else {"prompt": "Answer one sentence: why is event_id useful for idempotency?"}
+        else {"prompt": args.prompt, "resume": args.resume}
     )
     started = time.monotonic()
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:

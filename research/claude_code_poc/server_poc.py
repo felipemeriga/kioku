@@ -46,6 +46,8 @@ def main():
         socket_path = root / "broker.sock"
         socket_path.unlink(missing_ok=True)
         limiter = threading.BoundedSemaphore(2)
+        session_locks = {}
+        session_guard = threading.Lock()
 
         class Handler(socketserver.StreamRequestHandler):
             def handle(self):
@@ -53,41 +55,54 @@ def main():
                 if request.get("action") == "health":
                     self.wfile.write(b'{"healthy":true}\n')
                     return
-                with limiter:
-
-                    def emit(event):
-                        if event.get("type") in ("stream_event", "result"):
-                            try:
-                                self.wfile.write((json.dumps(event) + "\n").encode())
-                                self.wfile.flush()
-                            except BrokenPipeError:
-                                pass
-
-                    row = runner.call(
-                        "container-broker",
-                        request["prompt"],
-                        resume=request.get("resume"),
-                        mcp=mcp if request.get("maintenance") else None,
-                        system_prompt=system,
-                        on_event=emit,
-                        thinking_tokens=0,
+                with session_guard:
+                    lock = session_locks.setdefault(
+                        request.get("resume") or id(request), threading.Lock()
                     )
-                    try:
-                        self.wfile.write(
-                            (
-                                json.dumps(
-                                    {
-                                        "broker_result": row["result"],
-                                        "returncode": row["returncode"],
-                                        "session_id": row["session_id"],
-                                        "elapsed_s": row["elapsed_s"],
-                                    }
-                                )
-                                + "\n"
-                            ).encode()
+                if not lock.acquire(blocking=False):
+                    self.wfile.write(b'{"error":"session_busy"}\n')
+                    return
+                try:
+                    with limiter:
+
+                        def emit(event):
+                            if event.get("type") in ("stream_event", "result"):
+                                try:
+                                    self.wfile.write(
+                                        (json.dumps(event) + "\n").encode()
+                                    )
+                                    self.wfile.flush()
+                                except BrokenPipeError:
+                                    pass
+
+                        row = runner.call(
+                            "container-broker",
+                            request["prompt"],
+                            resume=request.get("resume"),
+                            mcp=mcp if request.get("maintenance") else None,
+                            system_prompt=system,
+                            on_event=emit,
+                            thinking_tokens=0,
                         )
-                    except BrokenPipeError:
-                        pass
+                        try:
+                            self.wfile.write(
+                                (
+                                    json.dumps(
+                                        {
+                                            "broker_result": row["result"],
+                                            "returncode": row["returncode"],
+                                            "session_id": row["session_id"],
+                                            "elapsed_s": row["elapsed_s"],
+                                        }
+                                    )
+                                    + "\n"
+                                ).encode()
+                            )
+                        except BrokenPipeError:
+                            pass
+
+                finally:
+                    lock.release()
 
         with socketserver.ThreadingUnixStreamServer(
             str(socket_path), Handler
