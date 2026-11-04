@@ -17,6 +17,7 @@ services:
     environment:
       - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:?runner OAuth credential required}
       - TSUKAI_DATABASE_URL=${TSUKAI_DATABASE_URL:?dedicated PostgreSQL role required}
+      - TSUKAI_DATABASE_CA_FILE=/etc/kioku/supabase-ca.crt
       - TSUKAI_SERVICE_TOKEN=${TSUKAI_SERVICE_TOKEN:?runner transport credential required}
       - TSUKAI_CAPABILITY_KEY=${TSUKAI_CAPABILITY_KEY:?capability signer required}
       - TSUKAI_CAPABILITY_ISSUER=${TSUKAI_CAPABILITY_ISSUER:-kioku-backend}
@@ -29,6 +30,7 @@ services:
     volumes:
       - tsukai-native-state:/state
       - tsukai-workspaces:/data
+      - ${TSUKAI_DATABASE_CA_PATH:-/root/.config/kioku/runner/supabase-ca.crt}:/etc/kioku/supabase-ca.crt:ro
     tmpfs:
       - /tmp:rw,nosuid,nodev,size=128m,uid=1000,gid=1000,mode=1770
       - /home/runner:rw,nosuid,nodev,size=32m,uid=1000,gid=1000,mode=0700
