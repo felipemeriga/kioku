@@ -114,7 +114,11 @@ export default function ChatPage() {
     } else {
       delete all[conversationId];
     }
-    localStorage.setItem(SCOPE_STORE_KEY, JSON.stringify(all));
+    try {
+      localStorage.setItem(SCOPE_STORE_KEY, JSON.stringify(all));
+    } catch {
+      // Browser storage policies must not prevent a scoped chat from being sent.
+    }
     setScopes(all);
   };
 
@@ -181,7 +185,7 @@ export default function ChatPage() {
     const scopedFilters: ChatFilters | undefined = scope
       ? {
           ...(filters ?? {}),
-          scopeFolderId: scope.filename ? null : scope.folderId,
+          scopeFolderId: scope.folderId,
           scopeFilename: scope.filename ?? null,
         }
       : filters;

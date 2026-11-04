@@ -1,4 +1,4 @@
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "../test/renderWithProviders";
@@ -51,6 +51,8 @@ vi.mock("../components/ChatArea", () => ({
 vi.mock("../components/ScopePickerDialog", () => ({ default: () => null }));
 vi.mock("../components/DocumentViewerDrawer", () => ({ default: () => null }));
 
+afterEach(() => vi.unstubAllGlobals());
+
 beforeEach(() => {
   fixtures.stream.mockReset();
   fixtures.setMessages.mockReset();
@@ -99,4 +101,21 @@ it("offers explicit rebuild for a policy conflict before any job frame and prese
         message.content === "Previously saved history",
     ),
   ).toBe(true);
+});
+
+it("keeps a selected document bound to its repository when browser storage is unavailable", async () => {
+  vi.stubGlobal("localStorage", undefined);
+  fixtures.stream.mockResolvedValueOnce(undefined);
+  renderWithProviders(<ChatPage />, {
+    initialEntries: [
+      "/chat?scope_folder=selected-repository&scope_name=Selected&scope_file=README.md",
+    ],
+  });
+  await userEvent
+    .setup()
+    .click(screen.getByRole("button", { name: "Send selected mode" }));
+  expect(fixtures.stream.mock.calls[0][4]).toMatchObject({
+    scopeFolderId: "selected-repository",
+    scopeFilename: "README.md",
+  });
 });
