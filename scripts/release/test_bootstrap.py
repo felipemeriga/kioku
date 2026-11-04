@@ -92,6 +92,13 @@ class BootstrapTests(unittest.TestCase):
         self.assertFalse(api.compose["autoDeploy"])
         bootstrap.finish(SHA, CONFIG, {"tsukai": "exact-verified-deployment"}, call=api)
         self.assertTrue(api.compose["autoDeploy"])
+        self.assertEqual(api.compose["watchPaths"], ["kioku/tsukai/**"])
+        # Enabling and narrowing the webhook occur in the same update: there is
+        # no enabled interval with Dokploy's null/empty "all changes" filter.
+        activation = api.calls[-1]
+        self.assertEqual(activation[0], "compose.update")
+        self.assertTrue(activation[1]["autoDeploy"])
+        self.assertEqual(activation[1]["watchPaths"], ["kioku/tsukai/**"])
         api.records = [{"description": "Commit: " + SHA, "status": "done"}]
         api.compose["autoDeploy"] = (
             False  # Subsequent human disable must survive reruns.
