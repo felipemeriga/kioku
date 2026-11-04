@@ -426,6 +426,7 @@ export default function ChatPage() {
               allowRebuild:
                 execution.state === "uncertain" ||
                 execution.state === "failed" ||
+                execution.state === "cancelled" ||
                 requiresNativeRebuild(error),
             });
           }
@@ -458,7 +459,8 @@ export default function ChatPage() {
     if (
       !pendingRecovery.allowRebuild &&
       latestState !== "failed" &&
-      latestState !== "uncertain"
+      latestState !== "uncertain" &&
+      latestState !== "cancelled"
     )
       return;
     const message = messages.find(
