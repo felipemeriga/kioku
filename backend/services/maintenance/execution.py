@@ -393,13 +393,24 @@ def recover_review_plan(sb, owner, folder, payload, snapshot):
         .data
         or []
     )
-    proven = set()
+    # A review-only marker does not change evidence. The original accepted plan
+    # already inspected these exact unchanged section revisions.
+    proven = {
+        name
+        for name in review_changes
+        if name not in changed
+        and name in row["publication"].get("reviewed", [])
+        and (reviews.get(name) or {}).get("head_sha") == payload["head_sha"]
+    }
+    proof_reads = 0
     documentation_proven = old.get("documentation_revision") == snapshot.get(
         "documentation_revision"
     )
     for item in published:
+        if set(changed + review_changes).issubset(proven) and documentation_proven:
+            break
         names = (item.get("publication") or {}).get("sections", [])
-        needed = set(names) & set(changed + review_changes)
+        needed = (set(names) & set(changed + review_changes)) - proven
         if (
             not needed
             or not item.get("execution_job_id")
@@ -415,6 +426,9 @@ def recover_review_plan(sb, owner, folder, payload, snapshot):
             if name in changed
         ):
             continue
+        if proof_reads >= 6:
+            return None
+        proof_reads += 1
         client = TsukaiClient(
             os.environ["TSUKAI_URL"],
             os.environ["TSUKAI_SERVICE_TOKEN"],
@@ -516,10 +530,6 @@ def prepare(sb, owner, folder, operation, payload):
             "reason": reason,
             "updated_learnings": promoted,
         }
-    if operation == "review_plan":
-        recovered = recover_review_plan(sb, owner, folder, payload, snapshot)
-        if recovered:
-            return prepared_response(owner, folder, recovered)
     if operation != "learnings":
         freshness = (
             sb.table("repo_freshness")
@@ -548,6 +558,10 @@ def prepare(sb, owner, folder, operation, payload):
                 "reviewed": [],
                 "reason": "HEAD already reviewed",
             }
+    if operation == "review_plan":
+        recovered = recover_review_plan(sb, owner, folder, payload, snapshot)
+        if recovered:
+            return prepared_response(owner, folder, recovered)
     recovered = recover_ordered_preparation(sb, owner, folder, operation, snapshot)
     if recovered:
         return prepared_response(owner, folder, recovered)

@@ -838,3 +838,63 @@ def test_graph_sampling_orders_all_projected_fields_before_limiting(monkeypatch,
     assert snapshot["symbols"][-1]["file"] == "f099"
     assert len(snapshot["edges"]) == 50
     assert snapshot["edges"][-1]["ref_file"] == "f049"
+
+
+def test_fully_reviewed_pass_skips_without_fetching_expired_native_outputs(
+    partial_pass, monkeypatch
+):
+    db, state, payload, _ = partial_pass
+    reviews = {
+        name: {"head_sha": payload["head_sha"]} for name in state["snapshot"]["expected_sections"]
+    }
+    db.rows["repo_freshness"] = [
+        {"folder_id": "folder", "user_id": "owner", "section_reviews": reviews}
+    ]
+    monkeypatch.setattr(
+        execution,
+        "TsukaiClient",
+        lambda *_: pytest.fail("fully reviewed HEAD must not fetch expired results"),
+    )
+    result = execution.prepare(db, "owner", "folder", "review_plan", payload)
+    assert result["engine"] == "skip"
+    assert result["reason"] == "HEAD already reviewed"
+
+
+def test_original_plan_review_only_marker_keeps_same_partial_pass(partial_pass):
+    db, state, payload, plan = partial_pass
+    original = db.rows["maintenance_preparations"][0]
+    unchanged = {
+        "content": {"ci_cd_notes": "No deployment evidence"},
+        "provenance": "agent_mcp",
+        "updated_by": "agent",
+        "updated_at": "before",
+    }
+    original["snapshot"]["expected_sections"]["deployment"] = unchanged
+    original["snapshot"]["current"]["deployment"] = unchanged["content"]
+    original["snapshot"]["expected_reviews"]["deployment"] = None
+    # Rebuild the originally accepted request before simulating partial work.
+    built = execution.build_request(original["snapshot"])
+    original["request"]["prompt"] = built["prompt"]
+    original["publication"]["reviewed"] = ["activity", "overview", "deployment"]
+    state["snapshot"]["expected_sections"]["deployment"] = unchanged
+    state["snapshot"]["current"]["deployment"] = unchanged["content"]
+    state["snapshot"]["expected_reviews"]["deployment"] = {
+        "head_sha": payload["head_sha"],
+        "reviewed_at": "after",
+    }
+    result = execution.prepare(db, "owner", "folder", "review_plan", payload)
+    assert result["preparation_id"] == plan["preparation_id"]
+    assert result["request"] == original["request"]
+
+
+def test_exact_proof_stops_after_required_sections_not_old_retained_jobs(partial_pass):
+    from copy import deepcopy
+
+    db, _, payload, plan = partial_pass
+    published = deepcopy(db.rows["maintenance_preparations"][-1])
+    db.rows["maintenance_preparations"].extend(
+        [{**published, "id": f"old-{i}", "execution_job_id": "expired-old-job"} for i in range(20)]
+    )
+    # Fixture runner asserts only activity-job is fetched, never expired-old-job.
+    result = execution.prepare(db, "owner", "folder", "review_plan", payload)
+    assert result["preparation_id"] == plan["preparation_id"]
