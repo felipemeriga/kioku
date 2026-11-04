@@ -69,6 +69,9 @@ def test_existing_read_discovers_accepted_owned_execution_without_prompt_leak(
     if native and job and not revoked and state not in {"committed", "acknowledged"}:
         assert result["active_execution"] == {
             "state": state,
+            "user_message_id": None,
+            "scope_folder_id": None,
+            "scope_filename": None,
             "turn_id": "turn",
             "job_id": "job",
             "conversation_id": CONVERSATION,
@@ -92,3 +95,111 @@ def test_foreign_conversation_cannot_query_execution_reference():
             get_conversation(CONVERSATION, "foreign")
     assert error.value.status_code == 404
     engine.assert_not_called()
+
+
+@pytest.mark.parametrize("visible_on_reread", [True, False])
+def test_publication_between_message_and_turn_reads_never_loses_answer_or_replay(visible_on_reread):
+    db = MagicMock()
+    turn = {
+        "id": "turn",
+        "job_id": "job",
+        "state": "committed",
+        "owner_id": "owner",
+        "conversation_id": CONVERSATION,
+        "assistant_message_id": "answer",
+        "user_message_id": "question",
+        "request": {"metadata": {"intent": {"model": "sonnet", "mode": "plain"}}},
+    }
+    message_reads = []
+
+    def table(name):
+        q = MagicMock()
+        for method in ("select", "eq", "order", "limit"):
+            getattr(q, method).return_value = q
+        q.not_.is_.return_value = q
+
+        def execute():
+            if name == "conversations":
+                return SimpleNamespace(data=[{"id": CONVERSATION}])
+            if name == "tsukai_chat_turns":
+                return SimpleNamespace(data=[turn])
+            message_reads.append(True)
+            return SimpleNamespace(
+                data=[{"id": "answer", "role": "assistant", "content": "canonical"}]
+                if len(message_reads) > 1 and visible_on_reread
+                else [{"id": "question", "role": "user", "content": "original"}]
+            )
+
+        q.execute.side_effect = execute
+        return q
+
+    db.table.side_effect = table
+    with (
+        patch("routes.conversations.get_supabase", return_value=db),
+        patch("services.ai.registry.engine_for", return_value="tsukai"),
+        patch("services.ai.chat.turn_scope"),
+    ):
+        result = get_conversation(CONVERSATION, "owner")
+    assert len(message_reads) == 2
+    if visible_on_reread:
+        assert result["messages"][0]["id"] == "answer"
+        assert result["active_execution"] is None
+    else:
+        assert result["active_execution"]["job_id"] == "job"
+        assert result["active_execution"]["state"] == "committed"
+
+
+def test_admission_between_reads_hydrates_exact_accepted_user_for_explicit_recovery():
+    db = MagicMock()
+    turn = {
+        "id": "turn",
+        "job_id": "job",
+        "state": "uncertain",
+        "owner_id": "owner",
+        "user_message_id": "accepted-user",
+        "conversation_id": CONVERSATION,
+        "request": {
+            "metadata": {
+                "intent": {
+                    "model": "sonnet",
+                    "mode": "plain",
+                    "scope_folder_id": "folder",
+                    "scope_filename": "guide.md",
+                }
+            }
+        },
+    }
+    reads = []
+
+    def table(name):
+        q = MagicMock()
+        for method in ("select", "eq", "order", "limit"):
+            getattr(q, method).return_value = q
+        q.not_.is_.return_value = q
+
+        def execute():
+            if name == "conversations":
+                return SimpleNamespace(data=[{"id": CONVERSATION}])
+            if name == "tsukai_chat_turns":
+                return SimpleNamespace(data=[turn])
+            reads.append(True)
+            return SimpleNamespace(
+                data=[]
+                if len(reads) == 1
+                else [{"id": "accepted-user", "role": "user", "content": "original"}]
+            )
+
+        q.execute.side_effect = execute
+        return q
+
+    db.table.side_effect = table
+    with (
+        patch("routes.conversations.get_supabase", return_value=db),
+        patch("services.ai.registry.engine_for", return_value="tsukai"),
+        patch("services.ai.chat.turn_scope"),
+    ):
+        result = get_conversation(CONVERSATION, "owner")
+    assert len(reads) == 2
+    assert result["messages"][0]["id"] == result["active_execution"]["user_message_id"]
+    assert result["active_execution"]["scope_folder_id"] == "folder"
+    assert result["active_execution"]["scope_filename"] == "guide.md"

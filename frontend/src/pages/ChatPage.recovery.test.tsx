@@ -7,6 +7,14 @@ import type { NativeChatExecution } from "../lib/api";
 
 const state = vi.hoisted(() => ({
   selectedId: "conversation",
+  messages: [
+    {
+      id: "saved",
+      role: "user",
+      content: "Original saved question",
+      created_at: "now",
+    },
+  ],
   user: { id: "owner" } as { id: string } | null,
   activeExecution: null as NativeChatExecution | null,
   stream: vi.fn(),
@@ -27,14 +35,7 @@ vi.mock("../hooks/useConversationsContext", () => ({
   useConversationsContext: () => ({
     selectedId: state.selectedId,
     activeExecution: state.activeExecution,
-    messages: [
-      {
-        id: "saved",
-        role: "user",
-        content: "Original saved question",
-        created_at: "now",
-      },
-    ],
+    messages: state.messages,
     messagesLoading: false,
     conversationsLoading: false,
     messagesError: null,
@@ -68,6 +69,14 @@ const execution: NativeChatExecution = {
 };
 beforeEach(() => {
   state.selectedId = "conversation";
+  state.messages = [
+    {
+      id: "saved",
+      role: "user",
+      content: "Original saved question",
+      created_at: "now",
+    },
+  ];
   state.user = { id: "owner" };
   state.activeExecution = null;
   state.stream.mockReset();
@@ -147,4 +156,74 @@ it("shows terminal recovery failure once without an automatic reattach loop", as
   expect(
     screen.queryByRole("button", { name: "Cancel generation" }),
   ).not.toBeInTheDocument();
+});
+
+it("offers explicit uncertain recovery only after the exact accepted user message hydrates", async () => {
+  state.activeExecution = {
+    ...execution,
+    state: "uncertain",
+    user_message_id: "saved",
+    scope_folder_id: "original-folder",
+    scope_filename: "original-guide.md",
+  };
+  state.messages = [
+    {
+      id: "newer",
+      role: "user",
+      content: "Unrelated later question",
+      created_at: "later",
+    },
+  ];
+  state.stream.mockRejectedValueOnce(new Error("execution_uncertain"));
+  const view = renderWithProviders(<ChatPage />);
+  await waitFor(() => expect(state.retry).toHaveBeenCalledTimes(1));
+  expect(state.stream).toHaveBeenCalledTimes(1);
+  expect(
+    screen.queryByRole("button", { name: "Rebuild context and retry" }),
+  ).not.toBeInTheDocument();
+  state.messages = [
+    {
+      id: "saved",
+      role: "user",
+      content: "Original saved question",
+      created_at: "now",
+    },
+    ...state.messages,
+  ];
+  view.rerender(<ChatPage />);
+  const rebuild = await screen.findByRole("button", {
+    name: "Rebuild context and retry",
+  });
+  expect(state.stream).toHaveBeenCalledTimes(1);
+  fireEvent.click(rebuild);
+  await waitFor(() => expect(state.stream).toHaveBeenCalledTimes(2));
+  const args = state.stream.mock.calls[1];
+  expect(args[1]).toBe("Original saved question");
+  expect(args[4]).toEqual({
+    scopeFolderId: "original-folder",
+    scopeFilename: "original-guide.md",
+  });
+  expect(args[6]).toBe("sonnet");
+  expect(args[7]).toBe("plain");
+  expect(args[15]).toBe(true);
+});
+
+it("waits for authoritative terminal state when replay disconnects from a submitted job", async () => {
+  state.activeExecution = {
+    ...execution,
+    state: "submitted",
+    user_message_id: "saved",
+  };
+  state.stream.mockRejectedValueOnce(new Error("connection ended"));
+  const view = renderWithProviders(<ChatPage />);
+  await waitFor(() => expect(state.retry).toHaveBeenCalledTimes(1));
+  expect(
+    screen.queryByRole("button", { name: "Rebuild context and retry" }),
+  ).not.toBeInTheDocument();
+  state.activeExecution = { ...state.activeExecution, state: "uncertain" };
+  view.rerender(<ChatPage />);
+  expect(
+    await screen.findByRole("button", { name: "Rebuild context and retry" }),
+  ).toBeInTheDocument();
+  expect(state.stream).toHaveBeenCalledTimes(1);
 });

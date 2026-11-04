@@ -79,6 +79,11 @@ export default function ChatPage() {
   const [liveTools, setLiveTools] = useState<
     Record<string, { name: string; status: string; sources?: number }>
   >({});
+  const [pendingRecovery, setPendingRecovery] = useState<{
+    ownerId: string;
+    execution: NativeChatExecution;
+    allowRebuild: boolean;
+  } | null>(null);
   const [recovery, setRecovery] = useState<{
     conversationId: string;
     content: string;
@@ -192,18 +197,21 @@ export default function ChatPage() {
     setActiveJobId(null);
     setLiveTools({});
     setRecovery(null);
+    setPendingRecovery(null);
     // Debug trace and citations arrive just before 'done'; hold them until we
     // build the committed assistant message.
     let debugTrace: DebugTrace | undefined;
     let citations: Citation[] | undefined;
 
-    const scopedFilters: ChatFilters | undefined = scope
-      ? {
-          ...(filters ?? {}),
-          scopeFolderId: scope.folderId,
-          scopeFilename: scope.filename ?? null,
-        }
-      : filters;
+    const scopedFilters: ChatFilters | undefined = rebuild
+      ? filters
+      : scope
+        ? {
+            ...(filters ?? {}),
+            scopeFolderId: scope.folderId,
+            scopeFilename: scope.filename ?? null,
+          }
+        : filters;
 
     try {
       await streamChat(
@@ -411,6 +419,16 @@ export default function ChatPage() {
         if (current()) {
           settled();
           setIsStreaming(false);
+          if (user?.id) {
+            setPendingRecovery({
+              ownerId: user.id,
+              execution,
+              allowRebuild:
+                execution.state === "uncertain" ||
+                execution.state === "failed" ||
+                requiresNativeRebuild(error),
+            });
+          }
           toast.showError(error, "Could not recover the saved execution.");
           retryMessages();
         }
@@ -425,6 +443,44 @@ export default function ChatPage() {
       }
     },
   );
+  const offerPendingRecovery = useEffectEvent(() => {
+    if (
+      !pendingRecovery ||
+      pendingRecovery.ownerId !== user?.id ||
+      pendingRecovery.execution.conversation_id !== selectedId
+    )
+      return;
+    const execution = pendingRecovery.execution;
+    const latestState =
+      activeExecution?.job_id === execution.job_id
+        ? activeExecution.state
+        : undefined;
+    if (
+      !pendingRecovery.allowRebuild &&
+      latestState !== "failed" &&
+      latestState !== "uncertain"
+    )
+      return;
+    const message = messages.find(
+      (row) => row.id === execution.user_message_id && row.role === "user",
+    );
+    if (!message) return;
+    setRecovery({
+      conversationId: execution.conversation_id,
+      content: message.content,
+      filters: {
+        scopeFolderId: execution.scope_folder_id ?? null,
+        scopeFilename: execution.scope_filename ?? null,
+      },
+      model: execution.model,
+      mode: execution.mode,
+      debug: true,
+    });
+    setPendingRecovery(null);
+  });
+  useEffect(() => {
+    offerPendingRecovery();
+  }, [messages, pendingRecovery, selectedId, user?.id, activeExecution]);
   useEffect(() => {
     if (
       !user?.id ||
