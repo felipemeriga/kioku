@@ -979,7 +979,7 @@ def get_folder_briefing_schema() -> str:
     notes on how to author it. Use with update_folder_briefing_section
     when you learn something the user hasn't captured yet.
     """
-    from services.folder_summary.briefing import (
+    from services.folder_summary.briefing_schema import (
         BRIEFING_SCHEMA_VERSION,
         SECTION_KEYS,
     )
@@ -1043,7 +1043,7 @@ def get_folder_briefing(folder: str | None = None) -> str:
         return "Error: Not authenticated. Provide a valid API key."
     if not _current_scope_folder_id.get():
         return "Error: No folder scope on this API key."
-    from services.folder_summary.briefing import empty_briefing, snapshot_sections
+    from services.folder_summary.briefing_schema import empty_briefing, snapshot_sections
     from services.folder_summary.repo import (
         get_folder,
         get_latest_summary,
@@ -1134,7 +1134,7 @@ def replace_folder_briefing(
     """
     if not _current_user_id.get():
         return "Error: Not authenticated."
-    from services.folder_summary.briefing import (
+    from services.folder_summary.briefing_schema import (
         SECTION_KEYS,
         empty_briefing,
         new_section,
@@ -1222,7 +1222,7 @@ def save_repo_documentation(
     """
     if not _current_user_id.get():
         return "Error: Not authenticated."
-    from services.folder_summary.briefing import (
+    from services.folder_summary.briefing_schema import (
         empty_briefing,
         new_section,
     )
@@ -1479,7 +1479,7 @@ def update_folder_briefing_section(
     """
     if not _current_user_id.get():
         return "Error: Not authenticated."
-    from services.folder_summary.briefing import (
+    from services.folder_summary.briefing_schema import (
         SECTION_KEYS,
         empty_briefing,
         new_section,
