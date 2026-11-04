@@ -58,7 +58,120 @@ def publication_change(before, after, prepared):
     }
 
 
-def run(repo_id, head, area, worker_path):
+def documentation_change(before, after, prepared, mcp_before, mcp_after):
+    """Prove a full document changed, rather than its unrelated briefing abstract."""
+    original = (prepared.get("snapshot") or {}).get("current")
+    if (
+        not isinstance(original, dict)
+        or not original.get("id")
+        or not original.get("content")
+    ):
+        raise RuntimeError("Detailed documentation has no original revision snapshot")
+    if before.get("content") != mcp_before or after.get("content") != mcp_after:
+        raise RuntimeError(
+            "Scoped MCP detailed documentation differs from the persisted full body"
+        )
+    if not after.get("id") or after["id"] == original["id"]:
+        raise RuntimeError("Detailed documentation has no newly published revision")
+    evidence = publication_change(
+        before, after, {"snapshot": {"current": original["content"]}}
+    )
+    return {
+        **evidence,
+        "original_document_revision": original["id"],
+        "document_revision": after["id"],
+        "document_chars": len(after["content"]),
+        "scoped_mcp_full_body_verified": True,
+    }
+
+
+def read_mcp_documentation(worker, url, key, folder_id):
+    """Actual scoped MCP wire call; no model generation or bearer logging."""
+    if not url:
+        raise ValueError("Documentation acceptance requires an explicit --mcp-url")
+    with worker.requests.Session() as client:
+        client.headers.update(
+            {
+                "Authorization": "Bearer " + key,
+                "Accept": "application/json, text/event-stream",
+            }
+        )
+
+        def rpc(body):
+            response = client.post(url, json=body, timeout=30)
+            response.raise_for_status()
+            session = response.headers.get("mcp-session-id")
+            if session:
+                client.headers["Mcp-Session-Id"] = session
+            if "text/event-stream" not in response.headers.get("content-type", ""):
+                return response.json()
+            for block in response.text.replace("\r\n", "\n").split("\n\n"):
+                data = "\n".join(
+                    line[5:].lstrip()
+                    for line in block.splitlines()
+                    if line.startswith("data:")
+                )
+                if data:
+                    value = json.loads(data)
+                    if value.get("id") == body.get("id"):
+                        return value
+            raise RuntimeError("MCP response has no matching RPC result")
+
+        initialized = rpc(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-03-26",
+                    "capabilities": {},
+                    "clientInfo": {
+                        "name": "tsukai-documentation-acceptance",
+                        "version": "1",
+                    },
+                },
+            }
+        )
+        if initialized.get("error"):
+            raise RuntimeError("MCP initialization failed")
+        client.headers["MCP-Protocol-Version"] = initialized["result"][
+            "protocolVersion"
+        ]
+        notification = client.post(
+            url,
+            json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+            timeout=30,
+        )
+        notification.raise_for_status()
+        try:
+            response = rpc(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "get_repo_documentation",
+                        "arguments": {"folder": folder_id},
+                    },
+                }
+            )
+            result = response.get("result") or {}
+            if response.get("error") or result.get("isError"):
+                raise RuntimeError("Scoped MCP detailed documentation lookup failed")
+            body = "\n".join(
+                item["text"]
+                for item in result.get("content", [])
+                if item.get("type") == "text"
+            )
+            if not body.strip() or body.startswith(("Error", "No documentation saved")):
+                raise RuntimeError("Scoped MCP detailed documentation is unavailable")
+            return body
+        finally:
+            if client.headers.get("Mcp-Session-Id"):
+                client.delete(url, timeout=10)
+
+
+def run(repo_id, head, area, worker_path, mcp_url=None):
     if not re.fullmatch(r"[0-9a-f]{40,64}", head):
         raise ValueError("--head must be a full principal-branch SHA")
     spec = importlib.util.spec_from_file_location(
@@ -102,6 +215,22 @@ def run(repo_id, head, area, worker_path):
             )
         return rows[0]
 
+    def latest_document():
+        rows = worker.rest_get(
+            "repo_documentation",
+            {
+                **filters,
+                "select": "id,content,abstract,generated_at",
+                "order": "generated_at.desc",
+                "limit": "1",
+            },
+        )
+        if not rows:
+            raise RuntimeError(
+                "Initialize detailed documentation with an agent before this probe"
+            )
+        return rows[0]
+
     before = section(latest(), area)
     if before.get("provenance") == "user_ui":
         raise RuntimeError("Fixture target section must be auto-maintained")
@@ -115,6 +244,17 @@ def run(repo_id, head, area, worker_path):
     )
     if not keys:
         raise RuntimeError("Fixture owner has no Mihari git identity")
+    document_before = latest_document() if area == "documentation" else None
+    mcp_before = (
+        read_mcp_documentation(
+            worker,
+            mcp_url,
+            worker.decrypt(repo["api_key_encrypted"]),
+            repo["folder_id"],
+        )
+        if area == "documentation"
+        else None
+    )
     worker.process_repo(repo, keys[0])
     watched = worker.rest_get(
         "watched_repos",
@@ -189,13 +329,29 @@ def run(repo_id, head, area, worker_path):
         raise RuntimeError(
             "Usage copy or runner acknowledgement is still pending; rerun reconciliation"
         )
+    change = (
+        documentation_change(
+            document_before,
+            latest_document(),
+            prepared,
+            mcp_before,
+            read_mcp_documentation(
+                worker,
+                mcp_url,
+                worker.decrypt(repo["api_key_encrypted"]),
+                repo["folder_id"],
+            ),
+        )
+        if area == "documentation"
+        else publication_change(before, after, prepared)
+    )
     return {
         "ok": True,
         "repo_id": repo_id,
         "folder_id": repo["folder_id"],
         "head_sha": head,
         "section": area,
-        **publication_change(before, after, prepared),
+        **change,
         "already_indexed_at_start": repo.get("last_sha") == head,
         "preparation_id": prepared["id"],
         "job_id": job,
@@ -215,8 +371,9 @@ def main():
     parser.add_argument(
         "--section",
         default="activity",
-        choices=["activity", "deployment", "how_it_runs"],
+        choices=["activity", "deployment", "how_it_runs", "documentation"],
     )
+    parser.add_argument("--mcp-url", default=os.getenv("TSUKAI_E2E_MCP_URL"))
     parser.add_argument(
         "--worker-path",
         type=Path,
@@ -225,7 +382,8 @@ def main():
     args = parser.parse_args()
     print(
         json.dumps(
-            run(args.repo_id, args.head, args.section, args.worker_path), indent=2
+            run(args.repo_id, args.head, args.section, args.worker_path, args.mcp_url),
+            indent=2,
         )
     )
 
