@@ -19,6 +19,7 @@ import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import { useToast } from "./ToastProvider";
 import InspectDialog from "./InspectDialog";
 import CornerCard from "./neo/CornerCard";
+import CodeExcerpt from "./CodeExcerpt";
 import { brand, fonts } from "../theme";
 
 interface MessageBubbleProps {
@@ -81,7 +82,7 @@ function citationLabel(c: Citation): string {
   return lineRange ? `${title}:${lineRange}` : title;
 }
 
-/** Source previews are short prose, never raw fenced Markdown or a wall of code. */
+/** Document previews remain short prose; code has a separate preformatted path. */
 function citationPreview(value: string): string {
   const text = value
     .replace(/\[Code\s*:\s*[^\]]*\]/gi, " ")
@@ -95,6 +96,27 @@ function citationPreview(value: string): string {
     .replace(/\s+/g, " ")
     .trim();
   return text.length > 220 ? `${text.slice(0, 219).trimEnd()}…` : text;
+}
+
+/** Remove only citation headers and outer fences, preserving source whitespace. */
+function codeCitationPreview(value: string): string {
+  const lines = value.replace(/\r\n/g, "\n").split("\n");
+  const header =
+    /^(?:\[(?:Code\s*:|(?:repo|file|lines?|symbol|source_type)(?:\s*[:=]\s*|\s+))[^\]]*\][ \t]*)+$/i;
+  while (lines.length && (!lines[0].trim() || header.test(lines[0].trim())))
+    lines.shift();
+  if (lines.length)
+    lines[0] = lines[0].replace(
+      /^(?:\[(?:Code\s*:|(?:repo|file|lines?|symbol|source_type)(?:\s*[:=]\s*|\s+))[^\]]*\][ \t]?)+/i,
+      "",
+    );
+  if (/^[ \t]*(?:`{3,}|~{3,})[\w+-]*[ \t]*$/.test(lines[0] ?? ""))
+    lines.shift();
+  if (/^[ \t]*(?:`{3,}|~{3,})[ \t]*$/.test(lines.at(-1) ?? "")) lines.pop();
+  const bounded = lines.slice(0, 10).join("\n");
+  return bounded.length > 1200 || lines.length > 10
+    ? bounded.slice(0, 1200) + "\n…"
+    : bounded;
 }
 
 /** Citation numbers that actually appear in the answer text, ignoring any that
@@ -222,23 +244,30 @@ function CitationChip({
               .filter(Boolean)
               .join(" · ")}
           </Typography>
-          {c.excerpt && (
-            <Typography
-              data-testid="citation-preview"
-              component="span"
-              sx={{
-                display: "block",
-                fontSize: 14,
-                lineHeight: 1.65,
-                color: brand.text,
-                mt: 1,
-                whiteSpace: "normal",
-                overflowWrap: "anywhere",
-              }}
-            >
-              {citationPreview(c.excerpt)}
-            </Typography>
-          )}
+          {c.excerpt &&
+            (c.source_type === "code" ? (
+              <CodeExcerpt
+                code={codeCitationPreview(c.excerpt)}
+                filename={citationDetails(c).path || citationDetails(c).title}
+                testId="citation-preview"
+              />
+            ) : (
+              <Typography
+                data-testid="citation-preview"
+                component="span"
+                sx={{
+                  display: "block",
+                  fontSize: 14,
+                  lineHeight: 1.65,
+                  color: brand.text,
+                  mt: 1,
+                  whiteSpace: "normal",
+                  overflowWrap: "anywhere",
+                }}
+              >
+                {citationPreview(c.excerpt)}
+              </Typography>
+            ))}
         </Box>
       }
     >
@@ -791,19 +820,30 @@ export default function MessageBubble({
             {excerptSource?.source_type === "code" ? "code" : "document"}{" "}
             excerpt
           </Typography>
-          <Typography
-            data-testid="source-excerpt-text"
-            sx={{
-              fontSize: 14,
-              lineHeight: 1.65,
-              overflowWrap: "anywhere",
-              whiteSpace: "normal",
-            }}
-          >
-            {excerptSource?.excerpt
-              ? citationPreview(excerptSource.excerpt)
-              : "No excerpt was returned for this source."}
-          </Typography>
+          {excerptSource?.source_type === "code" && excerptSource.excerpt ? (
+            <CodeExcerpt
+              code={codeCitationPreview(excerptSource.excerpt)}
+              filename={
+                citationDetails(excerptSource).path ||
+                citationDetails(excerptSource).title
+              }
+              testId="source-excerpt-text"
+            />
+          ) : (
+            <Typography
+              data-testid="source-excerpt-text"
+              sx={{
+                fontSize: 14,
+                lineHeight: 1.65,
+                overflowWrap: "anywhere",
+                whiteSpace: "normal",
+              }}
+            >
+              {excerptSource?.excerpt
+                ? citationPreview(excerptSource.excerpt)
+                : "No excerpt was returned for this source."}
+            </Typography>
+          )}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setExcerptSource(null)}>Close</Button>
