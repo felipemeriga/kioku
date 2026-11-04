@@ -167,6 +167,11 @@ def build_request(snapshot):
         fields["source_ids"]["items"]["enum"] = [
             entry["id"] for entry in snapshot["input"]["new_entries"]
         ] or ["__no_source_available__"]
+    max_tokens = 2400
+    if op in ("reground", "documentation"):
+        max_tokens = min(
+            12000, max(4000, (len(canonical(snapshot.get("current"))) + 2) // 3 + 1024)
+        )
     return {
         "system": (
             "Maintain accurate repository knowledge from supplied evidence only. "
@@ -189,7 +194,7 @@ def build_request(snapshot):
             )
         ),
         "schema": schema,
-        "max_tokens": 4000 if op in ("reground", "documentation") else 2400,
+        "max_tokens": max_tokens,
         "task": "folder_summary_reground"
         if op in ("reground", "documentation")
         else "folder_summary_rollup",

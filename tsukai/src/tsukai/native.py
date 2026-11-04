@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 
 from .cancellation import complete_cleanup
+from .config import heavy_maintenance
 from .structured import native_schema, unwrap_native_output
 from .usage import usage_record
 from .validation import NativeError, repair_diagnostic, validate_result
@@ -117,6 +118,11 @@ class NativeRunner:
 
     async def run(self, claim, req, emit, mcp=None):
         attempt = claim["attempt"]
+        wall_seconds = (
+            self.settings.maintenance_wall_seconds
+            if heavy_maintenance(req)
+            else self.settings.wall_seconds
+        )
         workspace = Path(claim["workspace"])
         workspace.mkdir(parents=True, exist_ok=True, mode=0o700)
         workspace.chmod(0o700)
@@ -167,7 +173,10 @@ class NativeRunner:
                 "\nNative structured transport wraps the requested response in exactly one result "
                 "property. The internal StructuredOutput formatter must serialize {result: the "
                 "complete requested response}. This is serialization, not an external/domain tool. "
-                "The requested response itself must still satisfy the caller's original schema."
+                "The requested response itself must still satisfy the caller's original schema. "
+                "Call StructuredOutput directly with the final response. Do not emit a textual "
+                "preamble, draft JSON or duplicate the document in a separate assistant message. "
+                "Only the formatter input should contain the complete response."
             )
         # MCP headers stay in a private config file, never argv or persisted public events.
         fd, config_path = tempfile.mkstemp(prefix="mcp-", suffix=".json", dir=workspace)
@@ -221,7 +230,7 @@ class NativeRunner:
                 raise NativeError("first_event_timeout") from None
             proc.stdin.close()
             while True:
-                remaining = self.settings.wall_seconds - (time.monotonic() - started)
+                remaining = wall_seconds - (time.monotonic() - started)
                 if remaining <= 0:
                     raise NativeError("wall_timeout")
                 timeout = min(
@@ -291,7 +300,7 @@ class NativeRunner:
                     raise NativeError("interaction_required")
                 # Raw init, hidden thinking, tool arguments/results are not authoritative traces.
             await asyncio.wait_for(
-                proc.wait(), max(0.1, self.settings.wall_seconds - (time.monotonic() - started))
+                proc.wait(), max(0.1, wall_seconds - (time.monotonic() - started))
             )
             await stderr_task
             if not final:

@@ -648,6 +648,8 @@ def test_failed_direct_job_reports_job_id_for_backend_usage_capture(monkeypatch)
     calls = []
 
     class Response:
+        status_code = 202
+
         def __init__(self, body):
             self.body = body
 

@@ -6,6 +6,15 @@ from dataclasses import dataclass, field
 NATIVE_VERSION = "2.1.318"
 
 
+def heavy_maintenance(request):
+    return (
+        request.caller == "mihari"
+        and request.profile == "completion"
+        and request.operation in {"mihari.documentation", "mihari.reground"}
+        and request.ai_depth == 0
+    )
+
+
 @dataclass
 class Settings:
     database_url: str = field(default_factory=lambda: os.getenv("TSUKAI_DATABASE_URL", ""))
@@ -33,6 +42,7 @@ class Settings:
     first_event_seconds: float = 30
     idle_seconds: float = 120
     wall_seconds: float = 300
+    maintenance_wall_seconds: float = 600
     kill_grace_seconds: float = 5
     heartbeat_seconds: float = 5
     drain_seconds: float = 120

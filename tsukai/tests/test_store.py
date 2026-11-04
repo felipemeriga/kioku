@@ -392,3 +392,21 @@ async def test_pinned_cli_upgrade_requires_explicit_rebuild_of_existing_native_m
     await store.admit(rebuilt)
     claim = await store.claim("new-worker")
     assert not claim["attempt"]["resume"]
+
+
+@pytest.mark.parametrize(
+    "caller,operation,budget",
+    [
+        ("mihari", "mihari.documentation", 600),
+        ("mihari", "mihari.reground", 600),
+        ("mihari", "mihari.activity", 300),
+        ("backend", "mihari.documentation", 300),
+    ],
+)
+async def test_only_heavy_mihari_jobs_receive_longer_execution_deadline(
+    store, caller, operation, budget
+):
+    req = request(operation=operation).model_copy(update={"caller": caller})
+    await store.admit(req)
+    claimed = await store.claim("worker")
+    assert claimed["attempt"]["deadline"] - claimed["attempt"]["started_at"] == budget

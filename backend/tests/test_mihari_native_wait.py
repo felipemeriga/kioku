@@ -1,0 +1,109 @@
+"""A valid queued heavy job must not hit the short API transport deadline."""
+
+import importlib.util
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+
+@pytest.mark.parametrize("operation", ["documentation", "reground"])
+def test_heavy_job_can_finish_after_old_transport_wait(monkeypatch, operation):
+    for key in ("SUPABASE_URL", "KIOKU_MCP_URL", "KIOKU_API_URL"):
+        monkeypatch.setenv(key, "http://fixture")
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "fixture")
+    monkeypatch.setenv("MIHARI_TSUKAI_SERVICE_TOKEN", "fixture")
+    spec = importlib.util.spec_from_file_location(
+        "mihari_wait_fixture", Path(__file__).parents[2] / "mihari/mihari.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    clock, polls, publications = [0], [], []
+
+    def response(body):
+        return SimpleNamespace(
+            json=lambda: body, raise_for_status=lambda: None, ok=True, status_code=200
+        )
+
+    def post(url, **_):
+        if url.endswith("/prepare"):
+            return response(
+                {
+                    "engine": "tsukai",
+                    "url": "http://runner",
+                    "capability": "cap",
+                    "request": {},
+                    "preparation_id": "prep",
+                }
+            )
+        if url.endswith("/v1/jobs"):
+            return response({"job_id": "job"})
+        publications.append(url)
+        return response({"updated": True})
+
+    def get(*_, **__):
+        polls.append(clock[0])
+        if len(polls) == 1:
+            clock[0] = 250
+            return response({"status": "queued"})
+        return response({"status": "completed"})
+
+    monkeypatch.setattr(module.requests, "post", post)
+    monkeypatch.setattr(module.requests, "get", get)
+    monkeypatch.setattr(module.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(module.time, "sleep", lambda _: None)
+    result = module.maintenance_post(
+        "http://fixture/api/mihari/" + operation,
+        headers={},
+        json={"folder_id": "folder"},
+        timeout=120,
+    )
+    assert result.ok
+    assert len(polls) == 2
+    assert publications == ["http://fixture/api/mihari/execution/publish"]
+
+
+@pytest.mark.parametrize("failure", ["connection", "unavailable", "persistent", "rejected"])
+def test_runner_restart_retries_one_unchanged_admission(monkeypatch, failure):
+    for key in ("SUPABASE_URL", "KIOKU_MCP_URL", "KIOKU_API_URL"):
+        monkeypatch.setenv(key, "http://fixture")
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "fixture")
+    spec = importlib.util.spec_from_file_location(
+        "mihari_admission_fixture", Path(__file__).parents[2] / "mihari/mihari.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    clock, calls = [0], []
+    payload = {"idempotency_key": "immutable-request", "prompt": "Original evidence"}
+
+    def post(url, **kwargs):
+        calls.append(kwargs["json"])
+        assert kwargs["json"] is payload
+        if failure == "rejected":
+            raise module.requests.HTTPError("403 denied")
+        if failure == "connection" and len(calls) == 1:
+            raise module.requests.ConnectionError("runner restarting")
+        status = (
+            503
+            if failure == "persistent" or (failure == "unavailable" and len(calls) == 1)
+            else 202
+        )
+        return SimpleNamespace(status_code=status, raise_for_status=lambda: None)
+
+    monkeypatch.setattr(module.requests, "post", post)
+    monkeypatch.setattr(module.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(
+        module.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds)
+    )
+    if failure == "rejected":
+        with pytest.raises(module.requests.HTTPError):
+            module.submit_native_job("http://runner/v1/jobs", {}, payload)
+        assert len(calls) == 1 and clock[0] == 0
+    elif failure == "persistent":
+        with pytest.raises(RuntimeError, match="preparation retained"):
+            module.submit_native_job("http://runner/v1/jobs", {}, payload)
+        assert clock[0] == 60 and len(calls) < 20
+    else:
+        assert module.submit_native_job("http://runner/v1/jobs", {}, payload).status_code == 202
+        assert len(calls) == 2
+    assert payload == {"idempotency_key": "immutable-request", "prompt": "Original evidence"}

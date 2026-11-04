@@ -14,7 +14,7 @@ from sqlalchemy import and_, delete, func, insert, select, text, update
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from .config import NATIVE_VERSION
+from .config import NATIVE_VERSION, heavy_maintenance
 from .protocol import TERMINAL, JobRequest
 from .tables import acks, attempts, events, jobs, locks, metadata, sessions, tombstones
 
@@ -475,7 +475,11 @@ class Store:
                 worker_id=worker_id,
                 status="running",
                 lease_until=now + 30,
-                deadline=min(now + 300, parent_attempt["deadline"]) if req.ai_depth else now + 300,
+                deadline=(
+                    min(now + 300, parent_attempt["deadline"])
+                    if req.ai_depth
+                    else now + (600 if heavy_maintenance(req) else 300)
+                ),
                 started_at=now,
                 native_session_id=native_id,
                 resume=resume,
