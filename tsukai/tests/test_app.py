@@ -813,7 +813,7 @@ async def test_catalog_admits_resolved_subscription_ids_but_never_usage_credit_m
         )
         response = await client.post("/v1/jobs", json=denied, headers=headers(settings, denied))
         assert response.status_code == 422
-    app.state.model_catalog._fetched = 0
+    app.state.model_catalog._fetched = time.monotonic() - 901
     app.state.model_catalog.discover.side_effect = RuntimeError("private")
     stale = body(model="claude-opus-5-5")
     assert (
