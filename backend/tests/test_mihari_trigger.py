@@ -642,7 +642,7 @@ def test_direct_maintenance_sends_model_only_to_runner_and_publishes_job_id(monk
     assert len(calls) == 3
 
 
-def test_failed_direct_job_never_calls_publication(monkeypatch):
+def test_failed_direct_job_reports_job_id_for_backend_usage_capture(monkeypatch):
     monkeypatch.setattr(mihari, "API_URL", "https://backend")
     monkeypatch.setenv("MIHARI_TSUKAI_SERVICE_TOKEN", "runner-service")
     calls = []
@@ -657,12 +657,25 @@ def test_failed_direct_job_never_calls_publication(monkeypatch):
         def json(self):
             return self.body
 
-    def post(url, **_kwargs):
+    def post(url, **kwargs):
         calls.append(url)
         if url.endswith("/execution/prepare"):
             return Response(
-                {"engine": "tsukai", "url": "https://runner", "capability": "token", "request": {}}
+                {
+                    "engine": "tsukai",
+                    "url": "https://runner",
+                    "capability": "token",
+                    "preparation_id": "prep",
+                    "request": {},
+                }
             )
+        if url.endswith("/execution/publish"):
+            assert kwargs["json"] == {
+                "folder_id": "f1",
+                "preparation_id": "prep",
+                "job_id": "job-1",
+            }
+            raise RuntimeError("failed outcome retained by backend")
         return Response({"job_id": "job-1"})
 
     monkeypatch.setattr(mihari.requests, "post", post)
@@ -671,7 +684,7 @@ def test_failed_direct_job_never_calls_publication(monkeypatch):
         mihari.maintenance_post(
             "https://backend/api/mihari/activity", headers={}, json={"folder_id": "f1"}, timeout=30
         )
-    assert all(not url.endswith("/execution/publish") for url in calls)
+    assert calls[-1].endswith("/execution/publish")
 
 
 def test_partial_pass_retry_skips_activity_completes_review_and_advances_sha(monkeypatch, tmp_path):

@@ -137,6 +137,98 @@ def capture_pending(sb, owner, folder, operation, payload):
     return None, "empty journal revisions acknowledged"
 
 
+def track_terminal_usage(sb, row, job_id, outcome):
+    if outcome in ("completed", "failed", "cancelled", "uncertain"):
+        sb.table("maintenance_usage_outbox").upsert(
+            {
+                "job_id": job_id,
+                "preparation_id": row["id"],
+                "user_id": row["user_id"],
+                "folder_id": row["folder_id"],
+                "outcome": outcome,
+            },
+            on_conflict="job_id",
+            ignore_duplicates=True,
+        ).execute()
+
+
+def capture_job_usage(sb, row, job_id, client):
+    """Copy every native attempt; unknown counters remain explicitly unknown."""
+    try:
+        pending = (
+            sb.table("maintenance_usage_outbox")
+            .select("captured_at")
+            .eq("job_id", job_id)
+            .eq("user_id", row["user_id"])
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if not pending:
+            return False
+        if pending[0].get("captured_at"):
+            return True
+        from services.ai.accounting import record_job_usage
+
+        record_job_usage(
+            client,
+            ExecutionScope(row["user_id"], (row["folder_id"],), caller="mihari"),
+            row["request"]["operation"],
+            row["request"]["model"],
+            job_id,
+            source="mihari",
+        )
+        sb.table("maintenance_usage_outbox").update(
+            {"captured_at": datetime.now(timezone.utc).isoformat()}
+        ).eq("job_id", job_id).eq("user_id", row["user_id"]).execute()
+        return True
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "Mihari native usage copy remains pending", exc_info=True
+        )
+        return False
+
+
+def reconcile_usage(sb, owner, folder):
+    pending = (
+        sb.table("maintenance_usage_outbox")
+        .select("preparation_id,job_id")
+        .eq("user_id", owner)
+        .eq("folder_id", folder)
+        .is_("captured_at", "null")
+        .order("created_at")
+        .limit(10)
+        .execute()
+        .data
+        or []
+    )
+    for item in pending:
+        rows = (
+            sb.table("maintenance_preparations")
+            .select("*")
+            .eq("id", item["preparation_id"])
+            .eq("user_id", owner)
+            .eq("folder_id", folder)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if not rows:
+            continue
+        row = rows[0]
+        client = TsukaiClient(
+            os.environ["TSUKAI_URL"],
+            os.environ["TSUKAI_SERVICE_TOKEN"],
+            capability(owner, folder, row["request"]),
+        )
+        try:
+            capture_job_usage(sb, row, item["job_id"], client)
+        finally:
+            client.close()
+
+
 def acknowledge_publication(sb, row, client=None):
     """Replay the idempotent runner ACK; publication remains committed on failure."""
     own_client = client is None
@@ -147,6 +239,8 @@ def acknowledge_publication(sb, row, client=None):
             capability(row["user_id"], row["folder_id"], row["request"]),
         )
     try:
+        if not capture_job_usage(sb, row, row["execution_job_id"], client):
+            return
         client.acknowledge(row["execution_job_id"], "mihari", "maintenance:" + row["id"])
         sb.table("maintenance_runner_ack_outbox").update(
             {"acknowledged_at": datetime.now(timezone.utc).isoformat()}
@@ -192,6 +286,7 @@ def reconcile_acknowledgements(sb, owner, folder):
 
 
 def prepare(sb, owner, folder, operation, payload):
+    reconcile_usage(sb, owner, folder)
     reconcile_acknowledgements(sb, owner, folder)
     snapshot, reason = capture_pending(sb, owner, folder, operation, payload)
     if snapshot is None:
@@ -386,6 +481,8 @@ def publish(sb, owner, folder, preparation, job_id):
         os.environ["TSUKAI_SERVICE_TOKEN"],
         capability(owner, folder, row["request"]),
     )
+    verified = False
+    published = False
     try:
         # Bind job to prepared input via the durable runner job record. Never
         # accept caller-supplied model text or a result from a different job.
@@ -404,6 +501,8 @@ def publish(sb, owner, folder, preparation, job_id):
         ).hexdigest()
         if job.get("request_sha256") != expected_digest:
             raise ValueError("execution does not match immutable preparation")
+        track_terminal_usage(sb, row, job_id, job.get("status"))
+        verified = True
         result = client.result(job_id)
         try:
             value = validate_result(
@@ -415,9 +514,12 @@ def publish(sb, owner, folder, preparation, job_id):
             ).eq("user_id", owner).execute()
             raise ValueError("invalid_result:" + str(exc)) from exc
         publication = apply_result(sb, preparation, owner, job_id, value)
+        published = True
         acknowledge_publication(sb, {**row, "execution_job_id": job_id}, client)
         return publication
     finally:
+        if verified and not published:
+            capture_job_usage(sb, row, job_id, client)
         client.close()
 
 

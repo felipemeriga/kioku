@@ -149,7 +149,9 @@ def maintenance_post(url, *, headers, json, timeout, _repair=True, _batches=3):
         result.raise_for_status()
         outcome = result.json()
         status = outcome.get("status")
-        if status == "completed":
+        if status in ("completed", "failed", "cancelled", "uncertain"):
+            # Backend records terminal usage even when there is no publishable
+            # domain result. It fetches and validates the job independently.
             break
         if status not in ("queued", "running", "launching"):
             raise RuntimeError(f"Maintenance execution ended: {status}")
