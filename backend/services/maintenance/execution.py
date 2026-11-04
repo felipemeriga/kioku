@@ -310,7 +310,8 @@ def completion_system(built):
         " Wrap operation data in the standardized completion envelope: "
         "schema_version=1, outcome, data, missing_inputs, failure, warnings. "
         "Use needs_input with missing field/reason if evidence is insufficient; "
-        "do not ask questions."
+        "do not ask questions. Use the internal StructuredOutput formatter directly "
+        "when available, without a duplicate textual draft or preamble."
     )
 
 
@@ -741,12 +742,15 @@ def publish(sb, owner, folder, preparation, job_id):
         try:
             result = client.result(job_id)
         except ExecutionError as exc:
-            # A confirmed terminal timeout cannot be recovered by polling the
+            # Confirmed terminal budget exhaustion cannot be recovered by polling the
             # same immutable failed job. Reuse the existing single repair budget.
             # Never retry active, uncertain, cancelled or auth-failed executions.
-            if job.get("status") == "failed" and exc.code == "wall_timeout":
+            if job.get("status") == "failed" and exc.code in {
+                "wall_timeout",
+                "native_error_max_turns",
+            }:
                 sb.table("maintenance_preparations").update(
-                    {"validation_error": "execution wall_timeout; return a concise complete result"}
+                    {"validation_error": f"execution {exc.code}; return a concise complete result"}
                 ).eq("id", preparation).eq("user_id", owner).execute()
             raise
         try:
