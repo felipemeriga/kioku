@@ -382,8 +382,17 @@ export interface Message {
   citations?: Citation[];
 }
 
+export interface NativeChatExecution {
+  state?: string;
+  turn_id: string;
+  job_id: string;
+  conversation_id: string;
+  model: ChatModel;
+  mode: ChatMode;
+}
 export interface ConversationWithMessages extends Conversation {
   messages: Message[];
+  active_execution?: NativeChatExecution | null;
 }
 
 export async function fetchConversation(
@@ -434,6 +443,8 @@ export async function streamChat(
   onExecution?: (jobId: string) => void,
   onProgress?: (event: Record<string, unknown>) => void,
   rebuildFromCommittedHistory = false,
+  resume?: NativeChatExecution,
+  signal?: AbortSignal,
 ): Promise<void> {
   // A stream is "clean" only if it emits a data.done frame. Anything else —
   // TCP drop, backend timeout, JSON parse loss — should raise, not silently
@@ -453,7 +464,7 @@ export async function streamChat(
     throw e;
   }
 
-  const turnId = crypto.randomUUID();
+  const turnId = resume?.turn_id ?? crypto.randomUUID();
   try {
     await runChatTransport({
       payload: {
@@ -468,6 +479,8 @@ export async function streamChat(
         scope_filename: filters?.scopeFilename || null,
       },
       headers: getAuthHeaders,
+      resume,
+      signal,
       onFrame: (data) => {
         if (data.stage && onStage)
           onStage({
@@ -487,6 +500,7 @@ export async function streamChat(
       },
     });
   } catch (error) {
+    if (signal?.aborted) throw error;
     const status = error instanceof ChatTransportError ? error.status : 0;
     const result = new ApiError({
       status,

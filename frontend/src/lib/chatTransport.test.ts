@@ -120,3 +120,161 @@ it("preserves a typed pre-job policy conflict without attempting inference again
   ).rejects.toMatchObject({ status: 409, code: "conversation_policy_changed" });
   expect(fetcher).toHaveBeenCalledTimes(1);
 });
+
+it("replays a mounted accepted execution with GET only and canonical replacement", async () => {
+  const fetcher = vi
+    .fn<typeof fetch>()
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          id: "turn",
+          job_id: "job",
+          conversation_id: "conversation",
+          state: "submitted",
+        }),
+      ),
+    )
+    .mockResolvedValueOnce(
+      response(
+        event({ job_id: "job", event_id: 1, token: "partial" }) +
+          event({ event_id: 2, replace: "canonical", done: true }),
+      ),
+    );
+  const frames = vi.fn();
+  await runChatTransport({
+    payload: {},
+    resume: { turn_id: "turn", job_id: "job", conversation_id: "conversation" },
+    headers,
+    fetcher,
+    pause,
+    onFrame: frames,
+  });
+  expect(fetcher.mock.calls.map((call) => call[0])).toEqual([
+    "/api/chat/turns/turn",
+    "/api/chat/jobs/job/events?after=0",
+  ]);
+  expect(
+    fetcher.mock.calls.every(
+      (call) => call[1]?.method !== "POST" && !call[1]?.body,
+    ),
+  ).toBe(true);
+  expect(frames.mock.calls.at(-1)?.[0].replace).toBe("canonical");
+});
+
+it.each([403, 404])(
+  "never posts or resumes an inaccessible saved reference (%s)",
+  async (status) => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response("{}", { status }));
+    await expect(
+      runChatTransport({
+        payload: {},
+        resume: {
+          turn_id: "turn",
+          job_id: "job",
+          conversation_id: "conversation",
+        },
+        headers,
+        fetcher,
+        pause,
+        onFrame: vi.fn(),
+      }),
+    ).rejects.toThrow("Could not recover");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  },
+);
+
+it("rejects a stale or foreign conversation mapping without following its job", async () => {
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        id: "turn",
+        job_id: "other",
+        conversation_id: "foreign",
+      }),
+    ),
+  );
+  await expect(
+    runChatTransport({
+      payload: {},
+      resume: {
+        turn_id: "turn",
+        job_id: "job",
+        conversation_id: "conversation",
+      },
+      headers,
+      fetcher,
+      pause,
+      onFrame: vi.fn(),
+    }),
+  ).rejects.toThrow("identity changed");
+  expect(fetcher).toHaveBeenCalledTimes(1);
+});
+
+it("aborts a remounted listener without retrying or cancelling server execution", async () => {
+  const controller = new AbortController();
+  const fetcher = vi
+    .fn<typeof fetch>()
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          id: "turn",
+          job_id: "job",
+          conversation_id: "conversation",
+        }),
+      ),
+    )
+    .mockImplementationOnce(async () => {
+      controller.abort();
+      throw new DOMException("Aborted", "AbortError");
+    });
+  await expect(
+    runChatTransport({
+      payload: {},
+      resume: {
+        turn_id: "turn",
+        job_id: "job",
+        conversation_id: "conversation",
+      },
+      signal: controller.signal,
+      headers,
+      fetcher,
+      pause,
+      onFrame: vi.fn(),
+    }),
+  ).rejects.toThrow("Aborted");
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  expect(fetcher.mock.calls[1][1]?.signal).toBe(controller.signal);
+});
+
+it("reports a saved terminal quota failure without reposting or an event replay loop", async () => {
+  const fetcher = vi
+    .fn<typeof fetch>()
+    .mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: "turn",
+          job_id: "job",
+          conversation_id: "conversation",
+          state: "failed",
+          error_code: "quota_limited",
+        }),
+      ),
+    );
+  await expect(
+    runChatTransport({
+      payload: {},
+      resume: {
+        turn_id: "turn",
+        job_id: "job",
+        conversation_id: "conversation",
+      },
+      headers,
+      fetcher,
+      pause,
+      onFrame: vi.fn(),
+    }),
+  ).rejects.toMatchObject({ code: "quota_limited", status: 409 });
+  expect(fetcher).toHaveBeenCalledTimes(1);
+});

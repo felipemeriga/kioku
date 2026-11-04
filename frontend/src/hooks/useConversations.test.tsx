@@ -54,10 +54,10 @@ describe("authenticated conversation history", () => {
       rerender();
     });
     await waitFor(() =>
-      expect(result.current.conversations[0]?.id).toBe("existing-history")
+      expect(result.current.conversations[0]?.id).toBe("existing-history"),
     );
     await waitFor(() =>
-      expect(result.current.messages[0]?.content).toBe("Existing message")
+      expect(result.current.messages[0]?.content).toBe("Existing message"),
     );
     expect(fetchConversations).toHaveBeenCalledTimes(1);
     client.clear();
@@ -78,9 +78,47 @@ describe("authenticated conversation history", () => {
     expect(result.current.messages).toEqual([]);
     act(() => result.current.retryMessages());
     await waitFor(() =>
-      expect(result.current.messages[0]?.content).toBe("Existing message")
+      expect(result.current.messages[0]?.content).toBe("Existing message"),
     );
     expect(result.current.messagesError).toBeNull();
     client.clear();
   });
+});
+
+it("exposes only the authenticated owner's recovered reference after asynchronous history", async () => {
+  auth.user = { id: "owner" };
+  auth.loading = false;
+  const execution = {
+    turn_id: "turn",
+    job_id: "job",
+    conversation_id: "existing-history",
+    model: "sonnet" as const,
+    mode: "plain" as const,
+  };
+  vi.mocked(fetchConversation).mockResolvedValueOnce({
+    id: "existing-history",
+    title: "Stored",
+    created_at: "now",
+    updated_at: "now",
+    messages: [],
+    active_execution: execution,
+  });
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  );
+  const { result, rerender } = renderHook(() => useConversations(), {
+    wrapper,
+  });
+  await waitFor(() =>
+    expect(result.current.activeExecution).toEqual(execution),
+  );
+  act(() => {
+    auth.user = { id: "another-owner" };
+    rerender();
+  });
+  expect(result.current.activeExecution).toBeNull();
+  client.clear();
 });
