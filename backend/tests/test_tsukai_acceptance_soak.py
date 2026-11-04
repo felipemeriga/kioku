@@ -59,3 +59,32 @@ def test_output_directory_cannot_be_reused(supervisor, tmp_path):
     }
     with pytest.raises(FileExistsError):
         supervisor.supervise(plan, tmp_path, 30)
+
+
+def test_only_successful_probe_duration_earns_credit(supervisor, monkeypatch, tmp_path):
+    clock = [0.0]
+    calls = [0]
+    monkeypatch.setattr(supervisor.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(
+        supervisor.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds)
+    )
+
+    def execute(*args, **kwargs):
+        calls[0] += 1
+        if calls[0] == 1:
+            clock[0] += 5
+            raise supervisor.subprocess.TimeoutExpired("unit-only", 5)
+        clock[0] += 7
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(supervisor.subprocess, "run", execute)
+    plan = {
+        "ready": True,
+        "build": "unit-only",
+        "target": "unit-only",
+        "cases": [{"name": "probe", "argv": ["unit-only"], "every": 30, "timeout": 5}],
+    }
+    result = supervisor.supervise(plan, tmp_path / "run", 7)
+    assert result["healthy_seconds"] == 7
+    assert result["wall_seconds"] == 42
+    assert result["counts"]["probe"] == {"passed": 1, "failed": 1}
