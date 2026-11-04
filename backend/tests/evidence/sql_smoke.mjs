@@ -1,7 +1,7 @@
 import {createRequire} from 'node:module';
 import fs from 'node:fs';
 const require=createRequire(import.meta.url);
-const {PGlite}=require(process.env.PGLITE_MODULE || '/Users/feliperamosdasilva/personal_projects/kioku-evidence-poc-20261104/runtime/pglite/node_modules/@electric-sql/pglite');
+const {PGlite}=require(process.env.PGLITE_MODULE || '@electric-sql/pglite');
 const db=new PGlite();
 await db.exec(`CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role; CREATE SCHEMA auth; CREATE TABLE auth.users(id uuid PRIMARY KEY); CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS $$ SELECT nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$; CREATE TABLE folders(id uuid PRIMARY KEY,user_id uuid,kind text); CREATE SCHEMA storage; CREATE TABLE storage.buckets(id text PRIMARY KEY,name text,public boolean,file_size_limit bigint);`);
 await db.exec(fs.readFileSync('supabase/migrations/20261105090000_agent_evidence.sql','utf8'));
@@ -15,7 +15,60 @@ if(accepted.revision!==1)throw Error(JSON.stringify(accepted));
 const replay=await call('commit_agent_evidence',[user,'first']); if(replay.status!=='unchanged')throw Error('replay');
 await call('prepare_agent_evidence',[user,{...request,batch_id:'stale'}]);
 const stale=await call('commit_agent_evidence',[user,'stale']); if(stale.status!=='conflict')throw Error(JSON.stringify(stale));
+// Independent producers serialize through CAS; gap snapshots replace, not append.
+await call('prepare_agent_evidence',[user,{...request,batch_id:'second',base_revision:1,gaps:[{code:'attachment_missing',name:'a'}]}]);
+await call('commit_agent_evidence',[user,'second']);
+await call('prepare_agent_evidence',[user,{...request,batch_id:'resolved',base_revision:2}]);
+await call('commit_agent_evidence',[user,'resolved']);
+let root=(await db.query('SELECT * FROM agent_evidence_sessions WHERE id=$1',[prepared.session_id])).rows[0];
+if(root.gaps.length)throw Error('resolved producer gap persisted');
+const child=await call('prepare_agent_evidence',[user,{...request,native_session_id:'child',native_root_session_id:'root',native_parent_session_id:'root',batch_id:'child',base_revision:0}]);
+await call('commit_agent_evidence',[user,'child']);
+root=(await db.query('SELECT * FROM agent_evidence_sessions WHERE id=$1',[prepared.session_id])).rows[0];
+if(root.manifest_json.children[0].id!==child.session_id)throw Error('child missing canonical manifest');
+const descriptor={id:'obj',kind:'segment',stream_id:'s',generation:1,sha256:'a'.repeat(64),byte_length:3,source_start:0,source_end:3,first_record:1,last_record:1,record_count:1};
+await call('prepare_agent_evidence',[user,{...request,native_session_id:'source',batch_id:'source',objects:[descriptor]}]);
+const source=(await db.query("SELECT * FROM agent_evidence_sessions WHERE native_session_id='source'")).rows[0];
+let missing=await call('commit_agent_evidence',[user,'source']);if(missing.status!=='incomplete')throw Error(JSON.stringify(missing));
+const lease=await call('claim_agent_evidence_upload',[user,source.id,'obj']);
+await call('finish_agent_evidence_upload',[user,source.id,'obj',lease.nonce,'test/source/segments/obj']);
+await call('commit_agent_evidence',[user,'source']);
+const event={event_id:'b'.repeat(64),stream_id:'s',generation:1,record_sequence:1,byte_offset:0,byte_length:3,event_at:'2026-11-04T00:00:00Z',role:'user',event_type:'message',content_preview:'hi',displayable:true};
+await call('publish_agent_evidence_index',[source.id,'obj',[event],{},1,true]);
+const indexed=(await db.query('SELECT * FROM agent_evidence_sessions WHERE id=$1',[source.id])).rows[0];
+if(indexed.event_count!==1||indexed.indexed_revision!==1||indexed.index_generation!==1)throw Error('index publication');
+// Authenticated users cannot read another owner, including via direct SQL.
+await db.exec('GRANT USAGE ON SCHEMA public,auth TO authenticated; GRANT EXECUTE ON FUNCTION auth.uid() TO authenticated; SET ROLE authenticated;');
+await db.query("SELECT set_config('request.jwt.claim.sub',$1,false)",['33333333-3333-4333-8333-333333333333']);
+if((await db.query('SELECT * FROM agent_evidence_sessions')).rows.length)throw Error('RLS leak');
+await db.exec('RESET ROLE');
+// BEFORE DELETE outbox retains nested and metadata-only manifest keys.
+await db.query('DELETE FROM agent_evidence_sessions WHERE id=$1',[source.id]);
+const outbox=(await db.query('SELECT storage_paths FROM agent_evidence_purge_outbox')).rows;
+if(!outbox.some(x=>x.storage_paths.includes('test/source/segments/obj')))throw Error('object purge lost');
 await call('delete_agent_evidence',[user,folder,prepared.session_id]);
+if(!(await db.query('SELECT deleted_at FROM agent_evidence_sessions WHERE id=$1',[child.session_id])).rows[0].deleted_at)throw Error('child tombstone lost');
 let deleted=false;try{await call('prepare_agent_evidence',[user,{...request,batch_id:'resurrection'}]);}catch(e){deleted=String(e).includes('evidence_deleted');}if(!deleted)throw Error('resurrection');
-console.log('Real PostgreSQL WASM migration, commit, replay, stale CAS and tombstone checks passed');
+// Independent SQL clients queued at the same base revision: exactly one wins.
+const concurrent={...request,native_session_id:'race',base_revision:0};
+await call('prepare_agent_evidence',[user,{...concurrent,batch_id:'race-a'}]);
+await call('prepare_agent_evidence',[user,{...concurrent,batch_id:'race-b',producer_id:'other-pc'}]);
+const raced=await Promise.all(['race-a','race-b'].map(id=>call('commit_agent_evidence',[user,id])));
+if(raced.filter(r=>r.status==='accepted').length!==1||raced.filter(r=>r.status==='conflict').length!==1)throw Error('two CAS winners');
+// A missing second object cannot partially publish the first descriptor.
+const partial=await call('prepare_agent_evidence',[user,{...request,native_session_id:'partial',batch_id:'partial',objects:[descriptor,{...descriptor,id:'obj2',stream_id:'other'}]}]);
+const partialLease=await call('claim_agent_evidence_upload',[user,partial.session_id,'obj']);
+await call('finish_agent_evidence_upload',[user,partial.session_id,'obj',partialLease.nonce,'partial/body']);
+if((await call('commit_agent_evidence',[user,'partial'])).status!=='incomplete')throw Error('partial accepted');
+if((await db.query('SELECT committed_revision FROM agent_evidence_objects WHERE session_id=$1',[partial.session_id])).rows.some(r=>r.committed_revision!==null))throw Error('partial publication');
+// Cascade cleanup survives object-first FK deletion and includes planned unfinished uploads.
+await call('claim_agent_evidence_upload',[user,partial.session_id,'obj2']);
+const planned=(await db.query('SELECT storage_path FROM agent_evidence_objects WHERE session_id=$1',[partial.session_id])).rows.map(r=>r.storage_path);
+await db.query('DELETE FROM auth.users WHERE id=$1',[user]);
+const purge=(await db.query('SELECT storage_paths,not_before FROM agent_evidence_purge_outbox')).rows;
+const paths=purge.flatMap(x=>x.storage_paths);
+if(!planned.every(p=>paths.includes(p)))throw Error('cascade lost planned bodies');
+if(!paths.some(p=>p.endsWith('/root/subagents/child/manifest.json')))throw Error('nested manifest lost');
+if(!purge.every(p=>p.not_before))throw Error('inflight grace missing');
+console.log('PostgreSQL WASM: CAS, replay, partial atomicity, gaps, ancestry, lease, index, RLS, cascade purge passed');
 await db.close();
