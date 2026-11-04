@@ -5,6 +5,7 @@ import os
 from dataclasses import dataclass
 from uuid import uuid4
 
+from services.ai.accounting import record_job_usage
 from services.ai.client import ExecutionError, ExecutionResult, TsukaiClient
 from services.ai.registry import TASK_POLICIES, engine_for
 from services.ai.scope import ExecutionScope, operation_scope, sign_capability
@@ -25,11 +26,14 @@ class Completion:
     stop_reason: str = "end_turn"
 
 
-def client_for(scope: ExecutionScope, operation: str, profile: str) -> TsukaiClient:
+def client_for(scope: ExecutionScope, operation: str, profile: str | None) -> TsukaiClient:
     return TsukaiClient(
         os.environ["TSUKAI_URL"],
         os.environ["TSUKAI_SERVICE_TOKEN"],
         lambda: sign_capability(scope, operation, profile),
+        admission_capability=lambda request: sign_capability(
+            scope, operation, profile, request=request
+        ),
     )
 
 
@@ -85,5 +89,9 @@ def native_completion(
     try:
         result = client.complete(request)
     finally:
-        client.close()
+        try:
+            if client.last_job_id:
+                record_job_usage(client, scope, operation, model, client.last_job_id)
+        finally:
+            client.close()
     return Completion([TextBlock(result.text)], result.job_id, model, result)

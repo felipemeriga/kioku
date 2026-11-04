@@ -26,15 +26,17 @@ TASK_POLICIES = {
 }
 
 
-def engine_for(operation: str, owner_id: str | None) -> str:
+def engine_for(operation: str, owner_id: str | None, *, explicit_native: bool = False) -> str:
     """Default to API; native pilots require task AND credential-owner opt in."""
     policy = TASK_POLICIES[operation]
     enabled = set(filter(None, os.getenv("TSUKAI_NATIVE_TASKS", "").split(",")))
-    if operation not in enabled:
+    if operation not in enabled and not explicit_native:
+        return "api"
+    principal = os.getenv("TSUKAI_CREDENTIAL_OWNER_ID")
+    if not principal or owner_id != principal:
+        if explicit_native:
+            raise PermissionError("native execution is restricted to the credential owner")
         return "api"
     if not policy.native_verified:
         raise ValueError(f"native capability unverified: {operation}")
-    principal = os.getenv("TSUKAI_CREDENTIAL_OWNER_ID")
-    if not principal or owner_id != principal:
-        raise PermissionError("native execution is restricted to the credential owner")
     return "tsukai"
