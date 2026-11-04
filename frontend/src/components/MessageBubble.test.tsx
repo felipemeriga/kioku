@@ -392,3 +392,31 @@ it("does not invent durations for historical messages without timing", () => {
   renderWithProviders(<MessageBubble role="assistant" content="Old answer" />);
   expect(screen.queryByText(/Completed in/)).not.toBeInTheDocument();
 });
+
+it("preserves Rust code indentation and literals in citation previews", async () => {
+  const code =
+    'pub fn run() {\n    let label = "[file keep.rs]";\n    println!("{}", label);\n}';
+  renderWithProviders(
+    <MessageBubble
+      role="assistant"
+      content="See [2]."
+      citations={[
+        {
+          ...codeCite,
+          file: "ses/ingester/src/on_prem.rs",
+          excerpt: `[repo c360-lead]\n\`\`\`rust\n${code}\n\`\`\``,
+        },
+      ]}
+    />,
+  );
+  const marker = screen.getByTestId("citation-chip");
+  vi.spyOn(marker, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(100, 200, 20, 20),
+  );
+  fireEvent.mouseOver(marker);
+  await screen.findByRole("tooltip");
+  const preview = screen.getByTestId("citation-preview");
+  expect(preview.dataset.language).toBe("rust");
+  expect(preview.querySelector("pre code")?.textContent).toBe(code);
+  expect(preview.textContent).not.toContain("```rust");
+});
