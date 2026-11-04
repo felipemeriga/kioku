@@ -49,10 +49,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [panelOpen, setPanelOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const activePage = (location.pathname as AppPage) || "/";
+  const evidenceReader = /^\/folders\/[^/]+\/agent-sessions\/[^/]+$/.test(
+    location.pathname
+  );
+  const activePage = evidenceReader
+    ? "/documents"
+    : (location.pathname as AppPage) || "/";
 
   // Show panel on pages that have contextual content
-  const showPanel = activePage === "/" || activePage === "/documents";
+  const showPanel =
+    !evidenceReader && (activePage === "/" || activePage === "/documents");
 
   const handleNewFolder = useCallback(() => {
     window.dispatchEvent(new CustomEvent("new-folder"));
