@@ -46,6 +46,11 @@ def assert_routing(providers, owner):
     for call in factory.call_args_list:
         scope = call.args[0]
         assert scope.owner_id == owner and scope.folder_ids == ("folder",)
+    for call in api.messages.create.call_args_list:
+        assert call.kwargs["max_tokens"] == 120
+    for call in native.complete.call_args_list:
+        assert call.args[0]["max_tokens"] == 1024
+        assert call.args[0]["metadata"]["caller_requested_max_tokens"] == 120
     assert current_scope() is None
 
 
