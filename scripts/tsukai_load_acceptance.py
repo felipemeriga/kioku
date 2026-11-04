@@ -23,6 +23,29 @@ from tsukai_chat_lifecycle_acceptance import body, conversation, terminal
 from tsukai_http_acceptance import CheckFailure, save
 
 
+def load_read_paths(config):
+    return [
+        ("health", "/api/health", {}),
+        ("folders", "/api/folders", {}),
+        ("documents", "/api/documents", {"folder_id": config["folder_id"]}),
+        ("conversations", "/api/conversations", {}),
+        (
+            "existing_learnings",
+            f"/api/folders/{config['journal_folder_id']}/learnings",
+            {},
+        ),
+        (
+            "existing_calendar",
+            f"/api/folders/{config['journal_folder_id']}/learning-days",
+            {
+                "year": config["journal_year"],
+                "month": config["journal_month"],
+                "timezone": "America/Sao_Paulo",
+            },
+        ),
+    ]
+
+
 def run(config):
     token = Path(config["token_file"])
     if (
@@ -38,6 +61,32 @@ def run(config):
     }
     identifiers = []
     with httpx.Client(**options) as client:
+        preflight = []
+        for name, path, params in load_read_paths(config):
+            response = client.get(path, params=params, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            if name == "existing_calendar" and not data.get("days"):
+                raise CheckFailure(
+                    "Known nonempty calendar preflight failed before load admission"
+                )
+            preflight.append({"name": name, "status": response.status_code})
+        response = client.get("/api/usage/native/active-sessions", timeout=10)
+        response.raise_for_status()
+        telemetry = response.json()
+        if (
+            not telemetry.get("available")
+            or telemetry.get("sessions")
+            or (telemetry.get("queued_counts") or {}).get("total", 0)
+        ):
+            raise CheckFailure(
+                "Load deferred before admission: runtime is unavailable or busy"
+            )
+        save(
+            config["evidence"],
+            {"kind": "real_load_preflight", "ok": True, "checks": preflight},
+            append=True,
+        )
         for index in range(3):
             identifiers.append(conversation(client, config, "load-" + str(index)))
 
@@ -88,26 +137,7 @@ def run(config):
     ):
         futures = [executor.submit(job, index) for index in range(3)]
         while not all(future.done() for future in futures):
-            for name, path, params in [
-                ("health", "/api/health", {}),
-                ("folders", "/api/folders", {}),
-                ("documents", "/api/documents", {"folder_id": config["folder_id"]}),
-                ("conversations", "/api/conversations", {}),
-                (
-                    "existing_learnings",
-                    f"/api/folders/{config['journal_folder_id']}/learnings",
-                    {},
-                ),
-                (
-                    "existing_calendar",
-                    f"/api/folders/{config['journal_folder_id']}/learning-days",
-                    {
-                        "year": config["journal_year"],
-                        "month": config["journal_month"],
-                        "timezone": "America/Sao_Paulo",
-                    },
-                ),
-            ]:
+            for name, path, params in load_read_paths(config):
                 start = time.monotonic()
                 response = client.get(path, params=params, timeout=10)
                 response.raise_for_status()

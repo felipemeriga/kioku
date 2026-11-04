@@ -41,6 +41,8 @@ def test_failure_blocks_credit_until_probe_recovers(supervisor, monkeypatch, tmp
     }
     result = supervisor.supervise(plan, tmp_path / "run", 30)
     assert result["healthy_seconds"] == 30
+    assert result["started_monotonic"] == 0
+    assert result["pid"] > 0
     assert result["wall_seconds"] == 60
     assert result["counts"]["probe"] == {"passed": 2, "failed": 1}
     records = [

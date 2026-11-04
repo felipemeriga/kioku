@@ -59,6 +59,8 @@ def supervise(plan, output, required_seconds):
         {
             "event": "started",
             "utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "started_monotonic": started,
+            "pid": os.getpid(),
             "build": plan["build"],
             "target": plan["target"],
             "required_seconds": required_seconds,
@@ -109,6 +111,8 @@ def supervise(plan, output, required_seconds):
                 },
             )
         checkpoint = {
+            "started_monotonic": started,
+            "pid": os.getpid(),
             "wall_seconds": time.monotonic() - started,
             "healthy_seconds": healthy_seconds,
             "counts": counts,
