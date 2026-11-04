@@ -262,3 +262,100 @@ def test_nested_metadata_transport_failure_defers_receipt_until_root_artifact():
         consume_metadata(consumed[0], "persisted-root-artifact")
     assert receipt.call_args.args[5] == "persisted-root-artifact"
     assert receipt.call_args.args[-1]["acknowledge_completed"] is False
+
+
+@pytest.mark.parametrize("nested", [False, True])
+def test_multipart_metadata_plans_from_supplied_authorized_scope_without_database_access(nested):
+    import json
+
+    from services.ai.metadata import ENVELOPE_SCHEMA, PLAN_PROMPT
+
+    question = (
+        "How many documents are in the knowledge base, and what are the main "
+        "document types and topics?"
+    )
+    client, sb = MagicMock(), MagicMock()
+    plan = {
+        "operation": "count_files",
+        "source_type": None,
+        "filename": None,
+        "created_after": None,
+        "created_before": None,
+    }
+    client.complete.return_value = ExecutionResult(
+        "job",
+        "",
+        {
+            "schema_version": 1,
+            "outcome": "completed",
+            "data": plan,
+            "missing_inputs": [],
+            "failure": None,
+            "warnings": [],
+        },
+        None,
+        None,
+        "attempt",
+    )
+    authority = {"owner_id": "owner", "folder_ids": ["owned-a", "owned-b"], "scope_filename": None}
+    if nested:
+        authority["job_id"] = "parent"
+    sb.rpc.return_value.execute.return_value.data = {"count": 7}
+    with (
+        patch("services.ai.metadata.client_for", return_value=client),
+        patch("services.ai.metadata.get_supabase_thread_safe", return_value=sb),
+    ):
+        assert json.loads(metadata_query(question, authority)) == {"count": 7}
+    request = client.complete.call_args.args[0]
+    assert request["system_prompt"] == PLAN_PROMPT
+    assert "plan-only translator, not a database operator" in PLAN_PROMPT
+    assert "already owns the database connection, authorization" in PLAN_PROMPT
+    assert "Unsupported parts do not prevent planning a supported part" in PLAN_PROMPT
+    assert "never knowledge_base_access or infrastructure" in PLAN_PROMPT
+    assert request["tool_allowlist"] == [] and request["response_schema"] == ENVELOPE_SCHEMA
+    assert json.loads(request["prompt"]) == {
+        "question": question,
+        "authorized_scope": {"folder_ids": ["owned-a", "owned-b"], "filename": None},
+    }
+    assert sb.rpc.call_args.args == (
+        "tsukai_scoped_metadata",
+        {
+            "p_owner_id": "owner",
+            "p_folder_ids": ["owned-a", "owned-b"],
+            "p_operation": "count_files",
+            "p_source_type": None,
+            "p_filename": None,
+            "p_created_after": None,
+            "p_created_before": None,
+        },
+    )
+
+
+def test_genuine_missing_intent_still_cannot_reach_database_execution():
+    from services.ai.client import ExecutionError
+
+    client = MagicMock()
+    client.complete.return_value = ExecutionResult(
+        "job",
+        "",
+        {
+            "schema_version": 1,
+            "outcome": "needs_input",
+            "data": None,
+            "missing_inputs": [
+                {"field": "question", "reason": "Specify which metadata to inspect"}
+            ],
+            "failure": None,
+            "warnings": [],
+        },
+        None,
+        None,
+        "attempt",
+    )
+    with (
+        patch("services.ai.metadata.client_for", return_value=client),
+        patch("services.ai.metadata.get_supabase_thread_safe") as database,
+    ):
+        with pytest.raises(ExecutionError, match="metadata_invalid_outcome"):
+            metadata_query("", {"owner_id": "owner", "folder_ids": ["owned"]})
+    database.assert_not_called()
