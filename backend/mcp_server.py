@@ -25,12 +25,14 @@ from services.embeddings import embed_query
 from services.evaluation import evaluate_rag_pipeline
 from services.folder_summary.briefing_schema import snapshot_sections
 from services.folder_summary.persistence import persist_sections
+from services.logging_config import configure_transport_logging
 from services.retrieval import retrieve_knowledge
 from services.text_to_sql import generate_and_execute_sql
 
 MCP_PORT = int(os.environ.get("MCP_PORT", "8001"))
 
 mcp = FastMCP("Kioku Second Brain", host="0.0.0.0", port=MCP_PORT)
+configure_transport_logging()
 
 
 def offloaded_tool():
