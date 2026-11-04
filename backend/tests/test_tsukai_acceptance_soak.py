@@ -86,5 +86,5 @@ def test_only_successful_probe_duration_earns_credit(supervisor, monkeypatch, tm
     }
     result = supervisor.supervise(plan, tmp_path / "run", 7)
     assert result["healthy_seconds"] == 7
-    assert result["wall_seconds"] == 42
+    assert result["wall_seconds"] == 37
     assert result["counts"]["probe"] == {"passed": 1, "failed": 1}

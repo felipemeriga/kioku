@@ -96,7 +96,7 @@ def supervise(plan, output, required_seconds):
             if code == 0 and all(healthy.values()):
                 healthy_seconds += ended - began
             last_tick = ended
-            due[name] = ended + case["every"]
+            due[name] = began + case["every"]
             append(
                 events,
                 {
