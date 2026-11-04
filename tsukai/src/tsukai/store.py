@@ -3,12 +3,15 @@
 import asyncio
 import hashlib
 import json
+import os
+import ssl
 import time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from sqlalchemy import and_, delete, func, insert, select, text, update
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from .protocol import TERMINAL, JobRequest
@@ -24,12 +27,42 @@ class Fenced(Conflict):
 
 
 class Store:
-    def __init__(self, url: str, workspace_dir="/data/workspaces"):
+    def __init__(self, url: str, workspace_dir="/data/workspaces", database_ca_file=None):
+        url = make_url(url)
         options = {"pool_pre_ping": True}
-        if url.startswith("postgresql+asyncpg://"):
+        if url.drivername == "postgresql+asyncpg":
             # Leave headroom under the dedicated role's six-connection limit.
             # SQL work is short-lived; model execution never holds a connection.
             options.update(pool_size=4, max_overflow=0, pool_timeout=5)
+            modes = [url.query[key] for key in ("ssl", "sslmode") if key in url.query]
+            if any(not isinstance(mode, str) for mode in modes) or len(set(modes)) > 1:
+                raise ValueError("conflicting PostgreSQL TLS modes")
+            ca_files = [
+                value
+                for value in (
+                    database_ca_file,
+                    os.getenv("TSUKAI_DATABASE_CA_FILE"),
+                    url.query.get("sslrootcert"),
+                )
+                if value
+            ]
+            if any(not isinstance(value, str) for value in ca_files) or len(set(ca_files)) > 1:
+                raise ValueError("conflicting PostgreSQL CA files")
+            if ca_files and modes and modes[0] != "verify-full":
+                raise ValueError("a PostgreSQL CA file requires verify-full TLS mode")
+            if (modes and modes[0] == "verify-full") or ca_files:
+                # asyncpg's string mode defaults to ~/.postgresql/root.crt, which is not
+                # provisioned in the readonly nonroot image. Use platform CA trust while
+                # preserving mandatory certificate AND server hostname verification.
+                context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+                if ca_files:
+                    # Supabase uses a private CA. Add its operator-provisioned public trust
+                    # anchor without replacing system roots or weakening verification.
+                    context.load_verify_locations(cafile=ca_files[0])
+                context.verify_mode = ssl.CERT_REQUIRED
+                context.check_hostname = True
+                options["connect_args"] = {"ssl": context}
+                url = url.difference_update_query(["ssl", "sslmode", "sslrootcert"])
         self.engine = create_async_engine(url, **options)
         self.workspace_dir = workspace_dir
         self._local_lock = asyncio.Lock()
