@@ -97,3 +97,26 @@ describe("durable native chat transport", () => {
     expect(done).not.toHaveBeenCalled();
   });
 });
+
+it("preserves a typed pre-job policy conflict without attempting inference again", async () => {
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+    response(
+      event({
+        error: "conversation_policy_changed: rebuild required",
+        error_code: "conversation_policy_changed",
+        recovery_required: true,
+        turn_id: "stable",
+      }),
+    ),
+  );
+  await expect(
+    runChatTransport({
+      payload: { turn_id: "stable" },
+      headers,
+      pause,
+      fetcher,
+      onFrame: vi.fn(),
+    }),
+  ).rejects.toMatchObject({ status: 409, code: "conversation_policy_changed" });
+  expect(fetcher).toHaveBeenCalledTimes(1);
+});

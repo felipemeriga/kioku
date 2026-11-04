@@ -59,3 +59,24 @@ it("applies native canonical replacement and debug before done", async () => {
   );
   expect(body.turn_id).toMatch(/^[0-9a-f-]{36}$/);
 });
+
+it("exposes typed native rebuild recovery for a pre-job SSE policy conflict", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      async () =>
+        new Response(
+          'data: {"error":"rebuild required","error_code":"conversation_policy_changed","recovery_required":true,"turn_id":"stable"}\n\n',
+        ),
+    ),
+  );
+  let failure: unknown;
+  try {
+    await api.streamChat("conversation", "follow-up", vi.fn(), vi.fn());
+  } catch (error) {
+    failure = error;
+  }
+  expect(failure).toBeInstanceOf(api.ApiError);
+  expect(api.requiresNativeRebuild(failure)).toBe(true);
+  expect(fetch).toHaveBeenCalledTimes(1);
+});

@@ -240,13 +240,26 @@ def submit_turn(turn: dict) -> dict:
         # Retrying this exact accepted body recovers an admission response lost in transit.
         job_id = turn.get("job_id") or client.submit(request)
     except httpx.HTTPStatusError as exc:
+        code = "admission_rejected"
+        try:
+            body = exc.response.json()
+            detail = body.get("detail") or body.get("error")
+            candidate = detail if isinstance(detail, str) else (detail or {}).get("code")
+            if candidate in {"conversation_policy_changed", "conversation_needs_rebuild"}:
+                code = candidate
+        except (ValueError, AttributeError):
+            pass
         if exc.response.status_code in {400, 403, 409, 422}:
             get_supabase_thread_safe().table("tsukai_chat_turns").update(
                 {
                     "state": "failed",
-                    "error_code": "admission_rejected",
+                    "error_code": code,
                 }
             ).eq("id", turn["id"]).eq("state", "prepared").execute()
+        if code in {"conversation_policy_changed", "conversation_needs_rebuild"}:
+            raise ExecutionError(
+                code, "Rebuild native context from saved conversation history"
+            ) from None
         raise
     finally:
         client.close()
@@ -488,7 +501,23 @@ async def reconciliation_loop():
 
 def stream_turn(turn: dict, *, cursor: int = 0):
     """Subscriber only: durable worker completion never depends on this generator."""
-    turn = submit_turn(turn)
+    try:
+        turn = submit_turn(turn)
+    except ExecutionError as exc:
+        yield (
+            "data: "
+            + json.dumps(
+                {
+                    "error": str(exc),
+                    "error_code": exc.code,
+                    "turn_id": turn["id"],
+                    "recovery_required": exc.code
+                    in {"conversation_policy_changed", "conversation_needs_rebuild"},
+                }
+            )
+            + "\n\n"
+        )
+        return
     scope, request = turn_scope(turn), turn["request"]
     client = client_for(scope, request["operation"], request["profile"])
     yield "data: " + json.dumps({"job_id": turn["job_id"], "turn_id": turn["id"]}) + "\n\n"

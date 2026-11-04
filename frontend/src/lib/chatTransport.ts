@@ -1,9 +1,11 @@
 /** Durable native replay without ever repeating an unknown legacy API request. */
 export class ChatTransportError extends Error {
   status: number;
-  constructor(message: string, status = 0) {
+  code?: string;
+  constructor(message: string, status = 0, code?: string) {
     super(message);
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -44,6 +46,7 @@ export async function runChatTransport(options: {
           throw new ChatTransportError(
             turn.error_code ?? `Execution ${turn.state}`,
             409,
+            typeof turn.error_code === "string" ? turn.error_code : undefined,
           );
         }
         // A durable prepared turn proves the exact same-key POST is safe.
@@ -76,8 +79,17 @@ export async function runChatTransport(options: {
       first = false;
       if (!response.ok) {
         let detail = "Chat request failed";
+        let code: string | undefined;
         try {
           const body = await response.json();
+          code =
+            typeof body.detail === "string"
+              ? body.detail
+              : typeof body.detail?.code === "string"
+                ? body.detail.code
+                : typeof body.error?.code === "string"
+                  ? body.error.code
+                  : undefined;
           detail =
             typeof body.detail === "string"
               ? body.detail
@@ -85,7 +97,7 @@ export async function runChatTransport(options: {
         } catch {
           /* Preserve HTTP status for non-JSON proxy errors. */
         }
-        throw new ChatTransportError(detail, response.status);
+        throw new ChatTransportError(detail, response.status, code);
       }
       const reader = response.body?.getReader();
       if (!reader) throw new ChatTransportError("Empty chat response");
@@ -129,7 +141,10 @@ export async function runChatTransport(options: {
                 typeof frame.error === "string"
                   ? frame.error
                   : JSON.stringify(frame.error),
-                500,
+                dataRecoveryStatus(frame),
+                typeof frame.error_code === "string"
+                  ? frame.error_code
+                  : undefined,
               );
             options.onFrame(frame);
             if (frame.done) return;
@@ -152,4 +167,8 @@ export async function runChatTransport(options: {
       });
     }
   }
+}
+
+function dataRecoveryStatus(frame: ChatFrame): number {
+  return frame.recovery_required ? 409 : 500;
 }

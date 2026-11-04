@@ -170,3 +170,51 @@ def test_slow_second_admission_response_cannot_regress_an_acknowledged_turn():
         recovered = submit_turn(copy.deepcopy(turn))
     assert recovered["state"] == "acknowledged"
     assert recovered["assistant_message_id"] == "saved"
+
+
+@pytest.mark.parametrize("code", ["conversation_policy_changed", "conversation_needs_rebuild"])
+def test_pre_admission_policy_failure_emits_recovery_frame_without_job_id(code):
+    import json
+
+    from services.ai.chat import stream_turn
+    from services.ai.client import ExecutionError
+
+    with patch("services.ai.chat.submit_turn", side_effect=ExecutionError(code)):
+        frames = list(stream_turn({"id": "stable-turn"}))
+    payload = json.loads(frames[0].removeprefix("data: ").strip())
+    assert payload["recovery_required"] is True
+    assert payload["error_code"] == code
+    assert payload["turn_id"] == "stable-turn"
+    assert "job_id" not in payload
+
+
+@pytest.mark.parametrize("code", ["conversation_policy_changed", "conversation_needs_rebuild"])
+@pytest.mark.parametrize("style", ["runtime", "fastapi"])
+def test_admission_conflict_preserves_typed_recovery_code_in_durable_turn(code, style):
+    from unittest.mock import MagicMock
+
+    from services.ai.client import ExecutionError
+
+    turn = {
+        "id": "turn",
+        "owner_id": "owner",
+        "state": "prepared",
+        "job_id": None,
+        "request": {"operation": "rag_agent", "profile": "chat"},
+    }
+    request = httpx.Request("POST", "http://runner/v1/jobs")
+    body = {"error": {"code": code}} if style == "runtime" else {"detail": code}
+    response = httpx.Response(409, request=request, json=body)
+    client, sb = MagicMock(), MagicMock()
+    client.submit.side_effect = httpx.HTTPStatusError(
+        "conflict", request=request, response=response
+    )
+    with (
+        patch("services.ai.chat.owned_turn", return_value=turn),
+        patch("services.ai.chat.turn_scope", return_value=ExecutionScope("owner")),
+        patch("services.ai.chat.client_for", return_value=client),
+        patch("services.ai.chat.get_supabase_thread_safe", return_value=sb),
+    ):
+        with pytest.raises(ExecutionError, match=code):
+            submit_turn(turn)
+    assert sb.table.return_value.update.call_args.args[0] == {"state": "failed", "error_code": code}
