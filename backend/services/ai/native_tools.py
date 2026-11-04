@@ -18,7 +18,12 @@ from starlette.responses import JSONResponse
 
 from db.client import get_supabase_thread_safe
 from services.ai.chat import owned_turn, turn_scope
-from services.ai.evidence import DurableCitations, save_trace, scope_locations
+from services.ai.evidence import (
+    DurableCitations,
+    materialize_bootstrap,
+    save_trace,
+    scope_locations,
+)
 from services.ai.facade import client_for
 from services.ai.scope import ExecutionScope, execution_scope
 from services.tools import execute_tool
@@ -97,6 +102,7 @@ def mint_tool_capability(body: ToolCapabilityRequest, request: Request):
     expires = min(int(deadline) + 30, now + 360)
     if expires <= now:
         raise HTTPException(403, "Attempt deadline expired")
+    materialize_bootstrap(turn, body.attempt_id)
     grant = jwt.encode(
         {
             "iss": "kioku-backend",

@@ -2,7 +2,7 @@
 
 import hashlib
 import json
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from db.client import get_supabase_thread_safe
 from services.citations import CitationRegistry
@@ -101,3 +101,62 @@ def scope_locations(owner_id: str, folder_ids: list[str]) -> dict:
             cursor = row.get("parent_id")
         paths[folder] = parts
     return {"user_id": owner_id, "folder_ids": folder_ids, "breadcrumbs": paths}
+
+
+def materialize_bootstrap(turn: dict, attempt_id: str) -> None:
+    """Bind current-turn host evidence before CLI launch; remint is idempotent."""
+    request = turn["request"]
+    if not request["folder_ids"] or "current_turn_evidence" not in json.loads(request["prompt"]):
+        return
+    sb = get_supabase_thread_safe()
+    traces = (
+        sb.table("tsukai_tool_traces")
+        .select("*")
+        .eq("owner_id", turn["owner_id"])
+        .eq("job_id", turn["id"])
+        .eq("attempt_id", "bootstrap")
+        .execute()
+        .data
+        or []
+    )
+    if len(traces) != 1 or set(traces[0]["folder_ids"]) != set(request["folder_ids"]):
+        raise ValueError("Missing or mismatched current-turn bootstrap evidence")
+    sources = sources_for(turn["id"], "bootstrap")
+    for source in sources:
+        if source.get("owner_id") != turn["owner_id"]:
+            raise ValueError("Bootstrap source owner mismatch")
+        number = (
+            sb.rpc(
+                "tsukai_register_citation",
+                {
+                    "p_job_id": turn["job_id"],
+                    "p_attempt_id": attempt_id,
+                    "p_source_key": source["source_id"],
+                    "p_source": {key: value for key, value in source.items() if key != "number"},
+                },
+            )
+            .execute()
+            .data
+        )
+        if int(number) != source["number"]:
+            raise ValueError("Bootstrap citation namespace mismatch")
+    trace = traces[0]
+    sb.table("tsukai_tool_traces").upsert(
+        {
+            "id": str(uuid5(NAMESPACE_URL, f"kioku:bootstrap:{turn['job_id']}:{attempt_id}")),
+            "owner_id": turn["owner_id"],
+            "job_id": turn["job_id"],
+            "attempt_id": attempt_id,
+            "folder_ids": request["folder_ids"],
+            "trace": {
+                **trace["trace"],
+                "root_turn_id": turn["id"],
+                "job_id": turn["job_id"],
+                "attempt_id": attempt_id,
+                "native_tool_use_id": None,
+                "native_tool_use_id_availability": "Backend retrieval; no native tool call",
+            },
+            "result": trace["result"],
+        },
+        on_conflict="id",
+    ).execute()
