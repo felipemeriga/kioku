@@ -216,6 +216,11 @@ def validate_result(snapshot, raw):
             for name in dict.fromkeys(["activity", *value["selected"]])
             if (snapshot.get("expected_sections", {}).get(name) or {}).get("provenance")
             != "user_ui"
+            and not (
+                name == "documentation"
+                and "documentation_revision" in snapshot
+                and snapshot["documentation_revision"] is None
+            )
         ]
     elif op == "activity" and (not value["summary"].strip() or not value["highlights"]):
         raise ValueError("activity failed quality check")

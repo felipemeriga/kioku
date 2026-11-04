@@ -426,3 +426,58 @@ def test_needs_input_job_still_copies_attempt_usage_without_applying_facts(confi
     assert copied[1]["usage"]["complete"] is False
     assert db.rows["maintenance_usage_outbox"][0]["captured_at"] is not None
     assert db.calls == []
+
+
+def test_existing_absent_doc_pass_heals_before_head_gate_without_any_generation(
+    configured, monkeypatch
+):
+    head = "a" * 40
+    reviews = {"activity": {"head_sha": head}, "architecture": {"head_sha": head}}
+    snapshot = {
+        "expected_sections": {"activity": {}, "architecture": {}, "documentation": {}},
+        "input": {},
+    }
+    db = DB(
+        {
+            "repo_freshness": [
+                {"folder_id": "folder", "user_id": "owner", "section_reviews": reviews}
+            ]
+        }
+    )
+    inspected = []
+
+    def acknowledge(sb, owner, folder, expected_head):
+        assert (sb, owner, folder, expected_head) == (db, "owner", "folder", head)
+        inspected.append(True)
+        reviews["documentation"] = {"head_sha": head, "reason": "absent", "document_exists": False}
+
+    monkeypatch.setattr(execution, "acknowledge_absent_documentation", acknowledge)
+    monkeypatch.setattr(execution, "capture", lambda *_: (snapshot, None))
+    monkeypatch.setattr(
+        execution,
+        "build_request",
+        lambda *_: pytest.fail("already-current pass started another model request"),
+    )
+    assert (
+        execution.prepare(db, "owner", "folder", "review_plan", {"head_sha": head})["engine"]
+        == "skip"
+    )
+    assert inspected == [True]
+    assert db.calls == []
+
+
+def test_absent_document_prepare_inspects_without_starting_model(configured, monkeypatch):
+    db = DB()
+    monkeypatch.setattr(execution, "capture", lambda *_: (None, "no detailed documentation yet"))
+    monkeypatch.setattr(
+        execution, "build_request", lambda *_: pytest.fail("absent guide regenerated")
+    )
+    result = execution.prepare(db, "owner", "folder", "documentation", {"head_sha": "a" * 40})
+    assert result["engine"] == "skip"
+    assert result["reason"] == "no detailed documentation yet"
+    assert db.calls == [
+        (
+            "acknowledge_absent_mihari_documentation",
+            {"p_folder_id": "folder", "p_user_id": "owner", "p_head_sha": "a" * 40},
+        )
+    ]

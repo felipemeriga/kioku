@@ -115,3 +115,15 @@ def test_native_outcome_schema_accepts_missing_input_without_publishing():
     Draft202012Validator(schema).validate(needs_input)
     with pytest.raises(ValueError, match="nonpublishable"):
         validate_result(snapshot("activity"), needs_input)
+
+
+def test_review_plan_excludes_never_created_documentation_but_keeps_existing_guide():
+    snap = snapshot("review_plan")
+    snap["documentation_revision"] = None
+    assert validate_result(snap, {"selected": ["documentation", "how_it_runs"]}) == {
+        "selected": ["activity", "how_it_runs"]
+    }
+    snap["documentation_revision"] = "existing-document-id"
+    assert validate_result(snap, {"selected": ["documentation"]}) == {
+        "selected": ["activity", "documentation"]
+    }

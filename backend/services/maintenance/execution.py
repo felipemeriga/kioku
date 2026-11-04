@@ -285,9 +285,27 @@ def reconcile_acknowledgements(sb, owner, folder):
                 )
 
 
+def acknowledge_absent_documentation(sb, owner, folder, head):
+    """Authoritative no-model inspection, constrained to an existing same-HEAD pass."""
+    return (
+        sb.rpc(
+            "acknowledge_absent_mihari_documentation",
+            {
+                "p_folder_id": folder,
+                "p_user_id": owner,
+                "p_head_sha": head,
+            },
+        )
+        .execute()
+        .data
+    )
+
+
 def prepare(sb, owner, folder, operation, payload):
     reconcile_usage(sb, owner, folder)
     reconcile_acknowledgements(sb, owner, folder)
+    if operation in ("review_plan", "documentation"):
+        acknowledge_absent_documentation(sb, owner, folder, payload["head_sha"])
     snapshot, reason = capture_pending(sb, owner, folder, operation, payload)
     if snapshot is None:
         promoted = (
