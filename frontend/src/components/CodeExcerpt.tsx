@@ -4,48 +4,32 @@ import { Box } from "@mui/material";
 import type { SyntaxHighlighterProps } from "react-syntax-highlighter";
 import { brand, fonts } from "../theme";
 
-const languages: Record<string, string> = {
-  rs: "rust",
-  py: "python",
-  ts: "typescript",
-  tsx: "tsx",
-  js: "javascript",
-  jsx: "jsx",
-  go: "go",
-  java: "java",
-  c: "c",
-  h: "c",
-  cpp: "cpp",
-  cc: "cpp",
-  cs: "csharp",
-  json: "json",
-  yml: "yaml",
-  yaml: "yaml",
-  toml: "toml",
-  sql: "sql",
-  sh: "bash",
-  bash: "bash",
-  ps1: "powershell",
-  rb: "ruby",
-  proto: "protobuf",
-  xml: "markup",
-};
+import { codeLanguage } from "./codeLanguage";
 
 /** Render retrieved bytes as code; never reconstruct missing formatting. */
 export default function CodeExcerpt({
   code,
-  filename,
+  filename = "",
+  language: requestedLanguage,
+  compact = true,
   testId,
 }: {
   code: string;
-  filename: string;
+  filename?: string;
+  language?: string;
+  compact?: boolean;
   testId: string;
 }) {
   const [highlighter, setHighlighter] = useState<{
     Component: ComponentType<SyntaxHighlighterProps>;
     theme: Record<string, CSSProperties>;
   } | null>(null);
+  const language = requestedLanguage ?? codeLanguage(filename);
+  const canHighlight = Boolean(
+    language && language !== "text" && code.length <= 120_000,
+  );
   useEffect(() => {
+    if (!canHighlight) return;
     let active = true;
     void Promise.all([
       import("react-syntax-highlighter"),
@@ -64,9 +48,7 @@ export default function CodeExcerpt({
     return () => {
       active = false;
     };
-  }, []);
-  const extension = filename.split(".").pop()?.toLowerCase() ?? "";
-  const language = languages[extension];
+  }, [canHighlight]);
   const style: CSSProperties = {
     margin: 0,
     padding: "10px",
@@ -83,14 +65,14 @@ export default function CodeExcerpt({
       data-language={language ?? "text"}
       sx={{
         mt: 1,
-        maxHeight: 180,
-        overflow: "hidden",
+        maxHeight: compact ? 180 : 480,
+        overflow: compact ? "hidden" : "auto",
         bgcolor: brand.surface2,
         border: `1px solid ${brand.line}`,
         borderRadius: 1,
       }}
     >
-      {highlighter && language ? (
+      {highlighter && canHighlight ? (
         <highlighter.Component
           language={language}
           style={highlighter.theme}

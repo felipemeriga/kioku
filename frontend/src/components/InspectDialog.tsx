@@ -17,6 +17,7 @@ import { fetchToolArtifact, type DebugTrace } from "../lib/api";
 import { brand, fonts, scanlines } from "../theme";
 import CornerCard from "./neo/CornerCard";
 import RerankBar from "./neo/RerankBar";
+import InspectCode from "./InspectCode";
 
 interface InspectDialogProps {
   open: boolean;
@@ -25,30 +26,6 @@ interface InspectDialogProps {
 }
 
 const MONO = fonts.mono;
-
-function Pre({ children }: { children: string }) {
-  return (
-    <Box
-      component="pre"
-      sx={{
-        m: 0,
-        p: "12px 14px",
-        fontFamily: MONO,
-        fontSize: 13,
-        lineHeight: 1.6,
-        color: brand.text,
-        bgcolor: brand.inkDeep,
-        borderRadius: 1,
-        border: `1px solid ${brand.line}`,
-        whiteSpace: "pre-wrap",
-        wordBreak: "break-word",
-        overflowX: "auto",
-      }}
-    >
-      {children}
-    </Box>
-  );
-}
 
 export default function InspectDialog({
   open,
@@ -189,7 +166,9 @@ export default function InspectDialog({
         {tab === 0 && (
           <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
             {trace.execution && (
-              <Pre>{JSON.stringify(trace.execution, null, 2)}</Pre>
+              <InspectCode language="json">
+                {JSON.stringify(trace.execution, null, 2)}
+              </InspectCode>
             )}
             {!trace.execution && reasoning.length === 0 && (
               <Typography sx={{ color: alpha(brand.text, 0.5), fontSize: 13 }}>
@@ -211,7 +190,7 @@ export default function InspectDialog({
                     borderRadius: "3px",
                   }}
                 />
-                <Pre>{r.text}</Pre>
+                <InspectCode>{r.text}</InspectCode>
               </Box>
             ))}
           </Box>
@@ -274,13 +253,13 @@ export default function InspectDialog({
                 <Typography sx={{ color: brand.muted, fontSize: 13, mb: 0.5 }}>
                   input
                 </Typography>
-                <Pre>
+                <InspectCode>
                   {t.input != null
                     ? JSON.stringify(t.input, null, 2)
                     : t.query
                       ? JSON.stringify({ query: t.query }, null, 2)
                       : "No input recorded."}
-                </Pre>
+                </InspectCode>
                 <Typography
                   sx={{
                     color: brand.muted,
@@ -296,13 +275,15 @@ export default function InspectDialog({
                     <Typography sx={{ color: brand.muted, mt: 1, mb: 0.5 }}>
                       Kioku location and scope
                     </Typography>
-                    <Pre>{JSON.stringify(t.effective_scope, null, 2)}</Pre>
+                    <InspectCode language="json">
+                      {JSON.stringify(t.effective_scope, null, 2)}
+                    </InspectCode>
                   </>
                 )}
-                <Pre>
+                <InspectCode>
                   {t.result_preview ??
                     "Result available in the evidence artifact."}
-                </Pre>
+                </InspectCode>
                 {t.artifact_id && trace.execution?.job_id && (
                   <>
                     <Button
@@ -334,7 +315,7 @@ export default function InspectDialog({
                       View exact returned evidence
                     </Button>
                     {artifacts[t.artifact_id] && (
-                      <Pre>{artifacts[t.artifact_id]}</Pre>
+                      <InspectCode>{artifacts[t.artifact_id]}</InspectCode>
                     )}
                   </>
                 )}
@@ -380,7 +361,11 @@ export default function InspectDialog({
                       {c.date}
                     </Typography>
                   )}
-                  <Pre>{c.content}</Pre>
+                  <InspectCode
+                    filename={c.source_type === "code" ? c.source : undefined}
+                  >
+                    {c.content}
+                  </InspectCode>
                 </CornerCard>
               );
             })}

@@ -102,3 +102,34 @@ describe("retrieval provenance", () => {
     expect(screen.queryByText("Backend retrieval")).not.toBeInTheDocument();
   });
 });
+
+it("highlights retrieved configuration chunks using their source filenames", () => {
+  renderWithProviders(
+    <InspectDialog
+      open
+      onClose={vi.fn()}
+      trace={{
+        reasoning: [],
+        tool_calls: [],
+        retrieval: [
+          {
+            source: "config.toml",
+            source_type: "code",
+            content: "[server]\nport = 8788",
+          },
+          {
+            source: "deploy/app.yaml:1-2",
+            source_type: "code",
+            content: "server:\n  enabled: true",
+          },
+        ],
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("tab", { name: "Chunks (2)" }));
+  expect(
+    screen
+      .getAllByTestId("inspect-code-content")
+      .map((el) => el.dataset.language),
+  ).toEqual(["toml", "yaml"]);
+});
