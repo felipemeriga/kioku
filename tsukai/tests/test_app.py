@@ -600,3 +600,65 @@ async def test_repeated_external_cancellation_cannot_interrupt_reaping_or_termin
     assert result["status"] == "cancelled"
     assert not scheduler.native.processes
     assert await scheduler.store.recover() == 0
+
+
+@pytest.mark.parametrize("failure", ["native_error", "timeout"])
+async def test_cancel_during_failure_terminal_commit_still_commits_cancelled(
+    app_client, monkeypatch, failure
+):
+    from tsukai.validation import NativeError
+
+    app, client, settings = app_client
+    scheduler = app.state.scheduler
+    entered, release = asyncio.Event(), asyncio.Event()
+    original_finish = scheduler.store.finish
+
+    async def fail_run(*args, **kwargs):
+        if failure == "native_error":
+            raise NativeError("fixture_error")
+        raise TimeoutError("fixture execution timeout")
+
+    async def blocked_finish(*args, **kwargs):
+        entered.set()
+        await release.wait()
+        return await original_finish(*args, **kwargs)
+
+    monkeypatch.setattr(scheduler.native, "run", fail_run)
+    monkeypatch.setattr(scheduler.store, "finish", blocked_finish)
+    payload = body()
+    auth = headers(settings, payload)
+    submitted = (await client.post("/v1/jobs", json=payload, headers=auth)).json()
+    await asyncio.wait_for(entered.wait(), 1)
+    await client.post(f"/v1/jobs/{submitted['job_id']}/cancel", headers=auth)
+    release.set()
+    result = await terminal(client, submitted["result_url"], auth)
+    assert result["status"] == "cancelled"
+    assert await scheduler.store.recover() == 0
+
+
+async def test_cancel_during_native_error_retry_jitter_prevents_repair(app_client, monkeypatch):
+    from tsukai.validation import NativeError
+
+    app, client, settings = app_client
+    scheduler = app.state.scheduler
+    jitter = asyncio.Event()
+
+    def slow_jitter(low, high):
+        jitter.set()
+        return 0.2
+
+    async def fail_run(*args, **kwargs):
+        raise NativeError("invalid_structured_output", retryable=True)
+
+    monkeypatch.setattr("tsukai.scheduler.random.uniform", slow_jitter)
+    monkeypatch.setattr(scheduler.native, "run", fail_run)
+    payload = body()
+    auth = headers(settings, payload)
+    submitted = (await client.post("/v1/jobs", json=payload, headers=auth)).json()
+    await asyncio.wait_for(jitter.wait(), 1)
+    await client.post(f"/v1/jobs/{submitted['job_id']}/cancel", headers=auth)
+    result = await terminal(client, submitted["result_url"], auth)
+    assert result["status"] == "cancelled"
+    usage = (await client.get(f"/v1/jobs/{submitted['job_id']}/usage", headers=auth)).json()
+    assert len(usage["attempts"]) == 1
+    assert usage["attempts"][0]["status"] == "cancelled"
