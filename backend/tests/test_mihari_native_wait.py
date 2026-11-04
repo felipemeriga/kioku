@@ -7,8 +7,8 @@ from types import SimpleNamespace
 import pytest
 
 
-@pytest.mark.parametrize("operation", ["documentation", "reground"])
-def test_heavy_job_can_finish_after_old_transport_wait(monkeypatch, operation):
+@pytest.mark.parametrize("operation", ["documentation", "reground", "review-plan", "learnings"])
+def test_queued_native_job_can_finish_after_old_transport_wait(monkeypatch, operation):
     for key in ("SUPABASE_URL", "KIOKU_MCP_URL", "KIOKU_API_URL"):
         monkeypatch.setenv(key, "http://fixture")
     monkeypatch.setenv("SUPABASE_SERVICE_KEY", "fixture")
@@ -18,7 +18,7 @@ def test_heavy_job_can_finish_after_old_transport_wait(monkeypatch, operation):
     )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    clock, polls, publications = [0], [], []
+    clock, polls, publications, admissions = [0], [], [], []
 
     def response(body):
         return SimpleNamespace(
@@ -37,6 +37,7 @@ def test_heavy_job_can_finish_after_old_transport_wait(monkeypatch, operation):
                 }
             )
         if url.endswith("/v1/jobs"):
+            admissions.append(url)
             return response({"job_id": "job"})
         publications.append(url)
         return response({"updated": True})
@@ -60,6 +61,7 @@ def test_heavy_job_can_finish_after_old_transport_wait(monkeypatch, operation):
     )
     assert result.ok
     assert len(polls) == 2
+    assert admissions == ["http://runner/v1/jobs"]
     assert publications == ["http://fixture/api/mihari/execution/publish"]
 
 
