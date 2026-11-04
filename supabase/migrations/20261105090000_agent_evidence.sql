@@ -317,7 +317,15 @@ BEGIN
         SET end_event_id=EXCLUDED.end_event_id
         WHERE agent_evidence_journal_links.session_id=EXCLUDED.session_id
           AND agent_evidence_journal_links.start_event_id=EXCLUDED.start_event_id
-          AND EXCLUDED.end_event_id IS NOT NULL;
+          AND EXCLUDED.end_event_id IS NOT NULL
+          AND (agent_evidence_journal_links.end_event_id IS NULL
+            OR NOT EXISTS(SELECT 1 FROM public.agent_evidence_events old_end
+              WHERE old_end.session_id=s.id AND old_end.event_id=agent_evidence_journal_links.end_event_id)
+            OR EXISTS(SELECT 1 FROM public.agent_evidence_events new_end
+              JOIN public.agent_evidence_events old_end ON old_end.session_id=new_end.session_id
+              WHERE new_end.session_id=s.id AND new_end.event_id=EXCLUDED.end_event_id
+                AND old_end.event_id=agent_evidence_journal_links.end_event_id
+                AND new_end.position>=old_end.position));
     END LOOP;
     v_producer_gaps := jsonb_set(s.producer_gaps,ARRAY[b.request_json->>'producer_id'],
         COALESCE(b.request_json->'gaps','[]'),true);

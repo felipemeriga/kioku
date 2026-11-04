@@ -592,7 +592,18 @@ class EvidenceStore:
             .data
         )
         return {
-            "status": "available" if found else "pending",
+            "status": "available"
+            if found
+            and (
+                not link.get("end_event_id")
+                or self._query("agent_evidence_events")
+                .eq("session_id", s["id"])
+                .eq("event_id", link["end_event_id"])
+                .limit(1)
+                .execute()
+                .data
+            )
+            else "pending",
             **{k: link.get(k) for k in ("session_id", "start_event_id", "end_event_id")},
         }
 
