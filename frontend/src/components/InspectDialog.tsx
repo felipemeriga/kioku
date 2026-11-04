@@ -334,7 +334,23 @@ export default function InspectDialog({
                   (!c.folder_id || citation.folder_id === c.folder_id) &&
                   (citation.source === c.source || citation.file === file),
               );
-              const citation = matching.length === 1 ? matching[0] : undefined;
+              const exact = matching.filter(
+                (candidate) => candidate.source === c.source,
+              );
+              const candidates = exact.length ? exact : matching;
+              const identities = new Set(
+                candidates.map((candidate) =>
+                  JSON.stringify([
+                    candidate.folder_id,
+                    candidate.file,
+                    candidate.url?.split("#")[0],
+                  ]),
+                ),
+              );
+              const citation =
+                candidates.length && identities.size === 1
+                  ? candidates[0]
+                  : undefined;
               let githubUrl: string | undefined;
               if (c.source_type === "code" && citation?.url) {
                 try {

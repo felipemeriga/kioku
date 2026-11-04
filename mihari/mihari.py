@@ -152,6 +152,42 @@ def read_native_result(url, headers, deadline):
     raise RuntimeError("Maintenance result unavailable; durable job retained for retry")
 
 
+def maintenance_control_post(url, *, headers, json, timeout=30):
+    """Retry only idempotent control-plane calls across gateway downtime.
+
+    JSON errors are domain/provider outcomes and must remain visible. This is
+    never used for a legacy API call that directly executes inference.
+    """
+    deadline = time.monotonic() + 60
+    attempt = 0
+    while (remaining := deadline - time.monotonic()) > 0:
+        try:
+            response = requests.post(
+                url,
+                headers=headers,
+                json=json,
+                timeout=(min(3, remaining), min(timeout, remaining)),
+            )
+        except (requests.ConnectionError, requests.Timeout):
+            pass
+        else:
+            if getattr(response, "status_code", 200) not in (502, 503, 504):
+                return response
+            try:
+                response.json()
+            except (ValueError, AttributeError):
+                pass
+            else:
+                return response
+        if attempt == 0:
+            log("Maintenance gateway temporarily unavailable; retrying the same control request")
+        attempt += 1
+        remaining = deadline - time.monotonic()
+        if remaining > 0:
+            time.sleep(min(2 ** min(attempt, 3), remaining))
+    raise RuntimeError("Maintenance gateway unavailable; durable preparation retained for retry")
+
+
 def maintenance_post(url, *, headers, json, timeout, _repair=True, _batches=3):
     """Direct model transport after backend authorization and immutable prepare.
 
@@ -163,7 +199,7 @@ def maintenance_post(url, *, headers, json, timeout, _repair=True, _batches=3):
     operation = url.rsplit("/", 1)[-1].replace("-", "_")
     if operation == "section":
         operation = json["section"]
-    prepared = requests.post(
+    prepared = maintenance_control_post(
         f"{API_URL}/api/mihari/execution/prepare",
         headers=headers,
         json={"operation": operation, "payload": json},
@@ -188,9 +224,11 @@ def maintenance_post(url, *, headers, json, timeout, _repair=True, _batches=3):
     job = submitted.json()["job_id"]
     if not isinstance(job, str) or not re.fullmatch(r"[a-zA-Z0-9_-]+", job):
         raise RuntimeError("Runner returned invalid job ID")
-    # Heavy structured maintenance has a bounded 600s execution budget plus
-    # queue allowance. The API transport timeout is not the native job lifetime.
-    native_wait = 780 if operation in {"documentation", "reground"} else min(timeout, 780)
+    # All native operations may queue behind a bounded heavy completion. The
+    # caller's API timeout is not a native execution or queue lifetime; keep one
+    # bounded wait across queueing, execution and result reconnects. The runner
+    # still independently enforces its 300s/600s execution limits.
+    native_wait = 780
     deadline = time.monotonic() + native_wait
     while time.monotonic() < deadline:
         result = read_native_result(runner + f"/v1/jobs/{job}/result", runner_headers, deadline)
@@ -205,7 +243,7 @@ def maintenance_post(url, *, headers, json, timeout, _repair=True, _batches=3):
         time.sleep(1)
     else:
         raise RuntimeError("Maintenance execution deadline; durable job retained for retry")
-    publication = requests.post(
+    publication = maintenance_control_post(
         f"{API_URL}/api/mihari/execution/publish",
         headers=headers,
         json={
@@ -943,7 +981,7 @@ def review_new_commits(clone: Path, repo: dict, old_sha: str | None, head: str, 
         )
         r.raise_for_status()
     if reviewed:
-        r = requests.post(
+        r = maintenance_control_post(
             f"{API_URL}/api/mihari/review-complete",
             headers=headers,
             json={"folder_id": repo["folder_id"], "head_sha": head, "reviewed": reviewed},
