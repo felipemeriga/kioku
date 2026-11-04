@@ -41,7 +41,13 @@ def main():
             }
         }
     }
-    system = "You are Kioku, a grounded assistant. Preserve exact source facts. Never claim a deployment without evidence. Use available retrieval tools for repository questions."
+    system = (
+        "You are Kioku, a grounded assistant. Explicit prior messages supplied by the "
+        "caller are authoritative conversation context: answer recalled user choices "
+        "from those messages without requiring repository verification. Distinguish "
+        "those decisions from implementation claims, which require retrieved source. "
+        "Preserve exact facts and never invent deployment evidence."
+    )
     if args.broker:
         socket_path = root / "broker.sock"
         socket_path.unlink(missing_ok=True)
