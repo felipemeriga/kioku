@@ -25,6 +25,16 @@ class CheckFailure(RuntimeError):
     """A sanitized acceptance assertion with no service response body."""
 
 
+def safe_assertions(error):
+    if isinstance(error, CheckFailure):
+        return [str(error)]
+    return [
+        message
+        for child in getattr(error, "exceptions", ())
+        for message in safe_assertions(child)
+    ]
+
+
 def text_content(result):
     if result.isError:
         raise CheckFailure("MCP tool returned isError")
@@ -215,6 +225,7 @@ def main():
             "kind": "real_mcp",
             "reason": str(exc) if isinstance(exc, CheckFailure) else type(exc).__name__,
         }
+        failure["assertions"] = safe_assertions(exc)
         if config.get("evidence"):
             descriptor = os.open(
                 config["evidence"], os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600
