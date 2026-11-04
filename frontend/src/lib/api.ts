@@ -470,6 +470,10 @@ export async function streamChat(
     const result = new ApiError({
       status,
       isNetwork: status === 0,
+      detail:
+        error instanceof ChatTransportError && error.code
+          ? { code: error.code }
+          : undefined,
       userMessage:
         error instanceof Error ? error.message : "Chat connection failed",
     });
@@ -1189,4 +1193,13 @@ export interface NativeActiveSessions {
 export async function fetchNativeActiveSessions(): Promise<NativeActiveSessions> {
   const response = await apiFetch("/api/usage/native/active-sessions");
   return response.json();
+}
+
+export function requiresNativeRebuild(error: unknown): boolean {
+  if (!(error instanceof ApiError)) return false;
+  const detail = error.detail as { code?: string } | undefined;
+  return (
+    detail?.code === "conversation_policy_changed" ||
+    detail?.code === "conversation_needs_rebuild"
+  );
 }

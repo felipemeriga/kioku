@@ -13,7 +13,11 @@ import type {
   DebugTrace,
   StageEvent,
 } from "../lib/api";
-import { streamChat, cancelChatExecution } from "../lib/api";
+import {
+  streamChat,
+  cancelChatExecution,
+  requiresNativeRebuild,
+} from "../lib/api";
 import DocumentViewerDrawer from "../components/DocumentViewerDrawer";
 import { useConversationsContext } from "../hooks/useConversationsContext";
 import { useToast, messageFromError } from "../components/ToastProvider";
@@ -261,7 +265,7 @@ export default function ChatPage() {
       // Preserve any partial content the assistant already streamed by
       // committing it as a real assistant message with a warning suffix,
       // instead of dropping it silently.
-      if (activeJob.current)
+      if (activeJob.current || requiresNativeRebuild(err))
         setRecovery({
           conversationId: convId,
           content,
@@ -303,8 +307,8 @@ export default function ChatPage() {
         !displayingStream && (
           <Box sx={{ p: 2 }}>
             <Typography sx={{ fontSize: 13, mb: 1 }}>
-              The last native execution did not publish a final answer. Retry in
-              a fresh native session using saved conversation history.
+              Retry this request in a fresh native session using saved
+              conversation history.
             </Typography>
             <Button
               variant="outlined"
