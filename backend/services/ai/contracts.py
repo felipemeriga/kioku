@@ -87,29 +87,65 @@ def completion_schema(operation: str) -> dict:
         "required": list(properties),
         "additionalProperties": False,
     }
+    return completion_envelope(data)
+
+
+def completion_envelope(data_schema: dict) -> dict:
+    """Exact discriminated outcomes, retained in full for host/native validation."""
+    nonblank = {"type": "string", "minLength": 1, "pattern": r"\S"}
+    missing = {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "properties": {"field": nonblank, "reason": nonblank},
+            "required": ["field", "reason"],
+            "additionalProperties": False,
+        },
+    }
+    failure = {
+        "type": "object",
+        "properties": {"code": nonblank, "message": nonblank},
+        "required": ["code", "message"],
+        "additionalProperties": False,
+    }
     return {
         "type": "object",
         "additionalProperties": False,
         "properties": {
             "schema_version": {"const": 1},
             "outcome": {"enum": ["completed", "needs_input", "failed"]},
-            "data": {"anyOf": [data, {"type": "null"}]},
-            "missing_inputs": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "field": {"type": "string", "minLength": 1},
-                        "reason": {"type": "string", "minLength": 1},
-                    },
-                    "required": ["field", "reason"],
-                    "additionalProperties": False,
-                },
-            },
-            "failure": {"type": ["object", "null"]},
+            "data": {"anyOf": [data_schema, {"type": "null"}]},
+            "missing_inputs": missing,
+            "failure": {"anyOf": [failure, {"type": "null"}]},
             "warnings": {"type": "array", "items": {"type": "string"}},
         },
         "required": ["schema_version", "outcome", "data", "missing_inputs", "failure", "warnings"],
+        "oneOf": [
+            {
+                "properties": {
+                    "outcome": {"const": "completed"},
+                    "data": data_schema,
+                    "missing_inputs": {"maxItems": 0},
+                    "failure": {"type": "null"},
+                }
+            },
+            {
+                "properties": {
+                    "outcome": {"const": "needs_input"},
+                    "data": {"type": "null"},
+                    "missing_inputs": {"minItems": 1},
+                    "failure": {"type": "null"},
+                }
+            },
+            {
+                "properties": {
+                    "outcome": {"const": "failed"},
+                    "data": {"type": "null"},
+                    "missing_inputs": {"maxItems": 0},
+                    "failure": failure,
+                }
+            },
+        ],
     }
 
 

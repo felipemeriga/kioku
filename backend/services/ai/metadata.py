@@ -6,6 +6,7 @@ from uuid import uuid4
 from db.client import get_supabase_thread_safe
 from services.ai.client import ExecutionError
 from services.ai.consumption import consume_result
+from services.ai.contracts import completion_envelope
 from services.ai.evidence import save_trace
 from services.ai.facade import client_for
 from services.ai.scope import ExecutionScope
@@ -30,27 +31,7 @@ PLAN_SCHEMA = {
     },
     "required": ["operation", "source_type", "filename", "created_after", "created_before"],
 }
-ENVELOPE_SCHEMA = {
-    "type": "object",
-    "additionalProperties": False,
-    "properties": {
-        "schema_version": {"const": 1},
-        "outcome": {"enum": ["completed", "needs_input", "failed"]},
-        "data": {"anyOf": [PLAN_SCHEMA, {"type": "null"}]},
-        "missing_inputs": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {"field": {"type": "string"}, "reason": {"type": "string"}},
-                "required": ["field", "reason"],
-                "additionalProperties": False,
-            },
-        },
-        "failure": {"type": ["object", "null"]},
-        "warnings": {"type": "array", "items": {"type": "string"}},
-    },
-    "required": ["schema_version", "outcome", "data", "missing_inputs", "failure", "warnings"],
-}
+ENVELOPE_SCHEMA = completion_envelope(PLAN_SCHEMA)
 
 
 def metadata_query(question: str, authority: dict, *, on_consumption=None) -> str:
@@ -99,11 +80,12 @@ def metadata_query(question: str, authority: dict, *, on_consumption=None) -> st
     try:
         result = client.complete(request)
         envelope = result.structured
+        from jsonschema import validate
+
+        validate(envelope, ENVELOPE_SCHEMA)
         if not isinstance(envelope, dict) or envelope.get("outcome") != "completed":
             raise ExecutionError("metadata_invalid_outcome")
         plan = envelope["data"]
-        from jsonschema import validate
-
         validate(plan, PLAN_SCHEMA)
         fixed_filename = authority.get("scope_filename")
         if fixed_filename and plan["filename"] not in (None, fixed_filename):

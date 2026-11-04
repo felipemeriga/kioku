@@ -23,7 +23,11 @@ def test_metadata_plans_cannot_choose_owner_scope_sql_or_tools(nested):
         "job",
         "",
         {
+            "schema_version": 1,
             "outcome": "completed",
+            "missing_inputs": [],
+            "failure": None,
+            "warnings": [],
             "data": {
                 "operation": "count_files",
                 "source_type": None,
@@ -62,7 +66,11 @@ def test_metadata_rejects_model_supplied_sql_and_scope_override():
         "job",
         "",
         {
+            "schema_version": 1,
             "outcome": "completed",
+            "missing_inputs": [],
+            "failure": None,
+            "warnings": [],
             "data": {
                 "operation": "count_files",
                 "source_type": None,
@@ -93,7 +101,11 @@ def test_authoritative_filename_is_enforced_in_actual_rpc_arguments(planned_file
         "job",
         "",
         {
+            "schema_version": 1,
             "outcome": "completed",
+            "missing_inputs": [],
+            "failure": None,
+            "warnings": [],
             "data": {
                 "operation": "count_files",
                 "source_type": None,
@@ -131,7 +143,11 @@ def test_cross_filename_plan_is_rejected_before_database_access():
         "job",
         "",
         {
+            "schema_version": 1,
             "outcome": "completed",
+            "missing_inputs": [],
+            "failure": None,
+            "warnings": [],
             "data": {
                 "operation": "count_files",
                 "source_type": None,
@@ -158,4 +174,43 @@ def test_cross_filename_plan_is_rejected_before_database_access():
                     "job_id": "parent",
                 },
             )
+        database.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "outcome,missing,failure",
+    [
+        ("needs_input", [{"field": "source", "reason": "missing"}], None),
+        ("completed", [{"field": "source", "reason": "missing"}], None),
+        ("completed", [], {"code": "unsupported", "message": "Unsupported"}),
+    ],
+)
+def test_metadata_rejects_cross_outcome_data_before_scoped_rpc(outcome, missing, failure):
+    client = MagicMock()
+    client.complete.return_value = ExecutionResult(
+        "job",
+        "",
+        {
+            "schema_version": 1,
+            "outcome": outcome,
+            "data": {
+                "operation": "count_files",
+                "source_type": None,
+                "filename": None,
+                "created_after": None,
+                "created_before": None,
+            },
+            "missing_inputs": missing,
+            "failure": failure,
+            "warnings": [],
+        },
+        None,
+        None,
+    )
+    with (
+        patch("services.ai.metadata.client_for", return_value=client),
+        patch("services.ai.metadata.get_supabase_thread_safe") as database,
+    ):
+        with pytest.raises(ValidationError):
+            metadata_query("count files", {"owner_id": "owner", "folder_ids": ["folder"]})
         database.assert_not_called()
