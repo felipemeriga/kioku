@@ -73,8 +73,10 @@ GUIDES = {
         "Regenerate only selected architecture/overview areas from current key "
         "files, structure and symbol/edge samples. Explain purpose, owned "
         "applications, packages, responsibilities and actual control/data flow. "
-        "Use real paths. State uncertainty rather than invent behavior. Preserve "
-        "useful detail."
+        "Use one representative repository-relative source path per component, "
+        "chosen from the supplied file paths or structure; never combine paths "
+        "with commas or invent a child file merely because its directory exists. "
+        "State uncertainty rather than invent behavior. Preserve useful detail."
     ),
     "documentation": (
         "Maintain the existing detailed guide incrementally using current sources "
@@ -141,6 +143,26 @@ def _bounded_evidence(value):
     return value
 
 
+def _normalize_path(path):
+    return path.strip().removeprefix("./").rstrip("/")
+
+
+def _architecture_paths(snapshot):
+    # Exact supplied paths and their parent directories are evidence. A known
+    # directory is not evidence that an arbitrary named child file exists.
+    supplied = [f["path"] for f in snapshot["input"].get("files", [])]
+    supplied.extend(snapshot["input"].get("structure", "").splitlines())
+    paths = set()
+    for raw in supplied:
+        path = _normalize_path(raw)
+        if not path:
+            continue
+        paths.add(path)
+        parts = path.split("/")
+        paths.update("/".join(parts[:i]) for i in range(1, len(parts)))
+    return paths
+
+
 def build_request(snapshot):
     """Return model kwargs from an immutable, already authorized snapshot."""
     op = snapshot["operation"]
@@ -156,6 +178,12 @@ def build_request(snapshot):
         if set(snapshot["current"]) != set(SHAPES[op]):
             raise ValueError("unsupported current section shape")
     schema = shape_schema(shape)
+    if op == "reground" and "architecture" in shape:
+        path_schema = schema["properties"]["architecture"]["properties"]["components"]["items"][
+            "properties"
+        ]["path"]
+        path_schema["description"] = "One representative source path from the supplied evidence."
+        path_schema["enum"] = sorted(_architecture_paths(snapshot)) or ["__no_source_available__"]
     if op == "learnings":
         updates = schema["properties"]["updates"]
         updates["maxItems"] = 4
@@ -282,16 +310,19 @@ def validate_result(snapshot, raw):
             ):
                 raise ValueError(section + " lost detailed content")
             if section == "architecture":
-                paths = {f["path"] for f in snapshot["input"].get("files", [])}
-                structure = snapshot["input"].get("structure", "")
+                paths = _architecture_paths(snapshot)
                 for component in content["components"]:
-                    path = component["path"]
-                    if not path or (
-                        path not in paths
-                        and path not in structure
-                        and not any(p.startswith(path.rstrip("/") + "/") for p in paths)
-                    ):
-                        raise ValueError("architecture component has unsupported source path")
+                    raw = component["path"]
+                    # Older guides grouped multiple files in this single field.
+                    # Preserve that representation only if EVERY member is proven.
+                    members = [raw] if _normalize_path(raw) in paths else raw.split(",")
+                    for member in members:
+                        path = _normalize_path(member)
+                        if not path or path not in paths:
+                            raise ValueError(
+                                "architecture component has unsupported source path: "
+                                + repr(member.strip())[:180]
+                            )
     elif op == "learnings":
         if len(value["updates"]) > 4:
             raise ValueError("too many learning updates")

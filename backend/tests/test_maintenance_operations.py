@@ -157,3 +157,67 @@ def test_large_existing_guides_get_a_bounded_preservation_budget(operation):
     assert 4000 < build_request(large)["max_tokens"] <= 12000
     large["current"]["content"] *= 10
     assert build_request(large)["max_tokens"] == 12000
+
+
+def architecture_snapshot(path):
+    snap = snapshot("reground", {})
+    snap["input"].update(
+        selected=["architecture"],
+        files=[{"path": "backend/main.py", "content": "pass"}],
+        structure="backend/mcp_server.py\nbackend/Dockerfile.mcp\nbackend/routes\n",
+    )
+    output = {
+        "architecture": {
+            "summary": "API and MCP entry points.",
+            "data_flow": "Requests reach the API.",
+            "components": [{"name": "MCP", "role": "Repository tools", "path": path}],
+        }
+    }
+    return snap, output
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "backend/mcp_server.py, backend/Dockerfile.mcp",
+        "./backend/main.py, backend/routes/",
+        "backend/",
+        "backend/routes/",
+    ],
+)
+def test_architecture_accepts_every_proven_legacy_group_member_and_normalized_directory(path):
+    snap, output = architecture_snapshot(path)
+    assert validate_result(snap, output) == output
+
+
+@pytest.mark.parametrize(
+    "path,unsupported",
+    [
+        ("backend/mcp_server.py, invented.py", "invented.py"),
+        ("backend/mai", "backend/mai"),
+        ("backend/routes/invented.py", "backend/routes/invented.py"),
+        ("backend/main.py,", "''"),
+        ("backend/main.py, ../secret.py", "../secret.py"),
+    ],
+)
+def test_architecture_rejects_one_invented_member_prefix_or_unproven_child(path, unsupported):
+    snap, output = architecture_snapshot(path)
+    with pytest.raises(ValueError, match="unsupported source path") as error:
+        validate_result(snap, output)
+    assert unsupported in str(error.value)
+
+
+def test_architecture_generation_schema_chooses_one_exact_evidenced_path():
+    from jsonschema import ValidationError, validate
+
+    snap, output = architecture_snapshot("backend/mcp_server.py")
+    schema = build_request(snap)["schema"]
+    validate(output, schema)
+    output["architecture"]["components"][0]["path"] = (
+        "backend/mcp_server.py, backend/Dockerfile.mcp"
+    )
+    with pytest.raises(ValidationError):
+        validate(output, schema)
+    output["architecture"]["components"][0]["path"] = "backend/routes/invented.py"
+    with pytest.raises(ValidationError):
+        validate(output, schema)
