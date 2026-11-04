@@ -214,3 +214,51 @@ def test_metadata_rejects_cross_outcome_data_before_scoped_rpc(outcome, missing,
         with pytest.raises(ValidationError):
             metadata_query("count files", {"owner_id": "owner", "folder_ids": ["folder"]})
         database.assert_not_called()
+
+
+@pytest.mark.parametrize("accounting_fails", [False, True])
+def test_accepted_metadata_provider_failure_keeps_original_error_and_tracks_usage(accounting_fails):
+    from services.ai.client import ExecutionError
+
+    client = MagicMock()
+    client.last_job_id = "accepted-metadata"
+    failure = ExecutionError("quota_limited")
+    client.complete.side_effect = failure
+    with (
+        patch("services.ai.metadata.client_for", return_value=client),
+        patch(
+            "services.ai.metadata.consume_result",
+            side_effect=RuntimeError("receipt offline") if accounting_fails else None,
+        ) as receipt,
+        patch("services.ai.metadata.get_supabase_thread_safe") as database,
+    ):
+        with pytest.raises(ExecutionError) as raised:
+            metadata_query("count files", {"owner_id": "owner", "folder_ids": ["folder"]})
+    assert raised.value is failure
+    database.assert_not_called()
+    assert receipt.call_args.args[3] == "accepted-metadata"
+    assert receipt.call_args.args[-1]["acknowledge_completed"] is False
+    assert receipt.call_args.args[-1]["outcome"] == "quota_limited"
+
+
+def test_nested_metadata_transport_failure_defers_receipt_until_root_artifact():
+    from services.ai.client import ExecutionError
+    from services.ai.metadata import consume_metadata
+
+    client, consumed = MagicMock(), []
+    client.last_job_id = "accepted-child"
+    client.complete.side_effect = ExecutionError("missing_terminal")
+    with (
+        patch("services.ai.metadata.client_for", return_value=client),
+        patch("services.ai.metadata.consume_result") as receipt,
+    ):
+        with pytest.raises(ExecutionError, match="missing_terminal"):
+            metadata_query(
+                "count files",
+                {"owner_id": "owner", "folder_ids": ["folder"], "job_id": "root"},
+                on_consumption=consumed.append,
+            )
+        receipt.assert_not_called()
+        consume_metadata(consumed[0], "persisted-root-artifact")
+    assert receipt.call_args.args[5] == "persisted-root-artifact"
+    assert receipt.call_args.args[-1]["acknowledge_completed"] is False

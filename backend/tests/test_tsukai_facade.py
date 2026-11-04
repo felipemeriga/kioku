@@ -84,3 +84,34 @@ def test_mihari_cannot_accidentally_relay_generation_through_backend(monkeypatch
                 max_tokens=1,
                 tools=None,
             )
+
+
+@pytest.mark.parametrize("accounting_fails", [False, True])
+def test_accepted_native_failure_is_tracked_without_masking_failure(monkeypatch, accounting_fails):
+    monkeypatch.setenv("TSUKAI_NATIVE_TASKS", "contextual")
+    monkeypatch.setenv("TSUKAI_CREDENTIAL_OWNER_ID", "owner")
+    client = MagicMock()
+    client.last_job_id = "accepted-job"
+    failure = ExecutionError("native_process_failed")
+    client.complete.side_effect = failure
+    with (
+        execution_scope(ExecutionScope("owner", ("folder",))),
+        patch("services.ai.facade.client_for", return_value=client),
+        patch(
+            "services.ai.facade.consume_result",
+            side_effect=RuntimeError("database unavailable") if accounting_fails else None,
+        ) as receipt,
+    ):
+        with pytest.raises(ExecutionError) as raised:
+            native_completion(
+                operation="contextual",
+                model="haiku",
+                messages=[{"role": "user", "content": "source"}],
+                system=None,
+                max_tokens=120,
+                tools=None,
+            )
+    assert raised.value is failure
+    assert receipt.call_args.args[3] == "accepted-job"
+    assert receipt.call_args.args[-1]["acknowledge_completed"] is False
+    assert receipt.call_args.args[-1]["outcome"] == "native_process_failed"
