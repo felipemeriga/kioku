@@ -184,18 +184,53 @@ class Scheduler:
             "tool_capability_ref": req.tool_capability_ref,
             "deadline": claim["attempt"]["deadline"],
         }
-        async with httpx.AsyncClient(timeout=15) as client:
-            response = await client.post(
-                self.settings.backend_url.rstrip("/") + "/internal/tsukai/tool-capability",
-                json=payload,
-                headers={"Authorization": "Bearer " + self.settings.service_token},
-            )
-            if response.status_code != 200:
-                raise NativeError("tool_capability_denied")
-            data = response.json()
+        # Only this pre-launch, idempotent grant exchange may be retried. Never
+        # replay native input after a process has started or its outcome is unknown.
+        budget = min(45.0, claim["attempt"]["deadline"] - time.time())
+        diagnostic = {"stage": "tool_capability", "native_started": False}
+        if budget <= 0:
+            raise NativeError("tool_backend_unavailable", diagnostic=diagnostic)
+        try:
+            async with asyncio.timeout(budget):
+                async with httpx.AsyncClient(timeout=15) as client:
+                    for index in range(3):
+                        try:
+                            response = await client.post(
+                                self.settings.backend_url.rstrip("/")
+                                + "/internal/tsukai/tool-capability",
+                                json=payload,
+                                headers={"Authorization": "Bearer " + self.settings.service_token},
+                            )
+                        except httpx.TransportError as exc:
+                            diagnostic["exception_type"] = type(exc).__name__
+                        else:
+                            if response.status_code == 200:
+                                try:
+                                    data = response.json()
+                                except ValueError:
+                                    raise NativeError(
+                                        "invalid_tool_backend",
+                                        diagnostic={**diagnostic, "exception_type": "ValueError"},
+                                    ) from None
+                                break
+                            if response.status_code != 429 and response.status_code < 500:
+                                raise NativeError("tool_capability_denied")
+                            diagnostic["http_status"] = response.status_code
+                        if index == 2:
+                            raise NativeError("tool_backend_unavailable", diagnostic=diagnostic)
+                        await asyncio.sleep(0.2 * (index + 1))
+        except TimeoutError:
+            diagnostic["exception_type"] = "TimeoutError"
+            raise NativeError("tool_backend_unavailable", diagnostic=diagnostic) from None
         # URL is never taken from job input; backend uses its own route registry.
         expected = self.settings.backend_url.rstrip("/")
-        if not data.get("mcp_url", "").startswith(expected + "/") or not data.get("capability"):
+        if (
+            not isinstance(data, dict)
+            or not isinstance(data.get("mcp_url"), str)
+            or not data["mcp_url"].startswith(expected + "/")
+            or not isinstance(data.get("capability"), str)
+            or not data["capability"]
+        ):
             raise NativeError("invalid_tool_backend")
         return {
             "mcpServers": {
@@ -320,12 +355,14 @@ class Scheduler:
         heartbeat_task = asyncio.create_task(heartbeat())
         publisher = asyncio.create_task(publish())
         result = None
+        native_started = False
         try:
             config = await self.tool_config(claim, req)
             remaining = attempt["deadline"] - time.time()
             if remaining <= 0:
                 raise NativeError("wall_timeout")
             async with asyncio.timeout(remaining):
+                native_started = True
                 result = await self.native.run(claim, req, emit, config)
             self.finishing.add(attempt["id"])
             events.put_nowait(None)
@@ -360,22 +397,31 @@ class Scheduler:
                     attempt,
                     "uncertain" if exc.uncertain else "failed",
                     result=exc.result,
-                    error={"code": exc.code, "usage_complete": False},
+                    error={
+                        "code": exc.code,
+                        "usage_complete": False,
+                        **({"native_started": False} if not native_started else {}),
+                    },
                     diagnostic=exc.diagnostic,
                     retry=exc.retryable and not exc.uncertain and req.profile != "chat",
                 )
-        except Exception:
+        except Exception as exc:
             with contextlib.suppress(Exception):
                 await self.finalize_attempt(
                     attempt,
-                    "uncertain",
+                    "uncertain" if native_started else "failed",
                     result=result,
                     error={
-                        "code": "execution_uncertain",
+                        "code": "execution_uncertain" if native_started else "prelaunch_failed",
                         "usage_complete": False,
-                        "requires_explicit_recovery": True,
+                        "requires_explicit_recovery": native_started,
+                        **({"native_started": False} if not native_started else {}),
                     },
-                    stop_native=True,
+                    diagnostic={
+                        "stage": "native_execution" if native_started else "prelaunch",
+                        "exception_type": type(exc).__name__,
+                    },
+                    stop_native=native_started,
                 )
         finally:
             heartbeat_task.cancel()
