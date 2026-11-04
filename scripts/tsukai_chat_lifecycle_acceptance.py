@@ -194,7 +194,14 @@ def cancel_rebuild(client, config):
             break
         time.sleep(1)
     if state != "cancelled":
-        raise CheckFailure("Actual running native job did not reach cancelled state")
+        raise CheckFailure(
+            "Actual native cancellation ended in state="
+            + str(state)
+            + "; turn_id="
+            + request["turn_id"]
+            + "; job_id="
+            + str(job)
+        )
     marker = "rebuilt-" + uuid.uuid4().hex[:12]
     restored = body(config, identifier, f"Reply exactly with {marker}.", rebuild=True)
     final, deltas = terminal(client, restored)
