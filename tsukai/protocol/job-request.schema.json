@@ -111,6 +111,11 @@
       "default": null,
       "title": "Conversation Id"
     },
+    "rebuild_from_committed_history": {
+      "default": false,
+      "title": "Rebuild From Committed History",
+      "type": "boolean"
+    },
     "folder_ids": {
       "items": {
         "type": "string"

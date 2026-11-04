@@ -100,6 +100,19 @@
       ],
       "default": null,
       "title": "Root Job Id"
+    },
+    "request_sha256": {
+      "anyOf": [
+        {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Request Sha256"
     }
   },
   "required": [

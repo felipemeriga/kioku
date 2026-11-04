@@ -26,6 +26,7 @@ class JobRequest(StrictModel):
     thinking_tokens: int = Field(default=0, ge=0, le=32000)
     response_schema: dict[str, Any] | None = None
     conversation_id: str | None = Field(default=None, max_length=128)
+    rebuild_from_committed_history: bool = False
     folder_ids: list[str] = Field(default_factory=list, max_length=100)
     tool_allowlist: list[str] = Field(default_factory=list, max_length=30)
     tool_capability_ref: str | None = Field(default=None, max_length=512)
@@ -38,6 +39,8 @@ class JobRequest(StrictModel):
     def coherent_profile(self):
         if (self.profile == "chat") != bool(self.conversation_id):
             raise ValueError("only chat requires conversation_id")
+        if self.rebuild_from_committed_history and self.profile != "chat":
+            raise ValueError("only backend chat may rebuild committed history")
         if self.profile == "chat" and self.caller != "backend":
             raise ValueError("only UI backend can resume chat")
         if self.profile == "metadata_child":
@@ -80,6 +83,7 @@ class Capability(StrictModel):
     ai_depth: Literal[0, 1] = 0
     parent_job_id: str | None = None
     root_job_id: str | None = None
+    request_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
 
 class Event(StrictModel):
