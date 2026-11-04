@@ -147,3 +147,13 @@ def test_learning_generation_schema_enforces_quote_bounds_and_source_ids():
     for mutation in ({"evidence_quote": "x" * 251}, {"source_ids": ["invented"]}):
         with pytest.raises(ValidationError):
             validate({"updates": [{**update, **mutation}]}, schema)
+
+
+@pytest.mark.parametrize("operation", ["documentation", "reground"])
+def test_large_existing_guides_get_a_bounded_preservation_budget(operation):
+    small = snapshot(operation, {"content": "Small guide"})
+    large = snapshot(operation, {"content": "Verified existing detail. " * 1000})
+    assert build_request(small)["max_tokens"] == 4000
+    assert 4000 < build_request(large)["max_tokens"] <= 12000
+    large["current"]["content"] *= 10
+    assert build_request(large)["max_tokens"] == 12000

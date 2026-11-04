@@ -286,3 +286,33 @@ async def test_adaptive_only_models_preserve_deep_effort_without_claiming_fixed_
         "requested_thinking_tokens": thinking,
         "fixed_thinking_budget_supported": False,
     }
+
+
+async def test_heavy_maintenance_uses_its_separate_wall_budget(tmp_path, monkeypatch):
+    runner = NativeRunner(settings(tmp_path, wall_seconds=0.001, maintenance_wall_seconds=5))
+    req = request(
+        response_schema={
+            "type": "object",
+            "properties": {"answer": {"type": "string"}},
+            "required": ["answer"],
+        }
+    ).model_copy(update={"caller": "mihari", "operation": "mihari.documentation"})
+    import asyncio
+
+    original = asyncio.create_subprocess_exec
+    argv = []
+
+    async def launch(*args, **kwargs):
+        argv.extend(args)
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", launch)
+
+    async def emit(*_):
+        pass
+
+    result = await runner.run(claim(tmp_path), req, emit)
+    assert result["structured"] == {"answer": "grounded"}
+    system = argv[argv.index("--system-prompt") + 1]
+    assert "Call StructuredOutput directly" in system
+    assert "duplicate the document" in system

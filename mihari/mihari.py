@@ -143,7 +143,10 @@ def maintenance_post(url, *, headers, json, timeout, _repair=True, _batches=3):
     job = submitted.json()["job_id"]
     if not isinstance(job, str) or not re.fullmatch(r"[a-zA-Z0-9_-]+", job):
         raise RuntimeError("Runner returned invalid job ID")
-    deadline = time.monotonic() + min(timeout, 780)
+    # Heavy structured maintenance has a bounded 600s execution budget plus
+    # queue allowance. The API transport timeout is not the native job lifetime.
+    native_wait = 780 if operation in {"documentation", "reground"} else min(timeout, 780)
+    deadline = time.monotonic() + native_wait
     while time.monotonic() < deadline:
         result = requests.get(runner + f"/v1/jobs/{job}/result", headers=runner_headers, timeout=30)
         result.raise_for_status()
