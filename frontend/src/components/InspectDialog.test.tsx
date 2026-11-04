@@ -35,7 +35,7 @@ describe("retrieval provenance", () => {
     ]);
     expect(screen.getByText("Backend retrieval")).toBeInTheDocument();
     expect(screen.getByText(/output modes and dry-run/)).toBeInTheDocument();
-    expect(screen.getByText(/guide.md/)).toBeInTheDocument();
+    expect(screen.queryByText(/guide.md/)).not.toBeInTheDocument();
     expect(
       screen.getByRole("tab", { name: "Retrieval and tools (1)" }),
     ).toBeInTheDocument();
@@ -87,6 +87,14 @@ describe("retrieval provenance", () => {
     expect(
       await screen.findByText("Exact backend evidence"),
     ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Result available in the evidence artifact."),
+    ).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("inspect-code-content")).toHaveLength(2);
+    expect(screen.queryByText("Search scope")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Technical details" }),
+    ).not.toBeInTheDocument();
   });
   it("preserves actual agent rounds and shows missing input explicitly", () => {
     show([

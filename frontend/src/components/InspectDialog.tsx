@@ -18,7 +18,6 @@ import { brand, fonts, scanlines } from "../theme";
 import CornerCard from "./neo/CornerCard";
 import RerankBar from "./neo/RerankBar";
 import InspectCode from "./InspectCode";
-import InspectScope from "./InspectScope";
 
 interface InspectDialogProps {
   open: boolean;
@@ -271,11 +270,9 @@ export default function InspectDialog({
                 >
                   result
                 </Typography>
-                {t.effective_scope && (
-                  <InspectScope scope={t.effective_scope} />
-                )}
                 <InspectCode>
-                  {t.result_preview ??
+                  {(t.artifact_id && artifacts[t.artifact_id]) ??
+                    t.result_preview ??
                     "Result available in the evidence artifact."}
                 </InspectCode>
                 {t.artifact_id && trace.execution?.job_id && (
@@ -308,9 +305,6 @@ export default function InspectDialog({
                     >
                       View exact returned evidence
                     </Button>
-                    {artifacts[t.artifact_id] && (
-                      <InspectCode>{artifacts[t.artifact_id]}</InspectCode>
-                    )}
                   </>
                 )}
               </Box>
