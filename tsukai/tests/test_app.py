@@ -466,3 +466,58 @@ async def test_usage_exposes_observed_native_timings_without_invented_browser_la
     )
     assert attempt["queue_wait_seconds"] >= 0
     assert "browser" not in json.dumps(attempt)
+
+
+async def test_abnormal_invalid_completion_never_launches_repair(app_client):
+    _, client, settings = app_client
+    payload = body(
+        response_schema={
+            "type": "object",
+            "properties": {"answer": {"type": "string"}},
+            "required": ["answer"],
+        }
+    )
+    payload["prompt"] = "NONZERO INVALID"
+    auth = headers(settings, payload)
+    submitted = (await client.post("/v1/jobs", json=payload, headers=auth)).json()
+    result = await terminal(client, submitted["result_url"], auth)
+    assert result["status"] == "uncertain"
+    usage = (await client.get(f"/v1/jobs/{submitted['job_id']}/usage", headers=auth)).json()
+    assert len(usage["attempts"]) == 1
+    assert not usage["attempts"][0]["usage"]["complete"]
+    assert result["result"]["structured"] == {"answer": 17}
+
+
+async def test_app_owned_store_uses_configured_workspace_root(tmp_path):
+    from tsukai.lifecycle import remove_artifacts
+
+    custom_root = tmp_path / "custom-runtime-root"
+    settings = Settings(
+        database_url=f"sqlite+aiosqlite:///{tmp_path}/owned-store.db",
+        workspace_dir=str(custom_root),
+    )
+    app = create_app(settings)
+    store = app.state.scheduler.store
+    try:
+        await store.create_test_schema()
+        await store.admit(JobRequest.model_validate(body()))
+        claim = await store.claim("fixture")
+        workspace = Path(claim["workspace"])
+        assert custom_root in workspace.parents
+        workspace.mkdir(parents=True)
+        (workspace / "private-spool").write_text("fixture")
+        remove_artifacts(
+            {
+                "artifacts": [
+                    {
+                        "workspace": str(workspace),
+                        "native_session_id": claim["attempt"]["native_session_id"],
+                    }
+                ]
+            },
+            settings.workspace_dir,
+            str(tmp_path / "native-state"),
+        )
+        assert not workspace.exists()
+    finally:
+        await store.engine.dispose()

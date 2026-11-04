@@ -198,3 +198,25 @@ async def test_per_inference_output_control_is_not_aggregate_harness_budget(tmp_
     )
     assert result["usage"]["output_tokens"] == 2000
     assert result["usage"]["requested_max_output_tokens_per_inference"] == 64
+
+
+async def test_abnormal_exit_dominates_invalid_schema_and_retains_private_diagnostic(tmp_path):
+    async def emit(*args):
+        pass
+
+    schema = {
+        "type": "object",
+        "properties": {"answer": {"type": "string"}},
+        "required": ["answer"],
+    }
+    with pytest.raises(NativeError, match="native_process_failed") as caught:
+        await NativeRunner(settings(tmp_path)).run(
+            claim(tmp_path), request("NONZERO INVALID", response_schema=schema), emit
+        )
+    error = caught.value
+    assert error.uncertain and not error.retryable
+    assert error.result["structured"] == {"answer": 17}
+    assert error.result["usage"]["list_equivalent_usd"] == 0.001
+    assert not error.result["usage"]["complete"]
+    assert error.diagnostic["invalid_response"] == {"answer": 17}
+    assert error.diagnostic["validation_errors"][0]["path"] == ["answer"]
