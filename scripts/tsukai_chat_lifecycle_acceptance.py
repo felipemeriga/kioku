@@ -327,7 +327,7 @@ def web_search(client, config):
         config,
         identifier,
         "Use web_search exactly once with this exact public query: "
-        + query
+        + json.dumps(query)
         + ". Summarize what the official Python tutorial teaches in one sentence "
         "and include its direct official source link. Send no fixture content or identifiers to search.",
     )
@@ -358,9 +358,12 @@ def web_search(client, config):
     if actual_query != query:
         raise CheckFailure("Web tool query differs from approved fixed public query")
     visible = "".join(parts)
-    answer_links = re.findall(
-        r"https://docs\.python\.org/[^\s)\]<>]+", final["replace"]
-    )
+    answer_links = [
+        link.rstrip(".,;:")
+        for link in re.findall(
+            r"https://docs\.python\.org/[^\s)\]<>]+", final["replace"]
+        )
+    ]
     supported_links = [link for link in answer_links if link in visible]
     if not supported_links:
         raise CheckFailure(
