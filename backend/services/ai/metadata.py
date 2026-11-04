@@ -4,8 +4,9 @@ import json
 from uuid import uuid4
 
 from db.client import get_supabase_thread_safe
-from services.ai.accounting import record_job_usage
 from services.ai.client import ExecutionError
+from services.ai.consumption import consume_result
+from services.ai.evidence import save_trace
 from services.ai.facade import client_for
 from services.ai.scope import ExecutionScope
 
@@ -52,7 +53,7 @@ ENVELOPE_SCHEMA = {
 }
 
 
-def metadata_query(question: str, authority: dict) -> str:
+def metadata_query(question: str, authority: dict, *, on_consumption=None) -> str:
     nested = bool(authority.get("job_id"))
     profile = "metadata_child" if nested else "completion"
     scope = ExecutionScope(
@@ -62,6 +63,7 @@ def metadata_query(question: str, authority: dict) -> str:
         parent_job_id=authority.get("job_id"),
         root_job_id=authority.get("job_id"),
         ai_depth=1 if nested else 0,
+        conversation_id=authority.get("conversation_id"),
         expires_at=authority.get("exp"),
     )
     request = {
@@ -73,8 +75,6 @@ def metadata_query(question: str, authority: dict) -> str:
         "profile": profile,
         "folder_ids": list(scope.folder_ids),
         "tool_allowlist": [],
-        "parent_job_id": scope.parent_job_id,
-        "root_job_id": scope.root_job_id,
         "ai_depth": scope.ai_depth,
         "prompt": question,
         "system_prompt": (
@@ -92,47 +92,95 @@ def metadata_query(question: str, authority: dict) -> str:
         "response_schema": ENVELOPE_SCHEMA,
         "metadata": {"parent_tool_call_id": authority.get("tool_call_id")},
     }
-    if not nested:
-        request.pop("parent_job_id")
-        request.pop("root_job_id")
+    if nested:
+        request.update({"parent_job_id": scope.parent_job_id, "root_job_id": scope.root_job_id})
     client = client_for(scope, "text_to_sql", profile)
+    result, error, output = None, None, ""
     try:
         result = client.complete(request)
-    finally:
-        try:
-            if client.last_job_id:
-                record_job_usage(
-                    client,
-                    scope,
-                    "text_to_sql",
-                    request["model"],
-                    client.last_job_id,
-                    source="metadata_child" if nested else "mcp",
-                )
-        finally:
-            client.close()
-    envelope = result.structured
-    if not isinstance(envelope, dict) or envelope.get("outcome") != "completed":
-        raise ExecutionError("metadata_invalid_outcome")
-    plan = envelope["data"]
-    from jsonschema import validate
+        envelope = result.structured
+        if not isinstance(envelope, dict) or envelope.get("outcome") != "completed":
+            raise ExecutionError("metadata_invalid_outcome")
+        plan = envelope["data"]
+        from jsonschema import validate
 
-    validate(plan, PLAN_SCHEMA)
-    response = (
-        get_supabase_thread_safe()
-        .rpc(
-            "tsukai_scoped_metadata",
-            {
-                "p_owner_id": scope.owner_id,
-                "p_folder_ids": list(scope.folder_ids),
-                "p_operation": plan["operation"],
-                "p_source_type": plan["source_type"],
-                "p_filename": plan["filename"],
-                "p_created_after": plan["created_after"],
-                "p_created_before": plan["created_before"],
-            },
+        validate(plan, PLAN_SCHEMA)
+        fixed_filename = authority.get("scope_filename")
+        if fixed_filename and plan["filename"] not in (None, fixed_filename):
+            raise ExecutionError(
+                "metadata_scope_conflict", "query attempted to leave the selected file"
+            )
+        response = (
+            get_supabase_thread_safe()
+            .rpc(
+                "tsukai_scoped_metadata",
+                {
+                    "p_owner_id": scope.owner_id,
+                    "p_folder_ids": list(scope.folder_ids),
+                    "p_operation": plan["operation"],
+                    "p_source_type": plan["source_type"],
+                    "p_filename": fixed_filename or plan["filename"],
+                    "p_created_after": plan["created_after"],
+                    "p_created_before": plan["created_before"],
+                },
+            )
+            .execute()
+            .data
         )
-        .execute()
-        .data
+        output = json.dumps(response, ensure_ascii=False)
+        return output
+    except Exception as exc:
+        error = exc
+        raise
+    finally:
+        job_id = result.job_id if result else client.last_job_id
+        client.close()
+        terminal_failure = isinstance(error, ExecutionError) and error.code in {
+            "needs_input",
+            "failed",
+            "interaction_required",
+            "metadata_invalid_outcome",
+        }
+        if job_id and (result is not None or terminal_failure):
+            consumed = {
+                "scope": scope,
+                "operation": "text_to_sql",
+                "profile": profile,
+                "job_id": job_id,
+                "model": request["model"],
+                "outcome": "completed" if error is None else getattr(error, "code", "failed"),
+            }
+            if on_consumption:
+                # The harness records its final exact tool artifact first.
+                on_consumption(consumed)
+            else:
+                artifact = save_trace(
+                    scope.owner_id,
+                    job_id,
+                    (result.attempt_id or "unknown") if result else "unknown",
+                    list(scope.folder_ids),
+                    {
+                        "name": "query_documents_metadata",
+                        "input": {"question": question},
+                        "status": "completed" if error is None else "failed",
+                        "effective_scope": {
+                            "user_id": scope.owner_id,
+                            "folder_ids": list(scope.folder_ids),
+                            "filename": authority.get("scope_filename"),
+                        },
+                    },
+                    output if error is None else "Scoped metadata query did not complete",
+                )
+                consume_metadata(consumed, artifact)
+
+
+def consume_metadata(consumed: dict, artifact_id: str):
+    consume_result(
+        consumed["scope"],
+        consumed["operation"],
+        consumed["profile"],
+        consumed["job_id"],
+        "metadata",
+        artifact_id,
+        {"model": consumed["model"], "outcome": consumed["outcome"], "artifact_id": artifact_id},
     )
-    return json.dumps(response, ensure_ascii=False)

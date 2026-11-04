@@ -184,7 +184,7 @@ def prepare_turn(
             scope_folder_ids=folders,
             scope_filename=filename,
             debug_retrieval=retrieval,
-            citations=DurableCitations(turn_id, "plain", owner_id),
+            citations=DurableCitations(turn_id, "plain", owner_id, conversation_id),
             full_debug=True,
         )
         request["prompt"] = json.dumps(
@@ -197,6 +197,7 @@ def prepare_turn(
             folders,
             {
                 "name": "knowledge_base_search",
+                "conversation_id": conversation_id,
                 "query": content,
                 "effective_scope": {"user_id": owner_id, "folder_ids": folders},
                 "status": "completed",
@@ -255,8 +256,10 @@ def submit_turn(turn: dict) -> dict:
                 "job_id": job_id,
                 "state": "submitted",
             }
-        ).eq("id", turn["id"]).eq("owner_id", turn["owner_id"]).execute()
+        ).eq("id", turn["id"]).eq("owner_id", turn["owner_id"]).is_("job_id", "null").execute()
     current = owned_turn(turn["owner_id"], turn_id=turn["id"])
+    if current.get("job_id") != job_id:
+        raise ExecutionError("job_mapping_conflict")
     if current.get("cancel_requested"):
         cancellation_client = client_for(scope, request["operation"], request["profile"])
         try:
@@ -368,19 +371,25 @@ def publish_turn(turn: dict, result, *, attempt_id: str | None = None) -> str:
         .execute()
         .data
     )
-    get_supabase_thread_safe().table("tsukai_native_usage").update(
-        {
-            "message_id": message_id,
-        }
-    ).eq("job_id", turn["job_id"]).eq("owner_id", turn["owner_id"]).execute()
     client = client_for(scope, request["operation"], request["profile"])
     try:
+        get_supabase_thread_safe().table("tsukai_native_usage").update(
+            {
+                "message_id": message_id,
+            }
+        ).eq("job_id", turn["job_id"]).eq("owner_id", turn["owner_id"]).execute()
         client.acknowledge(turn["job_id"], "chat", str(message_id))
         get_supabase_thread_safe().table("tsukai_chat_turns").update(
             {
                 "state": "acknowledged",
             }
         ).eq("id", turn["id"]).eq("owner_id", turn["owner_id"]).execute()
+    except Exception as exc:
+        logger.warning(
+            "committed native answer acknowledgement deferred for %s (%s)",
+            turn["id"],
+            type(exc).__name__,
+        )
     finally:
         client.close()
     return str(message_id)
@@ -430,6 +439,19 @@ def reconcile_pending():
     for turn in rows:
         try:
             reconcile_turn(turn)
+        except HTTPException as exc:
+            if exc.status_code in {403, 404}:
+                # Release the domain conversation lock before any remote cleanup.
+                # Cancellation has its own durable retry loop; no new inference is admitted.
+                get_supabase_thread_safe().table("tsukai_chat_turns").update(
+                    {
+                        "state": "failed",
+                        "error_code": "scope_revoked",
+                        "cancel_requested": bool(turn.get("job_id")),
+                    }
+                ).eq("id", turn["id"]).eq("owner_id", turn["owner_id"]).execute()
+            else:
+                logger.warning("native turn reconciliation deferred: %s", exc.status_code)
         except ExecutionError as exc:
             if exc.code in {
                 "unverified_citation",
@@ -529,3 +551,49 @@ def stream_turn(turn: dict, *, cursor: int = 0):
 
 def wake_reconciliation():
     threading.Thread(target=reconcile_pending, daemon=True, name="tsukai-chat-reconcile").start()
+
+
+def reconcile_revoked_cancellations():
+    rows = (
+        get_supabase_thread_safe()
+        .table("tsukai_chat_turns")
+        .select("*")
+        .eq("state", "failed")
+        .eq("error_code", "scope_revoked")
+        .eq("cancel_requested", True)
+        .limit(20)
+        .execute()
+        .data
+        or []
+    )
+    for turn in rows:
+        request = turn["request"]
+        # Captured authority is used exclusively to CANCEL that exact old job.
+        # It cannot authorize retrieval, publication, rebuilding or admission.
+        scope = ExecutionScope(
+            turn["owner_id"],
+            tuple(request["folder_ids"]),
+            tool_allowlist=tuple(request["tool_allowlist"]),
+        )
+        client = client_for(scope, request["operation"], request["profile"])
+        try:
+            client.cancel(turn["job_id"])
+            get_supabase_thread_safe().table("tsukai_chat_turns").update(
+                {
+                    "cancel_requested": False,
+                }
+            ).eq("id", turn["id"]).eq("owner_id", turn["owner_id"]).execute()
+        except Exception:
+            logger.warning("revoked native cancellation deferred for turn %s", turn["id"])
+        finally:
+            client.close()
+
+
+async def revoked_cancellation_loop():
+    while True:
+        if os.getenv("TSUKAI_URL"):
+            try:
+                await asyncio.to_thread(reconcile_revoked_cancellations)
+            except Exception:
+                logger.warning("revoked native cancellation scan deferred", exc_info=True)
+        await asyncio.sleep(5)

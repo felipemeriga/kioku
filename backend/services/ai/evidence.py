@@ -9,8 +9,11 @@ from services.citations import CitationRegistry
 
 
 class DurableCitations:
-    def __init__(self, job_id: str, attempt_id: str, owner_id: str):
+    def __init__(
+        self, job_id: str, attempt_id: str, owner_id: str, conversation_id: str | None = None
+    ):
         self.job_id, self.attempt_id, self.owner_id = job_id, attempt_id, owner_id
+        self.conversation_id = conversation_id
 
     def register(self, result: dict) -> int:
         metadata = result.get("metadata") or {}
@@ -29,6 +32,8 @@ class DurableCitations:
         ]
         key = hashlib.sha256(json.dumps(identity, separators=(",", ":")).encode()).hexdigest()
         source["source_id"] = key
+        source["owner_id"] = self.owner_id
+        source["conversation_id"] = self.conversation_id
         source["revision_id"] = metadata.get("revision_id")
         source["indexed_head"] = metadata.get("indexed_head") or metadata.get("head_sha")
         number = (

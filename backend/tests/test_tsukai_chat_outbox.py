@@ -12,7 +12,8 @@ from services.ai.client import ExecutionResult
 from services.ai.scope import ExecutionScope
 
 
-def test_accepted_request_lost_before_job_mapping_recovers_after_backend_restart_once():
+@pytest.mark.parametrize("ack_fails", [False, True])
+def test_accepted_request_lost_before_job_mapping_recovers_after_backend_restart_once(ack_fails):
     turn = {
         "id": "turn",
         "owner_id": "owner",
@@ -46,6 +47,8 @@ def test_accepted_request_lost_before_job_mapping_recovers_after_backend_restart
             return runner_jobs[key]["id"]
 
         def acknowledge(self, *args):
+            if ack_fails:
+                raise httpx.ConnectError("ACK response unavailable after domain commit")
             return None
 
         def close(self):
@@ -103,3 +106,67 @@ def test_accepted_request_lost_before_job_mapping_recovers_after_backend_restart
         publish_turn(copy.deepcopy(turn), result)
     assert len(starts) == 1
     assert assistant_messages == ["canonical answer"]
+
+
+def test_slow_second_admission_response_cannot_regress_an_acknowledged_turn():
+    turn = {
+        "id": "turn",
+        "owner_id": "owner",
+        "conversation_id": "conversation",
+        "job_id": None,
+        "state": "prepared",
+        "request": {
+            "operation": "rag_agent",
+            "profile": "chat",
+            "folder_ids": [],
+            "tool_allowlist": [],
+        },
+    }
+
+    class Client:
+        def submit(self, request):
+            # The first consumer completes before this second POST returns.
+            turn.update({"job_id": "job", "state": "acknowledged", "assistant_message_id": "saved"})
+            return "job"
+
+        def close(self):
+            pass
+
+    class Query:
+        def __init__(self):
+            self.values = None
+            self.only_unmapped = False
+
+        def update(self, values):
+            self.values = values
+            return self
+
+        def eq(self, *args):
+            return self
+
+        def is_(self, key, value):
+            assert (key, value) == ("job_id", "null")
+            self.only_unmapped = True
+            return self
+
+        def execute(self):
+            assert self.only_unmapped
+            if turn["job_id"] is None:
+                turn.update(self.values)
+            return SimpleNamespace(data=[])
+
+    class Database:
+        def table(self, name):
+            return Query()
+
+    with (
+        patch(
+            "services.ai.chat.owned_turn", side_effect=lambda *args, **kwargs: copy.deepcopy(turn)
+        ),
+        patch("services.ai.chat.turn_scope", return_value=ExecutionScope("owner")),
+        patch("services.ai.chat.client_for", return_value=Client()),
+        patch("services.ai.chat.get_supabase_thread_safe", return_value=Database()),
+    ):
+        recovered = submit_turn(copy.deepcopy(turn))
+    assert recovered["state"] == "acknowledged"
+    assert recovered["assistant_message_id"] == "saved"

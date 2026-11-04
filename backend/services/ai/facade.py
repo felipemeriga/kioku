@@ -5,8 +5,9 @@ import os
 from dataclasses import dataclass
 from uuid import uuid4
 
-from services.ai.accounting import record_job_usage
 from services.ai.client import ExecutionError, ExecutionResult, TsukaiClient
+from services.ai.consumption import consume_result
+from services.ai.contracts import completion_schema, completion_text
 from services.ai.registry import TASK_POLICIES, engine_for
 from services.ai.scope import ExecutionScope, operation_scope, sign_capability
 
@@ -73,7 +74,16 @@ def native_completion(
         "operation": operation,
         "profile": profile,
         "prompt": json.dumps(messages, ensure_ascii=False),
-        "system_prompt": system or "",
+        "system_prompt": (system or "")
+        + (
+            "\nReturn the registered JSON completion envelope. completed requires fully resolved "
+            "task-shaped data, empty missing_inputs and null failure. If input is missing, "
+            "return needs_input with null data and nonempty field/reason missing_inputs. Never ask "
+            "a clarifying question inside completed data or wait for an interactive answer. "
+            "failed requires null data and typed failure. Put plain-text task output in data.text, "
+            "three multi_query search strings in data.queries, or JSON-object output in data.value."
+        ),
+        "response_schema": completion_schema(operation),
         "model": model,
         "max_tokens": max_tokens,
         "max_turns": 3,
@@ -88,10 +98,35 @@ def native_completion(
     client = client_for(scope, operation, profile)
     try:
         result = client.complete(request)
+        text = completion_text(operation, result.structured)
+        consume_result(
+            scope,
+            operation,
+            profile,
+            result.job_id,
+            f"completion.{operation}",
+            result.job_id,
+            {"text": text, "model": model, "outcome": "completed"},
+        )
+        return Completion([TextBlock(text)], result.job_id, model, result)
+    except ExecutionError as exc:
+        if client.last_job_id and exc.code in {
+            "needs_input",
+            "failed",
+            "interaction_required",
+            "invalid_completion_envelope",
+            "invalid_completion_outcome",
+            "invalid_completion_data",
+        }:
+            consume_result(
+                scope,
+                operation,
+                profile,
+                client.last_job_id,
+                f"completion.{operation}",
+                client.last_job_id,
+                {"model": model, "outcome": exc.code},
+            )
+        raise
     finally:
-        try:
-            if client.last_job_id:
-                record_job_usage(client, scope, operation, model, client.last_job_id)
-        finally:
-            client.close()
-    return Completion([TextBlock(result.text)], result.job_id, model, result)
+        client.close()

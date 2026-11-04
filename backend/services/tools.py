@@ -151,7 +151,9 @@ def _folder_names(sb, folder_ids: list[str]) -> dict[str, str]:
     return {r["id"]: r["name"] for r in rows}
 
 
-def _code_graph_lookup(tool_input: dict, scope_folder_ids: list[str] | None) -> str:
+def _code_graph_lookup(
+    tool_input: dict, scope_folder_ids: list[str] | None, scope_filename: str | None = None
+) -> str:
     """Query the code graph across every repo in scope. Symbols/edges are
     per-folder, so we fan out over the scope folders and label each hit with
     its repo — that's what makes the lookup cross-repo."""
@@ -179,20 +181,28 @@ def _code_graph_lookup(tool_input: dict, scope_folder_ids: list[str] | None) -> 
         repo = names.get(fid, fid)
         if op == "definition":
             for r in graph_store.find_definition(sb, folder_id=fid, symbol=symbol):
+                if scope_filename and r.get("file") != scope_filename:
+                    continue
                 lines.append(
                     f"[{repo}] {r['kind']} {r['symbol']} — {r['file']}:{r['start_line']}{_when(r)}"
                 )
         elif op == "references":
             for r in graph_store.find_references(sb, folder_id=fid, symbol=symbol):
+                if scope_filename and r.get("ref_file") != scope_filename:
+                    continue
                 lines.append(f"[{repo}] {r['relation']} at {r['ref_file']}:{r['ref_line']}")
         elif op == "impact":
             for r in graph_store.impact_of(sb, folder_id=fid, symbol=symbol):
+                if scope_filename and r.get("file") != scope_filename:
+                    continue
                 lines.append(
                     f"[{repo}] depth {r['depth']}: {r['symbol']} — "
                     f"{r['file']}:{r['start_line']}{_when(r)}"
                 )
         elif op == "outline":
             for r in graph_store.outline(sb, folder_id=fid, path=path):
+                if scope_filename and r.get("file") != scope_filename:
+                    continue
                 lines.append(
                     f"[{repo}] {r['kind']} {r['symbol']} — {r['file']}:{r['start_line']}{_when(r)}"
                 )
@@ -291,9 +301,13 @@ def execute_tool(
                 ]
                 ids = [r["id"] for r in selected if r.get("id")]
                 if not ids:
+                    for result in selected:
+                        result["_outside_execution_scope"] = True
                     continue
                 columns = (
-                    "id,folder_id,file_hash" if kind == "code" else "id,folder_id,content_hash"
+                    "id,folder_id,file_hash,file"
+                    if kind == "code"
+                    else "id,folder_id,content_hash,source_filename"
                 )
                 rows = (
                     sb.table(table)
@@ -308,6 +322,12 @@ def execute_tool(
                 for result in selected:
                     row = authoritative.get(str(result.get("id")))
                     if row is None or row["folder_id"] not in (scope_folder_ids or []):
+                        result["_outside_execution_scope"] = True
+                        continue
+                    actual_filename = (
+                        row.get("file") if kind == "code" else row.get("source_filename")
+                    )
+                    if scope_filename and actual_filename != scope_filename:
                         result["_outside_execution_scope"] = True
                         continue
                     result["metadata"] = {
@@ -397,7 +417,7 @@ def execute_tool(
         return "\n\n---\n\n".join(parts)
 
     if tool_name == "code_graph_lookup":
-        return _code_graph_lookup(tool_input, scope_folder_ids)
+        return _code_graph_lookup(tool_input, scope_folder_ids, scope_filename)
 
     if tool_name == "recent_changes":
         return _recent_changes(user_id, scope_folder_ids)

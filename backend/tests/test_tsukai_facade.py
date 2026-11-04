@@ -34,11 +34,24 @@ def test_fresh_completion_never_uses_resume_and_preserves_unknown_usage(monkeypa
     monkeypatch.setenv("TSUKAI_NATIVE_TASKS", "text_to_sql")
     monkeypatch.setenv("TSUKAI_CREDENTIAL_OWNER_ID", "owner")
     client = MagicMock()
-    client.complete.return_value = ExecutionResult("job", "SELECT 1", None, None, "native")
+    client.complete.return_value = ExecutionResult(
+        "job",
+        "SELECT 1",
+        {
+            "schema_version": 1,
+            "outcome": "completed",
+            "data": {"text": "SELECT 1"},
+            "missing_inputs": [],
+            "failure": None,
+            "warnings": [],
+        },
+        None,
+        "native",
+    )
     with execution_scope(ExecutionScope("owner", ("folder",), caller="mcp")):
         with (
             patch("services.ai.facade.client_for", return_value=client),
-            patch("services.ai.facade.record_job_usage"),
+            patch("services.ai.facade.consume_result"),
         ):
             result = native_completion(
                 operation="text_to_sql",

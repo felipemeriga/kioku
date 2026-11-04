@@ -139,6 +139,7 @@ def authenticate_tool(token: str) -> dict:
         raise HTTPException(403, "Tool scope changed")
     grant["scope_filename"] = turn["request"]["metadata"]["intent"].get("scope_filename")
     grant["turn_id"] = turn["id"]
+    grant["conversation_id"] = turn["conversation_id"]
     grant["operation"] = turn["request"]["operation"]
     return grant
 
@@ -192,6 +193,7 @@ def run_tool(name: str, arguments: dict) -> str:
     trace = {
         "trace_version": 1,
         "root_turn_id": grant["turn_id"],
+        "conversation_id": grant.get("conversation_id"),
         "trace_id": invocation,
         "job_id": grant["job_id"],
         "attempt_id": grant["attempt_id"],
@@ -210,12 +212,22 @@ def run_tool(name: str, arguments: dict) -> str:
     }
     retrieval = []
     result = ""
+    metadata_consumption = None
+
+    def metadata_ready(consumed):
+        nonlocal metadata_consumption
+        metadata_consumption = consumed
+
     try:
         client.tool_event(grant["job_id"], grant["attempt_id"], "tool.started", trace)
         if name == "query_documents_metadata":
             from services.ai.metadata import metadata_query
 
-            result = metadata_query(arguments["question"], {**grant, "tool_call_id": invocation})
+            result = metadata_query(
+                arguments["question"],
+                {**grant, "tool_call_id": invocation},
+                on_consumption=metadata_ready,
+            )
         else:
             result = execute_tool(
                 name,
@@ -225,7 +237,12 @@ def run_tool(name: str, arguments: dict) -> str:
                 scope_folder_ids=grant["folder_ids"],
                 scope_filename=grant.get("scope_filename"),
                 debug_retrieval=retrieval,
-                citations=DurableCitations(grant["job_id"], grant["attempt_id"], grant["owner_id"]),
+                citations=DurableCitations(
+                    grant["job_id"],
+                    grant["attempt_id"],
+                    grant["owner_id"],
+                    grant.get("conversation_id"),
+                ),
                 full_debug=True,
             )
         trace["status"] = "completed"
@@ -252,6 +269,10 @@ def run_tool(name: str, arguments: dict) -> str:
             result,
         )
         trace["result_ref"] = artifact
+        if metadata_consumption:
+            from services.ai.metadata import consume_metadata
+
+            consume_metadata(metadata_consumption, artifact)
         # Live frames remain bounded; the authenticated artifact retains exact full result.
         preview = {
             **trace,
