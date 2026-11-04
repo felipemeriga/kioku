@@ -33,6 +33,8 @@ def validate_result(req, result):
             raise NativeError("quota_limited")
         if "refresh" in lower and "another" in lower:
             raise NativeError("refresh_contention", True)
+        if result.get("subtype") == "success":
+            raise NativeError("native_provider_error")
         raise NativeError(
             "native_" + re.sub(r"[^a-z0-9_]", "", str(result.get("subtype", "error")))[:60]
         )

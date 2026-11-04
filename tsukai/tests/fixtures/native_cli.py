@@ -105,9 +105,35 @@ if "INSPECT" in prompt:
         }
     )
 if "--json-schema" in sys.argv:
-    result["structured_output"] = {"answer": "grounded"}
+    schema = json.loads(sys.argv[sys.argv.index("--json-schema") + 1])
+    if any(key in schema for key in ("oneOf", "anyOf", "allOf")):
+        result.update(
+            is_error=True,
+            result="API Error 400: tools.input_schema cannot contain top level oneOf/anyOf/allOf",
+            total_cost_usd=0,
+        )
+        emit(result)
+        raise SystemExit(1)
+    body = {"answer": "grounded"}
+    if "ENVELOPE" in prompt:
+        body = {
+            "schema_version": 1,
+            "outcome": "completed",
+            "data": {"answer": "grounded"},
+            "missing_inputs": [],
+            "failure": None,
+            "warnings": [],
+        }
     if "INVALID" in prompt and "Previous attempt failed validation" not in prompt:
-        result["structured_output"] = {"answer": 17}
+        body = {"answer": 17}
+    if "BAD_UNION" in prompt:
+        body.update(
+            outcome="needs_input", missing_inputs=[{"field": "evidence", "reason": "missing"}]
+        )
+    wrapped = schema.get("type") == "object" and set(schema.get("properties", {})) == {"result"}
+    result["structured_output"] = {"result": body} if wrapped else body
+    if "BAD_WRAPPER" in prompt:
+        result["structured_output"] = {"result": body, "extra": "not part of transport"}
 if "MISSING_FINAL_ID" in prompt:
     result.pop("session_id")
 if "FOREIGN_FINAL" in prompt:

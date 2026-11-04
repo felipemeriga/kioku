@@ -9,8 +9,9 @@ import tempfile
 import time
 from pathlib import Path
 
+from .structured import native_schema, unwrap_native_output
 from .usage import usage_record
-from .validation import NativeError, validate_result
+from .validation import NativeError, repair_diagnostic, validate_result
 
 SYSTEM = """You are Kioku, a grounded knowledge assistant. Supplied conversation history records
 user decisions. Source claims require supplied evidence or explicitly authorized retrieval.
@@ -134,8 +135,15 @@ class NativeRunner:
         args += ["--resume" if attempt["resume"] else "--session-id", attempt["native_session_id"]]
         if req.profile != "chat":
             args += ["--no-session-persistence"]
-        if req.response_schema:
-            args += ["--json-schema", json.dumps(req.response_schema)]
+        if req.response_schema is not None:
+            args += ["--json-schema", json.dumps(native_schema(req.response_schema))]
+            system_index = args.index("--system-prompt") + 1
+            args[system_index] += (
+                "\nNative structured transport wraps the requested response in exactly one result "
+                "property. The internal StructuredOutput formatter must serialize {result: the "
+                "complete requested response}. This is serialization, not an external/domain tool. "
+                "The requested response itself must still satisfy the caller's original schema."
+            )
         # MCP headers stay in a private config file, never argv or persisted public events.
         fd, config_path = tempfile.mkstemp(prefix="mcp-", suffix=".json", dir=workspace)
         os.chmod(config_path, 0o600)
@@ -267,12 +275,26 @@ class NativeRunner:
             usage = usage_record(final, attempt, claim.get("previous_usage"))
             evidence = {
                 "text": final.get("result", ""),
-                "structured": final.get("structured_output"),
+                "structured": final.get("structured_output")
+                if req.response_schema is None
+                else None,
                 "usage": usage,
                 "native_session_id": attempt["native_session_id"],
             }
             try:
-                text, structured = validate_result(req, final)
+                normalized = final
+                if req.response_schema is not None and not final.get("is_error"):
+                    try:
+                        body = unwrap_native_output(final.get("structured_output"))
+                    except ValueError as exc:
+                        raise NativeError(
+                            "invalid_structured_output",
+                            True,
+                            diagnostic=repair_diagnostic(final, [{"message": str(exc)}]),
+                        ) from None
+                    normalized = {**final, "structured_output": body}
+                    evidence["structured"] = body
+                text, structured = validate_result(req, normalized)
             except NativeError as exc:
                 if proc.returncode and not final.get("is_error"):
                     # A success-shaped terminal record plus abnormal process exit is uncertain,
