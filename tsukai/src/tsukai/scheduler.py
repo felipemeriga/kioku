@@ -25,6 +25,7 @@ class Scheduler:
         self.worker_id = str(uuid.uuid4())
         self.tasks = {}
         self.cancelling = set()
+        self.finishing = set()
         self.draining = False
         self.auth_state = "starting"
         self.quota_until = 0
@@ -224,6 +225,8 @@ class Scheduler:
         retry=False,
         stop_native=False,
     ):
+        self.finishing.add(attempt["id"])
+
         async def finalize():
             with contextlib.suppress(Exception):
                 await self.store.heartbeat(attempt)
@@ -324,6 +327,7 @@ class Scheduler:
                 raise NativeError("wall_timeout")
             async with asyncio.timeout(remaining):
                 result = await self.native.run(claim, req, emit, config)
+            self.finishing.add(attempt["id"])
             events.put_nowait(None)
             await publisher
             await self.finalize_attempt(attempt, "completed", result=result)
@@ -386,6 +390,7 @@ class Scheduler:
                 if final_job and final_job["status"] in {"completed", "failed", "cancelled"}:
                     Path(spool_name).unlink(missing_ok=True)
             self.cancelling.discard(attempt["id"])
+            self.finishing.discard(attempt["id"])
             self.wake.set()
 
     async def cancel(self, job_id):

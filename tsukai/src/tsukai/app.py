@@ -110,6 +110,8 @@ def create_app(settings=None, store=None, native=None):
         for row in rows:
             process = scheduler.native.processes.get(row["active_attempt_id"])
             state = "starting" if row["worker_id"] == scheduler.worker_id else "remote"
+            if row["active_attempt_id"] in scheduler.finishing:
+                state = "finishing"
             if process:
                 state = "running" if process.returncode is None else "finishing"
             if row["cancel_requested"]:
