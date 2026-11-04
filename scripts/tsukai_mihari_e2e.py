@@ -8,7 +8,10 @@ commit first, then run:
 
 This invokes the actual worker, writes the isolated fixture's normal briefing and
 checkpoint, and verifies durable native job/accounting provenance. It does not
-mock transport or model generation. Fixture provisioning/cleanup belongs to the
+mock transport or model generation. A resumed pass verifies the original changed
+content against its immutable prepared snapshot, without regenerating current
+sections. Re-running at an acknowledged HEAD must use the normal no-model gate.
+Fixture provisioning/cleanup belongs to the
 caller. Credentials come only from the existing process environment and are never
 printed. A successful SQL/unit test is not a substitute for running this probe.
 """
@@ -34,6 +37,27 @@ def content_digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
 
+def publication_change(before, after, prepared):
+    """A resumed pass proves the original update from its immutable snapshot."""
+    snapshot = prepared.get("snapshot") or {}
+    if "current" not in snapshot:
+        raise RuntimeError(
+            "Native publication is missing its original evidence snapshot"
+        )
+    original = snapshot["current"]
+    after_digest = content_digest(after.get("content"))
+    if content_digest(original) == after_digest:
+        raise RuntimeError(
+            "Published native job did not change the target briefing content"
+        )
+    return {
+        "before_digest": content_digest(original),
+        "observed_before_digest": content_digest(before.get("content")),
+        "after_digest": after_digest,
+        "resumed_pass": content_digest(before.get("content")) == after_digest,
+    }
+
+
 def run(repo_id, head, area, worker_path):
     if not re.fullmatch(r"[0-9a-f]{40,64}", head):
         raise ValueError("--head must be a full principal-branch SHA")
@@ -57,10 +81,6 @@ def run(repo_id, head, area, worker_path):
     )
     if not folders or not folders[0]["name"].startswith("tsukai-e2e-"):
         raise RuntimeError("Probe writes are restricted to folders named tsukai-e2e-*")
-    if repo.get("last_sha") == head:
-        raise RuntimeError(
-            "Push a new fixture commit first: unchanged HEAD must not start a model"
-        )
     filters = {
         "folder_id": f"eq.{repo['folder_id']}",
         "user_id": f"eq.{repo['user_id']}",
@@ -103,10 +123,6 @@ def run(repo_id, head, area, worker_path):
     if watched.get("last_sha") != head or watched.get("last_error"):
         raise RuntimeError("Actual Mihari pass did not acknowledge the expected HEAD")
     after = section(latest(), area)
-    if content_digest(before.get("content")) == content_digest(after.get("content")):
-        raise RuntimeError(
-            "Target briefing content did not change; fixture commit must affect it"
-        )
     if after.get("provenance") != "auto" or not (
         after.get("updated_by") or ""
     ).startswith("mihari"):
@@ -122,7 +138,7 @@ def run(repo_id, head, area, worker_path):
             **filters,
             "head_sha": f"eq.{head}",
             "operation": f"eq.{area}",
-            "select": "id,request,execution_job_id,publication",
+            "select": "id,request,snapshot,execution_job_id,publication",
             "order": "created_at.desc",
         },
     )
@@ -179,8 +195,8 @@ def run(repo_id, head, area, worker_path):
         "folder_id": repo["folder_id"],
         "head_sha": head,
         "section": area,
-        "before_digest": content_digest(before.get("content")),
-        "after_digest": content_digest(after.get("content")),
+        **publication_change(before, after, prepared),
+        "already_indexed_at_start": repo.get("last_sha") == head,
         "preparation_id": prepared["id"],
         "job_id": job,
         "provenance": after["provenance"],
