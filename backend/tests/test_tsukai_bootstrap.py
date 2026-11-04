@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastapi import HTTPException
 
 from services.ai.chat import prepare_turn, publish_turn
 from services.ai.client import ExecutionError, ExecutionResult
@@ -284,14 +285,20 @@ def test_concurrent_candidates_are_isolated_and_only_accepted_namespace_material
         barrier.wait(timeout=5)
         return f"{registry.job_id} current evidence [1]"
 
+    class UniqueViolation(Exception):
+        code = "23505"
+
     def rpc(name, body):
         with lock:
+            if accepted and accepted[0]["request"] != body["p_request"]:
+                raise UniqueViolation()
             if not accepted:
                 accepted.append(
                     {
                         "id": "turn",
                         "owner_id": "owner",
                         "job_id": "job",
+                        "conversation_id": "conversation",
                         "request": body["p_request"],
                     }
                 )
@@ -318,9 +325,25 @@ def test_concurrent_candidates_are_isolated_and_only_accepted_namespace_material
         ),
         patch("services.ai.chat.execute_tool", side_effect=search),
         patch("services.ai.chat.save_trace") as save,
+        patch("services.ai.chat.owned_turn", side_effect=lambda *args, **kwargs: accepted[0]),
     ):
         with ThreadPoolExecutor(max_workers=2) as pool:
-            list(pool.map(prepare, ["folder", "foreign" if conflicting_scope else "folder"]))
+            futures = [
+                pool.submit(prepare, folder)
+                for folder in ["folder", "foreign" if conflicting_scope else "folder"]
+            ]
+            if conflicting_scope:
+                results, errors = [], []
+                for future in futures:
+                    try:
+                        results.append(future.result())
+                    except HTTPException as exc:
+                        errors.append(exc)
+                assert len(results) == len(errors) == 1
+                assert errors[0].status_code == 409
+            else:
+                results = [future.result() for future in futures]
+                assert results[0] == results[1] == accepted[0]
     assert len(candidates) == 2
     staged = {
         call.args[1]: {"folder_ids": call.args[3], "trace": call.args[4], "result": call.args[5]}
@@ -347,3 +370,62 @@ def test_concurrent_candidates_are_isolated_and_only_accepted_namespace_material
     sources.assert_called_once_with(namespace, "bootstrap")
     assert db2.rpc.call_args.args[1]["p_source_key"] == namespace
     assert db2.table.return_value.upsert.call_args.args[0]["result"] == staged[namespace]["result"]
+
+
+@pytest.mark.parametrize(
+    "case", ["cross_owner", "other_conversation", "other_intent", "other_active_turn", "4000"]
+)
+def test_admission_conflicts_do_not_recover_another_intent_or_owner(case):
+    db = MagicMock()
+    query = MagicMock()
+    query.select.return_value = query
+    query.eq.return_value = query
+    query.limit.return_value = query
+    query.order.return_value = query
+    query.execute.return_value.data = []
+    db.table.return_value = query
+
+    class AdmissionError(Exception):
+        code = "4000" if case == "4000" else "23505"
+
+    db.rpc.side_effect = AdmissionError()
+    accepted = {
+        "owner_id": "foreign" if case == "cross_owner" else "owner",
+        "conversation_id": "other" if case == "other_conversation" else "conversation",
+        "request": {
+            "metadata": {
+                "intent": {
+                    "content": "other" if case == "other_intent" else "guide?",
+                    "model": "haiku",
+                    "mode": "deep",
+                    "scope_folder_id": None,
+                    "scope_filename": None,
+                    "rebuild": False,
+                }
+            }
+        },
+    }
+    with (
+        patch("services.ai.chat.get_supabase_thread_safe", return_value=db),
+        patch(
+            "services.ai.chat.owned_turn",
+            side_effect=HTTPException(404) if case == "other_active_turn" else None,
+            return_value=accepted,
+        ) as lookup,
+    ):
+        with pytest.raises(AdmissionError if case == "4000" else HTTPException) as error:
+            prepare_turn(
+                owner_id="owner",
+                conversation_id="conversation",
+                content="guide?",
+                turn_id="turn",
+                model="haiku",
+                mode="deep",
+                folder_id=None,
+                filename=None,
+            )
+        if case == "4000":
+            lookup.assert_not_called()
+        else:
+            assert error.value.status_code == 409
+            lookup.assert_called_once_with("owner", turn_id="turn")
