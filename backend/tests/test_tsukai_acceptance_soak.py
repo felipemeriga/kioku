@@ -26,10 +26,23 @@ def test_unready_operator_gate_cannot_create_clock(supervisor, tmp_path):
 def test_failure_blocks_credit_until_probe_recovers(supervisor, monkeypatch, tmp_path):
     clock = [0.0]
     outcomes = iter([1, 0, 0])
-    monkeypatch.setattr(supervisor.time, "monotonic", lambda: clock[0])
+    process_clock = supervisor.time
+    # Replace this module's clock, not the process-wide time module used by
+    # telemetry/background threads. Keep other time functions unchanged.
     monkeypatch.setattr(
-        supervisor.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds)
+        supervisor,
+        "time",
+        SimpleNamespace(
+            **{
+                **vars(supervisor.time),
+                "monotonic": lambda: clock[0],
+                "sleep": lambda seconds: clock.__setitem__(0, clock[0] + seconds),
+            }
+        ),
     )
+    # An unrelated thread using the real module must not advance the fake clock.
+    process_clock.sleep(0.001)
+    assert clock[0] == 0.0
     monkeypatch.setattr(
         supervisor.subprocess, "run", lambda *a, **k: SimpleNamespace(returncode=next(outcomes))
     )
@@ -66,9 +79,18 @@ def test_output_directory_cannot_be_reused(supervisor, tmp_path):
 def test_only_successful_probe_duration_earns_credit(supervisor, monkeypatch, tmp_path):
     clock = [0.0]
     calls = [0]
-    monkeypatch.setattr(supervisor.time, "monotonic", lambda: clock[0])
+    # Replace this module's clock, not the process-wide time module used by
+    # telemetry/background threads. Keep other time functions unchanged.
     monkeypatch.setattr(
-        supervisor.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds)
+        supervisor,
+        "time",
+        SimpleNamespace(
+            **{
+                **vars(supervisor.time),
+                "monotonic": lambda: clock[0],
+                "sleep": lambda seconds: clock.__setitem__(0, clock[0] + seconds),
+            }
+        ),
     )
 
     def execute(*args, **kwargs):
