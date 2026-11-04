@@ -40,7 +40,7 @@ class Query:
         self.filters[key] = None if value == "null" else value
         return self
 
-    def order(self, *_):
+    def order(self, *_, **__):
         return self
 
     def limit(self, *_):
@@ -123,7 +123,7 @@ def test_prepare_idempotent_request_bound_no_tools_no_resume(configured, monkeyp
     assert claims["operations"] == ["mihari.activity"]
     assert request["conversation_id"] is None
     assert request["tool_allowlist"] == []
-    assert request["max_turns"] == 1
+    assert request["max_turns"] == 3
 
 
 def prepared_row():
@@ -542,4 +542,299 @@ def test_documentation_policy_does_not_change_unrelated_operation_identity(confi
     again = execution.prepare(db, "owner", "folder", "activity", snapshot["input"])
     assert again["preparation_id"] == first["preparation_id"]
     assert again["request"] == first["request"]
-    assert "prompt_policy_sha256" not in again["request"]["metadata"]
+    assert "prompt_policy_sha256" in again["request"]["metadata"]
+
+
+@pytest.fixture
+def partial_pass(configured, monkeypatch):
+    from copy import deepcopy
+
+    head = "a" * 40
+    payload = {
+        "head_sha": head,
+        "commits": ["change"],
+        "changed_paths": ["worker.py"],
+        "patch": "5 -> 10",
+    }
+
+    def section(value):
+        return {
+            "content": value,
+            "provenance": "agent_mcp",
+            "updated_by": "agent",
+            "updated_at": "before",
+        }
+
+    initial = {
+        "operation": "review_plan",
+        "input": payload,
+        "current": {
+            "activity": {"summary": "old", "highlights": ["old"]},
+            "overview": {"purpose": "app", "description": "old"},
+        },
+        "expected_sections": {
+            "activity": section({"summary": "old", "highlights": ["old"]}),
+            "overview": section({"purpose": "app", "description": "old"}),
+        },
+        "expected_reviews": {"activity": None, "overview": None},
+        "documentation_revision": None,
+    }
+    state = {"snapshot": deepcopy(initial)}
+    monkeypatch.setattr(execution, "capture", lambda *_: (deepcopy(state["snapshot"]), None))
+    db = DB()
+    plan = execution.prepare(db, "owner", "folder", "review_plan", payload)
+    planrow = db.rows["maintenance_preparations"][0]
+    planrow.update(
+        execution_job_id="planner-job",
+        publication={"selected": ["activity", "architecture", "overview"], "ok": True},
+    )
+    db.rows["maintenance_review_passes"] = [
+        {
+            "user_id": "owner",
+            "folder_id": "folder",
+            "head_sha": head,
+            "preparation_id": planrow["id"],
+        }
+    ]
+    activity = {"summary": "new change", "highlights": ["changed poll interval"]}
+    db.rows["maintenance_preparations"].append(
+        {
+            "id": "activity-prep",
+            "user_id": "owner",
+            "folder_id": "folder",
+            "head_sha": head,
+            "operation": "activity",
+            "snapshot": {"operation": "activity", "current": {}, "input": payload},
+            "request": {"metadata": {"maintenance_operation": "activity"}},
+            "execution_job_id": "activity-job",
+            "publication": {"sections": ["activity"]},
+        }
+    )
+    current = state["snapshot"]
+    current["current"]["activity"] = activity
+    current["expected_sections"]["activity"] = {
+        "content": activity,
+        "provenance": "auto",
+        "updated_by": "mihari",
+        "updated_at": "after",
+    }
+    current["expected_reviews"]["activity"] = {"head_sha": head, "reviewed_at": "after"}
+
+    class Runner:
+        def __init__(self, *_):
+            pass
+
+        def result(self, job):
+            assert job == "activity-job"
+            return ExecutionResult(job, "", activity, None, None)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(execution, "TsukaiClient", Runner)
+    return db, state, payload, plan
+
+
+def test_partial_publication_timeout_retry_keeps_original_plan_and_pending_reground(
+    partial_pass, monkeypatch
+):
+    from copy import deepcopy
+
+    db, state, payload, plan = partial_pass
+    retry = execution.prepare(db, "owner", "folder", "review_plan", payload)
+    assert retry["preparation_id"] == plan["preparation_id"]
+    assert retry["request"] == plan["request"]
+    assert db.rows["maintenance_preparations"][0]["publication"]["selected"] == [
+        "activity",
+        "architecture",
+        "overview",
+    ]
+    pending = {
+        "operation": "reground",
+        "input": {
+            "head_sha": payload["head_sha"],
+            "selected": ["architecture", "overview"],
+            "files": [{"path": "worker.py", "content": "code"}],
+        },
+        "current": {},
+        "expected_sections": {},
+        "expected_reviews": {},
+        "symbols": [{"file": "z"}, {"file": "a"}],
+        "edges": [{"src_node_id": "z"}, {"src_node_id": "a"}],
+    }
+    state["snapshot"] = deepcopy(pending)
+    first = execution.prepare(db, "owner", "folder", "reground", pending["input"])
+    # The worker timed out queued; runner admission retains the accepted job.
+    jobs = {first["request"]["idempotency_key"]: "completed-unpublished-job"}
+    state["snapshot"]["symbols"].reverse()
+    state["snapshot"]["edges"].reverse()
+    again = execution.prepare(db, "owner", "folder", "reground", pending["input"])
+    assert again["preparation_id"] == first["preparation_id"]
+    assert again["request"] == first["request"]
+    assert jobs[again["request"]["idempotency_key"]] == "completed-unpublished-job"
+    assert len(jobs) == 1
+
+
+@pytest.mark.parametrize(
+    "change",
+    ["user_ui", "agent_mcp", "content", "head", "owner", "source", "policy", "documentation"],
+)
+def test_partial_plan_does_not_hide_external_edits_or_new_authority(
+    partial_pass, monkeypatch, change
+):
+    from copy import deepcopy
+
+    from services.maintenance.operations import GUIDES
+
+    db, state, payload, plan = partial_pass
+    payload = deepcopy(payload)
+    owner = "owner"
+    if change in ("user_ui", "agent_mcp"):
+        state["snapshot"]["expected_sections"]["activity"]["provenance"] = change
+    elif change == "content":
+        state["snapshot"]["expected_sections"]["activity"]["content"] = {
+            "summary": "external",
+            "highlights": ["external"],
+        }
+    elif change == "head":
+        payload["head_sha"] = "b" * 40
+    elif change == "owner":
+        owner = "other"
+    elif change == "source":
+        payload["patch"] = "different source"
+    elif change == "policy":
+        monkeypatch.setitem(GUIDES, "review_plan", GUIDES["review_plan"] + " New policy.")
+    else:
+        state["snapshot"]["documentation_revision"] = "external-document"
+    state["snapshot"]["input"] = payload
+    result = execution.prepare(db, owner, "folder", "review_plan", payload)
+    assert result["preparation_id"] != plan["preparation_id"]
+
+
+@pytest.mark.parametrize("operation", ["activity", "reground", "review_plan", "documentation"])
+def test_formatter_budget_policy_changes_identity_without_mutating_accepted_work(
+    configured, monkeypatch, operation
+):
+    from copy import deepcopy
+
+    snapshot = {
+        "operation": operation,
+        "input": {"head_sha": "a" * 40, "selected": ["overview"]},
+        "current": {},
+        "expected_sections": {},
+    }
+    monkeypatch.setattr(execution, "capture", lambda *_: (snapshot, None))
+    db = DB()
+    monkeypatch.setattr(execution, "MAINTENANCE_MAX_TURNS", 1)
+    old = execution.prepare(db, "owner", "folder", operation, snapshot["input"])
+    immutable = deepcopy(old["request"])
+    monkeypatch.setattr(execution, "MAINTENANCE_MAX_TURNS", 3)
+    new = execution.prepare(db, "owner", "folder", operation, snapshot["input"])
+    assert old["preparation_id"] != new["preparation_id"]
+    assert old["request"] == immutable
+    assert new["request"]["max_turns"] == 3
+    assert new["request"]["max_turns"] > old["request"]["max_turns"]
+    assert new["request"]["tool_allowlist"] == []
+    assert new["request"]["conversation_id"] is None
+    assert new["request"]["idempotency_key"] != immutable["idempotency_key"]
+
+
+def test_reground_source_change_cannot_reuse_graph_order_equivalent_preparation(
+    configured, monkeypatch
+):
+    from copy import deepcopy
+
+    snap = {
+        "operation": "reground",
+        "input": {"head_sha": "a" * 40, "selected": ["overview"]},
+        "current": {},
+        "expected_sections": {},
+        "symbols": [],
+        "edges": [],
+    }
+    monkeypatch.setattr(execution, "capture", lambda *_: (deepcopy(snap), None))
+    db = DB()
+    original = execution.prepare(db, "owner", "folder", "reground", snap["input"])
+    snap["current"] = {"overview": {"purpose": "user edited", "description": "new"}}
+    edited = execution.prepare(db, "owner", "folder", "reground", snap["input"])
+    assert edited["preparation_id"] != original["preparation_id"]
+
+
+def test_proof_transport_failure_never_falls_through_to_new_inference(partial_pass, monkeypatch):
+    db, _, payload, _ = partial_pass
+    before = len(db.rows["maintenance_preparations"])
+
+    class Offline:
+        def __init__(self, *_):
+            pass
+
+        def result(self, *_):
+            raise TimeoutError("temporary read failure")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(execution, "TsukaiClient", Offline)
+    with pytest.raises(TimeoutError):
+        execution.prepare(db, "owner", "folder", "review_plan", payload)
+    assert len(db.rows["maintenance_preparations"]) == before
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_graph_sampling_orders_all_projected_fields_before_limiting(monkeypatch, reverse):
+    from services.maintenance.snapshots import capture
+
+    monkeypatch.setattr(
+        "services.folder_summary.repo.get_latest_summary",
+        lambda *_: {"sections": {"overview": {"content": {"purpose": "app"}}}},
+    )
+    samples = {
+        "repo_symbols": [
+            {"file": f"f{i:03}", "symbol": "run", "kind": "function"} for i in range(110)
+        ],
+        "repo_edges": [
+            {"ref_file": f"f{i:03}", "src_node_id": "a", "dst_node_id": "b", "relation": "calls"}
+            for i in range(60)
+        ],
+    }
+    if reverse:
+        samples = {key: list(reversed(value)) for key, value in samples.items()}
+
+    class Ordered(Query):
+        def __init__(self, db, name):
+            super().__init__(db, name)
+            self.orders, self.bound = [], None
+
+        def order(self, column):
+            assert self.bound is None, "ORDER must precede LIMIT"
+            self.orders.append(column)
+            return self
+
+        def limit(self, bound):
+            self.bound = bound
+            return self
+
+        def execute(self):
+            if self.name not in samples:
+                return SimpleNamespace(data=[])
+            assert set(self.orders) == set(samples[self.name][0])
+            rows = sorted(samples[self.name], key=lambda row: tuple(row[k] for k in self.orders))
+            return SimpleNamespace(data=rows[: self.bound])
+
+    class GraphDB(DB):
+        def table(self, name):
+            return Ordered(self, name)
+
+    snapshot, reason = capture(
+        GraphDB(),
+        "owner",
+        "folder",
+        "reground",
+        {"head_sha": "a" * 40, "files": [{"path": "f000"}], "selected": ["overview"]},
+    )
+    assert reason is None
+    assert len(snapshot["symbols"]) == 100
+    assert snapshot["symbols"][0]["file"] == "f000"
+    assert snapshot["symbols"][-1]["file"] == "f099"
+    assert len(snapshot["edges"]) == 50
+    assert snapshot["edges"][-1]["ref_file"] == "f049"
