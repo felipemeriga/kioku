@@ -232,6 +232,7 @@ export async function evidenceWorker(
             while (Date.now() < deadline) {
               const m = await captureSource(root, folder, source, {
                 endOffset: matching?.job.observed_size || undefined,
+                verifyPrefix: matching?.job.event !== "PostToolUse",
                 progress: matching?.job.event === "PostToolUse",
                 finalizeJournal: matching?.job.event === "Stop",
                 end:

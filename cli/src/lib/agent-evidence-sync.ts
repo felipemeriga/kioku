@@ -1,6 +1,7 @@
 /** Scoped REST transport for original objects, independent of journal MCP sync. */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { configDir } from "./config.js";
 import { readMcpEntry } from "./claude.js";
 import { mcpUrlToRestBase } from "./urls.js";
 import {
@@ -13,6 +14,28 @@ import {
   type Source,
 } from "./agent-evidence.js";
 
+/** Four shared slots cap requests across repositories and CLI processes. */
+export async function withEvidenceUploadSlot<T>(
+  work: () => Promise<T>,
+  deadline = Date.now() + 90_000,
+): Promise<T> {
+  while (Date.now() < deadline) {
+    for (let slot = 0; slot < 4; slot++) {
+      try {
+        return await withEvidenceLock(
+          join(configDir(), "evidence-upload-slots", `${slot}.lock`),
+          work,
+          0,
+        );
+      } catch (error) {
+        if (!(error instanceof Error) || error.message !== "evidence_lock_busy")
+          throw error;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error("evidence_upload_budget_exhausted");
+}
 export class EvidenceHttpError extends Error {
   constructor(
     public status: number,
@@ -72,30 +95,32 @@ export async function syncEvidence(
         path: string,
         init: RequestInit = {},
       ): Promise<Record<string, unknown>> => {
-        const response = await fetch(base + path, {
-          ...init,
-          redirect: "manual",
-          signal: AbortSignal.timeout(
-            Math.max(1, Math.min(30_000, deadline - Date.now())),
-          ),
-          headers: { Authorization: `Bearer ${entry.key}`, ...init.headers },
-        });
-        let payload: Record<string, unknown> = {};
-        try {
-          payload = (await response.json()) as Record<string, unknown>;
-        } catch {
-          /* response not JSON */
-        }
-        if (!response.ok) {
-          const delay = response.headers.get("retry-after");
-          const retryAfter = delay
-            ? Number.isFinite(Number(delay))
-              ? Number(delay) * 1000
-              : Math.max(0, Date.parse(delay) - Date.now())
-            : 0;
-          throw new EvidenceHttpError(response.status, payload, retryAfter);
-        }
-        return payload;
+        return withEvidenceUploadSlot(async () => {
+          const response = await fetch(base + path, {
+            ...init,
+            redirect: "manual",
+            signal: AbortSignal.timeout(
+              Math.max(1, Math.min(30_000, deadline - Date.now())),
+            ),
+            headers: { Authorization: `Bearer ${entry.key}`, ...init.headers },
+          });
+          let payload: Record<string, unknown> = {};
+          try {
+            payload = (await response.json()) as Record<string, unknown>;
+          } catch {
+            /* response not JSON */
+          }
+          if (!response.ok) {
+            const delay = response.headers.get("retry-after");
+            const retryAfter = delay
+              ? Number.isFinite(Number(delay))
+                ? Number(delay) * 1000
+                : Math.max(0, Date.parse(delay) - Date.now())
+              : 0;
+            throw new EvidenceHttpError(response.status, payload, retryAfter);
+          }
+          return payload;
+        }, deadline);
       };
       try {
         const capabilities = await request("/capabilities");
