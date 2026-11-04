@@ -14,6 +14,7 @@ from pathlib import Path
 from storage3.exceptions import StorageApiError
 
 from db.client import get_supabase_thread_safe as get_supabase
+from services.ai.scope import document_scope, execution_scope
 
 logger = logging.getLogger(__name__)
 
@@ -171,7 +172,8 @@ def ingest_document(
     source_type = EXTENSION_TO_TYPE.get(ext, "text")
     # Contextual retrieval: embed the header + situating blurb + chunk, but store
     # the raw chunk in `content`.
-    contexts = contextualize_chunks(text, chunks)
+    with execution_scope(document_scope(user_id, folder_id)):
+        contexts = contextualize_chunks(text, chunks)
     metas: list[dict] = []
     embed_inputs: list[str] = []
     for i, chunk in enumerate(chunks):
@@ -267,7 +269,8 @@ def replace_document(
 
     # Contextual retrieval: embed header + situating blurb + chunk (content stays
     # raw). Embed BEFORE deleting old rows — an embed failure leaves old intact.
-    contexts = contextualize_chunks(text, chunks)
+    with execution_scope(document_scope(user_id, folder_id)):
+        contexts = contextualize_chunks(text, chunks)
     metas: list[dict] = []
     embed_inputs: list[str] = []
     for i, chunk in enumerate(chunks):

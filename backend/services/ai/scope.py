@@ -34,6 +34,17 @@ def current_scope() -> ExecutionScope | None:
     return _current.get()
 
 
+def document_scope(owner_id: str, folder_id: str | None) -> ExecutionScope:
+    """Narrow an existing caller grant, or bind a trusted ingestion job's owner."""
+    folders = (folder_id,) if folder_id else ()
+    existing = current_scope()
+    if existing is None:
+        return ExecutionScope(owner_id, folders)
+    if existing.owner_id != owner_id or not set(folders).issubset(existing.folder_ids):
+        raise PermissionError("document contextualization is outside caller scope")
+    return replace(existing, folder_ids=folders)
+
+
 @contextmanager
 def execution_scope(scope: ExecutionScope):
     token = _current.set(scope)
