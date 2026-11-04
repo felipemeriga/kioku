@@ -22,6 +22,10 @@ from pathlib import Path
 import httpx
 
 
+class CheckFailure(RuntimeError):
+    """A sanitized acceptance assertion with no service response body."""
+
+
 def save(path, value, append=False):
     descriptor = os.open(
         path, os.O_WRONLY | os.O_CREAT | (os.O_APPEND if append else os.O_TRUNC), 0o600
@@ -82,9 +86,9 @@ def probe(config, read_only=False):
                 response.raise_for_status()
                 data = response.json()
                 if name == "active_sessions" and data.get("available") is not True:
-                    raise RuntimeError("Native admin telemetry is unavailable")
+                    raise CheckFailure("Native admin telemetry is unavailable")
                 if name == "learning_days" and not isinstance(data.get("days"), list):
-                    raise RuntimeError("Learning calendar response has wrong shape")
+                    raise CheckFailure("Learning calendar response has wrong shape")
                 checks.append(
                     {
                         "name": name,
@@ -142,14 +146,14 @@ def probe(config, read_only=False):
         with client.stream("POST", "/api/chat", json=body) as response:
             response.raise_for_status()
             if "text/event-stream" not in response.headers.get("content-type", ""):
-                raise RuntimeError("Actual chat response is not SSE")
+                raise CheckFailure("Actual chat response is not SSE")
             for line in response.iter_lines():
                 if not line.startswith("data: "):
                     continue
                 frame = json.loads(line[6:])
                 if frame.get("error"):
                     # Never print service errors: they may include private text.
-                    raise RuntimeError("Actual native chat emitted an error frame")
+                    raise CheckFailure("Actual native chat emitted an error frame")
                 if frame.get("stage"):
                     progress.add(frame["stage"])
                 if frame.get("token"):
@@ -163,22 +167,22 @@ def probe(config, read_only=False):
             or not terminal.get("message_id")
             or nonce not in terminal.get("replace", "")
         ):
-            raise RuntimeError(
+            raise CheckFailure(
                 "Missing durable terminal answer or incorrect stateful recall"
             )
         if token_count == 0:
-            raise RuntimeError(
+            raise CheckFailure(
                 "Chat returned terminal-only output without streamed delta frames"
             )
         if long_sample and (len(terminal["replace"].split()) <= 100 or token_count < 2):
-            raise RuntimeError(
+            raise CheckFailure(
                 "Long streaming sample lacks >100 words and separate delta frames"
             )
         execution = (terminal.get("debug") or {}).get("execution") or {}
         if execution.get("turn_id") != turn or not execution.get("timings"):
-            raise RuntimeError("Native debug identity/timings missing")
+            raise CheckFailure("Native debug identity/timings missing")
         if config.get("require_citations") and seed and not terminal.get("citations"):
-            raise RuntimeError("Fixture retrieval answer has no citations")
+            raise CheckFailure("Fixture retrieval answer has no citations")
         response = client.get(f"/api/conversations/{conversation}")
         response.raise_for_status()
         messages = response.json()["messages"]
@@ -186,11 +190,11 @@ def probe(config, read_only=False):
             message for message in messages if message["id"] == terminal["message_id"]
         ]
         if len(saved) != 1 or nonce not in saved[0]["content"]:
-            raise RuntimeError("Terminal answer was not persisted exactly once")
+            raise CheckFailure("Terminal answer was not persisted exactly once")
         response = client.get(f"/api/chat/turns/{turn}")
         response.raise_for_status()
         if response.json()["state"] not in {"committed", "acknowledged"}:
-            raise RuntimeError("Chat turn did not commit")
+            raise CheckFailure("Chat turn did not commit")
         result = {
             "kind": "real_http_chat",
             "model": model,
@@ -223,10 +227,21 @@ def main():
     parser.add_argument("--read-only", action="store_true")
     args = parser.parse_args()
     logging.disable(logging.CRITICAL)
+    config = {}
     try:
-        result = probe(json.loads(args.config.read_text()), args.read_only)
-    except Exception:
-        print('{"ok": false, "kind": "real_http_chat"}')
+        config = json.loads(args.config.read_text())
+        result = probe(config, args.read_only)
+    except Exception as exc:
+        failure = {
+            "ok": False,
+            "kind": "real_http_chat",
+            "reason": str(exc) if isinstance(exc, CheckFailure) else type(exc).__name__,
+        }
+        if isinstance(exc, httpx.HTTPStatusError):
+            failure["http_status"] = exc.response.status_code
+        if config.get("evidence"):
+            save(config["evidence"], failure, append=True)
+        print(json.dumps(failure))
         raise SystemExit(1) from None
     print(json.dumps({"ok": True, **result}, sort_keys=True))
 

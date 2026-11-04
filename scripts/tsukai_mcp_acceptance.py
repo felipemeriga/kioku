@@ -21,12 +21,16 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
 
+class CheckFailure(RuntimeError):
+    """A sanitized acceptance assertion with no service response body."""
+
+
 def text_content(result):
     if result.isError:
-        raise RuntimeError("MCP tool returned isError")
+        raise CheckFailure("MCP tool returned isError")
     text = "\n".join(item.text for item in result.content if item.type == "text")
     if not text.strip():
-        raise RuntimeError("MCP tool returned no text")
+        raise CheckFailure("MCP tool returned no text")
     return text
 
 
@@ -49,21 +53,21 @@ async def probe(config, metadata=False):
             names = {tool.name for tool in tools.tools}
             required = {"get_folder_briefing_schema", "get_folder_briefing"}
             if not required.issubset(names):
-                raise RuntimeError(
+                raise CheckFailure(
                     "Expected Kioku tools missing from actual MCP server"
                 )
             schema = text_content(
                 await session.call_tool("get_folder_briefing_schema", {})
             )
             if "overview" not in schema:
-                raise RuntimeError("Briefing schema did not contain overview")
+                raise CheckFailure("Briefing schema did not contain overview")
             briefing = text_content(
                 await session.call_tool(
                     "get_folder_briefing", {"folder": config["folder_name"]}
                 )
             )
             if config["expected_marker"] not in briefing:
-                raise RuntimeError(
+                raise CheckFailure(
                     "Actual scoped briefing lacks expected fixture marker"
                 )
             result = {
@@ -91,7 +95,7 @@ async def probe(config, metadata=False):
                     "overview" not in concurrent
                     or result["concurrent_schema_seconds"] > 10
                 ):
-                    raise RuntimeError(
+                    raise CheckFailure(
                         "Schema responsiveness failed during metadata request"
                     )
                 answer = text_content(await pending)
@@ -99,16 +103,16 @@ async def probe(config, metadata=False):
                 if parsed.get("operation") != "count_files" or not isinstance(
                     parsed.get("data", {}).get("count"), int
                 ):
-                    raise RuntimeError(
+                    raise CheckFailure(
                         "Native typed metadata count response is missing"
                     )
                 if (
                     "expected_document_count" in config
                     and parsed["data"]["count"] != config["expected_document_count"]
                 ):
-                    raise RuntimeError("Metadata count disagrees with isolated fixture")
+                    raise CheckFailure("Metadata count disagrees with isolated fixture")
                 if not result["metadata_pending_during_schema"]:
-                    raise RuntimeError(
+                    raise CheckFailure(
                         "Concurrent schema call did not overlap metadata work"
                     )
                 result["metadata_sha256"] = hashlib.sha256(answer.encode()).hexdigest()
@@ -128,12 +132,27 @@ def main():
     parser.add_argument("--metadata", action="store_true")
     args = parser.parse_args()
     logging.disable(logging.CRITICAL)
+    config = {}
     try:
-        result = asyncio.run(probe(json.loads(args.config.read_text()), args.metadata))
-    except Exception:
+        config = json.loads(args.config.read_text())
+        result = asyncio.run(probe(config, args.metadata))
+    except Exception as exc:
         # SDK exception trees may contain headers or response bodies. Preserve
         # only the exit status here; investigate privately in the real services.
-        print('{"ok": false, "kind": "real_mcp"}')
+        failure = {
+            "ok": False,
+            "kind": "real_mcp",
+            "reason": str(exc) if isinstance(exc, CheckFailure) else type(exc).__name__,
+        }
+        if config.get("evidence"):
+            descriptor = os.open(
+                config["evidence"], os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600
+            )
+            with os.fdopen(descriptor, "a") as stream:
+                stream.write(json.dumps(failure, sort_keys=True) + "\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+        print(json.dumps(failure))
         raise SystemExit(1) from None
     print(json.dumps({"ok": True, **result}, sort_keys=True))
 
