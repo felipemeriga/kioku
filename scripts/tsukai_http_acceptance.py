@@ -143,6 +143,8 @@ def probe(config, read_only=False):
         progress = set()
         token_count = 0
         first_token = None
+        admin_observation = None
+        admin_checks = 0
         with client.stream("POST", "/api/chat", json=body) as response:
             response.raise_for_status()
             if "text/event-stream" not in response.headers.get("content-type", ""):
@@ -156,6 +158,37 @@ def probe(config, read_only=False):
                     raise CheckFailure("Actual native chat emitted an error frame")
                 if frame.get("stage"):
                     progress.add(frame["stage"])
+                if (
+                    long_sample
+                    and admin_observation is None
+                    and admin_checks < 3
+                    and (
+                        (frame.get("progress") or {}).get("type") == "attempt.started"
+                        or frame.get("token")
+                    )
+                ):
+                    admin_checks += 1
+                    telemetry = client.get("/api/usage/native/active-sessions")
+                    telemetry.raise_for_status()
+                    active = telemetry.json()
+                    matched = [
+                        session
+                        for session in active.get("sessions", [])
+                        if session.get("job_id") == frame.get("job_id")
+                    ]
+                    if active.get("available") and matched:
+                        admin_observation = {
+                            key: matched[0].get(key)
+                            for key in (
+                                "job_id",
+                                "attempt_id",
+                                "state",
+                                "pid",
+                                "elapsed_seconds",
+                                "native_cli_version",
+                                "model_requested",
+                            )
+                        }
                 if frame.get("token"):
                     token_count += 1
                     if first_token is None:
@@ -177,6 +210,10 @@ def probe(config, read_only=False):
         if long_sample and (len(terminal["replace"].split()) <= 100 or token_count < 2):
             raise CheckFailure(
                 "Long streaming sample lacks >100 words and separate delta frames"
+            )
+        if long_sample and admin_observation is None:
+            raise CheckFailure(
+                "Admin telemetry never observed the actual active native job"
             )
         execution = (terminal.get("debug") or {}).get("execution") or {}
         if execution.get("turn_id") != turn or not execution.get("timings"):
@@ -201,6 +238,7 @@ def probe(config, read_only=False):
             "mode": mode,
             "seed": seed,
             "long_stream_sample": long_sample,
+            "active_admin_observation": admin_observation,
             "conversation_id": conversation,
             "turn_id": turn,
             "job_id": terminal["job_id"],
