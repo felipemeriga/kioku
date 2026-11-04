@@ -203,3 +203,44 @@ def test_admission_between_reads_hydrates_exact_accepted_user_for_explicit_recov
     assert result["messages"][0]["id"] == result["active_execution"]["user_message_id"]
     assert result["active_execution"]["scope_folder_id"] == "folder"
     assert result["active_execution"]["scope_filename"] == "guide.md"
+
+
+@pytest.mark.parametrize("rejected", [True, False])
+def test_read_collapses_only_confirmed_unstarted_rejected_retry(rejected):
+    db = MagicMock()
+    messages = [
+        {"id": "saved", "role": "assistant", "content": "Saved answer"},
+        {"id": "rejected", "role": "user", "content": "Follow up"},
+        {"id": "retry", "role": "user", "content": "Follow up"},
+    ]
+    queries = {}
+
+    def table(name):
+        q = MagicMock()
+        for method in ("select", "eq", "order", "is_", "in_"):
+            getattr(q, method).return_value = q
+        q.execute.return_value = SimpleNamespace(
+            data={
+                "conversations": [{"id": CONVERSATION}],
+                "messages": messages,
+                "tsukai_chat_turns": [{"user_message_id": "rejected"}] if rejected else [],
+            }[name]
+        )
+        queries[name] = q
+        return q
+
+    db.table.side_effect = table
+    with (
+        patch("routes.conversations.get_supabase", return_value=db),
+        patch("services.ai.registry.engine_for", return_value="api"),
+    ):
+        result = get_conversation(CONVERSATION, "owner")
+    assert [m["id"] for m in result["messages"]] == (
+        ["saved", "retry"] if rejected else ["saved", "rejected", "retry"]
+    )
+    q = queries["tsukai_chat_turns"]
+    q.eq.assert_any_call("owner_id", "owner")
+    q.eq.assert_any_call("conversation_id", CONVERSATION)
+    q.eq.assert_any_call("state", "failed")
+    q.eq.assert_any_call("error_code", "conversation_policy_changed")
+    q.is_.assert_called_once_with("job_id", "null")

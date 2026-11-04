@@ -117,7 +117,31 @@ def get_conversation(conversation_id: str, user_id: str = Depends(get_current_us
                     "model": intent["model"],
                     "mode": intent["mode"],
                 }
-    return {**conv.data[0], "messages": messages.data, "active_execution": active_execution}
+    visible_messages = messages.data
+    duplicate_candidates = {
+        earlier["id"]
+        for earlier, later in zip(visible_messages, visible_messages[1:])
+        if earlier["role"] == later["role"] == "user" and earlier["content"] == later["content"]
+    }
+    if duplicate_candidates:
+        # Keep the audit rows, but don't show an unstarted rejected request
+        # twice when the user retries it. Accepted/uncertain jobs stay visible.
+        rejected = (
+            sb.table("tsukai_chat_turns")
+            .select("user_message_id")
+            .eq("owner_id", user_id)
+            .eq("conversation_id", conversation_id)
+            .eq("state", "failed")
+            .eq("error_code", "conversation_policy_changed")
+            .is_("job_id", "null")
+            .in_("user_message_id", list(duplicate_candidates))
+            .execute()
+            .data
+            or []
+        )
+        rejected_ids = {turn["user_message_id"] for turn in rejected}
+        visible_messages = [m for m in visible_messages if m["id"] not in rejected_ids]
+    return {**conv.data[0], "messages": visible_messages, "active_execution": active_execution}
 
 
 @router.patch("/{conversation_id}")

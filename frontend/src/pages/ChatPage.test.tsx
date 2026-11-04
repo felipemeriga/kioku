@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "../test/renderWithProviders";
 import ChatPage from "./ChatPage";
@@ -38,14 +38,20 @@ vi.mock("../hooks/useConversationsContext", () => ({
   }),
 }));
 vi.mock("../components/ChatArea", () => ({
-  default: (props: { onSend: (...args: unknown[]) => void }) => (
-    <button
-      onClick={() =>
-        props.onSend("Follow-up question", undefined, "sonnet", "deep", true)
-      }
-    >
-      Send selected mode
-    </button>
+  default: (props: {
+    onSend: (...args: unknown[]) => void;
+    currentStage?: { detail?: string };
+  }) => (
+    <>
+      <span>{props.currentStage?.detail}</span>
+      <button
+        onClick={() =>
+          props.onSend("Follow-up question", undefined, "sonnet", "deep", true)
+        }
+      >
+        Send selected mode
+      </button>
+    </>
   ),
 }));
 vi.mock("../components/ScopePickerDialog", () => ({ default: () => null }));
@@ -70,7 +76,7 @@ beforeEach(() => {
   });
 });
 
-it("offers explicit rebuild for a policy conflict before any job frame and preserves saved history", async () => {
+it("automatically rebuilds one rejected policy change without duplicating the question", async () => {
   fixtures.stream.mockRejectedValueOnce(
     new ApiError({
       status: 409,
@@ -82,10 +88,9 @@ it("offers explicit rebuild for a policy conflict before any job frame and prese
   renderWithProviders(<ChatPage />);
   const user = userEvent.setup();
   await user.click(screen.getByRole("button", { name: "Send selected mode" }));
-  await user.click(
-    await screen.findByRole("button", { name: "Rebuild context and retry" }),
-  );
+  await waitFor(() => expect(fixtures.stream).toHaveBeenCalledTimes(2));
   expect(fixtures.stream).toHaveBeenCalledTimes(2);
+  expect(fixtures.messages.filter((m) => m.role === "user")).toHaveLength(1);
   const first = fixtures.stream.mock.calls[0];
   const rebuild = fixtures.stream.mock.calls[1];
   expect(first[15]).toBe(false);
@@ -118,4 +123,32 @@ it("keeps a selected document bound to its repository when browser storage is un
     scopeFolderId: "selected-repository",
     scopeFilename: "README.md",
   });
+});
+
+it("shows progress before the first backend frame", async () => {
+  fixtures.stream.mockImplementation(() => new Promise(() => {}));
+  renderWithProviders(<ChatPage />);
+  await userEvent
+    .setup()
+    .click(screen.getByRole("button", { name: "Send selected mode" }));
+  expect(screen.getByText("Preparing your answer")).toBeInTheDocument();
+});
+
+it("does not loop when a rebuilt policy is rejected again", async () => {
+  fixtures.stream.mockRejectedValue(
+    new ApiError({
+      status: 409,
+      detail: { code: "conversation_policy_changed" },
+      userMessage: "Policy changed",
+    }),
+  );
+  renderWithProviders(<ChatPage />);
+  await userEvent
+    .setup()
+    .click(screen.getByRole("button", { name: "Send selected mode" }));
+  expect(
+    await screen.findByRole("button", { name: "Rebuild context and retry" }),
+  ).toBeInTheDocument();
+  expect(fixtures.stream).toHaveBeenCalledTimes(2);
+  expect(fixtures.messages.filter((m) => m.role === "user")).toHaveLength(1);
 });
