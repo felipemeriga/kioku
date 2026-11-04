@@ -1,10 +1,10 @@
 # Tsukai (使い): execution service design
 
-Status: draft for user review. This document authorizes no production cutover. The implementation workstreams below are proposed assignments, not completed implementation.
+Status: implementation approved by the user on 2026-11-04, with direct MCP/Mihari routing. Production activation remains gated by the acceptance tests and entitled credential-profile policy. Workstreams describe assignments, not completed work.
 
 ## Purpose and boundaries
 
-Tsukai is Kioku's asynchronous AI execution service. It owns native Claude Code processes and normalizes their events. Kioku continues to own identity, repository scope, retrieval, citations, conversations, briefing publication, and the web experience. Mihari continues to discover principal-branch changes, index code/graphs, select work, and apply validated maintenance results. MCP remains the knowledge/tool boundary; when an MCP request needs generative AI, it submits a typed Tsukai job.
+Tsukai is Kioku's asynchronous AI execution service. It owns native Claude Code processes and normalizes their events. Kioku continues to own identity, repository scope, retrieval, citations, conversations, briefing publication, and the web experience. Mihari continues to discover principal-branch changes, index code/graphs, select work, submit AI jobs directly to Tsukai, and publish validated maintenance results through existing domain endpoints. MCP remains the knowledge/tool boundary; when an MCP request needs generative AI, it submits a typed Tsukai job.
 
 The intended deployment is one independently deployed, nonroot Dokploy container, with bounded concurrent subprocesses. A container is not created per turn. Each native process belongs to exactly one conversation or maintenance job. A process is never multiplexed across users by changing an incoming native session ID.
 
@@ -65,8 +65,8 @@ Start with one runner replica and three concurrent Claude processes: two root jo
 ```mermaid
 flowchart LR
   UI[Frontend] -->|User JWT / SSE cursor| API[Kioku backend]
-  MI[Mihari] -->|Scoped maintenance request| API
-  MC[External MCP request] -->|AI helper only| API
+  MI[Mihari] -->|Scoped maintenance job| TS
+  MC[External MCP request] -->|AI helper only| TS
   API -->|Versioned async jobs| TS[Tsukai]
   TS -->|Subprocess NDJSON| CC[Claude Code]
   CC -->|Scoped read-only tools| MCP[Kioku MCP]
@@ -144,7 +144,7 @@ Record requested and served models, native session generation, attempt ID, per-t
 
 ## Private API v1
 
-All requests use JSON UTF-8, UUID identifiers, UTC RFC3339 timestamps, `Content-Type: application/json`, and `X-Request-ID`. Backend/MCP use separate rotatable service credentials in `Authorization: Bearer <service-secret>` over the private network; raw service secret is never passed to the model. Tsukai authenticates service identity and allowed task classes before parsing untrusted content. Outbound user/repository scope is an authorization capability minted after backend's existing ownership checks. Model arguments cannot select tenant identities.
+All requests use JSON UTF-8, UUID identifiers, UTC RFC3339 timestamps, `Content-Type: application/json`, and `X-Request-ID`. Backend/MCP/Mihari use separate rotatable service credentials in `Authorization: Bearer <service-secret>` over the private network; raw service secret is never passed to the model. Tsukai authenticates service identity and allowed task classes before parsing untrusted content. Outbound user/repository scope is an authorization capability minted after backend's existing ownership checks. Model arguments cannot select tenant identities.
 
 `POST /v1/jobs`, `Idempotency-Key: <stable request UUID>` returns 202 with `{job_id,status,events_url,result_url}` after durable admission. Same caller, tenant and key with identical canonical request returns existing job; differing request returns 409 `idempotency_conflict`. A queue rejection returns 429 with `Retry-After`, without a native process being created. Admission does not claim that model output will succeed.
 
@@ -336,7 +336,7 @@ Do not have multiple agents edit the central protocol or `services/llm.py` concu
 
 ## Review and rollout gates
 
-First review this written spec, including proposed stateful agent chat, fresh MCP/Mihari calls, the initial 3-process limit (2 root + 1 child),7-day event retention, and explicit recovery/API billing policy. Then create implementation plans per workstream. Deploy Tsukai dark with fixture credentials/profile permissions first, integrate backward-compatible clients, enable the entitled personal chat pilot, then maintenance and remaining verified capabilities. Shared infrastructure does not bypass per-account subscription eligibility.
+First review this written spec, including proposed stateful agent chat, fresh MCP/Mihari calls, the initial 3-process limit (2 root + 1 child),7-day event retention, and explicit recovery/API billing policy. The user has approved proceeding: create implementation plans per workstream and execute them with independent reviews. Deploy Tsukai dark with fixture credentials/profile permissions first, integrate backward-compatible clients, enable the entitled personal chat pilot, then maintenance and remaining verified capabilities. Shared infrastructure does not bypass per-account subscription eligibility.
 
 All source paths above refer to current Kioku `origin/main` or the pinned POC commit; proposed `tsukai/` paths do not exist yet. The POC established native execution feasibility, not the new durable protocol, distributed recovery, production MCP debug fidelity, or subscription savings. Those are implementation acceptance gates, not assumed completed work.
 
@@ -405,3 +405,9 @@ Raw hidden thinking/reasoning is not part of this contract. Preserve UI Inspect 
 ## Spec self-review record
 
 Reviewed against the two POC reports, current chat/MCP/generation caller inventory, release mappings and the user's latest noninteractive-call/debug clarification. Reconciled worker limits, drain timing, fresh session policies, explicit metadata child exception, completion outcome union, and observed versus proposed capabilities. No implementation or infrastructure changes accompany this draft. Exact native launch flags, image/OCR parity, actual OAuth expiry refresh and production retrieval-quality measurements remain named acceptance gates rather than fabricated POC successes.
+
+## Approved routing amendment and latest benchmark evidence
+
+User approved eliminating backend relay for non-UI execution: UI→backend→Tsukai; Mihari→Tsukai; MCP→Tsukai. Authorization policy and backend domain publication remain centralized, but model job traffic is direct for authenticated internal consumers. Callers use the same versioned job/result/event schemas, separate service identities and bound capabilities. No browser contacts Tsukai directly.
+
+Routing POC [PR #205](https://github.com/felipemeriga/kioku/pull/205), commit763af5b, compared5interleaved samples per engine/path on the same Haiku model: UI/backendTsukai API1.247s/native2.854s; Mihari API0.791s/native2.089s; MCP API0.937s/native2.252s. Direct API control median1.251s. Mock extra backend hop≈1ms; fresh native startup/harness overhead≈1.3–1.6s for these small supplied-evidence tasks. Real browser streams, API/native tool smoke, resume, scope403, disconnect completion and Mihari7/7fixture checks passed. These are small fixture samples, not production latency/SLA or full schema-quality parity: timed maintenance outputs in both engines had JSON fences, and durable replay was not implemented by that POC.
