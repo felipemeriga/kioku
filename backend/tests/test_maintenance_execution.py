@@ -898,3 +898,49 @@ def test_exact_proof_stops_after_required_sections_not_old_retained_jobs(partial
     # Fixture runner asserts only activity-job is fetched, never expired-old-job.
     result = execution.prepare(db, "owner", "folder", "review_plan", payload)
     assert result["preparation_id"] == plan["preparation_id"]
+
+
+@pytest.mark.parametrize(
+    "status,code,retryable",
+    [
+        ("failed", "wall_timeout", True),
+        ("running", "client_deadline", False),
+        ("uncertain", "wall_timeout", False),
+        ("failed", "reauth_required", False),
+    ],
+)
+def test_only_confirmed_terminal_timeout_enters_bounded_repair(
+    configured, monkeypatch, status, code, retryable
+):
+    row = prepared_row()
+    db = DB({"maintenance_preparations": [row]})
+    expected = hashlib.sha256(
+        json.dumps(row["request"], sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    monkeypatch.setattr(execution, "capability", lambda *_: "cap")
+    monkeypatch.setattr(execution, "track_terminal_usage", lambda *_: None)
+    monkeypatch.setattr(
+        execution.httpx,
+        "get",
+        lambda *_a, **_k: SimpleNamespace(
+            raise_for_status=lambda: None,
+            json=lambda: {"request_sha256": expected, "status": status},
+        ),
+    )
+
+    class Runner:
+        def __init__(self, *_):
+            pass
+
+        def close(self):
+            pass
+
+        def result(self, _):
+            raise ExecutionError(code)
+
+    monkeypatch.setattr(execution, "TsukaiClient", Runner)
+    with pytest.raises(ExecutionError):
+        execution.publish(db, "owner", "folder", "prep", "job")
+    assert bool(row.get("validation_error")) is retryable
+    assert not row.get("publication")
+    assert not row.get("execution_job_id")

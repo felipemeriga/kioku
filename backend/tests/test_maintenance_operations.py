@@ -127,3 +127,23 @@ def test_review_plan_excludes_never_created_documentation_but_keeps_existing_gui
     assert validate_result(snap, {"selected": ["documentation"]}) == {
         "selected": ["activity", "documentation"]
     }
+
+
+def test_learning_generation_schema_enforces_quote_bounds_and_source_ids():
+    from jsonschema import ValidationError, validate
+
+    snap = snapshot("learnings", [])
+    snap["input"]["new_entries"] = [{"id": "source-1", "text": "Verified evidence from source."}]
+    schema = build_request(snap)["schema"]
+    update = {
+        "topic_key": "verified-fact",
+        "statement": "A verified durable fact.",
+        "source_ids": ["source-1"],
+        "evidence_quote": "Verified evidence from source.",
+        "git_sha": None,
+        "retire": False,
+    }
+    validate({"updates": [update]}, schema)
+    for mutation in ({"evidence_quote": "x" * 251}, {"source_ids": ["invented"]}):
+        with pytest.raises(ValidationError):
+            validate({"updates": [{**update, **mutation}]}, schema)
