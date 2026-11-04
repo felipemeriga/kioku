@@ -68,6 +68,7 @@ def identity(compose, config):
         "appName": "kioku-tsukai-runner",
         "composePath": PATH,
         "sourceType": "github",
+        "composeType": "docker-compose",
         "owner": "felipemeriga",
         "repository": "hive",
         "branch": "main",
