@@ -59,6 +59,7 @@ DECLARE
     section_name text;
     section_value jsonb;
     old_doc uuid;
+    old_doc_generated_at timestamptz;
     new_abstract text;
     new_doc uuid;
     documentation_changed boolean := false;
@@ -102,7 +103,7 @@ BEGIN
         END IF;
     END LOOP;
     IF prep.operation IN ('documentation','review_plan') THEN
-        SELECT id INTO old_doc FROM repo_documentation WHERE folder_id=prep.folder_id AND user_id=p_user ORDER BY generated_at DESC LIMIT 1;
+        SELECT id,generated_at INTO old_doc,old_doc_generated_at FROM repo_documentation WHERE folder_id=prep.folder_id AND user_id=p_user ORDER BY generated_at DESC LIMIT 1;
         IF to_jsonb(old_doc) IS DISTINCT FROM NULLIF(prep.snapshot->'documentation_revision','null'::jsonb) THEN
             RAISE EXCEPTION 'stale documentation revision';
         END IF;
@@ -153,7 +154,9 @@ BEGIN
             -- Preserve the detailed document and its briefing pointer atomically.
             IF p_value->>'content' IS DISTINCT FROM prep.snapshot->'current'->>'content' THEN
                 SELECT left(string_agg(trim(line),E'\n'),900) INTO new_abstract FROM regexp_split_to_table(p_value->>'content', E'\n') line WHERE trim(line)<>'' AND trim(line) NOT LIKE '#%' AND trim(line) NOT LIKE '```%';
-                INSERT INTO repo_documentation(user_id,folder_id,content,abstract) VALUES(p_user,prep.folder_id,p_value->>'content',new_abstract) RETURNING id INTO new_doc;
+                -- now() may predate a writer that committed while this transaction
+                -- waited on the folder lock; preserve strict latest-revision order.
+                INSERT INTO repo_documentation(user_id,folder_id,content,abstract,generated_at) VALUES(p_user,prep.folder_id,p_value->>'content',new_abstract,GREATEST(clock_timestamp(),old_doc_generated_at + interval '1 microsecond')) RETURNING id INTO new_doc;
                 documentation_changed:=true;
                 updates:=jsonb_build_object('documentation',new_abstract || E'\n\nFull architecture docs available — call get_repo_documentation.');
             END IF;
