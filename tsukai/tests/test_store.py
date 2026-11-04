@@ -258,6 +258,56 @@ async def test_chat_queue_has_absolute_expiry_and_background_bound_is_unchanged(
     await store.admit(request(profile="chat", conversation_id="bounded"))
 
 
+@pytest.mark.parametrize("operation", ["rag_agent", "rag_agent_sonnet"])
+async def test_plain_chat_keeps_fresh_profile_with_absolute_interactive_queue_bound(
+    store, monkeypatch, operation
+):
+    clock = time.time()
+    monkeypatch.setattr("tsukai.store.time.time", lambda: clock)
+    plain = await store.admit(request(profile="completion", operation=operation))
+    background = await store.admit(request(operation="contextual"))
+    assert plain["profile"] == "completion" and plain["conversation_id"] is None
+    assert plain["queue_deadline"] - plain["created_at"] == 330
+    assert background["queue_deadline"] - background["created_at"] == 1800
+    clock += 329
+    assert await store.expire_queued() == 0
+    clock += 2
+    assert await store.expire_queued() == 1
+    assert (await store.get(plain["id"]))["error"]["code"] == "queue_timeout"
+    assert (await store.get(background["id"]))["status"] == "queued"
+
+
+@pytest.mark.parametrize(
+    "caller,operation,interactive",
+    [
+        ("backend", "rag_agent", True),
+        ("backend", "rag_agent_sonnet", True),
+        ("mcp", "rag_agent", False),
+        ("mcp", "rag_agent_sonnet", False),
+        ("mihari", "rag_agent", False),
+        ("mihari", "rag_agent_sonnet", False),
+        ("backend", "contextual", False),
+        ("backend", "query_rewrite", False),
+    ],
+)
+async def test_only_registered_backend_plain_chat_gets_interactive_priority(
+    store, monkeypatch, caller, operation, interactive
+):
+    clock = time.time()
+    monkeypatch.setattr("tsukai.store.time.time", lambda: clock)
+    background = await store.admit(request(operation="folder_summary_doc"))
+    clock += 1
+    candidate = await store.admit(
+        request(operation=operation).model_copy(update={"caller": caller})
+    )
+    assert candidate["queue_deadline"] - candidate["created_at"] == (330 if interactive else 1800)
+    chosen = await store.claim("worker")
+    assert chosen["job"]["id"] == (candidate if interactive else background)["id"]
+    if interactive:
+        assert not chosen["attempt"]["resume"]
+        assert chosen["job"]["profile"] == "completion"
+
+
 async def test_fairness_chat_priority_aging_and_actual_maintenance_caller(store):
     from tsukai.tables import jobs
 
