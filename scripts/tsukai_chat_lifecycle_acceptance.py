@@ -118,6 +118,19 @@ def reconnect(client, config):
         raise CheckFailure(
             "Reconnect replay repeated or reordered durable event sequence"
         )
+    deadline = time.monotonic() + 30
+    acknowledged = False
+    while time.monotonic() < deadline:
+        state_response = client.get(f"/api/chat/turns/{request['turn_id']}")
+        state_response.raise_for_status()
+        if state_response.json()["state"] == "acknowledged":
+            acknowledged = True
+            break
+        time.sleep(1)
+    if not acknowledged:
+        raise CheckFailure(
+            "Disconnect probe did not durably acknowledge before idempotent replay"
+        )
     replay, _ = terminal(client, request)
     if replay["job_id"] != job or replay["message_id"] != final["message_id"]:
         raise CheckFailure("Stable-turn replay started a different job or message")
@@ -136,6 +149,7 @@ def reconnect(client, config):
         "delta_frames": deltas,
         "message_id": final["message_id"],
         "message_count": len(messages),
+        "acknowledged_before_retry": acknowledged,
     }
 
 
