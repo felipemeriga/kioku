@@ -104,8 +104,25 @@ def run(config):
         )
         request = body(config, identifiers[index], content)
         began = time.monotonic()
-        with httpx.Client(**options) as client:
-            final, deltas = terminal(client, request)
+        try:
+            with httpx.Client(**options) as client:
+                final, deltas = terminal(client, request)
+        except Exception as exc:
+            save(
+                config["evidence"],
+                {
+                    "kind": "real_load_job",
+                    "ok": False,
+                    "index": index,
+                    "conversation_id": identifiers[index],
+                    "turn_id": request["turn_id"],
+                    "reason": str(exc)
+                    if isinstance(exc, CheckFailure)
+                    else type(exc).__name__,
+                },
+                append=True,
+            )
+            raise
         execution = (final.get("debug") or {}).get("execution") or {}
         tools = (final.get("debug") or {}).get("tool_calls") or []
         if not deltas:
@@ -116,7 +133,7 @@ def run(config):
             raise CheckFailure(
                 "Real load job did not invoke the reserved metadata-child path"
             )
-        return {
+        result = {
             "index": index,
             "conversation_id": identifiers[index],
             "turn_id": request["turn_id"],
@@ -127,6 +144,12 @@ def run(config):
             "usage": execution.get("usage"),
             "tool_names": [tool.get("name") for tool in tools],
         }
+        save(
+            config["evidence"],
+            {"kind": "real_load_job", "ok": True, **result},
+            append=True,
+        )
+        return result
 
     reads = []
     samples = []
@@ -163,6 +186,11 @@ def run(config):
                         ).hexdigest(),
                     }
                 )
+                save(
+                    config["evidence"],
+                    {"kind": "real_load_read_sample", **reads[-1]},
+                    append=True,
+                )
             response = client.get("/api/usage/native/active-sessions", timeout=10)
             response.raise_for_status()
             telemetry = response.json()
@@ -189,17 +217,39 @@ def run(config):
                     ],
                 }
             )
+            save(
+                config["evidence"],
+                {"kind": "real_load_admin_sample", **samples[-1]},
+                append=True,
+            )
             time.sleep(2)
-        jobs = [future.result() for future in futures]
+        jobs, failures = [], []
+        for index, future in enumerate(futures):
+            try:
+                jobs.append(future.result())
+            except Exception as exc:
+                failures.append(
+                    {
+                        "index": index,
+                        "reason": str(exc)
+                        if isinstance(exc, CheckFailure)
+                        else type(exc).__name__,
+                    }
+                )
     result = {
         "kind": "real_three_conversation_load",
         "elapsed_seconds": time.monotonic() - began,
         "jobs": jobs,
+        "failures": failures,
         "read_samples": reads,
         "admin_samples": samples,
         "maximum_read_seconds": max(sample["seconds"] for sample in reads),
     }
     save(config["evidence"], result, append=True)
+    if failures:
+        raise CheckFailure(
+            "Concurrent root failures recorded with all read/admin/job evidence preserved"
+        )
     if result["maximum_read_seconds"] > config.get("max_read_seconds", 3):
         raise CheckFailure(
             "Existing HTTP reads exceeded the bounded load responsiveness threshold"
