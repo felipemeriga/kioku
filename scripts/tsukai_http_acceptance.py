@@ -322,6 +322,15 @@ def probe(config, read_only=False):
         execution = (terminal.get("debug") or {}).get("execution") or {}
         if execution.get("turn_id") != turn or not execution.get("timings"):
             raise CheckFailure("Native debug identity/timings missing")
+        expected_resume = (
+            reuse and mode != "plain" and (not seed or not fixture.get("initial_seed"))
+        )
+        if expected_resume and "resume" not in (execution.get("usage") or {}).get(
+            "attribution", ""
+        ):
+            raise CheckFailure(
+                "Reused stateful chat lacks actual native resume attribution"
+            )
         attempt_timings = execution["timings"].get("attempts") or []
         if not attempt_timings or any(
             not attempt.get("attempt_id")
@@ -447,6 +456,7 @@ def probe(config, read_only=False):
             "seed": seed,
             "reuse_conversations": reuse,
             "first_and_current_verified": reuse and not seed,
+            "native_resume_verified": expected_resume,
             "first_nonce_sha256": hashlib.sha256(
                 fixture.get("first_nonce", nonce).encode()
             ).hexdigest(),
