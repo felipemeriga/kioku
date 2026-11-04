@@ -148,7 +148,39 @@ def usage_attribution(
         for r in rows
         if r["source"] == "mihari"
     ]
+    native_rows = []
+    native_offset = 0
+    while True:
+        native_page = (
+            sb.table("tsukai_native_usage")
+            .select("*")
+            .gte("created_at", f"{month}-01T00:00:00+00:00")
+            .lt("created_at", f"{next_month}-01T00:00:00+00:00")
+            .order("created_at", desc=True)
+            .range(native_offset, native_offset + 499)
+            .execute()
+            .data
+            or []
+        )
+        native_rows.extend(native_page)
+        if len(native_page) < 500:
+            break
+        native_offset += 500
+    known = [
+        Decimal(str(row["list_equivalent_usd"]))
+        for row in native_rows
+        if row.get("list_equivalent_usd") is not None
+    ]
+    native = {
+        "billing_mode": "subscription",
+        "call_count": len(native_rows),
+        "known_list_equivalent_usd": str(sum(known, Decimal("0"))) if known else None,
+        "incomplete_calls": sum(not row["complete"] for row in native_rows),
+        "unpriced_calls": sum(row.get("list_equivalent_usd") is None for row in native_rows),
+        "calls": native_rows,
+    }
     return {
+        "native": native,
         "month": month,
         "total_cost_usd": str(total),
         "unpriced_calls": unpriced,
@@ -255,3 +287,39 @@ def usage_by_month(user_id: str = Depends(get_current_user)):
     ]
     result.sort(key=lambda x: x["month"], reverse=True)
     return result
+
+
+@router.get("/native/active-sessions")
+def active_native_sessions(user_id: str = Depends(get_current_user)):
+    """Private cross-owner runtime telemetry, guarded by current server admin identity."""
+    import os
+
+    import httpx
+
+    from services.ai.facade import client_for
+    from services.ai.scope import ExecutionScope
+
+    sb = get_supabase()
+    _require_usage_admin(sb, user_id)
+    if not os.getenv("TSUKAI_URL"):
+        return {
+            "available": False,
+            "sessions": [],
+            "queued_counts": {},
+            "reason": "Tsukai is not configured",
+        }
+    client = client_for(ExecutionScope(user_id, admin=True), "runtime.sessions.read", None)
+    try:
+        result = client.active_sessions()
+    except (httpx.HTTPError, RuntimeError):
+        raise HTTPException(503, "Tsukai runtime telemetry is unavailable") from None
+    finally:
+        client.close()
+    sessions = result.get("sessions") or []
+    owners = {}
+    for owner_id in {session["owner_id"] for session in sessions}:
+        account = sb.auth.admin.get_user_by_id(owner_id).user
+        owners[owner_id] = account.email if account else owner_id
+    for session in sessions:
+        session["owner_label"] = owners.get(session["owner_id"], session["owner_id"])
+    return {**result, "available": True}

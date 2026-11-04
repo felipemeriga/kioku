@@ -9,6 +9,7 @@ import anthropic
 from langsmith.wrappers import wrap_anthropic
 
 from services.ai.facade import native_completion
+from services.ai.registry import TASK_POLICIES
 from services.ai.scope import ExecutionScope
 from services.usage_ledger import UsageAttribution, current_usage, save_usage, usage_row
 
@@ -78,6 +79,17 @@ def get_client() -> anthropic.Anthropic:
         timeout=60.0,
     )
     return wrap_anthropic(client) if _tracing_enabled() else client
+
+
+def api_only_client(task: Task) -> anthropic.Anthropic:
+    """Declared API-only SDK capability until native parity is verified.
+
+    RAGAS owns its SDK message interface; it cannot silently masquerade as a
+    Tsukai completion. Its explicit registry restriction is reviewed separately.
+    """
+    if TASK_POLICIES[task.value].native_verified:
+        raise ValueError("Use the execution facade for native-verified tasks")
+    return get_client()
 
 
 def _build_kwargs(

@@ -27,6 +27,9 @@ from routes.notion import router as notion_router
 from routes.remotes import router as remotes_router
 from routes.retrieval_log import router as retrieval_log_router
 from routes.usage import router as usage_router
+from services.ai.chat import reconciliation_loop
+from services.ai.native_tools import NativeToolAuth, native_mcp
+from services.ai.native_tools import router as native_tools_router
 from services.notion_sync.sync_engine import sync_loop
 
 load_dotenv()
@@ -35,12 +38,15 @@ load_dotenv()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     task = asyncio.create_task(sync_loop(get_supabase_thread_safe))
+    native_task = asyncio.create_task(reconciliation_loop())
     try:
-        yield
+        async with native_mcp.session_manager.run():
+            yield
     finally:
+        native_task.cancel()
         task.cancel()
         try:
-            await task
+            await asyncio.gather(task, native_task)
         except asyncio.CancelledError:
             pass
 
@@ -57,6 +63,8 @@ app.add_middleware(
 
 app.include_router(conversations_router)
 app.include_router(chat_router)
+app.include_router(native_tools_router)
+app.mount("/internal/tsukai/mcp", NativeToolAuth(native_mcp.streamable_http_app()))
 app.include_router(documents_router)
 app.include_router(folders_router)
 app.include_router(api_keys_router)

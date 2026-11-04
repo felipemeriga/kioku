@@ -208,3 +208,9 @@ class TsukaiClient:
         response = self._http.get(f"/v1/jobs/{job_id}/usage")
         response.raise_for_status()
         return response.json()
+
+    def active_sessions(self) -> dict:
+        self._authorize()
+        response = self._http.get("/v1/admin/active-sessions")
+        response.raise_for_status()
+        return response.json()

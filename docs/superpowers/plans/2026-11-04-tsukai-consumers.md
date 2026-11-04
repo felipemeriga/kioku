@@ -15,22 +15,22 @@ Files: create `backend/services/ai/{client,registry}.py`; test `backend/tests/te
 - [x] Define default API routing, explicit native task opt-in, credential-owner gate, and unavailable vision/evaluation capabilities.
 - [x] Implement POST admission, contiguous replay with Last-Event-ID, deduplication, bounded SSE reconnect, explicit missing-terminal failure, terminal result read and acknowledgement.
 - [x] Run `python -m pytest tests/test_tsukai_client.py -q`; expected five passing cases for replay, foreign events, event gaps, missing terminal, and policy.
-- [ ] Commit and push transport separately.
+- [x] Commit and push transport separately.
 
 ### Task 2: Central completion facade
 
 Files: create `backend/services/ai/{scope,facade}.py`; modify `backend/services/llm.py`, `backend/mcp_server.py`, `backend/services/text_to_sql.py`.
 
-- [ ] Carry owner, caller, effective folder IDs and parent attribution through context variables; sign only after established authorization.
-- [ ] Enforce root/child recursion policy before provider selection. Reserve metadata child profile exclusively for depth1 text_to_sql with no tools.
-- [ ] Adapt native results into typed text blocks without claiming unknown token counts are zero. Preserve API return compatibility and default behavior.
-- [ ] Run existing LLM tests plus facade scope/owner/recursion tests; commit and push.
+- [x] Carry owner, caller, effective folder IDs and parent attribution through context variables; sign only after established authorization.
+- [x] Enforce root/child recursion policy before provider selection. Reserve metadata child profile exclusively for depth1 text_to_sql with no tools.
+- [x] Adapt native results into typed text blocks without claiming unknown token counts are zero. Preserve API return compatibility and default behavior.
+- [x] Run existing LLM tests plus facade scope/owner/recursion tests; commit and push.
 
 ### Task 3: Direct Mihari execution and conditional publication
 
 Files: modify `backend/routes/mihari.py`, `mihari/mihari.py`; create scoped preparation/publication service and migration.
 
-- [ ] Reuse existing prompt builders and validators through a preparation capture boundary that never executes a provider call.
+- [ ] Extract pure request builders and validators in the separately owned maintenance service; never intercept completion calls or reexecute route handlers.
 - [ ] Return one exact immutable request plus short-lived task capability. Mihari submits directly to Tsukai, then requests backend domain application by durable job ID.
 - [ ] Backend fetches the authenticated durable result and rejects stale source/revision. Record application and review checkpoints atomically with section/document mutations.
 - [ ] Keep unchanged-HEAD gating; fresh session on every operation; test failed/blocked tasks never advance checkpoint, duplicate apply is idempotent, newer revisions cannot be overwritten.

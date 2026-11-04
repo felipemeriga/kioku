@@ -1,12 +1,13 @@
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from auth import get_current_user
 from db.client import get_supabase_thread_safe as get_supabase
 from routes._validation import require_uuid
+from services.ai.registry import engine_for
 from services.rag import stream_rag_response
 from services.scope import validate_scope_folder
 
@@ -16,6 +17,8 @@ router = APIRouter(prefix="/api")
 class ChatRequest(BaseModel):
     conversation_id: str
     content: str
+    turn_id: str | None = None
+    rebuild_from_committed_history: bool = False
     # Two independent knobs: which model, and the mode.
     # mode: plain (classic one-shot RAG) | agentic (tool loop) | deep (+ thinking)
     model: Literal["haiku", "sonnet"] = "haiku"
@@ -55,6 +58,27 @@ def chat(request: ChatRequest, user_id: str = Depends(get_current_user)):
         require_uuid(request.scope_folder_id, "Scope folder not found")
         validate_scope_folder(request.scope_folder_id, user_id)
 
+    operation = "rag_agent_sonnet" if request.model == "sonnet" else "rag_agent"
+    if engine_for(operation, user_id) == "tsukai":
+        from services.ai.chat import prepare_turn, stream_turn, wake_reconciliation
+
+        if not request.turn_id:
+            raise HTTPException(422, "Native chat requires a stable turn_id")
+        require_uuid(request.turn_id, "Invalid turn identifier")
+        turn = prepare_turn(
+            owner_id=user_id,
+            conversation_id=request.conversation_id,
+            content=request.content,
+            turn_id=request.turn_id,
+            model=request.model,
+            mode=request.mode,
+            rebuild=request.rebuild_from_committed_history,
+            folder_id=request.scope_folder_id,
+            filename=request.scope_filename,
+        )
+        wake_reconciliation()
+        return StreamingResponse(stream_turn(turn), media_type="text/event-stream")
+
     def event_generator():
         yield from stream_rag_response(
             conversation_id=request.conversation_id,
@@ -68,3 +92,107 @@ def chat(request: ChatRequest, user_id: str = Depends(get_current_user)):
         )
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@router.get("/chat/jobs/{job_id}/events")
+def native_chat_events(
+    job_id: str, after: int = Query(0, ge=0), user_id: str = Depends(get_current_user)
+):
+    from services.ai.chat import owned_turn, stream_turn
+
+    return StreamingResponse(
+        stream_turn(owned_turn(user_id, job_id=job_id), cursor=after),
+        media_type="text/event-stream",
+    )
+
+
+@router.post("/chat/jobs/{job_id}/cancel")
+def cancel_native_chat(job_id: str, user_id: str = Depends(get_current_user)):
+    from services.ai.chat import owned_turn, turn_scope
+    from services.ai.facade import client_for
+
+    turn = owned_turn(user_id, job_id=job_id)
+    scope, request = turn_scope(turn), turn["request"]
+    client = client_for(scope, request["operation"], request["profile"])
+    try:
+        return client.cancel(job_id)
+    finally:
+        client.close()
+
+
+@router.get("/chat/turns/{turn_id}")
+def native_chat_turn(turn_id: str, user_id: str = Depends(get_current_user)):
+    from services.ai.chat import owned_turn, turn_scope
+
+    require_uuid(turn_id, "Execution not found")
+    turn = owned_turn(user_id, turn_id=turn_id)
+    turn_scope(turn)
+    return {
+        key: turn.get(key)
+        for key in (
+            "id",
+            "job_id",
+            "conversation_id",
+            "state",
+            "assistant_message_id",
+            "error_code",
+        )
+    }
+
+
+@router.get("/chat/jobs/{job_id}/artifacts/{artifact_id}")
+def native_tool_artifact(
+    job_id: str,
+    artifact_id: str,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(16384, ge=1, le=65536),
+    user_id: str = Depends(get_current_user),
+):
+    from services.ai.chat import owned_turn, turn_scope
+
+    require_uuid(artifact_id, "Artifact not found")
+    turn = owned_turn(user_id, job_id=job_id)
+    scope = turn_scope(turn)
+    evidence_job = turn["id"] if turn["request"]["profile"] == "completion" else job_id
+    rows = (
+        get_supabase()
+        .table("tsukai_tool_traces")
+        .select("*")
+        .eq("id", artifact_id)
+        .eq("job_id", evidence_job)
+        .eq("owner_id", user_id)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows or not set(rows[0]["folder_ids"]).issubset(scope.folder_ids):
+        raise HTTPException(404, "Artifact not found")
+    row = rows[0]
+    result = row["result"]
+    end = min(offset + limit, len(result))
+    return {
+        "id": row["id"],
+        "trace": row["trace"],
+        "result": result[offset:end],
+        "offset": offset,
+        "next_offset": end if end < len(result) else None,
+        "total_characters": len(result),
+    }
+
+
+@router.post("/chat/turns/{turn_id}/cancel")
+def cancel_native_turn(turn_id: str, user_id: str = Depends(get_current_user)):
+    from services.ai.chat import owned_turn, wake_reconciliation
+
+    require_uuid(turn_id, "Execution not found")
+    turn = owned_turn(user_id, turn_id=turn_id)
+    if turn["state"] in {"committed", "acknowledged", "failed", "cancelled", "uncertain"}:
+        return {"state": turn["state"]}
+    get_supabase().table("tsukai_chat_turns").update({"cancel_requested": True}).eq(
+        "id", turn_id
+    ).eq("owner_id", user_id).execute()
+    if turn.get("job_id"):
+        cancel_native_chat(turn["job_id"], user_id)
+    wake_reconciliation()
+    return {"state": "cancel_requested"}

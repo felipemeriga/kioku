@@ -23,6 +23,8 @@ class ExecutionScope:
     ai_depth: int = 0
     harness_tool: bool = False
     tool_allowlist: tuple[str, ...] = ()
+    expires_at: int | None = None
+    admin: bool = False
 
 
 _current: ContextVar[ExecutionScope | None] = ContextVar("execution_scope", default=None)
@@ -69,6 +71,9 @@ def sign_capability(
     ):
         raise PermissionError("invalid metadata delegation")
     now = int(time.time())
+    expiry = min(now + ttl, scope.expires_at) if scope.expires_at else now + ttl
+    if expiry <= now:
+        raise PermissionError("execution grant expired")
     claims = {
         "iss": "kioku-backend",
         "aud": "tsukai",
@@ -79,10 +84,22 @@ def sign_capability(
         "profiles": [profile] if profile else [],
         "tool_allowlist": list(scope.tool_allowlist),
         "iat": now,
-        "exp": now + ttl,
+        "exp": expiry,
         "jti": str(uuid4()),
         "ai_depth": scope.ai_depth,
     }
+    if scope.admin:
+        if (
+            scope.caller != "backend"
+            or operation != "runtime.sessions.read"
+            or profile is not None
+            or scope.folder_ids
+            or scope.tool_allowlist
+            or scope.ai_depth
+            or scope.parent_job_id
+        ):
+            raise PermissionError("invalid administrative capability")
+        claims["admin"] = True
     if request is not None:
         claims["request_sha256"] = hashlib.sha256(
             json.dumps(request, sort_keys=True, separators=(",", ":")).encode()
