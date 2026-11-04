@@ -243,6 +243,84 @@ def probe(config, read_only=False):
             )
         if config.get("require_citations") and seed and not terminal.get("citations"):
             raise CheckFailure("Fixture retrieval answer has no citations")
+        artifacts = []
+        if seed and mode != "plain" and config.get("expected_marker"):
+            for tool in (terminal.get("debug") or {}).get("tool_calls") or []:
+                if not tool.get("artifact_id"):
+                    continue
+                offset, chunks, trace = 0, [], {}
+                while True:
+                    artifact_response = client.get(
+                        f"/api/chat/jobs/{terminal['job_id']}/artifacts/{tool['artifact_id']}",
+                        params={"offset": offset, "limit": 16384},
+                    )
+                    artifact_response.raise_for_status()
+                    artifact = artifact_response.json()
+                    chunks.append(artifact["result"])
+                    trace = artifact["trace"]
+                    if artifact.get("next_offset") is None:
+                        break
+                    offset = artifact["next_offset"]
+                    if offset > 200000:
+                        raise CheckFailure(
+                            "Synthetic tool artifact unexpectedly exceeds bound"
+                        )
+                visible = "".join(chunks)
+                scope = trace.get("effective_scope") or {}
+                if (
+                    scope.get("folder_ids") != [config["folder_id"]]
+                    or scope.get("filename") is not None
+                ):
+                    raise CheckFailure(
+                        "Actual debug artifact effective scope differs from fixture filter"
+                    )
+                sources = trace.get("sources") or []
+                artifacts.append(
+                    {
+                        "artifact_id": tool["artifact_id"],
+                        "name": tool.get("name"),
+                        "marker_present": config["expected_marker"] in visible,
+                        "result_sha256": hashlib.sha256(visible.encode()).hexdigest(),
+                        "characters": len(visible),
+                        "scope_folder_ids": scope["folder_ids"],
+                        "scope_filename": scope.get("filename"),
+                        "sources": [
+                            {
+                                key: source.get(key)
+                                for key in (
+                                    "citation_number",
+                                    "source",
+                                    "source_id",
+                                    "source_type",
+                                    "folder_id",
+                                    "date",
+                                    "last_updated",
+                                )
+                            }
+                            | {
+                                "revision_id": (source.get("metadata") or {}).get(
+                                    "revision_id"
+                                ),
+                                "snapshot_availability": (
+                                    source.get("metadata") or {}
+                                ).get("snapshot_availability"),
+                            }
+                            for source in sources
+                        ],
+                    }
+                )
+            if not any(
+                a["marker_present"]
+                and any(
+                    s.get("source") == config.get("expected_source_filename")
+                    and s.get("folder_id") == config["folder_id"]
+                    for s in a["sources"]
+                )
+                for a in artifacts
+            ):
+                raise CheckFailure(
+                    "Actual full debug artifacts lack marker and scoped source provenance"
+                )
         response = client.get(f"/api/conversations/{conversation}")
         response.raise_for_status()
         messages = response.json()["messages"]
@@ -264,6 +342,7 @@ def probe(config, read_only=False):
             "active_admin_observation": admin_observation,
             "attempt_timings": attempt_timings,
             "usage": execution.get("usage"),
+            "tool_artifacts": artifacts,
             "conversation_id": conversation,
             "turn_id": turn,
             "job_id": terminal["job_id"],
