@@ -7,7 +7,8 @@ from services.agent_evidence_purge import purge_evidence_outbox
 def outbox(paths):
     sb = MagicMock()
     table = sb.table.return_value
-    table.select.return_value.lte.return_value.order.return_value.limit.return_value.execute.return_value = SimpleNamespace(
+    query = table.select.return_value.lte.return_value.order.return_value.limit.return_value
+    query.execute.return_value = SimpleNamespace(
         data=[{"id": "receipt", "storage_paths": paths, "attempts": 2}]
     )
     return sb, table, sb.storage.from_.return_value
