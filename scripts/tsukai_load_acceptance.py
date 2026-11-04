@@ -68,7 +68,9 @@ def run(config, scenario="metadata-first"):
             response.raise_for_status()
             data = response.json()
             if name == "existing_calendar" and not data.get("days"):
-                raise CheckFailure("Known nonempty calendar preflight failed before load admission")
+                raise CheckFailure(
+                    "Known nonempty calendar preflight failed before load admission"
+                )
             preflight.append({"name": name, "status": response.status_code})
         response = client.get("/api/usage/native/active-sessions", timeout=10)
         response.raise_for_status()
@@ -78,7 +80,9 @@ def run(config, scenario="metadata-first"):
             or telemetry.get("sessions")
             or (telemetry.get("queued_counts") or {}).get("total", 0)
         ):
-            raise CheckFailure("Load deferred before admission: runtime is unavailable or busy")
+            raise CheckFailure(
+                "Load deferred before admission: runtime is unavailable or busy"
+            )
         save(
             config["evidence"],
             {"kind": "real_load_preflight", "ok": True, "checks": preflight},
@@ -370,9 +374,14 @@ def run(config, scenario="metadata-first"):
             "Concurrent root failures recorded with all read/admin/job evidence preserved"
         )
     if result["maximum_read_seconds"] > config.get("max_read_seconds", 3):
-        raise CheckFailure("Existing HTTP reads exceeded the bounded load responsiveness threshold")
+        raise CheckFailure(
+            "Existing HTTP reads exceeded the bounded load responsiveness threshold"
+        )
     root_counts = [
-        sum(session.get("conversation_id") in identifiers for session in sample["sessions"])
+        sum(
+            session.get("conversation_id") in identifiers
+            for session in sample["sessions"]
+        )
         for sample in samples
     ]
     if max(root_counts) > 2:
@@ -388,7 +397,8 @@ def run(config, scenario="metadata-first"):
         )
         >= 1
         and sum(
-            session.get("conversation_id") in identifiers and session.get("pid") is not None
+            session.get("conversation_id") in identifiers
+            and session.get("pid") is not None
             for session in sample["sessions"]
         )
         >= 2
