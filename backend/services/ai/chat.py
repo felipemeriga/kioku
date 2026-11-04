@@ -206,6 +206,9 @@ def prepare_turn(
             evidence,
         )
     if mode != "plain" and folders:
+        # A concurrent candidate for the same logical turn must never share evidence.
+        candidate_id = str(uuid4())
+        request["metadata"]["bootstrap_namespace"] = candidate_id
         retrieval = []
         evidence = execute_tool(
             "knowledge_base_search",
@@ -215,7 +218,7 @@ def prepare_turn(
             scope_folder_ids=folders,
             scope_filename=filename,
             debug_retrieval=retrieval,
-            citations=DurableCitations(turn_id, "bootstrap", owner_id, conversation_id),
+            citations=DurableCitations(candidate_id, "bootstrap", owner_id, conversation_id),
             full_debug=True,
         )
         request["prompt"] = json.dumps(
@@ -234,7 +237,7 @@ def prepare_turn(
         )
         save_trace(
             owner_id,
-            turn_id,
+            candidate_id,
             "bootstrap",
             folders,
             {

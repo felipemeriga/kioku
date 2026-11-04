@@ -19,6 +19,7 @@ def test_materialization_remint_shares_allocator_and_has_one_truthful_artifact()
         "owner_id": "owner",
         "request": {
             "folder_ids": ["folder"],
+            "metadata": {"bootstrap_namespace": "candidate"},
             "prompt": json.dumps({"current_turn_evidence": "Fresh guide [1]"}),
         },
     }
@@ -49,7 +50,9 @@ def test_materialization_remint_shares_allocator_and_has_one_truthful_artifact()
         patch("services.ai.evidence.get_supabase_thread_safe", return_value=db),
         patch(
             "services.ai.evidence.sources_for",
-            return_value=[{"source_id": "fresh", "owner_id": "owner", "number": 1}],
+            return_value=[
+                {"source_id": "fresh", "owner_id": "owner", "folder_id": "folder", "number": 1}
+            ],
         ),
     ):
         materialize_bootstrap(turn, "attempt")
@@ -63,15 +66,26 @@ def test_materialization_remint_shares_allocator_and_has_one_truthful_artifact()
 
 
 @pytest.mark.parametrize(
-    "folders,trace_folders,source_owner",
-    [([], [], "owner"), (["folder"], ["foreign"], "owner"), (["folder"], ["folder"], "foreign")],
+    "folders,trace_folders,source_owner,source_folder",
+    [
+        ([], [], "owner", "folder"),
+        (["folder"], ["foreign"], "owner", "folder"),
+        (["folder"], ["folder"], "foreign", "folder"),
+        (["folder"], ["folder"], "owner", "foreign"),
+    ],
 )
-def test_no_grants_or_foreign_evidence_never_materializes(folders, trace_folders, source_owner):
+def test_no_grants_or_foreign_evidence_never_materializes(
+    folders, trace_folders, source_owner, source_folder
+):
     turn = {
         "id": "turn",
         "job_id": "job",
         "owner_id": "owner",
-        "request": {"folder_ids": folders, "prompt": '{"current_turn_evidence":"fixture"}'},
+        "request": {
+            "metadata": {"bootstrap_namespace": "candidate"},
+            "folder_ids": folders,
+            "prompt": '{"current_turn_evidence":"fixture"}',
+        },
     }
     db = MagicMock()
     query = db.table.return_value.select.return_value
@@ -80,7 +94,10 @@ def test_no_grants_or_foreign_evidence_never_materializes(folders, trace_folders
     ]
     with (
         patch("services.ai.evidence.get_supabase_thread_safe", return_value=db),
-        patch("services.ai.evidence.sources_for", return_value=[{"owner_id": source_owner}]),
+        patch(
+            "services.ai.evidence.sources_for",
+            return_value=[{"owner_id": source_owner, "folder_id": source_folder}],
+        ),
     ):
         if folders:
             with pytest.raises(ValueError):
@@ -239,3 +256,94 @@ def test_zero_native_tools_can_publish_only_current_bootstrap_citation():
     assert args[0] == "tsukai_commit_chat_turn"
     assert args[1]["p_citations"] == fresh
     assert args[1]["p_debug"]["tool_calls"][0]["origin"] == "backend_bootstrap"
+
+
+@pytest.mark.parametrize("conflicting_scope", [False, True])
+def test_concurrent_candidates_are_isolated_and_only_accepted_namespace_materializes(
+    conflicting_scope,
+):
+    """Two preparations pass the precheck before either wins immutable admission."""
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier, Lock
+
+    barrier, lock = Barrier(2), Lock()
+    candidates, accepted = {}, []
+    db = MagicMock()
+    query = MagicMock()
+    query.select.return_value = query
+    query.eq.return_value = query
+    query.limit.return_value = query
+    query.order.return_value = query
+    query.execute.return_value.data = []
+    db.table.return_value = query
+
+    def search(*args, **kwargs):
+        registry = kwargs["citations"]
+        assert registry.job_id not in {"turn", "job"}
+        candidates[registry.job_id] = kwargs["scope_folder_ids"][0]
+        barrier.wait(timeout=5)
+        return f"{registry.job_id} current evidence [1]"
+
+    def rpc(name, body):
+        with lock:
+            if not accepted:
+                accepted.append(
+                    {
+                        "id": "turn",
+                        "owner_id": "owner",
+                        "job_id": "job",
+                        "request": body["p_request"],
+                    }
+                )
+        return SimpleNamespace(execute=lambda: SimpleNamespace(data=accepted[0]))
+
+    db.rpc.side_effect = rpc
+
+    def prepare(folder):
+        return prepare_turn(
+            owner_id="owner",
+            conversation_id="conversation",
+            content="guide?",
+            turn_id="turn",
+            model="haiku",
+            mode="deep",
+            folder_id=folder,
+            filename=None,
+        )
+
+    with (
+        patch("services.ai.chat.get_supabase_thread_safe", return_value=db),
+        patch(
+            "services.ai.chat.descendant_folder_ids", side_effect=lambda sb, folder, owner: [folder]
+        ),
+        patch("services.ai.chat.execute_tool", side_effect=search),
+        patch("services.ai.chat.save_trace") as save,
+    ):
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            list(pool.map(prepare, ["folder", "foreign" if conflicting_scope else "folder"]))
+    assert len(candidates) == 2
+    staged = {
+        call.args[1]: {"folder_ids": call.args[3], "trace": call.args[4], "result": call.args[5]}
+        for call in save.call_args_list
+    }
+    winner = accepted[0]
+    namespace = winner["request"]["metadata"]["bootstrap_namespace"]
+    assert namespace in json.loads(winner["request"]["prompt"])["current_turn_evidence"]
+    db2 = MagicMock()
+    q = db2.table.return_value.select.return_value.eq.return_value.eq.return_value.eq.return_value
+    q.execute.return_value.data = [staged[namespace]]
+    db2.rpc.return_value.execute.return_value.data = 1
+    source = {
+        "source_id": namespace,
+        "number": 1,
+        "owner_id": "owner",
+        "folder_id": candidates[namespace],
+    }
+    with (
+        patch("services.ai.evidence.get_supabase_thread_safe", return_value=db2),
+        patch("services.ai.evidence.sources_for", return_value=[source]) as sources,
+    ):
+        materialize_bootstrap(winner, "attempt")
+    sources.assert_called_once_with(namespace, "bootstrap")
+    assert db2.rpc.call_args.args[1]["p_source_key"] == namespace
+    assert db2.table.return_value.upsert.call_args.args[0]["result"] == staged[namespace]["result"]

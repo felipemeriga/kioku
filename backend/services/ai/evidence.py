@@ -108,12 +108,15 @@ def materialize_bootstrap(turn: dict, attempt_id: str) -> None:
     request = turn["request"]
     if not request["folder_ids"] or "current_turn_evidence" not in json.loads(request["prompt"]):
         return
+    namespace = request.get("metadata", {}).get("bootstrap_namespace")
+    if not namespace:
+        raise ValueError("Missing accepted bootstrap namespace")
     sb = get_supabase_thread_safe()
     traces = (
         sb.table("tsukai_tool_traces")
         .select("*")
         .eq("owner_id", turn["owner_id"])
-        .eq("job_id", turn["id"])
+        .eq("job_id", namespace)
         .eq("attempt_id", "bootstrap")
         .execute()
         .data
@@ -121,10 +124,14 @@ def materialize_bootstrap(turn: dict, attempt_id: str) -> None:
     )
     if len(traces) != 1 or set(traces[0]["folder_ids"]) != set(request["folder_ids"]):
         raise ValueError("Missing or mismatched current-turn bootstrap evidence")
-    sources = sources_for(turn["id"], "bootstrap")
+    sources = sources_for(namespace, "bootstrap")
     for source in sources:
-        if source.get("owner_id") != turn["owner_id"]:
-            raise ValueError("Bootstrap source owner mismatch")
+        if (
+            source.get("owner_id") != turn["owner_id"]
+            or source.get("folder_id") not in request["folder_ids"]
+        ):
+            raise ValueError("Bootstrap source scope mismatch")
+    for source in sources:
         number = (
             sb.rpc(
                 "tsukai_register_citation",
