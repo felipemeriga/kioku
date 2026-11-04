@@ -11,6 +11,7 @@ from pathlib import Path
 
 import httpx
 
+from .cancellation import complete_cleanup
 from .native import NativeRunner
 from .protocol import JobRequest
 from .store import Fenced
@@ -205,6 +206,13 @@ class Scheduler:
             }
         }
 
+    def signal_cancel(self, attempt_id, task):
+        if task.done() or attempt_id in self.cancelling:
+            return False
+        self.cancelling.add(attempt_id)
+        task.cancel()
+        return True
+
     async def execute(self, claim):
         attempt = claim["attempt"]
         req = JobRequest.model_validate(claim["job"]["request"])
@@ -269,17 +277,17 @@ class Scheduler:
 
         async def heartbeat():
             while True:
-                await asyncio.sleep(5)
+                await asyncio.sleep(self.settings.heartbeat_seconds)
                 try:
                     cancelled = await self.store.heartbeat(attempt)
                     attempt["lease_until"] = time.time() + 30
                     if cancelled:
-                        current.cancel()
+                        self.signal_cancel(attempt["id"], current)
                         return
                 except Exception:
                     # Native cannot continue after authority becomes uncertain.
                     if time.time() >= attempt["lease_until"]:
-                        current.cancel()
+                        self.signal_cancel(attempt["id"], current)
                         return
 
         heartbeat_task = asyncio.create_task(heartbeat())
@@ -295,11 +303,18 @@ class Scheduler:
             await publisher
             await self.store.finish(attempt, "completed", result=result)
         except asyncio.CancelledError:
-            await self.native.stop(attempt["id"])
-            with contextlib.suppress(Exception):
+            self.cancelling.add(attempt["id"])
+
+            async def terminate_and_commit():
+                with contextlib.suppress(Exception):
+                    await self.store.heartbeat(attempt)
+                await self.native.stop(attempt["id"])
                 await self.store.finish(
                     attempt, "cancelled", error={"code": "cancelled", "usage_complete": False}
                 )
+
+            with contextlib.suppress(Exception):
+                await complete_cleanup(terminate_and_commit(), 20)
         except TimeoutError:
             with contextlib.suppress(Exception):
                 await self.store.finish(
@@ -361,9 +376,8 @@ class Scheduler:
                 owner = (
                     await conn.execute(select(attempts.c.job_id).where(attempts.c.id == attempt_id))
                 ).scalar_one_or_none()
-            if owner == job_id and attempt_id not in self.cancelling:
-                self.cancelling.add(attempt_id)
-                task.cancel()
+            if owner == job_id:
+                self.signal_cancel(attempt_id, task)
 
     async def drain(self):
         self.draining = True
@@ -378,6 +392,7 @@ class Scheduler:
             _, pending = await asyncio.wait(
                 list(self.tasks.values()), timeout=self.settings.drain_seconds
             )
-            for task in pending:
-                task.cancel()
+            for attempt_id, task in list(self.tasks.items()):
+                if task in pending:
+                    self.signal_cancel(attempt_id, task)
             await asyncio.gather(*pending, return_exceptions=True)

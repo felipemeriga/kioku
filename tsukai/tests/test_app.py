@@ -521,3 +521,82 @@ async def test_app_owned_store_uses_configured_workspace_root(tmp_path):
         assert not workspace.exists()
     finally:
         await store.engine.dispose()
+
+
+async def test_api_heartbeat_and_shutdown_share_one_cancellation_signal(app_client, monkeypatch):
+    app, client, settings = app_client
+    scheduler = app.state.scheduler
+    settings.heartbeat_seconds = 0.02
+    settings.drain_seconds = 0.01
+    stopping = asyncio.Event()
+    original_stop = scheduler.native.stop
+
+    async def slow_stop(attempt_id):
+        stopping.set()
+        await asyncio.sleep(0.15)
+        await original_stop(attempt_id)
+
+    monkeypatch.setattr(scheduler.native, "stop", slow_stop)
+    payload = body(profile="chat", conversation_id="cancel-race")
+    payload["prompt"] = "SLEEP"
+    auth = headers(settings, payload)
+    submitted = (await client.post("/v1/jobs", json=payload, headers=auth)).json()
+    for _ in range(100):
+        if scheduler.native.processes:
+            break
+        await asyncio.sleep(0.01)
+    task = next(iter(scheduler.tasks.values()))
+    await client.post(f"/v1/jobs/{submitted['job_id']}/cancel", headers=auth)
+    await asyncio.wait_for(stopping.wait(), 1)
+    await asyncio.gather(scheduler.cancel(submitted["job_id"]), scheduler.drain())
+    assert task.cancelling() == 1
+    result = await terminal(client, submitted["result_url"], auth)
+    assert result["status"] == "cancelled" and result["error"]["code"] == "cancelled"
+    assert not scheduler.native.processes
+    usage = (await client.get(f"/v1/jobs/{submitted['job_id']}/usage", headers=auth)).json()
+    assert usage["attempts"][0]["status"] == "cancelled"
+
+
+async def test_repeated_external_cancellation_cannot_interrupt_reaping_or_terminal_commit(
+    app_client, monkeypatch
+):
+    app, client, settings = app_client
+    scheduler = app.state.scheduler
+    stopping, committing = asyncio.Event(), asyncio.Event()
+    original_stop, original_finish = scheduler.native.stop, scheduler.store.finish
+
+    async def slow_stop(attempt_id):
+        stopping.set()
+        await asyncio.sleep(0.1)
+        await original_stop(attempt_id)
+
+    async def slow_finish(*args, **kwargs):
+        committing.set()
+        await asyncio.sleep(0.1)
+        return await original_finish(*args, **kwargs)
+
+    monkeypatch.setattr(scheduler.native, "stop", slow_stop)
+    monkeypatch.setattr(scheduler.store, "finish", slow_finish)
+    payload = body(profile="chat", conversation_id="shielded-cancel")
+    payload["prompt"] = "SLEEP"
+    auth = headers(settings, payload)
+    submitted = (await client.post("/v1/jobs", json=payload, headers=auth)).json()
+    for _ in range(100):
+        if scheduler.native.processes:
+            break
+        await asyncio.sleep(0.01)
+    task = next(iter(scheduler.tasks.values()))
+    await client.post(f"/v1/jobs/{submitted['job_id']}/cancel", headers=auth)
+    await asyncio.wait_for(stopping.wait(), 1)
+    for _ in range(3):
+        task.cancel()
+        await asyncio.sleep(0.01)
+    await asyncio.wait_for(committing.wait(), 1)
+    for _ in range(3):
+        task.cancel()
+        await asyncio.sleep(0.01)
+    await asyncio.wait_for(asyncio.shield(task), 2)
+    result = await terminal(client, submitted["result_url"], auth)
+    assert result["status"] == "cancelled"
+    assert not scheduler.native.processes
+    assert await scheduler.store.recover() == 0
