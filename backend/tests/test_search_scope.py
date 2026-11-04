@@ -283,3 +283,25 @@ class TestRecentChanges(unittest.TestCase):
             out = execute_tool("recent_changes", {}, "u1", scope_folder_ids=["f1"])
         self.assertIn("## repoA", out)
         self.assertIn("s", out)
+
+
+def test_empty_graph_references_suggest_definitions_without_claiming_references():
+    from services.tools import _code_graph_lookup
+
+    candidates = [
+        {"symbol": "EventPayload::PowerPlayStart", "file": "src/event.rs", "start_line": 22}
+    ]
+    with (
+        patch("services.tools.get_supabase", return_value=MagicMock()),
+        patch("services.tools._folder_names", return_value={"f1": "repo"}),
+        patch("services.tools.graph_store.find_references", return_value=[]),
+        patch("services.tools.graph_store.find_definition", return_value=candidates),
+    ):
+        result = _code_graph_lookup({"operation": "references", "symbol": "PowerPlayStart"}, ["f1"])
+        assert "suggestions, not confirmed references" in result
+        assert "EventPayload::PowerPlayStart" in result
+        assert "src/event.rs:22" in result
+        scoped = _code_graph_lookup(
+            {"operation": "references", "symbol": "PowerPlayStart"}, ["f1"], "other.rs"
+        )
+        assert "EventPayload::PowerPlayStart" not in scoped

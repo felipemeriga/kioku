@@ -114,7 +114,8 @@ TOOL_DEFINITIONS = [
                     "type": "string",
                     "description": (
                         "Symbol name (function/class/method) for definition, references, "
-                        "or impact. Bare name — no parentheses or module prefix."
+                        "or impact. Prefer the full indexed symbol when known; bare names "
+                        "are also accepted. Empty results may include definition suggestions."
                     ),
                 },
                 "path": {
@@ -211,7 +212,31 @@ def _code_graph_lookup(
 
     if not lines:
         target = symbol or path
-        return f"No code-graph results for '{target}' ({op}) in the repositories in scope."
+        message = f"No code-graph results for '{target}' ({op}) in the repositories in scope."
+        if op in ("references", "impact"):
+            suggestions = []
+            for fid in folders:
+                for row in graph_store.find_definition(sb, folder_id=fid, symbol=symbol, limit=5):
+                    if scope_filename and row.get("file") != scope_filename:
+                        continue
+                    suggestions.append(
+                        f"[{names.get(fid, fid)}] {row['symbol']} — "
+                        f"{row['file']}:{row['start_line']}"
+                    )
+                    if len(suggestions) >= 8:
+                        break
+                if len(suggestions) >= 8:
+                    break
+            if suggestions:
+                return (
+                    message
+                    + (
+                        "\nRelated indexed definitions (suggestions, not confirmed references). "
+                        "Retry with the full symbol shown, or search the source directly:\n"
+                    )
+                    + "\n".join(suggestions)
+                )
+        return message
     if len(lines) > _GRAPH_MAX_LINES:
         extra = len(lines) - _GRAPH_MAX_LINES
         return "\n".join(lines[:_GRAPH_MAX_LINES]) + f"\n… (+{extra} more — narrow the query)"

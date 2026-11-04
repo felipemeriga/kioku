@@ -35,7 +35,7 @@ describe("retrieval provenance", () => {
     ]);
     expect(screen.getByText("Backend retrieval")).toBeInTheDocument();
     expect(screen.getByText(/output modes and dry-run/)).toBeInTheDocument();
-    expect(screen.getByText(/guide.md/)).toBeInTheDocument();
+    expect(screen.queryByText(/guide.md/)).not.toBeInTheDocument();
     expect(
       screen.getByRole("tab", { name: "Retrieval and tools (1)" }),
     ).toBeInTheDocument();
@@ -87,6 +87,14 @@ describe("retrieval provenance", () => {
     expect(
       await screen.findByText("Exact backend evidence"),
     ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Result available in the evidence artifact."),
+    ).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("inspect-code-content")).toHaveLength(2);
+    expect(screen.queryByText("Search scope")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Technical details" }),
+    ).not.toBeInTheDocument();
   });
   it("preserves actual agent rounds and shows missing input explicitly", () => {
     show([
@@ -132,4 +140,74 @@ it("highlights retrieved configuration chunks using their source filenames", () 
       .getAllByTestId("inspect-code-content")
       .map((el) => el.dataset.language),
   ).toEqual(["toml", "yaml"]);
+});
+
+it("links code chunks to their verified GitHub source and exact line range", () => {
+  renderWithProviders(
+    <InspectDialog
+      open
+      onClose={vi.fn()}
+      citations={[
+        {
+          number: 1,
+          source: "src/schema.proto:10-20",
+          source_type: "code",
+          file: "src/schema.proto",
+          folder_id: "repo",
+          url: "https://github.com/org/repo/blob/main/src/schema.proto#L10",
+          excerpt: "message Example {}",
+        },
+      ]}
+      trace={{
+        reasoning: [],
+        tool_calls: [],
+        retrieval: [
+          {
+            source: "src/schema.proto:10-20",
+            source_type: "code",
+            folder_id: "repo",
+            content: "message Example {}",
+            rerank_score: 0.8,
+          },
+        ],
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("tab", { name: "Chunks (1)" }));
+  expect(
+    screen.getByRole("link", { name: "src/schema.proto:10-20" }),
+  ).toHaveAttribute(
+    "href",
+    "https://github.com/org/repo/blob/main/src/schema.proto#L10-L20",
+  );
+  expect(screen.getByText("Proto")).toBeInTheDocument();
+  expect(screen.queryByText("PROTOBUF")).not.toBeInTheDocument();
+});
+
+it("opens document chunks in the existing preview flow", () => {
+  const onClose = vi.fn();
+  const onOpenDocument = vi.fn();
+  renderWithProviders(
+    <InspectDialog
+      open
+      onClose={onClose}
+      onOpenDocument={onOpenDocument}
+      trace={{
+        reasoning: [],
+        tool_calls: [],
+        retrieval: [
+          {
+            source: "guide.pdf",
+            source_type: "document",
+            folder_id: "docs",
+            content: "Guide",
+          },
+        ],
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("tab", { name: "Chunks (1)" }));
+  fireEvent.click(screen.getByRole("button", { name: "guide.pdf" }));
+  expect(onClose).toHaveBeenCalledOnce();
+  expect(onOpenDocument).toHaveBeenCalledWith("guide.pdf", "docs");
 });

@@ -854,6 +854,8 @@ export default function MessageBubble({
           open={inspectOpen}
           onClose={() => setInspectOpen(false)}
           trace={debug}
+          citations={citations}
+          onOpenDocument={onOpenDocument}
         />
       )}
     </Box>

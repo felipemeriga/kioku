@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Box, Typography } from "@mui/material";
 import { brand, fonts } from "../../theme";
 
@@ -6,7 +7,7 @@ export default function RerankBar({
   score,
   kind = "doc",
 }: {
-  file: string;
+  file: ReactNode;
   score: number;
   kind?: string;
 }) {

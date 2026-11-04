@@ -311,6 +311,8 @@ export async function renameConversation(
 
 /** Live-only debug trace emitted by the agent when debug mode is on. */
 export interface DebugRetrievalChunk {
+  folder_id?: string | null;
+  citation_number?: number | null;
   query?: string;
   source: string;
   source_type: string;

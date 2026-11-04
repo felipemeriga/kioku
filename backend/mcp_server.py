@@ -2114,7 +2114,18 @@ def find_references(symbol: str, folder: str | None = None) -> str:
 
     rows = _refs(sb, folder_id=folder_id, symbol=symbol)
     if not rows:
-        return f"No references found for '{symbol}'."
+        from services.repo_graph import find_definition as _definitions
+
+        candidates = _definitions(sb, folder_id=folder_id, symbol=symbol, limit=8)
+        message = f"No references found for '{symbol}'."
+        if candidates:
+            message += (
+                "\nRelated indexed definitions (suggestions, not confirmed references). "
+                "Retry with the full symbol shown, or search the source directly:\n"
+            ) + "\n".join(
+                f"  {row['symbol']} — {row['file']}:{row['start_line']}" for row in candidates
+            )
+        return message
     lines = [f"References to '{symbol}' ({len(rows)}):"]
     for r in rows:
         loc = f":{r['ref_line']}" if r.get("ref_line") else ""
