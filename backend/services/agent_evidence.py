@@ -536,7 +536,8 @@ class EvidenceStore:
                 entry.update(
                     raw_available=True,
                     source=self.source(event),
-                    viewer_truncated=len(event["content_preview"].encode()) >= 4096,
+                    viewer_truncated=event.get("content_length", 0)
+                    > len(event["content_preview"].encode()),
                     attachments=attachment_map.get(event["event_id"], []),
                 )
                 if event["event_type"] == "tool_result":
