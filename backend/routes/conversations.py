@@ -63,6 +63,7 @@ def get_conversation(conversation_id: str, user_id: str = Depends(get_current_us
             .select("*")
             .eq("owner_id", user_id)
             .eq("conversation_id", conversation_id)
+            .not_.is_("job_id", "null")
             .order("created_at", desc=True)
             .limit(1)
             .execute()

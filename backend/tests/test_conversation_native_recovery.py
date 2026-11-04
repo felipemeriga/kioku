@@ -15,7 +15,9 @@ CONVERSATION = "a33db494-71d1-4228-8dd2-27399b22c07a"
     "native,job,revoked",
     [(False, "job", False), (True, None, False), (True, "job", True), (True, "job", False)],
 )
-@pytest.mark.parametrize("state", ["submitted", "failed", "cancelled", "uncertain"])
+@pytest.mark.parametrize(
+    "state", ["submitted", "failed", "cancelled", "uncertain", "committed", "acknowledged"]
+)
 def test_existing_read_discovers_accepted_owned_execution_without_prompt_leak(
     native, job, revoked, state
 ):
@@ -37,6 +39,7 @@ def test_existing_read_discovers_accepted_owned_execution_without_prompt_leak(
         q = MagicMock()
         for method in ("select", "eq", "order", "in_", "limit"):
             getattr(q, method).return_value = q
+        q.not_.is_.return_value = q
         q.execute.return_value = SimpleNamespace(
             data={
                 "conversations": [{"id": CONVERSATION}],
@@ -58,11 +61,12 @@ def test_existing_read_discovers_accepted_owned_execution_without_prompt_leak(
         result = get_conversation(CONVERSATION, "owner")
     assert "private prompt" not in str(result)
     if native:
+        queries["tsukai_chat_turns"].not_.is_.assert_called_once_with("job_id", "null")
         queries["tsukai_chat_turns"].eq.assert_any_call("owner_id", "owner")
         queries["tsukai_chat_turns"].eq.assert_any_call("conversation_id", CONVERSATION)
     else:
         assert "tsukai_chat_turns" not in queries
-    if native and job and not revoked:
+    if native and job and not revoked and state not in {"committed", "acknowledged"}:
         assert result["active_execution"] == {
             "state": state,
             "turn_id": "turn",
