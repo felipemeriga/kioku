@@ -1,0 +1,8 @@
+{
+  "first_stream_event_received": true,
+  "health_status": 200,
+  "health_s": 0.0011641290038824081,
+  "generation_completed_after_disconnect": true,
+  "answer_chars": 551,
+  "durable_replay_implemented": false
+}

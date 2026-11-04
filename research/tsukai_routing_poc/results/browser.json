@@ -1,0 +1,20 @@
+[
+  {
+    "engine": "api",
+    "events": 25,
+    "firstRenderMs": 637.9000000953674,
+    "success": true,
+    "model": "claude-haiku-4-5-20251001",
+    "completeMs": 1242.1000003814697,
+    "answer": "The retry limit of MAX_ATTEMPTS=7 allows PostgreSQL outbox to attempt event delivery up to 7 times before giving up. Event deduplication by event_id prevents duplicate processing if the same event is retried or received multiple times."
+  },
+  {
+    "engine": "native",
+    "events": 35,
+    "firstRenderMs": 1156.5999999046326,
+    "success": true,
+    "model": "claude-haiku-4-5-20251001",
+    "completeMs": 2700.800000190735,
+    "answer": "# PostgreSQL Outbox Retry and Deduplication\n\nThe MAX_ATTEMPTS=7 limit allows each outbox event up to 7 retry attempts before being marked as failed, ensuring eventual termination of failed message delivery attempts. The event_id deduplication prevents the same event from being processed multiple times, protecting against duplicate message delivery even if retries succeed across multiple processing cycles."
+  }
+]

@@ -1,0 +1,10 @@
+{
+  "initial_three_repos_reviewed": true,
+  "isolated_per_repo_sessions": true,
+  "unchanged_heads_no_model_calls": true,
+  "failure_retains_old_sha": true,
+  "next_pass_recovers": true,
+  "fresh_session_on_new_pass": true,
+  "indexing_scope": "fixture inventory stub; no embedding or production upload",
+  "updated_documentation_mentions_current_attempts": true
+}

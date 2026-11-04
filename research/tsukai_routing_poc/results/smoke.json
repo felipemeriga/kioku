@@ -1,0 +1,419 @@
+{
+  "api_harness_tools": {
+    "passed": true,
+    "events": [
+      {
+        "type": "tool",
+        "name": "knowledge_base_search",
+        "evidence": "[1] worker.py:1 MAX_ATTEMPTS = 7; README.md PostgreSQL outbox with event_id idempotency. No deployment evidence."
+      },
+      {
+        "type": "text",
+        "text": "**"
+      },
+      {
+        "type": "text",
+        "text": "MAX"
+      },
+      {
+        "type": "text",
+        "text": "_ATTEMPTS**"
+      },
+      {
+        "type": "text",
+        "text": " is"
+      },
+      {
+        "type": "text",
+        "text": " set"
+      },
+      {
+        "type": "text",
+        "text": " to a"
+      },
+      {
+        "type": "text",
+        "text": " constant"
+      },
+      {
+        "type": "text",
+        "text": " value of 7"
+      },
+      {
+        "type": "text",
+        "text": " in worker"
+      },
+      {
+        "type": "text",
+        "text": ".py. This"
+      },
+      {
+        "type": "text",
+        "text": " defines"
+      },
+      {
+        "type": "text",
+        "text": " the maximum number of"
+      },
+      {
+        "type": "text",
+        "text": " retry attempts allowed"
+      },
+      {
+        "type": "text",
+        "text": " for operations"
+      },
+      {
+        "type": "text",
+        "text": "."
+      },
+      {
+        "type": "text",
+        "text": "\n\n**event_"
+      },
+      {
+        "type": "text",
+        "text": "id** is an"
+      },
+      {
+        "type": "text",
+        "text": " id"
+      },
+      {
+        "type": "text",
+        "text": "empotency key"
+      },
+      {
+        "type": "text",
+        "text": " used in"
+      },
+      {
+        "type": "text",
+        "text": " the"
+      },
+      {
+        "type": "text",
+        "text": " PostgreSQL outbox"
+      },
+      {
+        "type": "text",
+        "text": " pattern"
+      },
+      {
+        "type": "text",
+        "text": ","
+      },
+      {
+        "type": "text",
+        "text": " as"
+      },
+      {
+        "type": "text",
+        "text": " referenced in README"
+      },
+      {
+        "type": "text",
+        "text": ".md. It"
+      },
+      {
+        "type": "text",
+        "text": " ensures"
+      },
+      {
+        "type": "text",
+        "text": " that events"
+      },
+      {
+        "type": "text",
+        "text": " are"
+      },
+      {
+        "type": "text",
+        "text": " processed"
+      },
+      {
+        "type": "text",
+        "text": " exactly"
+      },
+      {
+        "type": "text",
+        "text": " once, preventing"
+      },
+      {
+        "type": "text",
+        "text": " duplicate processing when"
+      },
+      {
+        "type": "text",
+        "text": " ret"
+      },
+      {
+        "type": "text",
+        "text": "ries occur."
+      },
+      {
+        "type": "text",
+        "text": "\n\n**"
+      },
+      {
+        "type": "text",
+        "text": "Source"
+      },
+      {
+        "type": "text",
+        "text": ":**"
+      },
+      {
+        "type": "text",
+        "text": " worker.py:"
+      },
+      {
+        "type": "text",
+        "text": "1 and"
+      },
+      {
+        "type": "text",
+        "text": " README.md"
+      },
+      {
+        "type": "result",
+        "text": "**MAX_ATTEMPTS** is set to a constant value of 7 in worker.py. This defines the maximum number of retry attempts allowed for operations.\n\n**event_id** is an idempotency key used in the PostgreSQL outbox pattern, as referenced in README.md. It ensures that events are processed exactly once, preventing duplicate processing when retries occur.\n\n**Source:** worker.py:1 and README.md",
+        "model": "claude-haiku-4-5-20251001",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "inference_geo": "not_available",
+          "input_tokens": 740,
+          "output_tokens": 96,
+          "server_tool_use": null,
+          "service_tier": "standard",
+          "speed": "standard"
+        },
+        "provider_s": 2.553574081044644,
+        "provider_message_id": "msg_011CghAZNsaQyktLw3Jh961E",
+        "success": true,
+        "rounds": 2,
+        "tool_calls": 1
+      }
+    ]
+  },
+  "native_harness_tools": {
+    "passed": true,
+    "events": [
+      {
+        "type": "text",
+        "text": "I'll search for information"
+      },
+      {
+        "type": "text",
+        "text": " about MAX"
+      },
+      {
+        "type": "text",
+        "text": "_ATTEMPTS and event_id in"
+      },
+      {
+        "type": "text",
+        "text": " the repository"
+      },
+      {
+        "type": "text",
+        "text": "."
+      },
+      {
+        "type": "tool",
+        "name": "mcp__fixture__knowledge_base_search",
+        "input": {
+          "query": "MAX_ATTEMPTS event_id"
+        }
+      },
+      {
+        "type": "text",
+        "text": "Based"
+      },
+      {
+        "type": "text",
+        "text": " on the"
+      },
+      {
+        "type": "text",
+        "text": " repository"
+      },
+      {
+        "type": "text",
+        "text": " evidence"
+      },
+      {
+        "type": "text",
+        "text": ":"
+      },
+      {
+        "type": "text",
+        "text": "\n\n**"
+      },
+      {
+        "type": "text",
+        "text": "MAX_ATTEMPTS**"
+      },
+      {
+        "type": "text",
+        "text": " is"
+      },
+      {
+        "type": "text",
+        "text": " set"
+      },
+      {
+        "type": "text",
+        "text": " to 7 in `"
+      },
+      {
+        "type": "text",
+        "text": "worker.py`, representing"
+      },
+      {
+        "type": "text",
+        "text": " the maximum number of retry attempts for"
+      },
+      {
+        "type": "text",
+        "text": " processing"
+      },
+      {
+        "type": "text",
+        "text": " operations"
+      },
+      {
+        "type": "text",
+        "text": ". ["
+      },
+      {
+        "type": "text",
+        "text": "2"
+      },
+      {
+        "type": "text",
+        "text": "]"
+      },
+      {
+        "type": "text",
+        "text": "\n\n**event_id** is used"
+      },
+      {
+        "type": "text",
+        "text": " for"
+      },
+      {
+        "type": "text",
+        "text": " id"
+      },
+      {
+        "type": "text",
+        "text": "empotency tracking"
+      },
+      {
+        "type": "text",
+        "text": " in a"
+      },
+      {
+        "type": "text",
+        "text": " PostgreSQL outbox pattern,"
+      },
+      {
+        "type": "text",
+        "text": " as"
+      },
+      {
+        "type": "text",
+        "text": " documented"
+      },
+      {
+        "type": "text",
+        "text": " in the `"
+      },
+      {
+        "type": "text",
+        "text": "README.md`. This"
+      },
+      {
+        "type": "text",
+        "text": " ensures"
+      },
+      {
+        "type": "text",
+        "text": " that events"
+      },
+      {
+        "type": "text",
+        "text": " are processed"
+      },
+      {
+        "type": "text",
+        "text": " exactly"
+      },
+      {
+        "type": "text",
+        "text": " once, even if they are encountered"
+      },
+      {
+        "type": "text",
+        "text": " multiple times. [1]"
+      },
+      {
+        "type": "result",
+        "text": "Based on the repository evidence:\n\n**MAX_ATTEMPTS** is set to 7 in `worker.py`, representing the maximum number of retry attempts for processing operations. [2]\n\n**event_id** is used for idempotency tracking in a PostgreSQL outbox pattern, as documented in the `README.md`. This ensures that events are processed exactly once, even if they are encountered multiple times. [1]",
+        "success": true,
+        "model": "claude-haiku-4-5-20251001",
+        "usage": {
+          "input_tokens": 2563,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 178,
+          "output_tokens_details": {
+            "thinking_tokens": 0
+          },
+          "server_tool_use": {
+            "web_search_requests": 0,
+            "web_fetch_requests": 0
+          },
+          "service_tier": "standard",
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "inference_geo": "not_available",
+          "iterations": [
+            {
+              "input_tokens": 1365,
+              "output_tokens": 93,
+              "cache_read_input_tokens": 0,
+              "cache_creation_input_tokens": 0,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 0
+              },
+              "type": "message"
+            }
+          ],
+          "speed": "standard",
+          "fallback_credit": null
+        },
+        "session_id": "7f30534a-3a99-49c2-b470-67598b1e306c",
+        "num_turns": 2,
+        "list_equivalent_usd": 0.003453,
+        "structured_output": null
+      }
+    ]
+  },
+  "resumed_chat": {
+    "passed": true,
+    "session_id": "8d01897a-ddcc-412a-bba5-d94d53ba1edd"
+  },
+  "scope_rejection": {
+    "passed": true
+  }
+}
