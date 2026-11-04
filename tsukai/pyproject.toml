@@ -13,6 +13,7 @@ packages = ["src/tsukai"]
 dev = ["pytest>=9", "pytest-asyncio>=1.3", "aiosqlite>=0.22", "ruff>=0.15"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 [tool.ruff]
 target-version = "py312"
