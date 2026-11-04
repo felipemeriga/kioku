@@ -14,11 +14,13 @@ import hashlib
 import json
 import logging
 import stat
+import threading
 import time
 from pathlib import Path
 
 import httpx
-from tsukai_chat_lifecycle_acceptance import body, conversation, terminal
+
+from tsukai_chat_lifecycle_acceptance import body, conversation, frames
 from tsukai_http_acceptance import CheckFailure, save
 
 
@@ -45,7 +47,7 @@ def load_read_paths(config):
     ]
 
 
-def run(config):
+def run(config, scenario="metadata-first"):
     token = Path(config["token_file"])
     if (
         not config["fixture_name"].startswith("tsukai-e2e-")
@@ -85,6 +87,8 @@ def run(config):
         for index in range(3):
             identifiers.append(conversation(client, config, "load-" + str(index)))
 
+    metadata_admitted = threading.Event()
+
     def job(index):
         content = (
             (
@@ -92,7 +96,7 @@ def run(config):
                 "in this exact fixture scope. "
                 "Report the count briefly, then say load-metadata-complete."
             )
-            if index == 0
+            if index == 0 and scenario == "metadata-first"
             else (
                 "Use knowledge_base_search exactly once in this fixture scope "
                 "for the acceptance guide. "
@@ -104,7 +108,22 @@ def run(config):
         began = time.monotonic()
         try:
             with httpx.Client(**options) as client:
-                final, deltas = terminal(client, request)
+                final, deltas = None, 0
+                with client.stream("POST", "/api/chat", json=request) as response:
+                    for frame in frames(response):
+                        if (
+                            index == 0
+                            and (frame.get("progress") or {}).get("type")
+                            == "attempt.started"
+                        ):
+                            metadata_admitted.set()
+                        deltas += bool(frame.get("token"))
+                        if frame.get("done"):
+                            final = frame
+                if not final or not final.get("message_id"):
+                    raise CheckFailure(
+                        "Concurrent root has no durable terminal message"
+                    )
         except Exception as exc:
             save(
                 config["evidence"],
@@ -125,8 +144,12 @@ def run(config):
         tools = (final.get("debug") or {}).get("tool_calls") or []
         if not deltas:
             raise CheckFailure("Concurrent actual chat returned no deltas")
-        if index == 0 and not any(
-            "query_documents_metadata" in tool.get("name", "") for tool in tools
+        if (
+            index == 0
+            and scenario == "metadata-first"
+            and not any(
+                "query_documents_metadata" in tool.get("name", "") for tool in tools
+            )
         ):
             raise CheckFailure("Real load job did not invoke the reserved metadata-child path")
         result = {
@@ -154,7 +177,22 @@ def run(config):
         concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor,
         httpx.Client(**options) as client,
     ):
-        futures = [executor.submit(job, index) for index in range(3)]
+        if scenario == "metadata-first":
+            futures = [executor.submit(job, 0)]
+            deadline = time.monotonic() + 90
+            while not metadata_admitted.wait(0.25):
+                if futures[0].done():
+                    futures[0].result()
+                    raise CheckFailure(
+                        "Metadata root finished before actual admission was observed"
+                    )
+                if time.monotonic() > deadline:
+                    raise CheckFailure(
+                        "Metadata root was not admitted; other load jobs were not started"
+                    )
+            futures.extend(executor.submit(job, index) for index in (1, 2))
+        else:
+            futures = [executor.submit(job, index) for index in range(3)]
         while not all(future.done() for future in futures):
             for name, path, params in load_read_paths(config):
                 start = time.monotonic()
@@ -234,6 +272,7 @@ def run(config):
                 )
     result = {
         "kind": "real_three_conversation_load",
+        "scenario": scenario,
         "elapsed_seconds": time.monotonic() - began,
         "jobs": jobs,
         "failures": failures,
@@ -253,8 +292,10 @@ def run(config):
         for sample in samples
     ]
     if max(root_counts) > 2:
-        raise CheckFailure("Actual root concurrency exceeded configured two-root capacity")
-    if not any(
+        raise CheckFailure(
+            "Actual root concurrency exceeded configured two-root capacity"
+        )
+    if scenario == "metadata-first" and not any(
         sum(
             session.get("profile") == "metadata_child"
             and session.get("folder_ids") == [config["folder_id"]]
@@ -278,11 +319,16 @@ def run(config):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument(
+        "--scenario",
+        choices=("metadata-first", "simultaneous"),
+        default="metadata-first",
+    )
     args = parser.parse_args()
     logging.disable(logging.CRITICAL)
     config = json.loads(args.config.read_text())
     try:
-        result = run(config)
+        result = run(config, args.scenario)
     except Exception as exc:
         record = {
             "kind": "real_three_conversation_load",
