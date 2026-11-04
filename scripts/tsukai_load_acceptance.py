@@ -4,10 +4,13 @@ Requires the operator's integrated readiness. Runs exactly three short real
 Haiku agentic jobs, one explicitly invoking metadata, while measuring existing
 HTTP read responsiveness and actual queue/admin telemetry. Uses the private
 HTTP probe config; preserves synthetic fixture IDs and native accounting.
+The config also supplies journal_folder_id, journal_year and journal_month for
+the owner's known nonempty journal metadata routes. No journal text is logged.
 """
 
 import argparse
 import concurrent.futures
+import hashlib
 import json
 import logging
 import stat
@@ -109,8 +112,26 @@ def run(config):
                 response = client.get(path, params=params, timeout=10)
                 response.raise_for_status()
                 elapsed = time.monotonic() - start
+                data = response.json()
+                item_count = (
+                    len(data)
+                    if isinstance(data, list)
+                    else len(data.get("days", data.get("learnings", [])))
+                )
+                if name == "existing_calendar" and not item_count:
+                    raise CheckFailure(
+                        "Known nonempty calendar lost metadata during concurrent load"
+                    )
                 reads.append(
-                    {"name": name, "seconds": elapsed, "status": response.status_code}
+                    {
+                        "name": name,
+                        "seconds": elapsed,
+                        "status": response.status_code,
+                        "item_count": item_count,
+                        "sha256": hashlib.sha256(
+                            json.dumps(data, sort_keys=True).encode()
+                        ).hexdigest(),
+                    }
                 )
             response = client.get("/api/usage/native/active-sessions", timeout=10)
             response.raise_for_status()
@@ -168,11 +189,13 @@ def run(config):
         sum(
             session.get("profile") == "metadata_child"
             and session.get("folder_ids") == [config["folder_id"]]
+            and session.get("pid") is not None
             for session in sample["sessions"]
         )
         >= 1
         and sum(
             session.get("conversation_id") in identifiers
+            and session.get("pid") is not None
             for session in sample["sessions"]
         )
         >= 2
