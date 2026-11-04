@@ -73,3 +73,53 @@ def test_detailed_documentation_requires_full_revision_and_authoritative_scoped_
     mcp_after = "different tool content" if missing == "mcp-body" else after["content"]
     with pytest.raises(RuntimeError):
         probe.documentation_change(before, after, prepared, before["content"], mcp_after)
+
+
+def test_scoped_mcp_sse_documentation_decodes_utf8_despite_requests_latin1_default():
+    import json
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    import requests
+
+    def response(content, status=200, media="application/json"):
+        result = requests.Response()
+        result.status_code = status
+        result.headers["content-type"] = media
+        result._content = content
+        result.encoding = "ISO-8859-1" if media == "text/event-stream" else "utf-8"
+        return result
+
+    full_body = "# 記憶\n\nPolling — every 10 seconds.\n"
+    session = MagicMock()
+    session.headers = {}
+    session.post.side_effect = [
+        response(
+            json.dumps(
+                {"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "2025-03-26"}}
+            ).encode()
+        ),
+        response(b"", status=202),
+        response(
+            (
+                "data: "
+                + json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 2,
+                        "result": {"content": [{"type": "text", "text": full_body}]},
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n\n"
+            ).encode("utf-8"),
+            media="text/event-stream",
+        ),
+    ]
+    manager = MagicMock()
+    manager.__enter__.return_value = session
+    worker = SimpleNamespace(requests=SimpleNamespace(Session=lambda: manager))
+    assert (
+        probe.read_mcp_documentation(worker, "http://fixture/mcp", "fixture-only-key", "folder")
+        == full_body
+    )
