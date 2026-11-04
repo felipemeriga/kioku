@@ -10,6 +10,7 @@ const api = vi.hoisted(() => ({
   fetchUsageByConversation: vi.fn(),
   fetchUsageByMonth: vi.fn(),
   fetchUsageAttribution: vi.fn(),
+  fetchNativeActiveSessions: vi.fn(),
   createApiKey: vi.fn(),
   revokeApiKey: vi.fn(),
 }));
@@ -92,6 +93,11 @@ beforeEach(() => {
       },
     ],
   });
+  api.fetchNativeActiveSessions.mockResolvedValue({
+    available: true,
+    sessions: [],
+    queued_counts: { total: 0 },
+  });
   api.createApiKey.mockResolvedValue({ key: "test-secret-shown-once" });
   api.revokeApiKey.mockResolvedValue(undefined);
 });
@@ -169,4 +175,41 @@ describe("Settings page", () => {
       screen.getByText("https://mcp.example.test/mcp"),
     ).toBeInTheDocument();
   });
+});
+
+it("shows current native sessions with owner, execution identity, scope and elapsed time", async () => {
+  api.fetchNativeActiveSessions.mockResolvedValue({
+    available: true,
+    queued_counts: { total: 1 },
+    sessions: [
+      {
+        job_id: "active-job",
+        attempt_id: "active-attempt",
+        native_session_id: "native-session",
+        owner_id: "owner",
+        owner_label: "owner@example.com",
+        caller: "backend",
+        conversation_id: "conversation",
+        folder_ids: ["repo-folder"],
+        operation: "rag_agent",
+        profile: "chat",
+        model_requested: "claude-haiku-4-5-20251001",
+        native_cli_version: "2.1.318",
+        state: "running",
+        started_at: "2026-11-04T12:00:00Z",
+        elapsed_seconds: 12,
+      },
+    ],
+  });
+  renderWithProviders(<SettingsPage />, {
+    initialEntries: ["/settings?tab=usage"],
+  });
+  const panel = await screen.findByTestId("native-active-sessions");
+  await within(panel).findByText(/owner@example.com.*running.*12s/);
+  expect(
+    within(panel).getByText(/active-job.*active-attempt.*native-session/),
+  ).toBeInTheDocument();
+  expect(
+    within(panel).getByText(/conversation.*repo-folder/),
+  ).toBeInTheDocument();
 });

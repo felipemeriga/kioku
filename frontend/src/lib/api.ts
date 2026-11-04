@@ -1,3 +1,4 @@
+import { ChatTransportError, runChatTransport } from "./chatTransport";
 import { supabase } from "./supabase";
 
 /**
@@ -218,7 +219,7 @@ export interface BriefingResponse {
 }
 
 export async function fetchBriefing(
-  folderId: string
+  folderId: string,
 ): Promise<BriefingResponse> {
   const res = await apiFetch(`/api/folders/${folderId}/briefing`);
   return res.json();
@@ -231,7 +232,7 @@ export interface RepoDocumentation {
 }
 
 export async function fetchDocumentation(
-  folderId: string
+  folderId: string,
 ): Promise<{ documentation: RepoDocumentation | null }> {
   const res = await apiFetch(`/api/folders/${folderId}/documentation`);
   return res.json();
@@ -242,27 +243,27 @@ export async function updateBriefingSection(
   section: BriefingSectionKey,
   content: unknown,
   status: BriefingSectionStatus = "pinned",
-  updatedBy?: string
+  updatedBy?: string,
 ): Promise<{ ok: boolean; section: BriefingSection }> {
   const res = await apiFetch(
     `/api/folders/${folderId}/briefing/section/${section}`,
     {
       method: "PATCH",
       body: JSON.stringify({ content, status, updated_by: updatedBy }),
-    }
+    },
   );
   return res.json();
 }
 
 export async function resetBriefingSection(
   folderId: string,
-  section: BriefingSectionKey
+  section: BriefingSectionKey,
 ): Promise<{ ok: boolean; section: BriefingSection }> {
   const res = await apiFetch(
     `/api/folders/${folderId}/briefing/section/${section}/reset`,
     {
       method: "POST",
-    }
+    },
   );
   return res.json();
 }
@@ -270,7 +271,7 @@ export async function resetBriefingSection(
 /** Clear the whole briefing + detailed doc for a repo folder so it
  *  regenerates on the next `kioku init`. */
 export async function clearBriefing(
-  folderId: string
+  folderId: string,
 ): Promise<{ ok: boolean }> {
   const res = await apiFetch(`/api/folders/${folderId}/briefing`, {
     method: "DELETE",
@@ -280,7 +281,7 @@ export async function clearBriefing(
 
 export async function renameConversation(
   id: string,
-  title: string
+  title: string,
 ): Promise<Conversation> {
   const res = await apiFetch(`/api/conversations/${id}`, {
     method: "PATCH",
@@ -301,7 +302,17 @@ export interface DebugRetrievalChunk {
   content: string;
 }
 export interface DebugToolCall {
-  round: number;
+  round?: number;
+  artifact_id?: string;
+  started_at?: string;
+  finished_at?: string;
+  effective_scope?: {
+    user_id: string;
+    folder_ids: string[];
+    breadcrumbs?: Record<string, string[]>;
+    filename?: string | null;
+  };
+  status?: string;
   name: string;
   input: unknown;
   result_preview: string;
@@ -316,6 +327,13 @@ export interface DebugTrace {
   reasoning: DebugReasoningStep[];
   tool_calls: DebugToolCall[];
   retrieval: DebugRetrievalChunk[];
+  execution?: {
+    job_id: string;
+    turn_id: string;
+    attempt_id?: string;
+    usage?: unknown;
+    timings?: unknown;
+  };
 }
 
 /** One cited source, numbered [N] inline in the assistant answer. */
@@ -348,7 +366,7 @@ export interface ConversationWithMessages extends Conversation {
 }
 
 export async function fetchConversation(
-  id: string
+  id: string,
 ): Promise<ConversationWithMessages> {
   const res = await apiFetch(`/api/conversations/${id}`);
   return res.json();
@@ -390,15 +408,18 @@ export async function streamChat(
   debug?: boolean,
   onDebug?: (trace: DebugTrace) => void,
   onError?: (err: ApiError) => void,
-  onCitations?: (citations: Citation[]) => void
+  onCitations?: (citations: Citation[]) => void,
+  onReplace?: (text: string) => void,
+  onExecution?: (jobId: string) => void,
+  onProgress?: (event: Record<string, unknown>) => void,
+  rebuildFromCommittedHistory = false,
 ): Promise<void> {
   // A stream is "clean" only if it emits a data.done frame. Anything else —
   // TCP drop, backend timeout, JSON parse loss — should raise, not silently
   // close (which is how the previous code let broken responses pretend they
   // finished successfully).
-  let headers: Record<string, string>;
   try {
-    headers = await getAuthHeaders();
+    await getAuthHeaders();
   } catch (err) {
     const e =
       err instanceof ApiError
@@ -411,136 +432,51 @@ export async function streamChat(
     throw e;
   }
 
-  let response: Response;
+  const turnId = crypto.randomUUID();
   try {
-    response = await fetch("/api/chat", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
+    await runChatTransport({
+      payload: {
+        rebuild_from_committed_history: rebuildFromCommittedHistory,
         conversation_id: conversationId,
+        turn_id: turnId,
         content,
         model: model ?? "haiku",
         mode: mode ?? "deep",
         debug: debug ?? false,
         scope_folder_id: filters?.scopeFolderId || null,
         scope_filename: filters?.scopeFilename || null,
-      }),
+      },
+      headers: getAuthHeaders,
+      onFrame: (data) => {
+        if (data.stage && onStage)
+          onStage({
+            stage: data.stage as ChatStage,
+            docs: data.docs as number | undefined,
+            detail: data.detail as string | undefined,
+          });
+        if (data.debug && onDebug) onDebug(data.debug as DebugTrace);
+        if (data.citations && onCitations)
+          onCitations(data.citations as Citation[]);
+        if (typeof data.token === "string") onToken(data.token);
+        if (typeof data.replace === "string") onReplace?.(data.replace);
+        if (typeof data.job_id === "string") onExecution?.(data.job_id);
+        if (data.progress && typeof data.progress === "object")
+          onProgress?.(data.progress as Record<string, unknown>);
+        if (data.done) onDone();
+      },
     });
-  } catch (err) {
-    const e = new ApiError({
-      status: 0,
-      isNetwork: true,
-      userMessage: "Network error — the chat request never reached the server.",
-      detail: err instanceof Error ? err.message : String(err),
+  } catch (error) {
+    const status = error instanceof ChatTransportError ? error.status : 0;
+    const result = new ApiError({
+      status,
+      isNetwork: status === 0,
+      userMessage:
+        error instanceof Error ? error.message : "Chat connection failed",
     });
-    onError?.(e);
-    throw e;
+    if (status === 401) void handleAuthExpiry();
+    onError?.(result);
+    throw result;
   }
-
-  if (!response.ok) {
-    let detailStr = "";
-    try {
-      const body = await response.json();
-      detailStr = normalizeDetail(
-        (body as { detail?: unknown })?.detail ?? body
-      );
-    } catch {
-      /* non-JSON body */
-    }
-    if (response.status === 401) void handleAuthExpiry();
-    const e = new ApiError({
-      status: response.status,
-      userMessage: friendlyForStatus(response.status, detailStr),
-    });
-    onError?.(e);
-    throw e;
-  }
-
-  const reader = response.body?.getReader();
-  if (!reader) {
-    const e = new ApiError({
-      status: 500,
-      userMessage: "The server returned an empty chat response.",
-    });
-    onError?.(e);
-    throw e;
-  }
-
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let sawDone = false;
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-
-      for (const line of lines) {
-        if (line.startsWith("data: ")) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          let data: any;
-          try {
-            data = JSON.parse(line.slice(6));
-          } catch {
-            continue;
-          }
-          if (data.error) {
-            const e = new ApiError({
-              status: 500,
-              userMessage:
-                normalizeDetail(data.error) ||
-                "The model returned an error mid-response.",
-            });
-            onError?.(e);
-            throw e;
-          }
-          if (data.done) {
-            sawDone = true;
-            onDone();
-            return;
-          }
-          if (data.stage && onStage) {
-            onStage({ stage: data.stage, docs: data.docs, detail: data.detail });
-          }
-          if (data.debug && onDebug) {
-            onDebug(data.debug as DebugTrace);
-          }
-          if (data.citations && onCitations) {
-            onCitations(data.citations as Citation[]);
-          }
-          if (data.token) {
-            onToken(data.token);
-          }
-        }
-      }
-    }
-  } catch (err) {
-    if (err instanceof ApiError) throw err;
-    const e = new ApiError({
-      status: 0,
-      isNetwork: true,
-      userMessage: "The chat connection dropped before the answer finished.",
-      detail: err instanceof Error ? err.message : String(err),
-    });
-    onError?.(e);
-    throw e;
-  }
-
-  // Stream closed cleanly BUT with no data.done — treat as a truncated response.
-  if (!sawDone) {
-    const e = new ApiError({
-      status: 0,
-      isNetwork: true,
-      userMessage: "The response ended before the answer was complete.",
-    });
-    onError?.(e);
-    throw e;
-  }
-  onDone();
 }
 
 export interface DocumentInfo {
@@ -586,7 +522,7 @@ export interface IngestionTask {
 }
 
 export async function fetchDocuments(
-  folderId?: string | null
+  folderId?: string | null,
 ): Promise<DocumentInfo[]> {
   const params = folderId ? `?folder_id=${folderId}` : "";
   const res = await apiFetch(`/api/documents${params}`);
@@ -595,7 +531,7 @@ export async function fetchDocuments(
 
 export async function uploadDocument(
   file: File,
-  folderId?: string | null
+  folderId?: string | null,
 ): Promise<UploadResult> {
   const { Authorization } = await getAuthHeaders();
   const formData = new FormData();
@@ -623,7 +559,7 @@ export async function uploadDocument(
     try {
       const body = await response.json();
       detailStr = normalizeDetail(
-        (body as { detail?: unknown })?.detail ?? body
+        (body as { detail?: unknown })?.detail ?? body,
       );
     } catch {
       /* non-JSON */
@@ -633,7 +569,7 @@ export async function uploadDocument(
       status: response.status,
       userMessage: friendlyForStatus(
         response.status,
-        detailStr || `Upload failed for “${file.name}”.`
+        detailStr || `Upload failed for “${file.name}”.`,
       ),
     });
   }
@@ -642,7 +578,7 @@ export async function uploadDocument(
 
 export async function moveDocument(
   filename: string,
-  folderId: string | null
+  folderId: string | null,
 ): Promise<void> {
   await apiFetch(`/api/documents/${encodeURIComponent(filename)}/move`, {
     method: "PATCH",
@@ -658,7 +594,7 @@ export async function deleteDocument(filename: string): Promise<void> {
 
 export async function downloadDocument(filename: string): Promise<string> {
   const res = await apiFetch(
-    `/api/documents/${encodeURIComponent(filename)}/download`
+    `/api/documents/${encodeURIComponent(filename)}/download`,
   );
   const data = await res.json();
   return data.url;
@@ -691,7 +627,7 @@ export interface Breadcrumb {
 }
 
 export async function fetchFolders(
-  parentId?: string | null
+  parentId?: string | null,
 ): Promise<Folder[]> {
   const params = parentId ? `?parent_id=${parentId}` : "";
   const res = await apiFetch(`/api/folders${params}`);
@@ -700,7 +636,7 @@ export async function fetchFolders(
 
 export async function createFolder(
   name: string,
-  parentId?: string | null
+  parentId?: string | null,
 ): Promise<Folder> {
   const res = await apiFetch("/api/folders", {
     method: "POST",
@@ -711,7 +647,7 @@ export async function createFolder(
 
 export async function renameFolder(
   folderId: string,
-  name: string
+  name: string,
 ): Promise<Folder> {
   const res = await apiFetch(`/api/folders/${folderId}`, {
     method: "PATCH",
@@ -722,14 +658,14 @@ export async function renameFolder(
 
 export async function deleteFolder(
   folderId: string,
-  deleteDocs: boolean = false
+  deleteDocs: boolean = false,
 ): Promise<void> {
   const q = deleteDocs ? "?delete_docs=true" : "";
   await apiFetch(`/api/folders/${folderId}${q}`, { method: "DELETE" });
 }
 
 export async function fetchBreadcrumbs(
-  folderId: string
+  folderId: string,
 ): Promise<Breadcrumb[]> {
   const res = await apiFetch(`/api/folders/${folderId}/breadcrumbs`);
   return res.json();
@@ -761,7 +697,7 @@ export async function fetchApiKeys(): Promise<ApiKeyInfo[]> {
 
 export async function createApiKey(
   name: string,
-  scopeFolderId: string
+  scopeFolderId: string,
 ): Promise<CreatedApiKey> {
   const res = await apiFetch("/api/api-keys", {
     method: "POST",
@@ -852,7 +788,7 @@ export async function connectNotion(input: {
 
 export async function disconnectNotion(
   configId: string,
-  deleteDocs: boolean
+  deleteDocs: boolean,
 ): Promise<void> {
   await apiFetch(`/api/notion/configs/${configId}?delete_docs=${deleteDocs}`, {
     method: "DELETE",
@@ -860,7 +796,7 @@ export async function disconnectNotion(
 }
 
 export async function syncNotionNow(
-  configId: string
+  configId: string,
 ): Promise<SyncNowResponse> {
   const res = await apiFetch(`/api/notion/configs/${configId}/sync`, {
     method: "POST",
@@ -869,7 +805,7 @@ export async function syncNotionNow(
 }
 
 export async function reconcileNotionNow(
-  configId: string
+  configId: string,
 ): Promise<SyncNowResponse> {
   const res = await apiFetch(`/api/notion/configs/${configId}/reconcile`, {
     method: "POST",
@@ -892,7 +828,7 @@ export interface NotionPendingResponse {
 /** What a Reconcile would ingest right now. Walks the live Notion API, so
  *  it can take a few seconds on large trees — call on demand, don't poll. */
 export async function fetchNotionPending(
-  configId: string
+  configId: string,
 ): Promise<NotionPendingResponse> {
   const res = await apiFetch(`/api/notion/configs/${configId}/pending`);
   return res.json();
@@ -900,7 +836,7 @@ export async function fetchNotionPending(
 
 export async function listNotionPages(
   integrationToken: string,
-  query: string
+  query: string,
 ): Promise<NotionPageOption[]> {
   const params = new URLSearchParams({
     integration_token: integrationToken,
@@ -943,7 +879,7 @@ export async function getFolderStatus(folderId: string): Promise<FolderStatus> {
 
 export async function refreshFolder(
   folderId: string,
-  target: "index" | "sections"
+  target: "index" | "sections",
 ): Promise<{ started: boolean }> {
   const res = await apiFetch(`/api/folders/${folderId}/refresh`, {
     method: "POST",
@@ -953,13 +889,7 @@ export async function refreshFolder(
 }
 
 export type ViewableAs =
-  | "markdown"
-  | "image"
-  | "pdf"
-  | "audio"
-  | "video"
-  | "code"
-  | "text";
+  "markdown" | "image" | "pdf" | "audio" | "video" | "code" | "text";
 
 export interface DocumentContent {
   source_filename: string;
@@ -980,11 +910,11 @@ export interface DocumentContent {
 
 export async function fetchDocumentContent(
   filename: string,
-  folderId?: string
+  folderId?: string,
 ): Promise<DocumentContent> {
   const params = folderId ? `?folder_id=${folderId}` : "";
   const res = await apiFetch(
-    `/api/documents/${encodeURIComponent(filename)}/content${params}`
+    `/api/documents/${encodeURIComponent(filename)}/content${params}`,
   );
   return res.json();
 }
@@ -1000,7 +930,7 @@ export interface GitHubRepoOption {
 }
 
 export async function listGitHubRepos(
-  token: string
+  token: string,
 ): Promise<GitHubRepoOption[]> {
   const res = await apiFetch("/api/github/repos", {
     method: "POST",
@@ -1020,7 +950,7 @@ export interface DeviceInfo {
 export async function deviceInfo(req: string): Promise<DeviceInfo> {
   // Unauthenticated read — do not use apiFetch (which requires a session).
   const res = await fetch(
-    `/api/cli/auth/device/info?req=${encodeURIComponent(req)}`
+    `/api/cli/auth/device/info?req=${encodeURIComponent(req)}`,
   );
   if (!res.ok) throw new Error(`device info failed: ${res.status}`);
   return res.json();
@@ -1080,10 +1010,34 @@ export async function fetchUsageByMonth(): Promise<MonthlyUsage[]> {
 export interface AttributedUsage {
   month: string;
   total_cost_usd: string;
+  native?: {
+    billing_mode: "subscription";
+    call_count: number;
+    known_list_equivalent_usd: string | null;
+    incomplete_calls: number;
+    unpriced_calls: number;
+    calls: {
+      job_id: string;
+      attempt_id: string;
+      operation: string;
+      model: string;
+      complete: boolean;
+      list_equivalent_usd: string | number | null;
+      usage: unknown;
+    }[];
+  };
   unpriced_calls: number;
   call_count: number;
   by_source: Record<string, string>;
-  by_repository: { folder_id: string; name: string; cost_usd: string; owner: string; branch: string; last_run_at: string | null; last_error: string | null }[];
+  by_repository: {
+    folder_id: string;
+    name: string;
+    cost_usd: string;
+    owner: string;
+    branch: string;
+    last_run_at: string | null;
+    last_error: string | null;
+  }[];
   responses: {
     response_id: string;
     owner: string;
@@ -1121,8 +1075,12 @@ export interface AttributedUsage {
   }[];
 }
 
-export async function fetchUsageAttribution(month: string): Promise<AttributedUsage> {
-  const res = await apiFetch(`/api/usage/attribution?month=${encodeURIComponent(month)}`);
+export async function fetchUsageAttribution(
+  month: string,
+): Promise<AttributedUsage> {
+  const res = await apiFetch(
+    `/api/usage/attribution?month=${encodeURIComponent(month)}`,
+  );
   return res.json();
 }
 
@@ -1164,11 +1122,71 @@ export async function getRemoteMachines(): Promise<RemoteMachine[]> {
 
 export async function renameRemoteMachine(
   id: string,
-  name: string | null
+  name: string | null,
 ): Promise<RemoteMachine> {
   const response = await apiFetch(`/api/remotes/${encodeURIComponent(id)}`, {
     method: "PATCH",
     body: JSON.stringify({ name }),
   });
+  return response.json();
+}
+
+export async function cancelChatExecution(jobId: string): Promise<void> {
+  await apiFetch(`/api/chat/jobs/${encodeURIComponent(jobId)}/cancel`, {
+    method: "POST",
+  });
+}
+
+export async function fetchToolArtifact(
+  jobId: string,
+  artifactId: string,
+): Promise<{ result: string; trace: unknown }> {
+  let result = "";
+  let trace: unknown;
+  let offset: number | null = 0;
+  while (offset !== null) {
+    const response = await apiFetch(
+      `/api/chat/jobs/${encodeURIComponent(jobId)}/artifacts/${encodeURIComponent(artifactId)}?offset=${offset}&limit=65536`,
+    );
+    const page = await response.json();
+    result += page.result;
+    trace = page.trace;
+    offset = page.next_offset;
+  }
+  return { result, trace };
+}
+
+export interface NativeActiveSessions {
+  available: boolean;
+  reason?: string;
+  generated_at?: string;
+  queued_counts: {
+    total?: number;
+    chat?: number;
+    completion?: number;
+    metadata_child?: number;
+  };
+  sessions: {
+    job_id: string;
+    attempt_id: string;
+    native_session_id: string | null;
+    owner_id: string;
+    owner_label: string;
+    caller: string;
+    conversation_id: string | null;
+    folder_ids: string[];
+    folder_labels?: Record<string, string>;
+    operation: string;
+    profile: string;
+    model_requested: string;
+    native_cli_version: string | null;
+    state: string;
+    started_at: string;
+    elapsed_seconds: number;
+  }[];
+}
+
+export async function fetchNativeActiveSessions(): Promise<NativeActiveSessions> {
+  const response = await apiFetch("/api/usage/native/active-sessions");
   return response.json();
 }
