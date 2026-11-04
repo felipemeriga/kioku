@@ -353,6 +353,7 @@ def probe(config, read_only=False):
             "progress_stages": sorted(progress),
             "citations": len(terminal.get("citations") or []),
             "answer_sha256": hashlib.sha256(saved[0]["content"].encode()).hexdigest(),
+            "answer_words": len(saved[0]["content"].split()),
         }
         save(config["evidence"], result, append=True)
         state["cycle"] += 1
