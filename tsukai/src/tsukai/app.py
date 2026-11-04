@@ -29,7 +29,11 @@ def create_app(settings=None, store=None, native=None):
     supplied_store = store is not None
     if store is None:
         # Defer production configuration validation to startup, so tooling can import.
-        store = Store(settings.database_url) if settings.database_url else None
+        store = (
+            Store(settings.database_url, workspace_dir=settings.workspace_dir)
+            if settings.database_url
+            else None
+        )
     scheduler = Scheduler(store, settings, native) if store else None
 
     @asynccontextmanager

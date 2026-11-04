@@ -274,6 +274,22 @@ class NativeRunner:
             try:
                 text, structured = validate_result(req, final)
             except NativeError as exc:
+                if proc.returncode and not final.get("is_error"):
+                    # A success-shaped terminal record plus abnormal process exit is uncertain,
+                    # even when schema validation also fails. Never repair this invocation.
+                    evidence["usage"] = {
+                        **usage,
+                        "complete": False,
+                        "provider_outcome_uncertain": True,
+                    }
+                    raise NativeError(
+                        "native_process_failed",
+                        uncertain=True,
+                        result=evidence,
+                        diagnostic=exc.diagnostic,
+                    ) from None
+                # Native explicit error results conventionally exit nonzero (auth/quota etc.).
+                # Preserve those typed rejections and their circuit behavior.
                 # Keep usage even when the output schema fails, without publishing invalid data.
                 exc.result = {
                     "text": "",
