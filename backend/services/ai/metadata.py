@@ -1,6 +1,7 @@
 """Tool-disabled reserved child generates a typed plan; SQL remains parameterized."""
 
 import json
+import logging
 from uuid import uuid4
 
 from db.client import get_supabase_thread_safe
@@ -10,6 +11,8 @@ from services.ai.contracts import completion_envelope
 from services.ai.evidence import save_trace
 from services.ai.facade import client_for
 from services.ai.scope import ExecutionScope
+
+logger = logging.getLogger(__name__)
 
 PLAN_SCHEMA = {
     "type": "object",
@@ -123,7 +126,7 @@ def metadata_query(question: str, authority: dict, *, on_consumption=None) -> st
             "interaction_required",
             "metadata_invalid_outcome",
         }
-        if job_id and (result is not None or terminal_failure):
+        if job_id:
             consumed = {
                 "scope": scope,
                 "operation": "text_to_sql",
@@ -131,29 +134,35 @@ def metadata_query(question: str, authority: dict, *, on_consumption=None) -> st
                 "job_id": job_id,
                 "model": request["model"],
                 "outcome": "completed" if error is None else getattr(error, "code", "failed"),
+                "acknowledge_completed": result is not None or terminal_failure,
             }
-            if on_consumption:
-                # The harness records its final exact tool artifact first.
-                on_consumption(consumed)
-            else:
-                artifact = save_trace(
-                    scope.owner_id,
-                    job_id,
-                    (result.attempt_id or "unknown") if result else "unknown",
-                    list(scope.folder_ids),
-                    {
-                        "name": "query_documents_metadata",
-                        "input": {"question": question},
-                        "status": "completed" if error is None else "failed",
-                        "effective_scope": {
-                            "user_id": scope.owner_id,
-                            "folder_ids": list(scope.folder_ids),
-                            "filename": authority.get("scope_filename"),
+            try:
+                if on_consumption:
+                    # The harness records its final exact tool artifact first.
+                    on_consumption(consumed)
+                else:
+                    artifact = save_trace(
+                        scope.owner_id,
+                        job_id,
+                        (result.attempt_id or "unknown") if result else "unknown",
+                        list(scope.folder_ids),
+                        {
+                            "name": "query_documents_metadata",
+                            "input": {"question": question},
+                            "status": "completed" if error is None else "failed",
+                            "effective_scope": {
+                                "user_id": scope.owner_id,
+                                "folder_ids": list(scope.folder_ids),
+                                "filename": authority.get("scope_filename"),
+                            },
                         },
-                    },
-                    output if error is None else "Scoped metadata query did not complete",
-                )
-                consume_metadata(consumed, artifact)
+                        output if error is None else "Scoped metadata query did not complete",
+                    )
+                    consume_metadata(consumed, artifact)
+            except Exception:
+                if error is None:
+                    raise
+                logger.warning("metadata failure accounting could not be persisted")
 
 
 def consume_metadata(consumed: dict, artifact_id: str):
@@ -164,5 +173,10 @@ def consume_metadata(consumed: dict, artifact_id: str):
         consumed["job_id"],
         "metadata",
         artifact_id,
-        {"model": consumed["model"], "outcome": consumed["outcome"], "artifact_id": artifact_id},
+        {
+            "model": consumed["model"],
+            "outcome": consumed["outcome"],
+            "artifact_id": artifact_id,
+            "acknowledge_completed": consumed["acknowledge_completed"],
+        },
     )

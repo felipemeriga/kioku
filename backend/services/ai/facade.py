@@ -1,6 +1,7 @@
 """Native completions behind explicit operation policy, independent of SDK objects."""
 
 import json
+import logging
 import os
 from dataclasses import dataclass
 from uuid import uuid4
@@ -10,6 +11,8 @@ from services.ai.consumption import consume_result
 from services.ai.contracts import completion_schema, completion_text
 from services.ai.registry import TASK_POLICIES, engine_for
 from services.ai.scope import ExecutionScope, operation_scope, sign_capability
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -109,24 +112,33 @@ def native_completion(
             {"text": text, "model": model, "outcome": "completed"},
         )
         return Completion([TextBlock(text)], result.job_id, model, result)
-    except ExecutionError as exc:
-        if client.last_job_id and exc.code in {
+    except Exception as exc:
+        validated_rejection = isinstance(exc, ExecutionError) and exc.code in {
             "needs_input",
             "failed",
             "interaction_required",
             "invalid_completion_envelope",
             "invalid_completion_outcome",
             "invalid_completion_data",
-        }:
-            consume_result(
-                scope,
-                operation,
-                profile,
-                client.last_job_id,
-                f"completion.{operation}",
-                client.last_job_id,
-                {"model": model, "outcome": exc.code},
-            )
+        }
+        if client.last_job_id:
+            try:
+                consume_result(
+                    scope,
+                    operation,
+                    profile,
+                    client.last_job_id,
+                    f"completion.{operation}",
+                    client.last_job_id,
+                    {
+                        "model": model,
+                        "outcome": getattr(exc, "code", type(exc).__name__),
+                        "acknowledge_completed": validated_rejection,
+                    },
+                )
+            except Exception:
+                # Accounting failure must not replace the original inference failure.
+                logger.warning("native failure accounting could not be persisted")
         raise
     finally:
         client.close()
