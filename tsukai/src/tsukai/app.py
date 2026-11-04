@@ -179,10 +179,10 @@ def create_app(settings=None, store=None, native=None):
         cap = capability(request, settings)
         if scheduler.draining:
             raise HTTPException(503, "runner_draining")
+        if scheduler.auth_state == "quota_limited" or time.monotonic() < scheduler.quota_until:
+            raise HTTPException(429, "quota_limited")
         if scheduler.auth_state != "ready":
             raise HTTPException(503, scheduler.auth_state)
-        if time.monotonic() < scheduler.quota_until:
-            raise HTTPException(429, "quota_limited")
         raw = await request.body()
         if len(raw) > 2 * 1024 * 1024:
             raise HTTPException(413, "request_too_large")

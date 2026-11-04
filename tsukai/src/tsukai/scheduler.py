@@ -17,6 +17,8 @@ from .protocol import JobRequest
 from .store import Fenced
 from .validation import NativeError
 
+QUOTA_PROBE_COOLDOWN_SECONDS = 15 * 60
+
 
 class Scheduler:
     def __init__(self, store, settings, native=None):
@@ -125,6 +127,8 @@ class Scheduler:
         except Exception:
             self.auth_state = "dependency_unavailable"
             self.db_available = False
+        if self.auth_state == "ready":
+            self.quota_until = 0
         self._next_dependency_probe = time.monotonic() + self._dependency_backoff
         self._dependency_backoff = min(self._dependency_backoff * 2, 60)
 
@@ -141,7 +145,7 @@ class Scheduler:
                 if (
                     self.auth_state == "dependency_unavailable"
                     and time.monotonic() >= self._next_dependency_probe
-                ):
+                ) or (self.auth_state == "quota_limited" and time.monotonic() >= self.quota_until):
                     await self.recheck_auth()
                 if time.monotonic() - last_prune > 3600:
                     await self.store.prune()
@@ -391,7 +395,8 @@ class Scheduler:
             if exc.code == "reauth_required":
                 self.auth_state = "reauth_required"
             elif exc.code == "quota_limited":
-                self.quota_until = time.monotonic() + 60
+                self.auth_state = "quota_limited"
+                self.quota_until = time.monotonic() + QUOTA_PROBE_COOLDOWN_SECONDS
             with contextlib.suppress(Exception):
                 await self.finalize_attempt(
                     attempt,

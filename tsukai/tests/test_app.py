@@ -824,3 +824,68 @@ async def test_catalog_admits_resolved_subscription_ids_but_never_usage_credit_m
     assert (
         await client.post("/v1/jobs", json=legacy, headers=headers(settings, legacy))
     ).status_code == 202
+
+
+async def test_quota_probe_recovers_after_bounded_cooldown_without_health_inference(
+    app_client, monkeypatch
+):
+    from types import SimpleNamespace
+
+    from tsukai import scheduler as scheduler_module
+    from tsukai.validation import NativeError
+
+    app, client, settings = app_client
+    scheduler = app.state.scheduler
+    settings.auth_probe = True
+    clock = {"now": time.monotonic()}
+    monkeypatch.setattr(
+        scheduler_module, "time", SimpleNamespace(monotonic=lambda: clock["now"], time=time.time)
+    )
+    original = scheduler.native.run
+    calls = 0
+
+    async def quota_twice(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls <= 2:
+            raise NativeError("quota_limited")
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(scheduler.native, "run", quota_twice)
+    await scheduler.recheck_auth()
+    assert scheduler.auth_state == "quota_limited"
+    assert scheduler.quota_until == clock["now"] + 900
+    payload = body()
+    assert (
+        await client.post("/v1/jobs", json=payload, headers=headers(settings, payload))
+    ).status_code == 429
+    for _ in range(5):
+        assert (await client.get("/health/ready")).status_code == 503
+    clock["now"] += 899
+    scheduler.wake.set()
+    await asyncio.sleep(0.05)
+    assert calls == 1
+    clock["now"] += 1
+    scheduler.wake.set()
+    for _ in range(100):
+        if calls == 2:
+            break
+        await asyncio.sleep(0.02)
+    assert calls == 2
+    assert scheduler.auth_state == "quota_limited"
+    assert scheduler.quota_until == clock["now"] + 900
+    clock["now"] += 900
+    scheduler.wake.set()
+    for _ in range(100):
+        if scheduler.auth_state == "ready":
+            break
+        await asyncio.sleep(0.02)
+    assert scheduler.auth_state == "ready"
+    assert calls == 3
+    assert (await client.get("/health/ready")).status_code == 200
+    scheduler.auth_state = "reauth_required"
+    clock["now"] += 10000
+    scheduler.wake.set()
+    await asyncio.sleep(0.05)
+    assert calls == 3
+    assert scheduler.auth_state == "reauth_required"
