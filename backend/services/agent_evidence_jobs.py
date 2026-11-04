@@ -10,6 +10,7 @@ from db.client import get_supabase_thread_safe
 from services.agent_evidence import EvidenceStore, enabled, rpc
 from services.agent_evidence_models import BUCKET, PARSER_VERSION, canonical
 from services.agent_evidence_parser import iter_segment
+from services.agent_evidence_purge import purge_evidence_outbox
 
 log = logging.getLogger(__name__)
 
@@ -175,6 +176,8 @@ def reap_evidence(sb, after_id=None):
 
 
 async def agent_evidence_maintenance(ctx):
+    # A disabled capture feature must not disable account/folder erasure.
+    await asyncio.to_thread(purge_evidence_outbox, get_supabase_thread_safe())
     if not enabled():
         return
     ctx["evidence_cursor"] = await asyncio.to_thread(
