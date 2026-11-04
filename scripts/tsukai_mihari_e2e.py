@@ -105,7 +105,11 @@ def read_mcp_documentation(worker, url, key, folder_id):
                 client.headers["Mcp-Session-Id"] = session
             if "text/event-stream" not in response.headers.get("content-type", ""):
                 return response.json()
-            for block in response.text.replace("\r\n", "\n").split("\n\n"):
+            # SSE is UTF-8 even without a charset parameter. requests otherwise
+            # defaults text/* to Latin-1 and corrupts non-ASCII Markdown evidence.
+            for block in (
+                response.content.decode("utf-8").replace("\r\n", "\n").split("\n\n")
+            ):
                 data = "\n".join(
                     line[5:].lstrip()
                     for line in block.splitlines()
