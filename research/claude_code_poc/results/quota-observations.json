@@ -1,0 +1,20 @@
+[
+  {
+    "observed_utc": "2026-11-03T22:35:06Z",
+    "source": "Native interactive Claude Code /usage UI, no credential extraction",
+    "account_window_used_percent": 26,
+    "weekly_all_models_used_percent": 6,
+    "window_reset_display": "10:50pm America/Sao_Paulo",
+    "weekly_reset_display": "Nov6at6pm America/Sao_Paulo",
+    "usage_credits": "off",
+    "attribution_caveat": "Shared account window; no pre-POC baseline was captured, so these percentages cannot be attributed entirely to this POC."
+  },
+  {
+    "observed_utc": "2026-11-04T00:42:16Z",
+    "source": "Native interactive Claude Code /usage UI, no credential extraction",
+    "account_window_used_percent": 52,
+    "weekly_all_models_used_percent": 8,
+    "usage_credits": "off",
+    "attribution_caveat": "Shared account; prior snapshot not pre-POC baseline. Percent changes cannot be attributed exclusively to POC."
+  }
+]

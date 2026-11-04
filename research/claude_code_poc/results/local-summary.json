@@ -1,0 +1,436 @@
+{
+  "scope": "local native subscription POC, not production integration",
+  "monetary_subscription_charge": "not exposed by CLI; no monetary savings claim",
+  "list_cost_equivalent_lower_bound_usd": "4.732543400",
+  "observed_cost_counter_resets": 4,
+  "concurrent_sessions_excluded_from_cost": 1,
+  "cost_accounting_note": "session deltas segmented on observed resets, never sum per-turn totals; cancelled calls can have unreported usage; simultaneous same-session totals may race; only captured call/duplex summaries included",
+  "calls": 569,
+  "experiments": {
+    "variants/calls": {
+      "calls": 24,
+      "successes": 24,
+      "forced_cancellations": 0,
+      "returncodes": {
+        "0": 24
+      },
+      "p50_latency_s": 7.725,
+      "p95_latency_s": 13.542,
+      "p50_first_text_s": 6.416,
+      "resolved_models": [
+        "claude-haiku-4-5-20251001"
+      ]
+    },
+    "instruction-config": {
+      "calls": 3,
+      "successes": 3,
+      "forced_cancellations": 0,
+      "returncodes": {
+        "0": 3
+      },
+      "p50_latency_s": 4.692,
+      "p95_latency_s": 5.965,
+      "p50_first_text_s": 1.85,
+      "resolved_models": [
+        "claude-haiku-4-5-20251001"
+      ]
+    },
+    "local-chat/calls": {
+      "calls": 16,
+      "successes": 16,
+      "forced_cancellations": 0,
+      "returncodes": {
+        "0": 16
+      },
+      "p50_latency_s": 3.155,
+      "p95_latency_s": 10.308,
+      "p50_first_text_s": 2.175,
+      "resolved_models": [
+        "claude-haiku-4-5-20251001"
+      ]
+    },
+    "complex/calls": {
+      "calls": 10,
+      "successes": 10,
+      "forced_cancellations": 0,
+      "returncodes": {
+        "0": 10
+      },
+      "p50_latency_s": 13.28,
+      "p95_latency_s": 22.923,
+      "p50_first_text_s": 4.52,
+      "resolved_models": [
+        "claude-haiku-4-5-20251001",
+        "claude-sonnet-5-5"
+      ]
+    },
+    "safe-mode": {
+      "calls": 1,
+      "successes": 1,
+      "forced_cancellations": 0,
+      "returncodes": {
+        "0": 1
+      },
+      "p50_latency_s": 3.755,
+      "p95_latency_s": 3.755,
+      "p50_first_text_s": 1.643,
+      "resolved_models": [
+        "claude-haiku-4-5-20251001"
+      ]
+    },
+    "history-quality": {
+      "calls": 8,
+      "successes": 8,
+      "forced_cancellations": 0,
+      "returncodes": {
+        "0": 8
+      },
+      "p50_latency_s": 3.149,
+      "p95_latency_s": 4.212,
+      "p50_first_text_s": 2.22,
+      "resolved_models": [
+        "claude-haiku-4-5-20251001"
+      ]
+    },
+    "prompt-parity/calls": {
+      "calls": 12,
+      "successes": 12,
+      "forced_cancellations": 0,
+      "returncodes": {
+        "0": 12
+      },
+      "p50_latency_s": 6.587,
+      "p95_latency_s": 16.732,
+      "p50_first_text_s": 7.745,
+      "resolved_models": [
+        "claude-haiku-4-5-20251001",
+        "claude-sonnet-5-5"
+      ]
+    },
+    "prompt-parity-thinking-off/calls": {
+      "calls": 6,
+      "successes": 6,
+      "forced_cancellations": 0,
+      "returncodes": {
+        "0": 6
+      },
+      "p50_latency_s": 4.936,
+      "p95_latency_s": 5.689,
+      "p50_first_text_s": 1.154,
+      "resolved_models": [
+        "claude-haiku-4-5-20251001"
+      ]
+    },
+    "compaction": {
+      "calls": 6,
+      "successes": 6,
+      "forced_cancellations": 0,
+      "returncodes": {
+        "0": 6
+      },
+      "p50_latency_s": 3.348,
+      "p95_latency_s": 11.173,
+      "p50_first_text_s": 1.537,
+      "resolved_models": [
+        "claude-haiku-4-5-20251001"
+      ]
+    },
+    "local-mihari-v2/calls": {
+      "calls": 12,
+      "successes": 12,
+      "forced_cancellations": 0,
+      "returncodes": {
+        "0": 12
+      },
+      "p50_latency_s": 7.781,
+      "p95_latency_s": 13.101,
+      "p50_first_text_s": 5.422,
+      "resolved_models": [
+        "claude-haiku-4-5-20251001"
+      ]
+    },
+    "variants-strict/calls": {
+      "calls": 8,
+      "successes": 8,
+      "forced_cancellations": 0,
+      "returncodes": {
+        "0": 8
+      },
+      "p50_latency_s": 11.866,
+      "p95_latency_s": 19.346,
+      "p50_first_text_s": 11.939,
+      "resolved_models": [
+        "claude-haiku-4-5-20251001"
+      ]
+    },
+    "soak": {
+      "calls": 396,
+      "successes": 384,
+      "forced_cancellations": 12,
+      "returncodes": {
+        "0": 384,
+        "143": 12
+      },
+      "p50_latency_s": 4.31,
+      "p95_latency_s": 12.778,
+      "p50_first_text_s": 2.558,
+      "resolved_models": [
+        "claude-haiku-4-5-20251001",
+        "claude-sonnet-5-5"
+      ]
+    },
+    "concurrency/calls": {
+      "calls": 33,
+      "successes": 33,
+      "forced_cancellations": 0,
+      "returncodes": {
+        "0": 33
+      },
+      "p50_latency_s": 3.101,
+      "p95_latency_s": 4.923,
+      "p50_first_text_s": null,
+      "resolved_models": [
+        "claude-haiku-4-5-20251001",
+        "claude-sonnet-5-5"
+      ]
+    },
+    "cwd-resume/worker-b": {
+      "calls": 1,
+      "successes": 1,
+      "forced_cancellations": 0,
+      "returncodes": {
+        "0": 1
+      },
+      "p50_latency_s": 2.518,
+      "p95_latency_s": 2.518,
+      "p50_first_text_s": 1.611,
+      "resolved_models": [
+        "claude-haiku-4-5-20251001"
+      ]
+    },
+    "cwd-resume/worker-a": {
+      "calls": 1,
+      "successes": 1,
+      "forced_cancellations": 0,
+      "returncodes": {
+        "0": 1
+      },
+      "p50_latency_s": 3.715,
+      "p95_latency_s": 3.715,
+      "p50_first_text_s": 1.881,
+      "resolved_models": [
+        "claude-haiku-4-5-20251001"
+      ]
+    },
+    "extended": {
+      "calls": 15,
+      "successes": 13,
+      "forced_cancellations": 1,
+      "returncodes": {
+        "0": 13,
+        "1": 1,
+        "143": 1
+      },
+      "p50_latency_s": 3.804,
+      "p95_latency_s": 15.711,
+      "p50_first_text_s": 2.682,
+      "resolved_models": [
+        "claude-haiku-4-5-20251001",
+        "claude-sonnet-5-5"
+      ]
+    },
+    "model-entitlements": {
+      "calls": 3,
+      "successes": 3,
+      "forced_cancellations": 0,
+      "returncodes": {
+        "0": 3
+      },
+      "p50_latency_s": 4.145,
+      "p95_latency_s": 4.772,
+      "p50_first_text_s": null,
+      "resolved_models": [
+        "claude-opus-5-5",
+        "claude-sonnet-4-6",
+        "claude-sonnet-5-5"
+      ]
+    },
+    "local-mihari/calls": {
+      "calls": 12,
+      "successes": 12,
+      "forced_cancellations": 0,
+      "returncodes": {
+        "0": 12
+      },
+      "p50_latency_s": 7.218,
+      "p95_latency_s": 16.216,
+      "p50_first_text_s": 4.186,
+      "resolved_models": [
+        "claude-haiku-4-5-20251001"
+      ]
+    },
+    "turn-budget": {
+      "calls": 2,
+      "successes": 1,
+      "forced_cancellations": 0,
+      "returncodes": {
+        "1": 1,
+        "0": 1
+      },
+      "p50_latency_s": 4.572,
+      "p95_latency_s": 4.572,
+      "p50_first_text_s": 3.356,
+      "resolved_models": [
+        "claude-haiku-4-5-20251001"
+      ]
+    }
+  },
+  "duplex": {
+    "duplex-v2": {
+      "start_utc": "2026-11-03T21:49:31Z",
+      "status": "completed",
+      "elapsed_s": 10800.54,
+      "turns": 60,
+      "recall_correct": 60,
+      "errors": [],
+      "process_ids": [
+        7010,
+        74056,
+        92970,
+        99811
+      ],
+      "p50_latency_s": 1.225
+    },
+    "duplex": {
+      "start_utc": "2026-11-03T21:48:21Z",
+      "status": "superseded_after_first_turn",
+      "elapsed_s": 7.594,
+      "turns": 1,
+      "recall_correct": 0,
+      "errors": [],
+      "process_ids": [
+        73250
+      ],
+      "p50_latency_s": 7.594
+    }
+  },
+  "soak": {
+    "started_utc": "2026-11-03T21:47:04Z",
+    "status": "completed",
+    "elapsed_s": 10800.011,
+    "cycles": 60,
+    "failed_checks": [
+      {
+        "cycle": 3,
+        "checks": {},
+        "error": "JSONDecodeError: Extra data: line 5 column 1 (char 93)"
+      },
+      {
+        "cycle": 15,
+        "checks": {
+          "real_mihari_dispatch": true,
+          "resume_recall": true,
+          "stateless_isolated": true,
+          "explicit_history_recall": false,
+          "killed_and_recovered": true
+        },
+        "error": null
+      },
+      {
+        "cycle": 20,
+        "checks": {
+          "current_retry_fact": true,
+          "used_tools": true,
+          "resume_recall": true,
+          "stateless_isolated": true,
+          "explicit_history_recall": false,
+          "parallel_isolation": true,
+          "killed_and_recovered": true
+        },
+        "error": null
+      },
+      {
+        "cycle": 34,
+        "checks": {
+          "current_retry_fact": true,
+          "used_tools": true,
+          "resume_recall": true,
+          "stateless_isolated": true,
+          "explicit_history_recall": false
+        },
+        "error": null
+      },
+      {
+        "cycle": 36,
+        "checks": {
+          "real_mihari_dispatch": true,
+          "resume_recall": true,
+          "stateless_isolated": true,
+          "explicit_history_recall": false,
+          "parallel_isolation": true,
+          "tool_failure_handled": true
+        },
+        "error": null
+      },
+      {
+        "cycle": 40,
+        "checks": {
+          "current_retry_fact": true,
+          "used_tools": true,
+          "resume_recall": true,
+          "stateless_isolated": true,
+          "explicit_history_recall": false,
+          "parallel_isolation": true,
+          "killed_and_recovered": true
+        },
+        "error": null
+      },
+      {
+        "cycle": 44,
+        "checks": {
+          "current_retry_fact": true,
+          "used_tools": true,
+          "resume_recall": true,
+          "stateless_isolated": true,
+          "explicit_history_recall": true,
+          "parallel_isolation": false
+        },
+        "error": null
+      },
+      {
+        "cycle": 47,
+        "checks": {
+          "current_retry_fact": true,
+          "used_tools": true,
+          "resume_recall": true,
+          "stateless_isolated": true,
+          "explicit_history_recall": false
+        },
+        "error": null
+      },
+      {
+        "cycle": 48,
+        "checks": {
+          "real_mihari_dispatch": true,
+          "resume_recall": true,
+          "stateless_isolated": true,
+          "explicit_history_recall": true,
+          "parallel_isolation": false,
+          "tool_failure_handled": true
+        },
+        "error": null
+      }
+    ],
+    "supervisor_restarts": [
+      {
+        "elapsed_s": 618.7951264167204,
+        "reason": "structured review-plan recovery"
+      }
+    ]
+  },
+  "resources": {
+    "samples": 340,
+    "peak_sum_process_rss_mib": 910.2,
+    "note": "Sum of descendant process RSS, not unique physical memory"
+  }
+}

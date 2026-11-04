@@ -47,6 +47,9 @@ fallbacks and never reads, copies, or proxies authentication credentials.
 - `compaction.py`: large synthetic research history with a 100k native
   compaction threshold and a resumed current-facts question.
 - `fixture_mcp.py`: minimal read-only synthetic MCP source; no production tools.
+- `server_poc.py` and `broker_client.py`: isolated host/container server probes
+  with a private Unix socket, bounded native concurrency and synthetic data.
+- `history_quality.py`: controlled follow-up to observed default-prompt recall misses.
 - `test_native.py`: local process adapter regression tests without model calls.
 
 ## Run
@@ -80,8 +83,9 @@ Official references used for the invocation contract:
 - https://code.claude.com/docs/en/headless
 - https://code.claude.com/docs/en/cli-reference
 
-Research is ongoing; no three-hour result is claimed until both active soak
-checkpoints show `completed` and elapsed time of at least 10,800 seconds.
+Both local three-hour runs completed. See [RESULTS.md](RESULTS.md) and the safe
+aggregate artifacts under `results/`. Server model calls are blocked by an expired
+native OAuth session; container/broker plumbing was tested independently.
 
 The first dispatcher run exposed prose appended to requested JSON. The test
 preserves that failure and switches the review-plan adapter to native
