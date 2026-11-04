@@ -1434,6 +1434,7 @@ CREATE TABLE public.agent_evidence_sessions (
     manifest_sha256 text,
     materialized_revision bigint NOT NULL DEFAULT -1,
     indexed_revision bigint NOT NULL DEFAULT 0,
+    index_generation bigint NOT NULL DEFAULT 0,
     parser_version integer NOT NULL DEFAULT 0,
     first_event_at timestamptz,
     last_event_at timestamptz,
@@ -1612,6 +1613,10 @@ BEGIN
     IF v_root.deleted_at IS NOT NULL THEN
         RAISE EXCEPTION 'evidence_deleted' USING ERRCODE='23514';
     END IF;
+    IF v_root.manifest_path IS NULL THEN
+        UPDATE public.agent_evidence_sessions SET manifest_path=p_user_id::text||'/'||v_folder::text||'/'||v_agent||'/'||v_root_native||'/manifest.json'
+          WHERE id=v_root.id RETURNING * INTO v_root;
+    END IF;
     IF v_parent_native IS NOT NULL THEN
         SELECT * INTO v_parent FROM public.agent_evidence_sessions
           WHERE user_id=p_user_id AND folder_id=v_folder AND agent=v_agent
@@ -1756,11 +1761,31 @@ BEGIN
       FROM public.agent_evidence_objects WHERE session_id=s.id AND committed_revision IS NOT NULL;
     UPDATE public.agent_evidence_sessions SET manifest_json=v_manifest,
         manifest_sha256=encode(sha256(convert_to(v_manifest::text,'UTF8')),'hex'),manifest_revision=v_revision,
-        index_status='pending',capture_status='captured',captured_at=now(),ingested_at=now(),
+        index_status=CASE WHEN EXISTS(SELECT 1 FROM public.agent_evidence_objects
+          WHERE session_id=s.id AND kind='segment' AND committed_revision IS NOT NULL
+            AND indexed_parser_version<1) THEN 'pending' ELSE 'ready' END,
+        indexed_revision=CASE WHEN EXISTS(SELECT 1 FROM public.agent_evidence_objects
+          WHERE session_id=s.id AND kind='segment' AND committed_revision IS NOT NULL
+            AND indexed_parser_version<1) THEN indexed_revision ELSE v_revision END,
+        capture_status='captured',captured_at=now(),ingested_at=now(),
         lifecycle=v_lifecycle,producer_gaps=v_producer_gaps,gaps=v_gaps WHERE id=s.id;
+    IF s.parent_session_id IS NOT NULL THEN
+      UPDATE public.agent_evidence_sessions parent SET
+        manifest_json=jsonb_set(jsonb_set(parent.manifest_json,'{children}',
+          COALESCE((SELECT jsonb_agg(jsonb_build_object('id',child.id,'native_session_id',child.native_session_id)
+            ORDER BY child.id) FROM public.agent_evidence_sessions child
+            WHERE child.parent_session_id=parent.id AND child.deleted_at IS NULL),'[]')),
+          '{revision}',to_jsonb(parent.manifest_revision+1)),
+        manifest_revision=parent.manifest_revision+1,manifest_sha256=NULL
+      WHERE parent.id=s.parent_session_id;
+      UPDATE public.agent_evidence_sessions SET
+        manifest_sha256=encode(sha256(convert_to(manifest_json::text,'UTF8')),'hex')
+        WHERE id=s.parent_session_id;
+    END IF;
     UPDATE public.agent_evidence_batches SET committed_revision=v_revision,state='pending',updated_at=now()
       WHERE id=b.id;
-    RETURN jsonb_build_object('status','accepted','session_id',s.id,'revision',v_revision,'index_status','pending');
+    RETURN jsonb_build_object('status','accepted','session_id',s.id,'revision',v_revision,'index_status',
+        (SELECT index_status FROM public.agent_evidence_sessions WHERE id=s.id));
 END $$;
 
 CREATE OR REPLACE FUNCTION public.claim_agent_evidence_upload(p_user_id uuid,p_session_id uuid,p_object_id text)
@@ -1771,7 +1796,10 @@ BEGIN
     IF NOT FOUND OR s.deleted_at IS NOT NULL THEN RAISE EXCEPTION 'evidence_deleted'; END IF;
     SELECT * INTO o FROM public.agent_evidence_objects WHERE session_id=s.id AND object_id=p_object_id FOR UPDATE;
     IF NOT FOUND THEN RAISE EXCEPTION 'evidence_not_found'; END IF;
-    UPDATE public.agent_evidence_objects SET upload_lease_until=now()+interval '3 minutes'
+    UPDATE public.agent_evidence_objects SET upload_lease_until=now()+interval '3 minutes',
+        storage_path=COALESCE(storage_path,left(s.manifest_path,length(s.manifest_path)-14)||
+          CASE WHEN o.kind='segment' THEN '/segments/' ELSE '/attachments/' END||o.object_id||'-'||o.upload_nonce::text||
+          CASE WHEN o.kind='segment' THEN '.jsonl' ELSE '' END)
         WHERE session_id=s.id AND object_id=p_object_id;
     RETURN jsonb_build_object('nonce',o.upload_nonce,'uploaded',o.uploaded_at IS NOT NULL);
 END $$;
@@ -1856,6 +1884,7 @@ BEGIN
         AND richer.turn_id IS NOT DISTINCT FROM e.turn_id AND richer.displayable
         AND (richer.content_length>e.content_length OR (richer.content_length=e.content_length
           AND richer.record_sequence<e.record_sequence)));
+    UPDATE public.agent_evidence_sessions SET index_generation=index_generation+1 WHERE id=s.id;
     IF NOT p_complete THEN RETURN; END IF;
     UPDATE public.agent_evidence_objects SET indexed_parser_version=p_parser_version,parser_state=p_state
       WHERE session_id=s.id AND object_id=p_object_id AND indexed_parser_version<=p_parser_version;
@@ -1936,6 +1965,7 @@ GRANT EXECUTE ON FUNCTION public.expire_agent_evidence_batch(uuid) TO service_ro
 CREATE TABLE public.agent_evidence_purge_outbox (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     storage_paths jsonb NOT NULL,
+    not_before timestamptz NOT NULL DEFAULT now()+interval '15 minutes',
     created_at timestamptz NOT NULL DEFAULT now(),
     attempts integer NOT NULL DEFAULT 0
 );
@@ -1962,3 +1992,15 @@ END $$;
 CREATE TRIGGER agent_evidence_purge_before_delete BEFORE DELETE ON public.agent_evidence_sessions
     FOR EACH ROW EXECUTE FUNCTION public.archive_agent_evidence_purge_paths();
 REVOKE ALL ON FUNCTION public.archive_agent_evidence_purge_paths() FROM PUBLIC;
+CREATE OR REPLACE FUNCTION public.archive_agent_evidence_object_purge_path()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+    IF OLD.storage_path IS NOT NULL THEN
+        INSERT INTO public.agent_evidence_purge_outbox(storage_paths)
+          VALUES(jsonb_build_array(OLD.storage_path));
+    END IF;
+    RETURN OLD;
+END $$;
+CREATE TRIGGER agent_evidence_object_purge_before_delete BEFORE DELETE ON public.agent_evidence_objects
+    FOR EACH ROW EXECUTE FUNCTION public.archive_agent_evidence_object_purge_path();
+REVOKE ALL ON FUNCTION public.archive_agent_evidence_object_purge_path() FROM PUBLIC;
