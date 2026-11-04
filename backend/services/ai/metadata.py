@@ -36,6 +36,24 @@ PLAN_SCHEMA = {
 }
 ENVELOPE_SCHEMA = completion_envelope(PLAN_SCHEMA)
 
+PLAN_PROMPT = """You are a plan-only translator, not a database operator.
+Translate the supplied question into one document metadata plan matching the response schema.
+The backend already owns the database connection, authorization and supplied scope. It executes
+and validates the plan after you return. You do not need database access, tools, credentials,
+connection details, uploaded contents, or permission from the user. Never request these inputs,
+claim to have queried the database, invent results, or emit SQL.
+Supported operations: count_files counts distinct documents; count_chunks counts chunks only
+when explicitly requested; list_files lists up to 200 documents; source_types groups document
+types. Optional filters are exact source_type, filename and ISO creation dates; unspecified
+filters are null. Respect the supplied filename scope; never widen it or choose owner/folder IDs.
+For a multipart question, plan a supported part: prefer count_files when a document count is
+requested alongside types or topics. The caller can request other operations separately and use
+knowledge search for topics. Unsupported parts do not prevent planning a supported part.
+Return completed with a plan, empty missing_inputs and null failure. Use needs_input with null
+data only when the user's intent is genuinely missing or no requested operation is supported;
+name the missing intent/unsupported operation, never knowledge_base_access or infrastructure.
+Return failed with typed failure and null data for other failures. You cannot ask interactively."""
+
 
 def metadata_query(question: str, authority: dict, *, on_consumption=None) -> str:
     nested = bool(authority.get("job_id"))
@@ -60,16 +78,17 @@ def metadata_query(question: str, authority: dict, *, on_consumption=None) -> st
         "folder_ids": list(scope.folder_ids),
         "tool_allowlist": [],
         "ai_depth": scope.ai_depth,
-        "prompt": question,
-        "system_prompt": (
-            "Translate the question to a scoped document metadata plan. Count distinct files "
-            "unless chunks are explicitly requested. Supported operations: count_files, "
-            "count_chunks, list_files (bounded to 200), source_types. Filters are exact "
-            "source_type, filename and optional ISO creation dates. You cannot run tools or "
-            "ask questions interactively. For an unsupported question return needs_input "
-            "with missing_inputs and null data. completed requires a plan, empty missing_inputs, "
-            "null failure; failed requires typed failure and null data. Never emit SQL."
+        "prompt": json.dumps(
+            {
+                "question": question,
+                "authorized_scope": {
+                    "folder_ids": list(scope.folder_ids),
+                    "filename": authority.get("scope_filename"),
+                },
+            },
+            ensure_ascii=False,
         ),
+        "system_prompt": PLAN_PROMPT,
         "model": "claude-haiku-4-5-20251001",
         "max_tokens": 1024,
         "max_turns": 3,
