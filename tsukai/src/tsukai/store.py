@@ -114,6 +114,8 @@ class Store:
             "native_cli": "2.1.285",
             "host_prompt_version": "kioku-grounded-v1",
         }
+        if request.response_schema is not None:
+            policy["structured_transport"] = "result-wrapper-v1"
         return hashlib.sha256(json.dumps(policy, sort_keys=True).encode()).hexdigest()
 
     async def admit(self, request: JobRequest, queue_capacity=100, request_sha256=None):

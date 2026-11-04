@@ -220,3 +220,26 @@ async def test_abnormal_exit_dominates_invalid_schema_and_retains_private_diagno
     assert not error.result["usage"]["complete"]
     assert error.diagnostic["invalid_response"] == {"answer": 17}
     assert error.diagnostic["validation_errors"][0]["path"] == ["answer"]
+
+
+async def test_native_root_union_is_wrapped_and_original_outcome_validated(tmp_path):
+    from test_structured import envelope_schema
+
+    async def emit(*args):
+        pass
+
+    schema = envelope_schema()
+    runner = NativeRunner(settings(tmp_path))
+    result = await runner.run(
+        claim(tmp_path), request("ENVELOPE", response_schema=schema, max_turns=1), emit
+    )
+    assert result["structured"]["outcome"] == "completed"
+    assert "result" not in result["structured"]
+    with pytest.raises(NativeError, match="invalid_structured_output"):
+        await runner.run(
+            claim(tmp_path), request("ENVELOPE BAD_UNION", response_schema=schema), emit
+        )
+    with pytest.raises(NativeError, match="invalid_structured_output"):
+        await runner.run(
+            claim(tmp_path), request("ENVELOPE BAD_WRAPPER", response_schema=schema), emit
+        )
