@@ -163,6 +163,23 @@ def _architecture_paths(snapshot):
     return paths
 
 
+def _learning_quotes(snapshot):
+    """Bounded, exact source excerpts for schema-constrained evidence selection."""
+    choices = {}
+    for entry in snapshot["input"]["new_entries"]:
+        text = entry["text"][:18000]
+        excerpts = []
+        for line in text.splitlines():
+            for sentence in re.split(r"(?<=[.!?])\s+", line):
+                sentence = sentence.strip()
+                for start in range(0, len(sentence), 250):
+                    quote = sentence[start : start + 250].strip()
+                    if 12 <= len(quote) <= 250 and quote not in excerpts:
+                        excerpts.append(quote)
+        choices[entry["id"]] = excerpts[:12]
+    return choices
+
+
 def build_request(snapshot):
     """Return model kwargs from an immutable, already authorized snapshot."""
     op = snapshot["operation"]
@@ -184,11 +201,18 @@ def build_request(snapshot):
         ]["path"]
         path_schema["description"] = "One representative source path from the supplied evidence."
         path_schema["enum"] = sorted(_architecture_paths(snapshot)) or ["__no_source_available__"]
+    evidence_choices = None
     if op == "learnings":
+        evidence_choices = _learning_quotes(snapshot)
         updates = schema["properties"]["updates"]
         updates["maxItems"] = 4
         fields = updates["items"]["properties"]
+        quotes = sorted({quote for values in evidence_choices.values() for quote in values})
         fields["evidence_quote"].update(minLength=12, maxLength=250)
+        if quotes:
+            fields["evidence_quote"]["enum"] = quotes
+        else:
+            updates["maxItems"] = 0
         fields["statement"].update(minLength=10, maxLength=650)
         fields["topic_key"]["pattern"] = r"^[a-z0-9-]{3,80}$"
         fields["source_ids"]["minItems"] = 1
@@ -209,6 +233,13 @@ def build_request(snapshot):
             "outcome; never invent facts."
         ),
         "prompt": GUIDES[op]
+        + (
+            "\nChoose evidence_quote verbatim from evidence_choices for a cited source ID. "
+            "If none supports a durable learning, return an empty updates array. "
+            "Never paraphrase these quotes.\nEvidence choices: " + canonical(evidence_choices)
+            if evidence_choices is not None
+            else ""
+        )
         + "\nRequired result shape: "
         + canonical(shape)
         + "\nEVIDENCE SNAPSHOT:\n"

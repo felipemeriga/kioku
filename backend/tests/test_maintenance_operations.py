@@ -221,3 +221,44 @@ def test_architecture_generation_schema_chooses_one_exact_evidenced_path():
     output["architecture"]["components"][0]["path"] = "backend/routes/invented.py"
     with pytest.raises(ValidationError):
         validate(output, schema)
+
+
+def test_learning_quotes_are_schema_constrained_to_exact_cited_source_excerpts():
+    from jsonschema import ValidationError, validate
+
+    snap = snapshot("learnings", [])
+    text = "Confirmed `folder_id` isolation.\n" + "Long evidence " * 30
+    snap["input"]["new_entries"] = [{"id": "entry-1", "text": text}]
+    request = build_request(snap)
+    quotes = request["schema"]["properties"]["updates"]["items"]["properties"]["evidence_quote"][
+        "enum"
+    ]
+    assert quotes and all(q in text and 12 <= len(q) <= 250 for q in quotes)
+    assert "Confirmed `folder_id` isolation." in quotes
+    update = {
+        "topic_key": "folder-isolation",
+        "statement": "Folder identifiers provide isolation.",
+        "source_ids": ["entry-1"],
+        "evidence_quote": quotes[0],
+        "git_sha": None,
+        "retire": False,
+    }
+    validate({"updates": [update]}, request["schema"])
+    validate_result(snap, {"updates": [update]})
+    with pytest.raises(ValidationError):
+        validate(
+            {"updates": [{**update, "evidence_quote": "Paraphrased folder isolation."}]},
+            request["schema"],
+        )
+    assert "Evidence choices:" in request["prompt"]
+
+
+def test_learning_without_quotable_evidence_can_only_return_zero_updates():
+    from jsonschema import ValidationError, validate
+
+    snap = snapshot("learnings", [])
+    snap["input"]["new_entries"] = [{"id": "tiny", "text": "Short"}]
+    schema = build_request(snap)["schema"]
+    validate({"updates": []}, schema)
+    with pytest.raises(ValidationError):
+        validate({"updates": [SHAPES["learnings"]["updates"][0]]}, schema)

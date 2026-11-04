@@ -14,6 +14,7 @@ import jwt
 from services.ai.client import ExecutionError, TsukaiClient
 from services.ai.scope import ExecutionScope, sign_capability
 from services.maintenance.operations import (
+    SECTIONS,
     build_request,
     completion_schema,
     digest,
@@ -82,9 +83,23 @@ def promote_main_learnings(sb, owner, folder, payload):
     return updated
 
 
+def publication_response(publication):
+    """Project legacy SQL section keys onto the current six-area wire contract.
+
+    SQL stores the original pass and ACK proof unchanged. Old summaries may
+    still contain retired preferences/dependencies/important_files sections.
+    """
+    if "reviewed" not in publication:
+        return publication
+    return {
+        **publication,
+        "reviewed": [name for name in SECTIONS if name in publication["reviewed"]],
+    }
+
+
 def apply_result(sb, preparation, owner, job_id, value):
     """The only publication boundary: SQL checks revisions under the folder lock."""
-    return (
+    publication = (
         sb.rpc(
             "apply_maintenance_result",
             {
@@ -97,6 +112,7 @@ def apply_result(sb, preparation, owner, job_id, value):
         .execute()
         .data
     )
+    return publication_response(publication)
 
 
 def capture_pending(sb, owner, folder, operation, payload):
@@ -711,7 +727,7 @@ def publish(sb, owner, folder, preparation, job_id):
         if row["execution_job_id"] != job_id:
             raise ValueError("preparation already has another execution")
         acknowledge_publication(sb, row)
-        return row["publication"]
+        return publication_response(row["publication"])
     client = TsukaiClient(
         os.environ["TSUKAI_URL"],
         os.environ["TSUKAI_SERVICE_TOKEN"],

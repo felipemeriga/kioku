@@ -946,3 +946,80 @@ def test_only_confirmed_terminal_budget_exhaustion_enters_bounded_repair(
     assert bool(row.get("validation_error")) is retryable
     assert not row.get("publication")
     assert not row.get("execution_job_id")
+
+
+def test_legacy_sql_review_areas_are_canonical_on_first_publication_and_replay(
+    configured, monkeypatch
+):
+    from copy import deepcopy
+
+    from fastapi.testclient import TestClient
+
+    from main import app
+    from routes import mihari
+    from services.maintenance.operations import SECTIONS
+
+    head = "a" * 40
+    original = {
+        "ok": True,
+        "selected": ["activity", "documentation"],
+        "reviewed": [
+            "activity",
+            "overview",
+            "deployment",
+            "how_it_runs",
+            "preferences",
+            "architecture",
+            "dependencies",
+            "documentation",
+            "important_files",
+            "activity",
+        ],
+    }
+    immutable = deepcopy(original)
+
+    class SQLDB(DB):
+        def rpc(self, name, payload):
+            assert name == "apply_maintenance_result"
+            self.calls.append((name, payload))
+            return SimpleNamespace(execute=lambda: SimpleNamespace(data=original))
+
+    row = {**prepared_row(), "execution_job_id": "job", "publication": original}
+    state = {
+        "user_id": "owner",
+        "folder_id": "folder",
+        "head_sha": head,
+        "selected": ["activity", "documentation"],
+        "acknowledged": ["activity", "documentation"],
+    }
+    db = SQLDB({"maintenance_preparations": [row], "maintenance_review_passes": [state]})
+    projected = execution.apply_result(
+        db, "prep", "owner", "job", {"selected": ["activity", "documentation"]}
+    )
+    assert projected["reviewed"] == list(SECTIONS)
+    assert projected["selected"] == immutable["selected"]
+    assert original == immutable
+    monkeypatch.setattr(execution, "acknowledge_publication", lambda *_: None)
+    monkeypatch.setattr(execution, "acknowledge_absent_documentation", lambda *_: None)
+    monkeypatch.setattr(mihari, "_authorized_maintenance", lambda *_: ("owner", db))
+    monkeypatch.setattr(mihari, "_api_key_auth", lambda *_: ("owner", "folder", "key"))
+    monkeypatch.setattr(mihari, "get_supabase", lambda: db)
+    monkeypatch.setattr("mcp_server._descendant_folder_ids", lambda *_: ["folder"])
+    monkeypatch.setenv("TSUKAI_MIHARI_NATIVE", "true")
+    client = TestClient(app)
+    result = client.post(
+        "/api/mihari/execution/publish",
+        json={"folder_id": "folder", "preparation_id": "prep", "job_id": "job"},
+    )
+    assert result.status_code == 200
+    assert result.json()["reviewed"] == list(SECTIONS)
+    complete = {"folder_id": "folder", "head_sha": head, "reviewed": result.json()["reviewed"]}
+    assert client.post("/api/mihari/review-complete", json=complete).status_code == 200
+    # Canonicalizing a response must never satisfy missing publication ACKs.
+    state["acknowledged"] = ["activity"]
+    assert client.post("/api/mihari/review-complete", json=complete).status_code == 409
+    state["acknowledged"] = ["activity", "documentation"]
+    complete["head_sha"] = "b" * 40
+    assert client.post("/api/mihari/review-complete", json=complete).status_code == 409
+    assert original == immutable
+    assert row["publication"]["reviewed"] == immutable["reviewed"]
