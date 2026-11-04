@@ -120,6 +120,9 @@ def probe(config, read_only=False):
                 "What acceptance code did I ask you to remember? Reply only with that code."
             )
         )
+        long_sample = state["cycle"] == 2 and not state.get("long_sample_done")
+        if long_sample:
+            content += " For this one streaming sample, write at least 150 words explaining your answer."
         body = {
             "conversation_id": conversation,
             "turn_id": turn,
@@ -163,6 +166,14 @@ def probe(config, read_only=False):
             raise RuntimeError(
                 "Missing durable terminal answer or incorrect stateful recall"
             )
+        if token_count == 0:
+            raise RuntimeError(
+                "Chat returned terminal-only output without streamed delta frames"
+            )
+        if long_sample and (len(terminal["replace"].split()) <= 100 or token_count < 2):
+            raise RuntimeError(
+                "Long streaming sample lacks >100 words and separate delta frames"
+            )
         execution = (terminal.get("debug") or {}).get("execution") or {}
         if execution.get("turn_id") != turn or not execution.get("timings"):
             raise RuntimeError("Native debug identity/timings missing")
@@ -185,6 +196,7 @@ def probe(config, read_only=False):
             "model": model,
             "mode": mode,
             "seed": seed,
+            "long_stream_sample": long_sample,
             "conversation_id": conversation,
             "turn_id": turn,
             "job_id": terminal["job_id"],
@@ -198,6 +210,8 @@ def probe(config, read_only=False):
         }
         save(config["evidence"], result, append=True)
         state["cycle"] += 1
+        if long_sample:
+            state["long_sample_done"] = True
         state.pop("pending", None)
         save(state_path, state)
         return result
