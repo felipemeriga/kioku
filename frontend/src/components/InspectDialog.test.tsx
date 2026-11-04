@@ -211,3 +211,40 @@ it("opens document chunks in the existing preview flow", () => {
   expect(onClose).toHaveBeenCalledOnce();
   expect(onOpenDocument).toHaveBeenCalledWith("guide.pdf", "docs");
 });
+
+it("links repeated source files by exact chunk location", () => {
+  renderWithProviders(
+    <InspectDialog
+      open
+      onClose={vi.fn()}
+      citations={[10, 20].map((line, i) => ({
+        number: i + 1,
+        source: `schema.proto:${line}-${line + 5}`,
+        source_type: "code",
+        folder_id: "repo",
+        file: "schema.proto",
+        url: `https://github.com/org/repo/blob/main/schema.proto#L${line}`,
+        excerpt: "message Example {}",
+      }))}
+      trace={{
+        reasoning: [],
+        tool_calls: [],
+        retrieval: [
+          {
+            source: "schema.proto:10-15",
+            source_type: "code",
+            folder_id: "repo",
+            content: "message Example {}",
+          },
+        ],
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("tab", { name: "Chunks (1)" }));
+  expect(
+    screen.getByRole("link", { name: "schema.proto:10-15" }),
+  ).toHaveAttribute(
+    "href",
+    "https://github.com/org/repo/blob/main/schema.proto#L10-L15",
+  );
+});
