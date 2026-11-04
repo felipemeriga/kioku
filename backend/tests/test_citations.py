@@ -259,3 +259,24 @@ class TestExecuteToolCitations(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_historical_source_urls_are_enriched_without_changing_identity():
+    from services.citations import enrich_source_urls
+
+    source = {
+        "number": 3,
+        "source_type": "code",
+        "file": "src/main.rs",
+        "line": 42,
+        "folder_id": "repo",
+        "url": None,
+        "source_id": "durable-id",
+    }
+    sb = _FakeSupabase(
+        [{"folder_id": "repo", "remote_url": "git@github.com:org/repo.git", "branch": "main"}]
+    )
+    enrich_source_urls(sb, "owner", [source])
+    assert source["url"] == "https://github.com/org/repo/blob/main/src/main.rs#L42"
+    assert source["source_id"] == "durable-id" and source["number"] == 3
+    assert sb.calls["eq"] == ("user_id", "owner")

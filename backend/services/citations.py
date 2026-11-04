@@ -173,3 +173,14 @@ class CitationRegistry:
         """The registered citations, ordered by number."""
         with self._lock:
             return list(self._entries)
+
+
+def enrich_source_urls(sb, user_id: str, entries: list[dict]) -> None:
+    """Enrich response-only citation dictionaries in one owner-scoped query.
+
+    This also supports historical messages whose durable citation identity was
+    stored before GitHub URL enrichment. No message or source row is rewritten.
+    """
+    registry = CitationRegistry()
+    registry._entries = entries
+    registry.enrich_urls(sb, user_id)
