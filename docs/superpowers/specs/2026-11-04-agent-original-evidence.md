@@ -297,7 +297,7 @@ Use a shared location type containing `folderId`, server `sessionId`, optional e
 
 **Evidence drawer:** approximately the current document-drawer width (about 680 px), title/agent and capture status, `Open full transcript`, close, `Conversation / Raw source`, date jump, bounded highlighted evidence range, `Load earlier / Load later`. Reuse `DocumentViewerDrawer.tsx` visual conventions but retain source selection on fetch errors with Retry rather than closing.
 
-**Full transcript page:** same `TranscriptViewer` with more reading room and a narrow active-day navigator. Drawer-to-page navigation preserves anchor, child, mode and timezone. On mobile the drawer is full viewport and day navigation is a button/dialog. Do not implement separate mobile or page event renderers.
+**Full transcript page:** same `TranscriptViewer` with more reading room and a narrow active-day navigator. Both drawer and full-page headers place the native session ID directly beside the Claude Code/Codex label; show a compact ID with the full value in an accessible tooltip and copy action. Drawer-to-page navigation preserves anchor, child, mode and timezone. On mobile the drawer is full viewport and day navigation is a button/dialog. Do not implement separate mobile or page event renderers.
 
 ```text
 Journal summary                      Evidence drawer
