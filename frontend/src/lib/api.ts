@@ -365,6 +365,9 @@ export interface Message {
 
 export interface NativeChatExecution {
   state?: string;
+  user_message_id?: string | null;
+  scope_folder_id?: string | null;
+  scope_filename?: string | null;
   turn_id: string;
   job_id: string;
   conversation_id: string;

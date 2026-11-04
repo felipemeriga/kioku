@@ -70,11 +70,33 @@ def get_conversation(conversation_id: str, user_id: str = Depends(get_current_us
             .data
             or []
         )
+        missing_assistant = False
+        if turns:
+            turn = turns[0]
+            expected_ids = {turn.get("user_message_id"), turn.get("assistant_message_id")} - {None}
+            if not expected_ids.issubset({row["id"] for row in messages.data}):
+                # Admission or publication may commit between messages and turn reads.
+                messages = (
+                    sb.table("messages")
+                    .select("id, role, content, created_at, debug, citations")
+                    .eq("conversation_id", conversation_id)
+                    .order("created_at")
+                    .execute()
+                )
+            missing_assistant = bool(turn.get("assistant_message_id")) and (
+                turn["assistant_message_id"] not in {row["id"] for row in messages.data}
+            )
         if (
             turns
             and turns[0].get("job_id")
-            and not turns[0].get("assistant_message_id")
-            and turns[0]["state"] in {"prepared", "submitted", "failed", "cancelled", "uncertain"}
+            and (
+                missing_assistant
+                or (
+                    not turns[0].get("assistant_message_id")
+                    and turns[0]["state"]
+                    in {"prepared", "submitted", "failed", "cancelled", "uncertain"}
+                )
+            )
         ):
             turn = turns[0]
             try:
@@ -86,6 +108,9 @@ def get_conversation(conversation_id: str, user_id: str = Depends(get_current_us
                 intent = turn["request"]["metadata"]["intent"]
                 active_execution = {
                     "state": turn["state"],
+                    "user_message_id": turn.get("user_message_id"),
+                    "scope_folder_id": intent.get("scope_folder_id"),
+                    "scope_filename": intent.get("scope_filename"),
                     "turn_id": turn["id"],
                     "job_id": turn["job_id"],
                     "conversation_id": conversation_id,
