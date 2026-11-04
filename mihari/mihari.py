@@ -105,6 +105,30 @@ def log(msg: str) -> None:
     print(f"{datetime.now(timezone.utc).isoformat()} {msg}", flush=True)
 
 
+def submit_native_job(url, headers, payload):
+    """Recover a rolling runner restart without changing the admission identity."""
+    deadline = time.monotonic() + 60
+    attempt = 0
+    while True:
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=(3, 15))
+        except (requests.ConnectionError, requests.Timeout):
+            pass
+        else:
+            if response.status_code not in (502, 503, 504):
+                response.raise_for_status()
+                return response
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise RuntimeError(
+                "Tsukai admission unavailable; immutable preparation retained for retry"
+            )
+        if attempt == 0:
+            log("Tsukai admission temporarily unavailable; retrying the same prepared request")
+        attempt += 1
+        time.sleep(min(2 ** min(attempt, 3), remaining))
+
+
 def maintenance_post(url, *, headers, json, timeout, _repair=True, _batches=3):
     """Direct model transport after backend authorization and immutable prepare.
 
@@ -136,9 +160,7 @@ def maintenance_post(url, *, headers, json, timeout, _repair=True, _batches=3):
         raise RuntimeError("Mihari Tsukai service token is unavailable")
     runner_headers = {"Authorization": f"Bearer {token}", "X-Tsukai-Capability": body["capability"]}
     runner = body["url"].rstrip("/")
-    submitted = requests.post(
-        runner + "/v1/jobs", headers=runner_headers, json=body["request"], timeout=30
-    )
+    submitted = submit_native_job(runner + "/v1/jobs", runner_headers, body["request"])
     submitted.raise_for_status()
     job = submitted.json()["job_id"]
     if not isinstance(job, str) or not re.fullmatch(r"[a-zA-Z0-9_-]+", job):

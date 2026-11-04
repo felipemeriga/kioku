@@ -61,3 +61,49 @@ def test_heavy_job_can_finish_after_old_transport_wait(monkeypatch, operation):
     assert result.ok
     assert len(polls) == 2
     assert publications == ["http://fixture/api/mihari/execution/publish"]
+
+
+@pytest.mark.parametrize("failure", ["connection", "unavailable", "persistent", "rejected"])
+def test_runner_restart_retries_one_unchanged_admission(monkeypatch, failure):
+    for key in ("SUPABASE_URL", "KIOKU_MCP_URL", "KIOKU_API_URL"):
+        monkeypatch.setenv(key, "http://fixture")
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "fixture")
+    spec = importlib.util.spec_from_file_location(
+        "mihari_admission_fixture", Path(__file__).parents[2] / "mihari/mihari.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    clock, calls = [0], []
+    payload = {"idempotency_key": "immutable-request", "prompt": "Original evidence"}
+
+    def post(url, **kwargs):
+        calls.append(kwargs["json"])
+        assert kwargs["json"] is payload
+        if failure == "rejected":
+            raise module.requests.HTTPError("403 denied")
+        if failure == "connection" and len(calls) == 1:
+            raise module.requests.ConnectionError("runner restarting")
+        status = (
+            503
+            if failure == "persistent" or (failure == "unavailable" and len(calls) == 1)
+            else 202
+        )
+        return SimpleNamespace(status_code=status, raise_for_status=lambda: None)
+
+    monkeypatch.setattr(module.requests, "post", post)
+    monkeypatch.setattr(module.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(
+        module.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds)
+    )
+    if failure == "rejected":
+        with pytest.raises(module.requests.HTTPError):
+            module.submit_native_job("http://runner/v1/jobs", {}, payload)
+        assert len(calls) == 1 and clock[0] == 0
+    elif failure == "persistent":
+        with pytest.raises(RuntimeError, match="preparation retained"):
+            module.submit_native_job("http://runner/v1/jobs", {}, payload)
+        assert clock[0] == 60 and len(calls) < 20
+    else:
+        assert module.submit_native_job("http://runner/v1/jobs", {}, payload).status_code == 202
+        assert len(calls) == 2
+    assert payload == {"idempotency_key": "immutable-request", "prompt": "Original evidence"}
