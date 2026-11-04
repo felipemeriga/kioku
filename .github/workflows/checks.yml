@@ -194,3 +194,25 @@ jobs:
           done
           psql -h localhost -U postgres -d tsukai_readiness_fixture -v ON_ERROR_STOP=1 -c "ALTER ROLE tsukai_readiness_fixture_runtime PASSWORD 'fixture-readiness-only';"
           PGPASSWORD=fixture-readiness-only psql -h localhost -U tsukai_readiness_fixture_runtime -d tsukai_readiness_fixture -v ON_ERROR_STOP=1 -c "UPDATE public.tsukai_attempts SET status='completed',finished_at=3 WHERE id='fresh-probe';"
+      - name: Verify maintenance publication SQL and document revision freshness
+        env:
+          PGPASSWORD: fixture-admin-only
+        run: |
+          createdb -h localhost -U postgres tsukai_maintenance_fixture
+          for sql in \
+            backend/tests/fixtures/maintenance/schema.sql \
+            supabase/migrations/20261022010000_briefing_append_only_refresh.sql \
+            supabase/migrations/20261029170000_repo_learnings.sql \
+            supabase/migrations/20261104140000_mihari_prepared_execution.sql \
+            supabase/migrations/20261104150000_mihari_retry_ack.sql \
+            supabase/migrations/20261104210000_mihari_absent_documentation.sql \
+            supabase/migrations/20261104230000_mihari_document_body_publication.sql \
+            backend/tests/fixtures/maintenance/service_role.sql \
+            backend/tests/fixtures/maintenance/publication.sql \
+            backend/tests/fixtures/maintenance/documentation.sql \
+            backend/tests/fixtures/maintenance/retry.sql \
+            backend/tests/fixtures/maintenance/learnings.sql \
+            backend/tests/fixtures/maintenance/absent_documentation.sql \
+            backend/tests/fixtures/maintenance/documentation_body_only.sql; do
+            psql -h localhost -U postgres -d tsukai_maintenance_fixture -v ON_ERROR_STOP=1 -f "$sql"
+          done
