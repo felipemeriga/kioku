@@ -141,7 +141,11 @@ def probe(config, read_only=False):
             response.raise_for_status()
             conversation = response.json()["id"]
             nonce = "tsukai-e2e-" + uuid.uuid4().hex[:12]
-            state["conversations"][key] = {"id": conversation, "nonce": nonce}
+            state["conversations"][key] = {
+                "id": conversation,
+                "nonce": nonce,
+                "filename": config.get("scope_filename"),
+            }
             response = client.patch(
                 f"/api/conversations/{conversation}",
                 json={"title": config["fixture_name"] + " " + key},
@@ -183,6 +187,7 @@ def probe(config, read_only=False):
             "mode": mode,
             "debug": True,
             "scope_folder_id": config["folder_id"],
+            "scope_filename": fixture.get("filename"),
         }
         state["pending"] = {"turn_id": turn}
         save(state_path, state)
@@ -306,7 +311,7 @@ def probe(config, read_only=False):
                 scope = trace.get("effective_scope") or {}
                 if (
                     scope.get("folder_ids") != [config["folder_id"]]
-                    or scope.get("filename") is not None
+                    or scope.get("filename") != body["scope_filename"]
                 ):
                     raise CheckFailure(
                         "Actual debug artifact effective scope differs from fixture filter"
