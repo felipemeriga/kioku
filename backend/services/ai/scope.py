@@ -1,5 +1,7 @@
 """Immutable execution authority established by trusted request handlers."""
 
+import hashlib
+import json
 import os
 import time
 from contextlib import contextmanager
@@ -20,6 +22,7 @@ class ExecutionScope:
     root_job_id: str | None = None
     ai_depth: int = 0
     harness_tool: bool = False
+    tool_allowlist: tuple[str, ...] = ()
 
 
 _current: ContextVar[ExecutionScope | None] = ContextVar("execution_scope", default=None)
@@ -51,7 +54,14 @@ def operation_scope(operation: str) -> ExecutionScope | None:
     return scope
 
 
-def sign_capability(scope: ExecutionScope, operation: str, profile: str, *, ttl: int = 900) -> str:
+def sign_capability(
+    scope: ExecutionScope,
+    operation: str,
+    profile: str | None,
+    *,
+    ttl: int = 900,
+    request: dict | None = None,
+) -> str:
     if ttl < 1 or ttl > 1800:
         raise ValueError("capability lifetime outside allowed range")
     if scope.ai_depth and (
@@ -66,12 +76,17 @@ def sign_capability(scope: ExecutionScope, operation: str, profile: str, *, ttl:
         "owner_id": scope.owner_id,
         "folder_ids": list(scope.folder_ids),
         "operations": [operation],
-        "profiles": [profile],
+        "profiles": [profile] if profile else [],
+        "tool_allowlist": list(scope.tool_allowlist),
         "iat": now,
         "exp": now + ttl,
         "jti": str(uuid4()),
         "ai_depth": scope.ai_depth,
     }
+    if request is not None:
+        claims["request_sha256"] = hashlib.sha256(
+            json.dumps(request, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
     if scope.parent_job_id:
         claims["parent_job_id"] = scope.parent_job_id
     if scope.root_job_id:

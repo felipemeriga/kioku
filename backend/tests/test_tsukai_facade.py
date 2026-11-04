@@ -36,7 +36,10 @@ def test_fresh_completion_never_uses_resume_and_preserves_unknown_usage(monkeypa
     client = MagicMock()
     client.complete.return_value = ExecutionResult("job", "SELECT 1", None, None, "native")
     with execution_scope(ExecutionScope("owner", ("folder",), caller="mcp")):
-        with patch("services.ai.facade.client_for", return_value=client):
+        with (
+            patch("services.ai.facade.client_for", return_value=client),
+            patch("services.ai.facade.record_job_usage"),
+        ):
             result = native_completion(
                 operation="text_to_sql",
                 model="haiku",

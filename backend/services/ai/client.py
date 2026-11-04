@@ -21,6 +21,7 @@ class ExecutionResult:
     structured: dict | None
     usage: dict | None
     native_session_id: str | None
+    attempt_id: str | None = None
 
 
 class TsukaiClient:
@@ -32,7 +33,10 @@ class TsukaiClient:
         *,
         transport=None,
         deadline_seconds: float = 900,
+        admission_capability: Callable[[dict], str] | None = None,
     ):
+        self.last_job_id: str | None = None
+        self._admission_capability = admission_capability
         self._capability = capability
         self._deadline = time.monotonic() + deadline_seconds
         self._http = httpx.Client(
@@ -56,9 +60,36 @@ class TsukaiClient:
 
     def submit(self, request: dict) -> str:
         self._authorize()
+        if self._admission_capability:
+            self._http.headers["X-Tsukai-Capability"] = self._admission_capability(request)
         response = self._http.post("/v1/jobs", json=request)
         response.raise_for_status()
-        return response.json()["job_id"]
+        self.last_job_id = response.json()["job_id"]
+        return self.last_job_id
+
+    def status(self, job_id: str) -> dict:
+        self._authorize()
+        response = self._http.get(f"/v1/jobs/{job_id}")
+        response.raise_for_status()
+        return response.json()
+
+    def active_attempt(self, job_id: str, attempt_id: str) -> dict:
+        self._authorize()
+        response = self._http.get(f"/v1/jobs/{job_id}/attempts/{attempt_id}")
+        response.raise_for_status()
+        return response.json()
+
+    def tool_event(self, job_id: str, attempt_id: str, kind: str, data: dict):
+        self._authorize()
+        response = self._http.post(
+            f"/v1/jobs/{job_id}/tool-events",
+            json={
+                "attempt_id": attempt_id,
+                "type": kind,
+                "data": data,
+            },
+        )
+        response.raise_for_status()
 
     def events(self, job_id: str, *, cursor: int = 0, reconnects: int = 3) -> Iterator[dict]:
         """Replay contiguous events. EOF without terminal is never a success."""
@@ -136,6 +167,7 @@ class TsukaiClient:
             result.get("structured"),
             result.get("usage"),
             result.get("native_session_id"),
+            result.get("attempt_id"),
         )
 
     def complete(self, request: dict) -> ExecutionResult:
@@ -156,3 +188,23 @@ class TsukaiClient:
             f"/v1/jobs/{job_id}/ack", json={"consumer": consumer, "reference": reference}
         )
         response.raise_for_status()
+
+    def delete_domain(self, path: str, body: dict) -> dict:
+        self._authorize()
+        if self._admission_capability:
+            self._http.headers["X-Tsukai-Capability"] = self._admission_capability(body)
+        response = self._http.post(path, json=body)
+        response.raise_for_status()
+        return response.json()
+
+    def deletion_status(self, tombstone_id: str) -> dict:
+        self._authorize()
+        response = self._http.get(f"/v1/deletions/{tombstone_id}")
+        response.raise_for_status()
+        return response.json()
+
+    def usage(self, job_id: str) -> dict:
+        self._authorize()
+        response = self._http.get(f"/v1/jobs/{job_id}/usage")
+        response.raise_for_status()
+        return response.json()

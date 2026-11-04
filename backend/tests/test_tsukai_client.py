@@ -61,8 +61,9 @@ def test_default_api_and_owner_only_explicit_native(monkeypatch):
     assert engine_for("query_rewrite", "owner") == "api"
     monkeypatch.setenv("TSUKAI_NATIVE_TASKS", "query_rewrite,image_ocr")
     monkeypatch.setenv("TSUKAI_CREDENTIAL_OWNER_ID", "owner")
+    assert engine_for("query_rewrite", "foreign") == "api"
     with pytest.raises(PermissionError):
-        engine_for("query_rewrite", "foreign")
+        engine_for("query_rewrite", "foreign", explicit_native=True)
     assert engine_for("query_rewrite", "owner") == "tsukai"
     with pytest.raises(ValueError, match="unverified"):
         engine_for("image_ocr", "owner")
