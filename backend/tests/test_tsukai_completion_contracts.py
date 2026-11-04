@@ -88,7 +88,13 @@ def test_every_native_completion_emits_registered_schema_and_unwraps_task_data(
             },
             "needs_input",
         ),
-        ({**envelope(None, "failed"), "failure": {"code": "unsupported"}}, "failed"),
+        (
+            {
+                **envelope(None, "failed"),
+                "failure": {"code": "unsupported", "message": "Required source is unavailable"},
+            },
+            "failed",
+        ),
     ],
 )
 def test_free_prose_questions_missing_inputs_and_invalid_data_never_become_success(
