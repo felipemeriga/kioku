@@ -1,3 +1,6 @@
+> Offline preview snapshot. Verify current props, tokens, and behavior in
+> `frontend/src/` before implementation. See [design-system guidance](../../README.md).
+
 A repo folder's briefing: staleness notice, index-status cards (git, graph, semantic code), and eight section cards (overview → activity) each with its icon/accent, status (auto / pinned / hybrid) and an editor.
 
 ## Use

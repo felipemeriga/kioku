@@ -1,3 +1,6 @@
+> Offline preview snapshot. Verify current props, tokens, and behavior in
+> `frontend/src/` before implementation. See [design-system guidance](../../README.md).
+
 The left rail: the 記 hanko mark with the KIOKU wordmark and キオク furigana, Chat · Documents · Settings, and the signed-in user with sign-out.
 
 ## Use

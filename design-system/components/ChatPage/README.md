@@ -1,3 +1,6 @@
+> Offline preview snapshot. Verify current props, tokens, and behavior in
+> `frontend/src/` before implementation. See [design-system guidance](../../README.md).
+
 Screen: the Chat route (`/`) inside AppLayout — conversation list, messages and composer; sending streams a demo answer through the four ThinkingBar stages.
 
 ## Use

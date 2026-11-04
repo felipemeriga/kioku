@@ -1,3 +1,6 @@
+> Design/implementation record; verify current behavior against the merged source.
+> See [current documentation](../../README.md) and [change status](../../change-status.md).
+
 # Tsukai consumer acceptance handoff
 
 Implementation PR: #209. Default execution remains API. Native pilot requires the selected operation in `TSUKAI_NATIVE_TASKS` and exact `TSUKAI_CREDENTIAL_OWNER_ID`; unrelated owners retain API. There is no fallback after a native execution failure.

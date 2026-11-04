@@ -1,3 +1,6 @@
+> Offline preview snapshot. Verify current props, tokens, and behavior in
+> `frontend/src/` before implementation. See [design-system guidance](../../README.md).
+
 Right drawer listing upload tasks with a six-dot stage track (parsing → storing), live chunk counts, done / error / duplicate states.
 
 ## Use

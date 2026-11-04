@@ -1,5 +1,9 @@
 # Tsukai v1 protocol
 
+Current runtime contract. See [service overview](../README.md) and
+[deployment guide](../../docs/operations.md). Schemas in this directory and
+`src/tsukai/` are authoritative if an implementation changes.
+
 Private HTTP on port8788. All /v1 and /internal endpoints require `Authorization: Bearer $TSUKAI_SERVICE_TOKEN`. /v1 additionally requires `X-Tsukai-Capability`: HS256 JWT, dedicated `TSUKAI_CAPABILITY_KEY`, issuer `kioku-backend`, audience `tsukai`. Claims are defined in capability.schema.json. Current scope is checked for every request. No user-supplied native session ID, MCP URL, CLI flags or environment.
 
 POST /v1/jobs accepts job-request.schema.json, returns202 `{job_id,status,events_url,result_url}`. Identical `(owner_id,caller,idempotency_key)` returns same job; changed payload409. Signature/ownership/scope/depth conflicts403. Queue saturation503; drain503. Only backend chat profile resumes conversation; every completion and repair gets fresh native session.
@@ -20,11 +24,11 @@ Admission capabilities MUST include `request_sha256`: SHA256 of the submitted ra
 
 After operator native credential rotation, POST `/internal/recheck-auth` with service bearer performs one singleflight recorded readiness inference. Terminal reauth failure does not loop; transient startup dependency failures retry with bounded backoff. Health polling never invokes a model. Database loss pauses claims; stdout drains into a bounded0600 private spool while SQL writes retry. No delta is sent before durable persistence. Uncommitted failure spools are retained privately for at most30days and are never replay truth.
 
-The v1 pilot permits actual model IDs `claude-sonnet-4-6` and `claude-haiku-4-5-20251001`; aliases and unsupported models fail before inference. Output controls use `CLAUDE_CODE_MAX_OUTPUT_TOKENS`, `MAX_THINKING_TOKENS`, `CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1`, max turns, wall/inactivity deadlines and16MiB byte caps. Native CLI structured-output helper inference may add work; these are not a provider billing exactly-once guarantee. Known helper/schema behavior and output cap must be validated on the pinned CLI before pilot traffic.
+Static pilot admission permits `claude-sonnet-4-6` and `claude-haiku-4-5-20251001`. Additional `claude-` model IDs must match a selectable resolved model in a fresh authenticated catalog; unsupported models and stale dynamic admissions fail before inference. Output controls use `CLAUDE_CODE_MAX_OUTPUT_TOKENS`, `MAX_THINKING_TOKENS`, `CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1`, max turns, wall/inactivity deadlines and16MiB byte caps. Native CLI structured-output helper inference may add work; these are not a provider billing exactly-once guarantee. Known helper/schema behavior and output cap must be validated on the pinned CLI before pilot traffic.
 
 Usage is `{billing_mode:'subscription',list_equivalent_usd:number|null,input_tokens:number|null,output_tokens:number|null,cache_read_tokens:number|null,cache_creation_tokens:number|null,model_usage:{},counter_segment, counter_reset,complete,attribution,native_total_cost_usd,native_counters}`. Missing values are null. Resumed process counter attribution is explicitly incomplete because reset detection cannot prove that an increasing counter is session-global rather than process-local. No cash subscription spending is inferred from list equivalents.
 
-Apply the Supabase migration as migration owner, then provision a separate `LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT` role with no memberships and a password stored only in deployment secrets. Run `psql --set runtime_role=kioku_tsukai_runner -f tsukai/ops/grant-runtime.sql` as owner to grant CRUD and table-scoped RLS only on the six Tsukai tables. Never use the Supabase service_role credential as the runtime database login. Use a direct PostgreSQL/session-mode connection; transaction pooler mode is not supported by this release. Restricted-role PostgreSQL tests apply the shipped migration and prove domain-table denial.
+Apply the Supabase migration as migration owner, then provision a separate `LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT` role with no memberships and a password stored only in deployment secrets. Run `psql --set runtime_role=kioku_tsukai_runner -f tsukai/ops/grant-runtime.sql` as owner to grant CRUD and table-scoped RLS only on the seven Tsukai tables. Never use the Supabase service_role credential as the runtime database login. Use a direct PostgreSQL/session-mode connection; transaction pooler mode is not supported by this release. Restricted-role PostgreSQL tests apply the shipped migration and prove domain-table denial.
 
 Review fixes: native process-group ownership persists after leader exit, cleanup sends bounded TERM/KILL to remaining descendants and bounds pipe drains. Missing terminal output, foreign/missing init or final session IDs, and terminal-success followed by process failure are uncertain outcomes, quarantining chat until explicit rebuild. Valid terminal evidence/counters survive nonzero exit; they are never auto-published as completed. Native init and final IDs must both match the host-owned native session on the pinned CLI.
 
@@ -49,3 +53,15 @@ Native structured-output transport uses a strict internal `{result: ORIGINAL_SCH
 Cancellation uses one shared per-attempt signal across API requests, lease heartbeats and shutdown. Repeated signals cannot interrupt native process-group reaping or the durable terminal transaction: both run in shielded cleanup tasks with fixed deadlines, and cancellation cleanup renews the owned lease before committing. Native cleanup remains bounded by process/drain grace; terminal cleanup is capped at20seconds. Database/lease loss still produces explicit uncertainty rather than pretending cancellation committed. Regression coverage overlaps API+heartbeat+shutdown during slow process stop, and sends repeated external cancellations during both reaping and terminal SQL commit.
 
 The same shielded finalizer also owns successful commits, native-error commits and repair jitter, timeout commits and unexpected-error commits. Cancellation during any terminal path is resolved by the persisted cancel flag inside the authoritative SQL transaction; it cannot bypass cancellation handling by interrupting a sibling exception handler. A cancelled invalid-output attempt cannot enqueue its repair.
+
+## Authenticated model catalog
+
+GET `/v1/models` requires the service bearer and a backend capability with exactly
+`runtime.models.read`; ordinary job grants do not authorize it. Discovery reads
+authenticated native CLI initialization metadata rather than sending a generation
+prompt. Responses contain model display/resolved IDs, supported controls, bounded
+account metadata, fetch time, and `stale`. Successful metadata is cached for 900
+seconds; failures back off for 30 seconds and return the prior catalog marked stale
+when available, otherwise 503. Models whose descriptions require usage credits are
+marked unselectable. Static pilot allowances remain separate from dynamic catalog
+admission. The product exposes this through `GET /api/chat/models`.

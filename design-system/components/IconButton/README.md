@@ -1,3 +1,6 @@
+> Offline preview snapshot. Verify current props, tokens, and behavior in
+> `frontend/src/` before implementation. See [design-system guidance](../../README.md).
+
 Themed MUI IconButton — 3px radius and a 8% magenta hover wash.
 
 ## Use

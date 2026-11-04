@@ -1,3 +1,6 @@
+> Offline preview snapshot. Verify current props, tokens, and behavior in
+> `frontend/src/` before implementation. See [design-system guidance](../../README.md).
+
 A document tile (grid) or row (list): file-type icon in its type color, name, status pill, chunk count and age, with a context menu (open, chat, download, move, delete).
 
 ## Use

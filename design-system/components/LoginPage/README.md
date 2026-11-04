@@ -1,3 +1,6 @@
+> Offline preview snapshot. Verify current props, tokens, and behavior in
+> `frontend/src/` before implementation. See [design-system guidance](../../README.md).
+
 Screen: sign-in / sign-up card over the dual-neon ambient background, with the 'AI · personal knowledge agent' badge and the hanko mark.
 
 ## Use

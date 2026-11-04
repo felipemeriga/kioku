@@ -1,3 +1,6 @@
+> Offline preview snapshot. Verify current props, tokens, and behavior in
+> `frontend/src/` before implementation. See [design-system guidance](../../README.md).
+
 Right-side drawer that renders a document as markdown, highlighted code, PDF, image, audio/video or virtualized plain text, with its metadata.
 
 ## Use

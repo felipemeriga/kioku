@@ -1,250 +1,121 @@
-# kioku
+# Kioku CLI
 
-CLI that wires a local repo to your **kioku** second-brain — installs the MCP server, session hooks, and CLAUDE.md snippet so Claude Code loads your briefing at session start.
-
-```text
-  ● kioku  second-brain for coding agents
-  ────────────────────────────────────────
-```
+Connect a repository to Kioku, configure Claude Code/Codex, retrieve knowledge,
+and capture daily journals. Manabi reports machine presence and repo inventory.
 
 ## Install
 
-Install the standalone binary on macOS or Linux (no Node.js or npm required):
+Standalone macOS/Linux installation (no Node runtime required):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/felipemeriga/kioku/main/scripts/release/install.sh | sh
 ```
 
-The installer selects the latest stable CLI release for your OS and architecture,
-verifies its SHA-256 checksum, and installs `kioku` to `~/.local/bin`. If needed,
-it adds that directory to your shell's `PATH`; open a new terminal afterward.
-Set `KIOKU_VERSION` to install a specific release or `KIOKU_INSTALL_DIR` to
-choose another directory. On Windows x64, run `install.ps1` from the latest
-[CLI release](https://github.com/felipemeriga/kioku/releases) in PowerShell;
-it installs `kioku.exe` and updates the user `PATH`.
+The installer verifies the release checksum and installs to `~/.local/bin`.
+Use `KIOKU_VERSION` to pin a release or `KIOKU_INSTALL_DIR` to choose the destination.
+Windows x64 users can run `install.ps1` from the
+[CLI release](https://github.com/felipemeriga/kioku/releases).
 
-On interactive `kioku init`, a standalone binary checks for a newer CLI release
-and offers to install it before wiring the repository. After accepting, re-run
-`kioku init` with the updated binary. `kioku init --yes` skips the prompt.
-
-To build from source:
+The npm package is `@felipemeriga/kioku` (Node.js 18+):
 
 ```bash
-git clone <this-repo>
-cd kioku/cli && npm install && npm run build && npm link
+npm install -g @felipemeriga/kioku
 ```
 
-## Quickstart
+To build this checkout, run `npm ci && npm run build && npm link` in `cli/`.
+Interactive standalone `init` can offer an update; rerun init afterward.
+
+## Sign in and connect
 
 ```bash
-kioku login             # email + 6-digit code from your inbox
+kioku login                     # browser authorization handoff
 cd ~/repos/my-project
-kioku init              # picks folder, wires MCP, installs hooks, done
+kioku init                      # detect agent and bind repository
+kioku init --agent codex         # explicitly select Codex
 ```
 
-That's it. Open Claude Code in `~/repos/my-project` and the SessionStart hook loads your briefing automatically.
+`kioku login --no-browser` prints the authorization URL. The CLI waits for browser
+approval; it does not prompt for an email OTP. `kioku quickstart` combines login
+and setup. Add ecosystem docs or Notion content to the repository folder before
+initializing for a richer briefing.
 
-`kioku init` also installs a Stop hook for Claude Code and Codex. After a turn,
-the hook starts a background summarizer and appends short free-topic bullets to
-`.kioku/memory/YYYY-MM-DD.md`. The full daily file is kept locally and synced
-to private Supabase Storage through the scoped Kioku MCP key. The index records
-its repository, user, date, revision, and checksum; journals are not embedded
-or added to document search. The hook never blocks an agent on summarization
-or upload. If the network is unavailable, run `kioku memory-sync` later from
-the repository to retry local files. Codex may ask you to trust a new hook
-before it runs.
+Supported init options include `--root <name>`, `--yes`, `--force`,
+`--agent <claude|codex>`, and `--codex`. Run `kioku init --help` for current flags.
+GitHub registration is handled by the current setup flow; removed token/skip flags
+from older CLI versions should not be copied into scripts.
 
-## Environment
+Init configures the selected agent's MCP and SessionStart integration, installs
+journal Stop hooks for both supported agents, updates repository instructions,
+and registers the machine/repository with Manabi. Reinitialization preserves other
+agent configuration. Codex hook trust remains host-controlled.
 
-The CLI defaults to `http://localhost:8000` for the backend REST API. Point it elsewhere:
+## Server selection
+
+The default REST server is `https://kioku.api.merigafy.com`. For local development:
 
 ```bash
-export KIOKU_API_BASE=https://api.your-domain.com
-# The MCP URL is derived by swapping :8000 → :8001. Override if needed:
-export KIOKU_MCP_URL=https://mcp.your-domain.com/sse
+export KIOKU_API_BASE=http://localhost:8000
+export KIOKU_MCP_URL=http://localhost:8001/sse
 ```
+
+Precedence is `--api-base` / `KIOKU_API_BASE`, persisted `api_base`, then the hosted
+default. Set the MCP override explicitly for custom deployments rather than
+assuming a domain transformation. Codex setup converts the SSE URL to its
+streamable HTTP MCP path.
 
 ## Commands
 
-### `login`
+| Command | Purpose |
+| --- | --- |
+| `quickstart`, `login`, `logout` | Guided setup and browser authorization |
+| `init` | Bind repo, configure agent, register indexing/presence |
+| `status`, `doctor`, `whoami` | Binding, connectivity, and identity checks |
+| `ls [path]` | Browse workspace folders; supports `--json` |
+| `briefing` | Read briefing; `--section <name>` or `--json` |
+| `search <query...>` | Search documents/code; `--folder`, `--limit`, `--json` |
+| `open [target]` | Open the web UI; `--json` prints its URL |
+| `index` | Extract and upload the current repo's code graph |
+| `memory-sync` | Retry local daily-journal uploads |
+| `session-start`, `on-push` | Hook-facing helpers; normally automatic/legacy |
 
-Sign in via email OTP.
+Global options include `--quiet`, `--no-color`, and `--api-base`. `NO_COLOR`,
+`KIOKU_QUIET`, and `KIOKU_DEBUG` control output and diagnostics. Check each command's
+`--help` before automating options.
 
-```
-? Email                          you@example.com
-  · Sending code… done.
-? 6-digit code from email        123456
+## Journals and presence
 
-  ╭──────────────────────────╮
-  │ ✓ Signed in              │
-  │   you@example.com        │
-  │   3 root folders         │
-  ╰──────────────────────────╯
-```
+Stop hooks start detached summarizers and append `.kioku/memory/YYYY-MM-DD.md`.
+The daily file syncs to private Storage, separately from document embeddings.
+Offline files remain local for `kioku memory-sync`. See
+[journals and original-evidence status](../docs/agent-memory.md).
 
-Tokens stored at `~/.config/kioku/config.json` (0600). No password. No browser dance.
+Manabi runs as a per-user login service, reconnects with bounded backoff, and
+reports current/last-known inventory. It does not crawl session transcripts.
+See [Manabi lifecycle and troubleshooting](../docs/manabi.md).
 
-### `init`
+## Files and credentials
 
-Wires the current repo. Detects your git remote, figures out (or asks about) where in your workspace this repo lives, mints an API key, and writes 4 files. **Idempotent** — safe to re-run any time.
+| Location | Content |
+| --- | --- |
+| `~/.config/kioku/config.json` (or XDG config directory) | REST URL, access/refresh tokens, identity; mode 0600 |
+| `.mcp.json` | Repository MCP URL and scoped bearer key; private and gitignored |
+| `.claude/settings.local.json` | Claude Code hooks |
+| `.claude/kioku-state.json` | Repository binding and local activity state |
+| `~/.codex/config.toml` (or `CODEX_HOME`) | Codex MCP configuration and hooks, including its key |
+| `CLAUDE.md` / `AGENTS.md` | Agent instructions for the selected integration |
+| `.kioku/memory/` | Daily journals and local capture/sync state |
+| `~/.config/kioku/manabi/` (or XDG config directory) | Machine credential and bounded diagnostic state |
 
-```bash
-kioku init                          # interactive; smart defaults
-kioku init --yes                    # no prompts, take all defaults
-kioku init --root my-company        # pre-select a root by name
-kioku init --github-token ghp_...   # explicit token (bypasses gh CLI detection)
-kioku init --skip-github            # no GitHub sync (public-only briefing)
-```
+The CLI stores credentials locally. Protect these paths; do not commit MCP keys,
+login tokens, or machine credentials. `logout` clears login/connection credentials;
+it does not imply that every local journal/config artifact has been erased.
 
-**Manabi connection**: `kioku init` also installs and starts one background Manabi
-process for the current OS user. Subsequent repositories reuse it; no separate
-start command is required. It maintains an authenticated outbound WebSocket to
-the configured backend, sends heartbeats, and retries disconnected connections
-indefinitely with exponential backoff and jitter (up to 60 seconds). Check
-machine presence in **Remotes**. Each init also records the repository path and its
-configured Claude Code/Codex providers in a local registry. Manabi syncs that current
-inventory separately from document indexing. Re-initializing with another provider
-keeps both configurations. This does not detect running agents or collect memories.
+## Troubleshooting and development
 
-Existing bindings can be discovered from Claude's project index or Codex's configured
-project paths, only when explicit Kioku markers exist and the current account owns
-the repository folder. Manabi never crawls the disk or reads session transcripts.
-Run init in an older project if it does not appear. Remotes shows OS logos, a friendly
-computer name, and an optional name override that survives future init runs.
+Run `kioku doctor` for backend, MCP, login, and repository binding diagnostics.
+Use `kioku status` for the last local machine connection report. Sign in again
+when authorization expires; rerun init to repair agent/service setup. Sleeping or
+logged-out machines may be offline until their login service resumes.
 
-Missing paths and unreadable registries produce timestamped warnings. A corrupt
-registry retains the server's last successful inventory; warnings clear after recovery.
-Offline machines show last-known reports. `kioku status` also shows the last local
-connection/startup report, including failures that cannot reach the backend.
-
-Startup uses a macOS LaunchAgent, a Linux systemd user service, or a Windows
-per-user login task with a periodic restart watchdog. These are **login services**,
-not privileged boot services. Linux needs a working systemd user session; running
-before login/after logout requires separately configured user lingering. macOS
-installation requires a GUI login domain. Installation failures fail init with
-an actionable error; re-running init repairs setup. Closing the terminal does
-not stop Manabi, but sleep, shutdown, or logout can. It reconnects on return.
-
-Manabi keeps its credential and a small runtime snapshot under
-`~/.config/kioku/manabi` (or `$XDG_CONFIG_HOME/kioku/manabi`). It uses the current
-Node executable through a stable absolute PATH link when available (for example,
-Homebrew’s `bin/node` link), so replacing that Node version does not strand the
-service on a deleted Cellar path. Keep Node installed; re-run init after moving
-or removing the installation entirely. Standalone release builds
-snapshot the Kioku executable instead and require no separate Node runtime. `kioku logout` clears the connection
-credential; the supervised process idles until the next init. Machine credentials
-only authorize presence and owned-repository inventory updates, not document or memory access.
-
-Heartbeat timeouts use a monotonic clock. Suspension or a substantial wall-clock
-change discards the old connection and reconnects. `status.json` holds the latest
-local report; `diagnostics.json` keeps only the last 50 status transitions, with
-codes and timestamps, without secrets or unbounded log growth. Storage failures
-do not stop retries. Credential rejection retries at the capped interval, but
-requires `kioku init` to repair registration. No process can connect while the
-machine is asleep, shut down, or offline. An explicitly stopped/disabled OS service
-stays under user control; Manabi does not reinstall itself or bypass that choice.
-On Windows, disable or unregister the scheduled task to stop it deliberately;
-ending its process alone is treated as a crash by the periodic watchdog.
-
-**Smart defaults**: no prompt when there's an obvious answer.
-
-- Only 1 root folder → uses it silently
-- Root name matches your GitHub owner → uses it silently
-- Empty root → creates the repo folder without asking
-- Repo folder already exists as `kind='repo'` → attaches silently
-
-**GitHub auth ladder** (in order of what's tried):
-
-1. `--github-token <t>` flag
-2. `gh auth token` (silent if you already ran `gh auth login`)
-3. `GITHUB_TOKEN` or `GH_TOKEN` env var
-4. Interactive PAT paste (opens `github.com/settings/tokens/new` with correct scopes pre-filled)
-
-**Files written**:
-| File | Purpose | Gitignored? |
-|---|---|---|
-| `.mcp.json` | Server config with SSE URL + Bearer API key | ✓ |
-| `.claude/settings.local.json` | `SessionStart` hook | ✓ |
-| `.claude/kioku-state.json` | folder_id + activity watermark | ✓ |
-| `CLAUDE.md` | Instructions for Claude on using and updating the briefing | (committable) |
-| `.gitignore` | Adds the 4 above ✓ entries | (committable) |
-
-### `session-start`
-
-Run automatically by the SessionStart hook. Reads `.mcp.json`, hits `/api/cli/scope-info`, prints a compact context block Claude Code prepends to the session:
-
-```
-── kioku second-brain ──
-Scope: personal
-Folders in scope: 3
-Repos: personal/my-project, personal/other-repo
-Tools available: get_folder_briefing, get_folder_orientation, list_folders_in_scope, knowledge_base_search
-Call get_folder_briefing() to load the 8-section briefing.
-─────────────────────────────────
-```
-
-You never call this by hand, but it's useful for testing your setup.
-
-### `status`
-
-Signed-in check + per-repo binding health:
-
-```
-  │ Status
-  │
-  · API base: http://localhost:8000
-  ✓ Signed in as you@example.com  3 root folders
-
-  │ This repo
-  │
-  · git: owner/repo
-  ✓ .mcp.json wired
-  ✓ SessionStart hook installed
-  ✓ CLAUDE.md present
-```
-
-### `doctor`
-
-Diagnostic. Runs every check + prints fix hints:
-
-```
-  │ System
-  │
-  ✓ Config file                    Signed in as you@example.com
-  ✓ Backend reachable              http://localhost:8000 (HTTP 200)
-  ✓ Login token                    3 root folder(s) visible
-  ✓ MCP server reachable           http://localhost:8001
-  ✓ gh CLI (optional)              Installed + authenticated
-
-  │ This repo
-  │
-  · git: owner/repo
-  ✓ .mcp.json
-  ✓ .claude/settings.json
-  ✓ CLAUDE.md
-  ✓ .claude/kioku-state.json
-
-  ✓ All checks passed.  Open Claude Code here — you're set.
-```
-
-If anything fails, the fix hint appears under it: `Run: kioku login`, `Start the backend`, `Run: gh auth login`, etc.
-
-## Files & storage
-
-**Global**: `~/.config/kioku/config.json` — login tokens only (0600).
-
-**Per-repo**: everything in `.mcp.json`, `.claude/*.json`, `CLAUDE.md`. No secrets outside `.mcp.json` (which is gitignored).
-
-**Server-side**: Folder metadata and documents are stored server-side. The CLI never persists secrets locally.
-
-## Troubleshooting
-
-**"Couldn't reach http://localhost:8000"** — Backend not running. Start it (or point at your prod URL with `KIOKU_API_BASE`).
-
-**"Session expired"** — Your login token TTL'd out. `kioku login` again.
-
-**"gh CLI is logged in but doesn't have access to X"** — Your gh account isn't a collaborator on that repo. Get access, or paste a PAT with `repo` scope.
-
-**Hook errors in Claude Code** — Set `KIOKU_DEBUG=1` in your shell and re-run. Errors are printed by the SessionStart hook when debug logging is enabled.
-
-**Anything else** — `kioku doctor` will tell you what's wrong and what to run.
+`npm test` builds and runs CLI tests. See [development](../docs/development.md),
+[operations](../docs/operations.md), and the [documentation index](../docs/README.md).

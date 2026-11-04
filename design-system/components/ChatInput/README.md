@@ -1,3 +1,6 @@
+> Offline preview snapshot. Verify current props, tokens, and behavior in
+> `frontend/src/` before implementation. See [design-system guidance](../../README.md).
+
 Composer row: attach, scope picker, filters, mode (Deep / Agentic / Plain) and model (Sonnet / Haiku) toggles, debug bug toggle, input and send.
 
 ## Use

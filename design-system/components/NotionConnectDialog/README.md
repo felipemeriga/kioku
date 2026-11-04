@@ -1,3 +1,6 @@
+> Offline preview snapshot. Verify current props, tokens, and behavior in
+> `frontend/src/` before implementation. See [design-system guidance](../../README.md).
+
 Dialog to connect a Notion integration token, search a root page and bind it to a folder.
 
 ## Use

@@ -1,3 +1,6 @@
+> Offline preview snapshot. Verify current props, tokens, and behavior in
+> `frontend/src/` before implementation. See [design-system guidance](../../README.md).
+
 Themed MUI Chip — JetBrains Mono, 3px radius, 0.5px tracking; outlined chips use the `line` border.
 
 ## Use

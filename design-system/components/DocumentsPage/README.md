@@ -1,3 +1,6 @@
+> Offline preview snapshot. Verify current props, tokens, and behavior in
+> `frontend/src/` before implementation. See [design-system guidance](../../README.md).
+
 Screen: the Documents route — folder tree, search/filter toolbar, grid/list toggle, upload, and document cards.
 
 ## Use

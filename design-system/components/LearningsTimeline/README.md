@@ -1,3 +1,6 @@
+> Offline preview snapshot. Verify current props, tokens, and behavior in
+> `frontend/src/` before implementation. See [design-system guidance](../../README.md).
+
 # Repository learnings: calendar and timeline
 
 The repository's **Learnings** tab has two views. **Journal** answers “what happened on this day?” from the original Markdown. **Learnings** shows Mihari's small, current set of source-linked conclusions.

@@ -1,3 +1,6 @@
+> Offline preview snapshot. Verify current props, tokens, and behavior in
+> `frontend/src/` before implementation. See [design-system guidance](../../README.md).
+
 A themed MUI ListItemButton as the app uses it in side lists — 3px radius, `2px 8px` margin, selected = 13% magenta fill with a 2px magenta left edge and magenta icon.
 
 ## Use

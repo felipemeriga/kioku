@@ -1,3 +1,6 @@
+> Design proposal; this document is not a shipped-feature inventory.
+> See [current documentation](../../README.md) and [change status](../../change-status.md).
+
 # Memória contínua para agentes em Kioku
 
 ## Objetivo e escopo

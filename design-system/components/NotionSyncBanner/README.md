@@ -1,3 +1,6 @@
+> Offline preview snapshot. Verify current props, tokens, and behavior in
+> `frontend/src/` before implementation. See [design-system guidance](../../README.md).
+
 Thin progress banner for a running Notion sync on a folder — pages done / total and a magenta progress bar.
 
 ## Use

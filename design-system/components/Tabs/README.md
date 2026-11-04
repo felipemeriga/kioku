@@ -1,3 +1,6 @@
+> Offline preview snapshot. Verify current props, tokens, and behavior in
+> `frontend/src/` before implementation. See [design-system guidance](../../README.md).
+
 Themed MUI Tabs — Rubik 600 sentence-case labels with a magenta indicator.
 
 ## Use

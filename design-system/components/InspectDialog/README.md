@@ -1,3 +1,6 @@
+> Offline preview snapshot. Verify current props, tokens, and behavior in
+> `frontend/src/` before implementation. See [design-system guidance](../../README.md).
+
 Debug trace viewer with Reasoning, Tool calls and Chunks tabs (rerank scores, similarity, sources).
 
 ## Use

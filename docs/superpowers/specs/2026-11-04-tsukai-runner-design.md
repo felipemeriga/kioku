@@ -1,3 +1,6 @@
+> Design/implementation record; verify current behavior against the merged source.
+> See [current documentation](../../README.md) and [change status](../../change-status.md).
+
 # Tsukai (使い): execution service design
 
 Status: implementation approved by the user on 2026-11-04, with direct MCP/Mihari routing. Production activation remains gated by the acceptance tests and entitled credential-profile policy. Workstreams describe assignments, not completed work.

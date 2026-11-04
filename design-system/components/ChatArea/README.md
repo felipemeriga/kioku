@@ -1,3 +1,6 @@
+> Offline preview snapshot. Verify current props, tokens, and behavior in
+> `frontend/src/` before implementation. See [design-system guidance](../../README.md).
+
 The conversation view: MessageBubbles, the streaming answer, the ThinkingBar while the agent works, and ChatInput pinned at the bottom.
 
 ## Use

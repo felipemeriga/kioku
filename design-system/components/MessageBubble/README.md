@@ -1,3 +1,6 @@
+> Offline preview snapshot. Verify current props, tokens, and behavior in
+> `frontend/src/` before implementation. See [design-system guidance](../../README.md).
+
 One chat message: user messages right-aligned in a magenta-tinted bubble; assistant messages left with the AutoAwesome mark, full GFM markdown (tables, code) and an Inspect button when a debug trace is attached.
 
 ## Use
