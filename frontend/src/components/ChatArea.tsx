@@ -82,10 +82,17 @@ export default function ChatArea({
   };
 
   useEffect(() => {
+    if (isStreaming) {
+      pinnedRef.current = true;
+      bottomRef.current?.scrollIntoView({ behavior: "instant", block: "end" });
+    }
+  }, [isStreaming]);
+
+  useEffect(() => {
     if (pinnedRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages, streamingContent]);
+  }, [messages, streamingContent, currentStage?.stage]);
 
   return (
     <Box

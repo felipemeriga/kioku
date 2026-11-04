@@ -1,6 +1,6 @@
 // frontend/src/components/ChatArea.test.tsx
 import { describe, it, expect, vi } from "vitest";
-import { screen } from "@testing-library/react";
+import { screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "../test/renderWithProviders";
 import ChatArea from "./ChatArea";
@@ -18,7 +18,7 @@ describe("ChatArea", () => {
     const pick = vi.fn();
     const user = userEvent.setup();
     const { container } = renderWithProviders(
-      <ChatArea {...defaultProps} onPickScope={pick} />
+      <ChatArea {...defaultProps} onPickScope={pick} />,
     );
     expect(container.querySelector(".chat-thread-header")).toBeNull();
     const scope = screen.getByRole("button", { name: "Scope" });
@@ -48,7 +48,7 @@ describe("ChatArea", () => {
         {...defaultProps}
         isStreaming={true}
         currentStage={{ stage: "searching" }}
-      />
+      />,
     );
     // ThinkingBar renders the StageTabs pipeline; 探索 = Searching.
     expect(screen.getByText("探索")).toBeInTheDocument();
@@ -69,4 +69,34 @@ describe("ChatArea", () => {
     expect(screen.getByText("Hello")).toBeInTheDocument();
     expect(screen.getByText("Hi there")).toBeInTheDocument();
   });
+});
+
+it("scrolls a new send to its immediate progress even when reading older messages", () => {
+  const scroll = vi
+    .spyOn(Element.prototype, "scrollIntoView")
+    .mockImplementation(() => {});
+  const props = {
+    messages: [],
+    streamingContent: "",
+    onSend: vi.fn(),
+    currentStage: null,
+  };
+  const view = renderWithProviders(<ChatArea {...props} isStreaming={false} />);
+  const thread = view.container.querySelector(".chat-workspace > div")!;
+  Object.defineProperties(thread, {
+    scrollHeight: { value: 1000 },
+    clientHeight: { value: 100 },
+    scrollTop: { value: 0 },
+  });
+  fireEvent.scroll(thread);
+  scroll.mockClear();
+  view.rerender(
+    <ChatArea
+      {...props}
+      isStreaming
+      currentStage={{ stage: "thinking", detail: "Preparing your answer" }}
+    />,
+  );
+  expect(screen.getByTestId("thinking-bar")).toBeInTheDocument();
+  expect(scroll).toHaveBeenCalledWith({ behavior: "instant", block: "end" });
 });

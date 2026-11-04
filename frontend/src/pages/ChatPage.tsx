@@ -16,6 +16,7 @@ import type {
 } from "../lib/api";
 import {
   streamChat,
+  ApiError,
   cancelChatExecution,
   requiresNativeRebuild,
 } from "../lib/api";
@@ -155,6 +156,10 @@ export default function ChatPage() {
   ) => {
     if (displayingStream) return;
 
+    setIsStreaming(true);
+    setStreamConversationId(selectedId);
+    setCurrentStage({ stage: "thinking", detail: "Preparing your answer" });
+
     // A brand-new user may not have a conversation yet. Create one on first
     // send instead of silently dropping the message — the old `!selectedId`
     // guard made the very first send a no-op with no feedback.
@@ -164,6 +169,8 @@ export default function ChatPage() {
         const conv = await createConversation();
         convId = conv.id;
       } catch (err) {
+        setIsStreaming(false);
+        setCurrentStage(null);
         toast.showError(err, "Couldn't start a conversation.");
         return;
       }
@@ -188,10 +195,10 @@ export default function ChatPage() {
       content,
       created_at: new Date().toISOString(),
     };
-    setMessages((prev) => [...prev, userMsg]);
+    if (!rebuild) setMessages((prev) => [...prev, userMsg]);
     setIsStreaming(true);
     setStreamingContent("");
-    setCurrentStage(null);
+    setCurrentStage({ stage: "thinking", detail: "Preparing your answer" });
     streamingRef.current = "";
     activeJob.current = null;
     setActiveJobId(null);
@@ -213,8 +220,8 @@ export default function ChatPage() {
           }
         : filters;
 
-    try {
-      await streamChat(
+    const runRequest = (rebuildContext: boolean) =>
+      streamChat(
         convId,
         content,
         (token) => {
@@ -286,10 +293,35 @@ export default function ChatPage() {
             },
           }));
         },
-        rebuild,
+        rebuildContext,
         undefined,
         controller.signal,
       );
+    try {
+      try {
+        await runRequest(rebuild);
+      } catch (error) {
+        const code =
+          error instanceof ApiError
+            ? (error.detail as { code?: string } | undefined)?.code
+            : undefined;
+        if (
+          !rebuild &&
+          code === "conversation_policy_changed" &&
+          !activeJob.current &&
+          !streamingRef.current &&
+          !controller.signal.aborted &&
+          activeRequest.current === requestId
+        ) {
+          setCurrentStage({
+            stage: "thinking",
+            detail: "Restoring saved conversation context",
+          });
+          await runRequest(true);
+        } else {
+          throw error;
+        }
+      }
     } catch (err) {
       if (activeRequest.current !== requestId) return;
       // Preserve any partial content the assistant already streamed by
