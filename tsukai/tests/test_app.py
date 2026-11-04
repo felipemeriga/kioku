@@ -239,3 +239,171 @@ async def test_transient_startup_database_failure_recovers(store, tmp_path, monk
                 break
             await asyncio.sleep(0.02)
         assert app.state.scheduler.auth_state == "ready"
+
+
+@pytest.mark.parametrize("prompt", ["TEXT_EOF", "NONZERO", "FOREIGN_INIT", "MISSING_FINAL_ID"])
+async def test_uncertain_native_outcomes_quarantine_chat_without_retry(app_client, prompt):
+    _, client, settings = app_client
+    payload = body(profile="chat", conversation_id="uncertain")
+    payload["prompt"] = prompt
+    auth = headers(settings, payload)
+    submitted = (await client.post("/v1/jobs", json=payload, headers=auth)).json()
+    result = await terminal(client, submitted["result_url"], auth)
+    assert result["status"] == "uncertain"
+    if prompt == "NONZERO":
+        assert result["result"]["text"] == "Canonical answer."
+        assert result["result"]["usage"]["list_equivalent_usd"] == 0.001
+    payload["idempotency_key"] = str(uuid.uuid4())
+    assert (
+        await client.post("/v1/jobs", json=payload, headers=headers(settings, payload))
+    ).status_code == 409
+    usage = (await client.get(f"/v1/jobs/{submitted['job_id']}/usage", headers=auth)).json()
+    assert len(usage["attempts"]) == 1
+
+
+async def test_repair_keeps_private_schema_errors_and_both_attempt_costs(app_client):
+    app, client, settings = app_client
+    payload = body(
+        response_schema={
+            "type": "object",
+            "properties": {"answer": {"type": "string"}},
+            "required": ["answer"],
+        }
+    )
+    payload["prompt"] = "INVALID"
+    auth = headers(settings, payload)
+    submitted = (await client.post("/v1/jobs", json=payload, headers=auth)).json()
+    assert (await terminal(client, submitted["result_url"], auth))["status"] == "completed"
+    usage = (await client.get(f"/v1/jobs/{submitted['job_id']}/usage", headers=auth)).json()
+    assert len(usage["attempts"]) == 2
+    assert [row["usage"]["list_equivalent_usd"] for row in usage["attempts"]] == [0.001, 0.001]
+    from sqlalchemy import select
+
+    from tsukai.tables import attempts
+
+    async with app.state.scheduler.store.engine.connect() as conn:
+        diagnostic = (
+            await conn.execute(
+                select(attempts.c.diagnostic).where(
+                    attempts.c.job_id == submitted["job_id"], attempts.c.number == 1
+                )
+            )
+        ).scalar_one()
+    assert diagnostic["invalid_response"] == {"answer": 17}
+    assert diagnostic["validation_errors"][0]["path"] == ["answer"]
+    assert diagnostic["validation_errors"][0]["validator"] == "type"
+    assert "invalid_response" not in json.dumps(usage)
+
+
+def deletion_headers(settings, payload, operation, profiles):
+    digest = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    claims = {
+        "iss": "kioku-backend",
+        "aud": "tsukai",
+        "sub": "backend",
+        "owner_id": payload["owner_id"],
+        "folder_ids": [],
+        "operations": [operation],
+        "profiles": profiles,
+        "iat": int(time.time()),
+        "exp": int(time.time()) + 300,
+        "jti": str(uuid.uuid4()),
+        "request_sha256": digest,
+    }
+    return {
+        "Authorization": "Bearer " + settings.service_token,
+        "X-Tsukai-Capability": jwt.encode(claims, settings.capability_key, algorithm="HS256"),
+    }
+
+
+async def test_signed_conversation_deletion_reaps_then_removes_artifacts(
+    app_client, tmp_path, monkeypatch
+):
+    app, client, settings = app_client
+    payload = body(profile="chat", conversation_id="delete-me")
+    payload["prompt"] = "SLEEP"
+    auth = headers(settings, payload)
+    submitted = (await client.post("/v1/jobs", json=payload, headers=auth)).json()
+    store = app.state.scheduler.store
+    for _ in range(100):
+        if app.state.scheduler.native.processes:
+            break
+        await asyncio.sleep(0.02)
+    from sqlalchemy import select
+
+    from tsukai.tables import sessions
+
+    async with store.engine.connect() as conn:
+        session = (await conn.execute(select(sessions))).mappings().one()
+    native = tmp_path / "native-state"
+    project = native / "projects" / ("-workspaces-chat-" + session["native_session_id"])
+    project.mkdir(parents=True)
+    (project / (session["native_session_id"] + ".jsonl")).write_text("private transcript")
+    (project / "sessions-index.json").write_text("private native index")
+    credential = native / ".credentials.json"
+    credential.write_text("fixture credential must survive")
+    unrelated = native / "projects" / "unrelated.jsonl"
+    unrelated.write_text("other conversation")
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(native))
+    deletion_body = {
+        "owner_id": "owner",
+        "conversation_id": "delete-me",
+        "action": "delete_conversation",
+    }
+    cleanup_auth = deletion_headers(settings, deletion_body, "session.delete", ["chat"])
+    bad = await client.post(
+        "/v1/conversations/delete-me/delete",
+        json={**deletion_body, "owner_id": "other"},
+        headers=cleanup_auth,
+    )
+    assert bad.status_code == 403
+    response = await client.post(
+        "/v1/conversations/delete-me/delete", json=deletion_body, headers=cleanup_auth
+    )
+    assert response.status_code == 202
+    deletion_id = response.json()["deletion_id"]
+    for _ in range(100):
+        state = await client.get(f"/v1/deletions/{deletion_id}", headers=cleanup_auth)
+        if state.json()["status"] == "cleaned":
+            break
+        await asyncio.sleep(0.02)
+    assert state.json()["status"] == "cleaned"
+    assert not app.state.scheduler.native.processes
+    assert not Path(session["workspace"]).exists() and not project.exists()
+    assert credential.exists() and unrelated.exists()
+    assert await store.get(submitted["job_id"]) is None
+    payload["idempotency_key"] = str(uuid.uuid4())
+    assert (
+        await client.post("/v1/jobs", json=payload, headers=headers(settings, payload))
+    ).status_code == 409
+    repeated = await client.post(
+        "/v1/conversations/delete-me/delete", json=deletion_body, headers=cleanup_auth
+    )
+    assert repeated.json() == {"deletion_id": deletion_id, "status": "cleaned"}
+
+
+async def test_account_cleanup_survives_owner_deentitlement_and_blocks_all_new_work(app_client):
+    app, client, settings = app_client
+    payload = body()
+    auth = headers(settings, payload)
+    submitted = (await client.post("/v1/jobs", json=payload, headers=auth)).json()
+    await terminal(client, submitted["result_url"], auth)
+    settings.entitled_owners = frozenset()
+    payload_delete = {"owner_id": "owner", "action": "delete_account"}
+    cleanup_auth = deletion_headers(settings, payload_delete, "account.delete", [])
+    deleted = await client.post("/v1/account/delete", json=payload_delete, headers=cleanup_auth)
+    assert deleted.status_code == 202
+    deletion_id = deleted.json()["deletion_id"]
+    for _ in range(100):
+        state = await client.get(f"/v1/deletions/{deletion_id}", headers=cleanup_auth)
+        if state.json()["status"] == "cleaned":
+            break
+        await asyncio.sleep(0.02)
+    assert state.json()["status"] == "cleaned"
+    settings.entitled_owners = frozenset({"owner"})
+    payload["idempotency_key"] = str(uuid.uuid4())
+    assert (
+        await client.post("/v1/jobs", json=payload, headers=headers(settings, payload))
+    ).status_code == 409

@@ -23,6 +23,7 @@ class Scheduler:
         self.native = native or NativeRunner(settings)
         self.worker_id = str(uuid.uuid4())
         self.tasks = {}
+        self.cancelling = set()
         self.draining = False
         self.auth_state = "starting"
         self.quota_until = 0
@@ -99,7 +100,7 @@ class Scheduler:
                         operation="readiness",
                         prompt="Reply READY.",
                         model="claude-haiku-4-5-20251001",
-                        max_tokens=64,
+                        max_tokens=1024,
                         max_turns=1,
                     )
                     job = await self.store.admit(req)
@@ -129,7 +130,11 @@ class Scheduler:
         last_prune = 0
         while not self.draining:
             try:
+                await self.store.expire_queued()
                 await self.store.recover()
+                from .lifecycle import cleanup_deletions
+
+                await cleanup_deletions(self.store, self)
                 self.db_available = True
                 if (
                     self.auth_state == "dependency_unavailable"
@@ -310,9 +315,11 @@ class Scheduler:
                     await asyncio.sleep(random.uniform(0.1, 0.5))
                 await self.store.finish(
                     attempt,
-                    "failed",
+                    "uncertain" if exc.uncertain else "failed",
+                    result=exc.result,
                     error={"code": exc.code, "usage_complete": False},
-                    retry=exc.retryable and req.profile != "chat",
+                    diagnostic=exc.diagnostic,
+                    retry=exc.retryable and not exc.uncertain and req.profile != "chat",
                 )
         except Exception:
             await self.native.stop(attempt["id"])
@@ -338,6 +345,7 @@ class Scheduler:
                 final_job = await self.store.get(attempt["job_id"])
                 if final_job and final_job["status"] in {"completed", "failed", "cancelled"}:
                     Path(spool_name).unlink(missing_ok=True)
+            self.cancelling.discard(attempt["id"])
             self.wake.set()
 
     async def cancel(self, job_id):
@@ -357,7 +365,8 @@ class Scheduler:
                             select(attempts.c.job_id).where(attempts.c.id == attempt_id)
                         )
                     ).scalar_one()
-                if owner == job_id:
+                if owner == job_id and attempt_id not in self.cancelling:
+                    self.cancelling.add(attempt_id)
                     task.cancel()
 
     async def drain(self):

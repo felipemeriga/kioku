@@ -132,3 +132,69 @@ def test_structured_outcome_and_quoted_questions_are_not_heuristic_errors():
         },
     )
     assert structured["outcome"] == "needs_input"
+
+
+async def test_exited_leader_term_ignoring_descendant_is_killed_with_bounded_drain(tmp_path):
+    import os
+    import subprocess
+    import time
+
+    runner = NativeRunner(settings(tmp_path, idle_seconds=0.2))
+    child = None
+
+    async def emit(kind, data):
+        nonlocal child
+        if data.get("text", "").startswith("child:"):
+            child = int(data["text"].split(":")[1])
+
+    started = time.monotonic()
+    try:
+        with pytest.raises(NativeError) as error:
+            await runner.run(claim(tmp_path), request("ORPHAN"), emit)
+        assert error.value.uncertain
+        assert child is not None and time.monotonic() - started < 3
+        # A reparented zombie may await PID1 reap; it is dead and cannot hold pipes.
+        state = subprocess.run(
+            ["ps", "-o", "stat=", "-p", str(child)], capture_output=True, text=True
+        ).stdout.strip()
+        assert not state or state.startswith("Z")
+        assert not runner.processes
+    finally:
+        if child:
+            try:
+                os.kill(child, 9)
+            except ProcessLookupError:
+                pass
+
+
+@pytest.mark.parametrize("prompt", ["FOREIGN_INIT", "FOREIGN_FINAL", "MISSING_FINAL_ID", "NO_INIT"])
+async def test_native_session_ids_fail_closed(tmp_path, prompt):
+    async def emit(*args):
+        pass
+
+    with pytest.raises(NativeError, match="native_session_mismatch") as error:
+        await NativeRunner(settings(tmp_path)).run(claim(tmp_path), request(prompt), emit)
+    assert error.value.uncertain and error.value.result is None
+
+
+async def test_nonzero_exit_preserves_terminal_evidence_and_counters(tmp_path):
+    async def emit(*args):
+        pass
+
+    with pytest.raises(NativeError, match="native_process_failed") as error:
+        await NativeRunner(settings(tmp_path)).run(claim(tmp_path), request("NONZERO"), emit)
+    assert error.value.uncertain
+    assert error.value.result["text"] == "Canonical answer."
+    assert error.value.result["usage"]["list_equivalent_usd"] == 0.001
+    assert not error.value.result["usage"]["complete"]
+
+
+async def test_per_inference_output_control_is_not_aggregate_harness_budget(tmp_path):
+    async def emit(*args):
+        pass
+
+    result = await NativeRunner(settings(tmp_path)).run(
+        claim(tmp_path), request("AGGREGATE", max_tokens=64), emit
+    )
+    assert result["usage"]["output_tokens"] == 2000
+    assert result["usage"]["requested_max_output_tokens_per_inference"] == 64
