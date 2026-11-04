@@ -42,3 +42,35 @@ def test_mcp_briefing_writes_use_shared_dedup(tool):
     finally:
         mcp_server._current_user_id.reset(user_token)
         mcp_server._current_scope_folder_id.reset(scope_token)
+
+
+@pytest.mark.asyncio
+async def test_registered_mcp_briefing_read_uses_current_schema_snapshot():
+    sections = empty_briefing()
+    sections["overview"] = new_section("Authoritative fixture overview")
+    latest = {"content": {"sections": sections}, "generated_at": "2026-11-04T00:00:00Z"}
+    sb = MagicMock()
+    freshness = sb.table.return_value.select.return_value.eq.return_value.limit.return_value
+    freshness.execute.return_value.data = []
+    user_token = mcp_server._current_user_id.set("owner")
+    scope_token = mcp_server._current_scope_folder_id.set("repo")
+    try:
+        with (
+            patch("mcp_server.get_supabase", return_value=sb),
+            patch("mcp_server.resolve_focus_folder", return_value=("repo", "Fixture repository")),
+            patch(
+                "services.folder_summary.repo.get_folder",
+                return_value={"kind": "repo", "name": "Fixture repository"},
+            ),
+            patch("services.folder_summary.repo.get_latest_summary", return_value=latest),
+        ):
+            # Exercise the SDK registry and async offload, not only the Python helper.
+            result = await mcp_server.mcp.call_tool("get_folder_briefing", {"folder": "repo"})
+        content = result[0] if isinstance(result, tuple) else result
+        payload = json.loads(content[0].text)
+        assert payload["sections"]["overview"]["content"] == "Authoritative fixture overview"
+        assert payload["last_generated_at"] == "2026-11-04T00:00:00Z"
+        assert payload["folder"] == "Fixture repository"
+    finally:
+        mcp_server._current_user_id.reset(user_token)
+        mcp_server._current_scope_folder_id.reset(scope_token)
