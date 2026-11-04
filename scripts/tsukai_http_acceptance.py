@@ -218,6 +218,18 @@ def probe(config, read_only=False):
         execution = (terminal.get("debug") or {}).get("execution") or {}
         if execution.get("turn_id") != turn or not execution.get("timings"):
             raise CheckFailure("Native debug identity/timings missing")
+        attempt_timings = execution["timings"].get("attempts") or []
+        if not attempt_timings or any(
+            not attempt.get("attempt_id")
+            or not attempt.get("started_at")
+            or not attempt.get("finished_at")
+            or not isinstance(attempt.get("elapsed_seconds"), (int, float))
+            or attempt["elapsed_seconds"] < 0
+            for attempt in attempt_timings
+        ):
+            raise CheckFailure(
+                "Debug lacks measured durable per-attempt timing evidence"
+            )
         if config.get("require_citations") and seed and not terminal.get("citations"):
             raise CheckFailure("Fixture retrieval answer has no citations")
         response = client.get(f"/api/conversations/{conversation}")
@@ -239,6 +251,8 @@ def probe(config, read_only=False):
             "seed": seed,
             "long_stream_sample": long_sample,
             "active_admin_observation": admin_observation,
+            "attempt_timings": attempt_timings,
+            "usage": execution.get("usage"),
             "conversation_id": conversation,
             "turn_id": turn,
             "job_id": terminal["job_id"],
