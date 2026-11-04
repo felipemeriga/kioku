@@ -58,7 +58,7 @@ export default function ChatInput({
     retry: false,
     throwOnError: false,
   });
-  const native = catalog.data?.engine === "tsukai";
+  const native = catalog.data?.engine === "tsukai" && !catalog.isError;
   const rows = catalog.data?.models ?? [];
   const uniqueModels = new Map<string, (typeof rows)[number]>();
   for (const row of rows) {
@@ -129,8 +129,8 @@ export default function ChatInput({
   const handleSend = () => {
     const trimmed = input.trim();
     if (!trimmed) return;
-    if (native && (!selectedChoice || selectedChoice.disabled)) {
-      toast.show("Choose an available subscription model.", "error");
+    if (!selectedChoice || selectedChoice.disabled) {
+      toast.show("Choose an available model.", "error");
       return;
     }
     onSend(trimmed, undefined, selectedModel, mode, debug);
@@ -373,7 +373,7 @@ export default function ChatInput({
           {catalog.isPending && (
             <MenuItem disabled>Loading model catalog…</MenuItem>
           )}
-          {catalog.data?.stale && (
+          {native && catalog.data?.stale && (
             <MenuItem disabled>Showing the last cached model catalog</MenuItem>
           )}
           {(catalog.isError || catalog.data?.stale) && (

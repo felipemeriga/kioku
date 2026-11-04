@@ -132,6 +132,45 @@ it("restores a catalog model ID from a saved execution without replacing it with
   );
 });
 
+it("does not offer cached native choices as fresh after a catalog refresh fails", async () => {
+  vi.mocked(fetchChatModels)
+    .mockResolvedValueOnce({
+      engine: "tsukai",
+      stale: true,
+      models: [
+        {
+          value: "opus",
+          resolvedModel: "opus-current",
+          displayName: "Cached Opus",
+          selectable: true,
+          requires_usage_credits: false,
+        },
+      ],
+    })
+    .mockRejectedValue(new Error("unavailable"));
+  const user = userEvent.setup();
+  renderWithProviders(
+    <ChatInput
+      onSend={vi.fn()}
+      disabled={false}
+      restoredSettings={{ model: "opus-current", mode: "deep" }}
+    />,
+  );
+  await user.click(await screen.findByText("Cached Opus"));
+  await user.click(
+    screen.getByRole("menuitem", { name: "Refresh model catalog" }),
+  );
+  expect(
+    await screen.findByText("Model catalog unavailable — legacy choices shown"),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole("menuitem", { name: "Sonnet — stronger reasoning" }),
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByRole("menuitem", { name: "Cached Opus" }),
+  ).not.toBeInTheDocument();
+});
+
 describe("ChatInput", () => {
   it("renders the text input", () => {
     renderWithProviders(<ChatInput onSend={vi.fn()} disabled={false} />);
