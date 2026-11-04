@@ -1,21 +1,21 @@
 {
-  "source_sha": "55da2cdd90e96d099ca62ad6794d6e996e1552ea",
+  "source_sha": "4864aaa54b1b30ff315a7762cdd7d7221cf569a9",
   "release_branch": "main",
   "versions": {
-    "tsukai": "0.1.6"
+    "frontend": "0.5.24"
   },
   "release_levels": {
-    "tsukai": "patch"
+    "frontend": "patch"
   },
   "major": false,
   "images": [
     {
-      "package": "tsukai",
-      "version": "0.1.6",
-      "image": "felipemeriga1/kioku-tsukai",
-      "context": "tsukai",
-      "dockerfile": "tsukai/Dockerfile",
-      "tag": "0.1.6-55da2cdd90e9"
+      "package": "frontend",
+      "version": "0.5.24",
+      "image": "felipemeriga1/kioku-frontend",
+      "context": "frontend",
+      "dockerfile": "frontend/Dockerfile",
+      "tag": "0.5.24-4864aaa54b1b"
     }
   ],
   "cli": false,
