@@ -34,6 +34,7 @@ import {
   fetchUsageByConversation,
   fetchUsageByMonth,
   fetchUsageAttribution,
+  fetchNativeActiveSessions,
 } from "../lib/api";
 import { NotionIntegrationSection } from "../components/NotionIntegrationSection";
 import { messageFromError } from "../components/ToastProvider";
@@ -167,6 +168,13 @@ export default function SettingsPage() {
     queryKey: qk.usageAttribution(usageMonth),
     queryFn: () => fetchUsageAttribution(usageMonth),
     enabled: isUsageAdmin && activeTab === "usage",
+  });
+
+  const nativeSessions = useQuery({
+    queryKey: ["native-active-sessions", user?.id],
+    queryFn: fetchNativeActiveSessions,
+    enabled: isUsageAdmin && activeTab === "usage",
+    refetchInterval: 5000,
   });
 
   const handleGenerate = async () => {
@@ -972,6 +980,131 @@ export default function SettingsPage() {
                   {attributedUsage.data.unpriced_calls > 0 &&
                     ` · ${attributedUsage.data.unpriced_calls} calls with unknown pricing`}
                 </Typography>
+                <Box sx={{ mb: 3 }} data-testid="native-active-sessions">
+                  <Typography component="h4" sx={sectionTitle}>
+                    Active Claude Code sessions
+                  </Typography>
+                  <Typography sx={{ fontSize: 13, color: brand.muted, mb: 1 }}>
+                    Live Tsukai execution · refreshes every 5 seconds
+                  </Typography>
+                  {nativeSessions.isError ? (
+                    <Alert severity="error">
+                      {messageFromError(nativeSessions.error)}
+                    </Alert>
+                  ) : nativeSessions.isPending ? (
+                    <Typography role="status">
+                      Loading active sessions…
+                    </Typography>
+                  ) : !nativeSessions.data.available ? (
+                    <Typography>{nativeSessions.data.reason}</Typography>
+                  ) : (
+                    <>
+                      <Typography sx={{ fontSize: 13, color: brand.muted }}>
+                        {nativeSessions.data.sessions.length} active ·{" "}
+                        {nativeSessions.data.queued_counts.total ?? 0} queued
+                      </Typography>
+                      {nativeSessions.data.sessions.length === 0 && (
+                        <Typography>
+                          No Claude Code sessions are currently active.
+                        </Typography>
+                      )}
+                      {nativeSessions.data.sessions.map((session) => (
+                        <Box
+                          key={session.attempt_id}
+                          sx={{
+                            py: 1.5,
+                            borderBottom: `1px solid ${brand.line}`,
+                          }}
+                        >
+                          <Typography>
+                            {session.owner_label} · {session.operation} ·{" "}
+                            {session.state} ·{" "}
+                            {Math.round(session.elapsed_seconds)}s
+                          </Typography>
+                          <Typography sx={{ fontSize: 12, color: brand.muted }}>
+                            {session.model_requested} · {session.caller} · CLI{" "}
+                            {session.native_cli_version ?? "unknown"}
+                          </Typography>
+                          <Typography
+                            sx={{ fontSize: 12, overflowWrap: "anywhere" }}
+                          >
+                            Job {session.job_id} · attempt {session.attempt_id}{" "}
+                            · native session{" "}
+                            {session.native_session_id ?? "starting"}
+                          </Typography>
+                          <Typography sx={{ fontSize: 12, color: brand.muted }}>
+                            Conversation{" "}
+                            {session.conversation_id ?? "fresh completion"} ·
+                            Kioku folders{" "}
+                            {session.folder_ids
+                              .map((id) => session.folder_labels?.[id] ?? id)
+                              .join(", ") || "none"}
+                          </Typography>
+                        </Box>
+                      ))}
+                    </>
+                  )}
+                </Box>
+                {attributedUsage.data.native &&
+                  attributedUsage.data.native.call_count > 0 && (
+                    <Box sx={{ mb: 3 }}>
+                      <Typography component="h4" sx={sectionTitle}>
+                        Native subscription execution
+                      </Typography>
+                      <Typography sx={{ color: brand.muted, fontSize: 13 }}>
+                        {attributedUsage.data.native.call_count} attempts ·
+                        known API list-price equivalent:{" "}
+                        {attributedUsage.data.native
+                          .known_list_equivalent_usd === null
+                          ? "unknown"
+                          : fmtCost(
+                              Number(
+                                attributedUsage.data.native
+                                  .known_list_equivalent_usd,
+                              ),
+                            )}
+                        . This is an equivalent estimate, not subscription cash
+                        spending or API billing.
+                        {attributedUsage.data.native.incomplete_calls > 0 &&
+                          ` ${attributedUsage.data.native.incomplete_calls} attempts have incomplete counters.`}
+                        {attributedUsage.data.native.unpriced_calls > 0 &&
+                          ` ${attributedUsage.data.native.unpriced_calls} attempts have unknown equivalents.`}
+                      </Typography>
+                      <details>
+                        <summary>Native attempt details</summary>
+                        {attributedUsage.data.native.calls
+                          .slice(0, 50)
+                          .map((call) => (
+                            <Box
+                              key={`${call.job_id}:${call.attempt_id}`}
+                              sx={{ py: 1 }}
+                            >
+                              <Typography sx={{ fontSize: 13 }}>
+                                {call.operation} · {call.model} ·{" "}
+                                {call.complete
+                                  ? "complete counters"
+                                  : "incomplete counters"}
+                              </Typography>
+                              <Typography
+                                sx={{ fontSize: 12, color: brand.muted }}
+                              >
+                                Job {call.job_id} · attempt {call.attempt_id}
+                              </Typography>
+                              <Box
+                                component="pre"
+                                sx={{
+                                  whiteSpace: "pre-wrap",
+                                  overflowWrap: "anywhere",
+                                  fontSize: 12,
+                                }}
+                              >
+                                {JSON.stringify(call.usage, null, 2)}
+                              </Box>
+                            </Box>
+                          ))}
+                      </details>
+                    </Box>
+                  )}
                 <Typography component="h4" sx={sectionTitle}>
                   Mihari · all watched repositories
                 </Typography>
