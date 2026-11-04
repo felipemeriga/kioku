@@ -9,6 +9,7 @@ model/mode combinations. It does not substitute for actual UI acceptance.
 """
 
 import argparse
+import datetime
 import hashlib
 import json
 import logging
@@ -31,7 +32,7 @@ def save(path, value, append=False):
         os.fsync(stream.fileno())
 
 
-def probe(config):
+def probe(config, read_only=False):
     if not config["fixture_name"].startswith("tsukai-e2e-"):
         raise ValueError("Isolated tsukai-e2e-* fixture required")
     token_path = Path(config["token_file"])
@@ -56,6 +57,44 @@ def probe(config):
         headers={"Authorization": "Bearer " + token_path.read_text().strip()},
         timeout=httpx.Timeout(180, connect=20),
     ) as client:
+        if read_only:
+            now = datetime.datetime.now(datetime.timezone.utc)
+            paths = [
+                ("folders", "/api/folders", {}),
+                ("documents", "/api/documents", {"folder_id": config["folder_id"]}),
+                ("breadcrumbs", f"/api/folders/{config['folder_id']}/breadcrumbs", {}),
+                ("learnings", f"/api/folders/{config['folder_id']}/learnings", {}),
+                (
+                    "learning_days",
+                    f"/api/folders/{config['folder_id']}/learning-days",
+                    {
+                        "year": now.year,
+                        "month": now.month,
+                        "timezone": "America/Sao_Paulo",
+                    },
+                ),
+                ("active_sessions", "/api/usage/native/active-sessions", {}),
+            ]
+            checks = []
+            for name, path, params in paths:
+                began = time.monotonic()
+                response = client.get(path, params=params)
+                response.raise_for_status()
+                data = response.json()
+                if name == "active_sessions" and data.get("available") is not True:
+                    raise RuntimeError("Native admin telemetry is unavailable")
+                if name == "learning_days" and not isinstance(data.get("days"), list):
+                    raise RuntimeError("Learning calendar response has wrong shape")
+                checks.append(
+                    {
+                        "name": name,
+                        "seconds": time.monotonic() - began,
+                        "status": response.status_code,
+                    }
+                )
+            result = {"kind": "real_http_read_only", "checks": checks}
+            save(config["evidence"], result, append=True)
+            return result
         if seed and not state.get("pending"):
             response = client.post("/api/conversations")
             response.raise_for_status()
@@ -167,10 +206,11 @@ def probe(config):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument("--read-only", action="store_true")
     args = parser.parse_args()
     logging.disable(logging.CRITICAL)
     try:
-        result = probe(json.loads(args.config.read_text()))
+        result = probe(json.loads(args.config.read_text()), args.read_only)
     except Exception:
         print('{"ok": false, "kind": "real_http_chat"}')
         raise SystemExit(1) from None
