@@ -25,6 +25,77 @@ describe("getFolderStatus", () => {
   });
 });
 
+describe("API error messages", () => {
+  it.each([
+    [502, "text/html", "<html><body>proxy secret=hidden</body></html>"],
+    [503, "text/plain", "Traceback: password=hidden"],
+    [500, "application/json", '{"detail":"secret=hidden"}'],
+  ])("does not expose a %s diagnostic body", async (status, type, body) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(body, {
+            status,
+            headers: { "content-type": type },
+          }),
+      ),
+    );
+    const error = await api.apiFetch("/api/documents").catch((err) => err);
+    expect(error).toBeInstanceOf(api.ApiError);
+    expect(error.status).toBe(status);
+    expect(error.userMessage).toMatch(/server.*try again/i);
+    expect(error.userMessage).not.toMatch(/<html>|hidden|Traceback/);
+    expect(error.detail).toBeUndefined();
+  });
+
+  it("preserves useful FastAPI validation messages without echoing input", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              detail: [
+                {
+                  loc: ["body", "filename"],
+                  msg: "Field required",
+                  input: "hidden",
+                },
+              ],
+            }),
+            { status: 422, headers: { "content-type": "application/json" } },
+          ),
+      ),
+    );
+    await expect(api.apiFetch("/api/documents")).rejects.toMatchObject({
+      status: 422,
+      userMessage: "filename: Field required",
+    });
+  });
+
+  it.each([
+    [{ detail: "Folder not found" }, "Folder not found"],
+    [{ detail: "<html>secret=hidden</html>" }, "Not found."],
+    [{ traceback: "secret=hidden" }, "Not found."],
+  ])("only displays explicit safe client errors", async (body, expected) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify(body), {
+            status: 404,
+            headers: { "content-type": "application/json" },
+          }),
+      ),
+    );
+    await expect(api.apiFetch("/api/documents")).rejects.toMatchObject({
+      status: 404,
+      userMessage: expected,
+    });
+  });
+});
+
 it("applies native canonical replacement and debug before done", async () => {
   const sequence: string[] = [];
   vi.stubGlobal(

@@ -68,6 +68,10 @@ function friendlyForStatus(status: number, detail: string): string {
   if (status === 413) return "That file is too large.";
   if (status === 422) return "The request was invalid.";
   if (status === 429) return "Too many requests — try again shortly.";
+  if (status === 502 || status === 503)
+    return "The server is temporarily unavailable. Please try again.";
+  if (status === 504)
+    return "The server took too long to respond. Please try again.";
   if (status >= 500) return "The server hit an error. Please try again.";
   return `Request failed (${status}).`;
 }
@@ -118,20 +122,35 @@ export async function apiFetch(path: string, options: RequestInit = {}) {
   }
 
   if (!response.ok) {
-    // Try to read the body. FastAPI returns JSON {detail: ...}, but a 500
-    // from an unhandled exception is text/plain.
+    // Only explicit client-facing FastAPI details are displayable. Proxy HTML,
+    // plain exception bodies and server diagnostics must never reach the UI.
     let detail: unknown = undefined;
     let detailStr = "";
     const contentType = response.headers.get("content-type") || "";
     try {
-      if (contentType.includes("application/json")) {
+      if (response.status < 500 && contentType.includes("application/json")) {
         const body = await response.json();
-        detail = (body as { detail?: unknown })?.detail ?? body;
-      } else {
-        const text = await response.text();
-        detail = text;
+        detail = (body as { detail?: unknown })?.detail;
+        if (typeof detail === "string" || Array.isArray(detail)) {
+          const messages = Array.isArray(detail)
+            ? detail.filter(
+                (entry) =>
+                  typeof entry === "string" ||
+                  (entry && typeof entry.msg === "string"),
+              )
+            : detail;
+          detailStr = normalizeDetail(messages);
+          if (
+            detailStr.length > 500 ||
+            /<[^>]*>|Traceback|\bstack\b|\bat \S+.*:\d+|(?:password|secret|authorization|api[_-]?key|access[_-]?token)\s*[:=]/i.test(
+              detailStr,
+            )
+          ) {
+            detailStr = "";
+            detail = undefined;
+          }
+        }
       }
-      detailStr = normalizeDetail(detail);
     } catch {
       /* body already consumed or malformed — leave detailStr empty */
     }
