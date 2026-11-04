@@ -587,7 +587,11 @@ class Store:
         await self._event(
             conn, job["id"], "job." + status, {"result": result, "error": error}, attempt_id
         )
-        if job["conversation_id"] and status != "completed":
+        if (
+            job["conversation_id"]
+            and status != "completed"
+            and (error or {}).get("native_started") is not False
+        ):
             await conn.execute(
                 update(sessions)
                 .where(
@@ -653,6 +657,16 @@ class Store:
                         last_cost=usage.get("native_total_cost_usd"),
                         last_counters=usage.get("native_counters"),
                         updated_at=time.time(),
+                    )
+                )
+            if (error or {}).get("native_started") is False and not attempt["resume"]:
+                # A first-turn grant failure reserved a mapping but created no transcript.
+                # Drop that empty mapping so a later turn starts fresh, never --resume.
+                await conn.execute(
+                    delete(sessions).where(
+                        sessions.c.owner_id == job["owner_id"],
+                        sessions.c.conversation_id == job["conversation_id"],
+                        sessions.c.native_session_id == attempt["native_session_id"],
                     )
                 )
             await self._terminal(conn, job, status, result, error, attempt["id"])
