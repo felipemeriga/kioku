@@ -26,6 +26,16 @@ class Fenced(Conflict):
     pass
 
 
+def is_interactive_job(request):
+    # Plain UI chat deliberately uses a fresh completion session. Its execution
+    # profile must not give it background queue bounds or priority.
+    return request["profile"] == "chat" or (
+        request["caller"] == "backend"
+        and request["profile"] == "completion"
+        and request["operation"] in {"rag_agent", "rag_agent_sonnet"}
+    )
+
+
 class Store:
     def __init__(self, url: str, workspace_dir="/data/workspaces", database_ca_file=None):
         url = make_url(url)
@@ -256,7 +266,7 @@ class Store:
                     # A burst's third root must be able to wait for either occupied
                     # 300s root slot, with 30s scheduling grace. Keep the queue bounded
                     # without increasing native concurrency or the execution limit.
-                    queue_deadline=now + (330 if request.profile == "chat" else 1800),
+                    queue_deadline=now + (330 if is_interactive_job(payload) else 1800),
                     cancel_requested=False,
                 )
             )
@@ -353,7 +363,7 @@ class Store:
                     3
                     if job["profile"] == "metadata_child"
                     else 2
-                    if job["profile"] == "chat"
+                    if is_interactive_job(job["request"])
                     else 1
                 )
                 aged = base + int(max(0, now - job["created_at"]) / 60)
