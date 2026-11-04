@@ -152,6 +152,7 @@ def finish(sha, config, proof, call=None):
         {
             "composeId": COMPOSE_ID,
             "autoDeploy": True,
+            "watchPaths": ["kioku/tsukai/**"],
             "description": DESCRIPTION + "; CI bootstrap completed: " + sha,
         },
     )
