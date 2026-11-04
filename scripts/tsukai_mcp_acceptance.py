@@ -78,15 +78,26 @@ async def probe(config, metadata=False, surfaces=False):
                     "get_folder_briefing", {"folder": config["folder_name"]}
                 )
             )
-            if config["expected_marker"] not in briefing:
+            identity = json.loads(briefing).get("folder")
+            if isinstance(identity, dict):
+                identity = identity.get("name")
+            if identity != config["folder_name"]:
                 raise CheckFailure(
-                    "Actual scoped briefing lacks expected fixture marker"
+                    "Actual briefing identity differs from the exact fixture name"
+                )
+            scope_listing = json.loads(
+                text_content(await session.call_tool("list_folders_in_scope", {}))
+            )
+            if scope_listing.get("scope_folder_id") != config["folder_id"]:
+                raise CheckFailure(
+                    "Actual MCP API key scope differs from the exact fixture UUID"
                 )
             result = {
                 "kind": "real_mcp",
                 "tool_count": len(names),
                 "briefing_sha256": hashlib.sha256(briefing.encode()).hexdigest(),
                 "metadata": metadata,
+                "fixture_identity_verified": True,
             }
             if surfaces:
                 folder = config["folder_name"]
