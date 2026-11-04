@@ -10,6 +10,8 @@ import pytest
 from services.ai.client import ExecutionError, ExecutionResult
 from services.maintenance import execution
 
+CAPTURE_JOB_USAGE = execution.capture_job_usage
+
 
 class DB:
     def __init__(self, rows=None):
@@ -79,6 +81,7 @@ def configured(monkeypatch):
     }.items():
         monkeypatch.setenv(key, value)
     monkeypatch.delenv("TSUKAI_MIHARI_NATIVE", raising=False)
+    monkeypatch.setattr(execution, "capture_job_usage", lambda *_: True)
 
 
 def test_native_is_default_off_and_owner_only(configured, monkeypatch):
@@ -297,3 +300,129 @@ def test_pending_ack_reconciles_even_when_prepare_skips_model(configured, monkey
     )
     assert acknowledgements == ["job"]
     assert pending["acknowledged_at"] == "confirmed"
+
+
+@pytest.mark.parametrize("copy_fails", [False, True])
+def test_usage_outbox_copies_all_attempts_or_retains_pending_without_ack(
+    configured, monkeypatch, copy_fails
+):
+    import sys
+
+    row = {**prepared_row(), "execution_job_id": "job"}
+    row["request"] = {"operation": "mihari.activity", "model": "claude-sonnet-4-6"}
+    receipt = {
+        "job_id": "job",
+        "preparation_id": "prep",
+        "user_id": "owner",
+        "folder_id": "folder",
+        "outcome": "completed",
+        "captured_at": None,
+    }
+    db = DB(
+        {
+            "maintenance_usage_outbox": [receipt],
+            "maintenance_runner_ack_outbox": [{"preparation_id": "prep", "user_id": "owner"}],
+        }
+    )
+    monkeypatch.setattr(execution, "capture_job_usage", CAPTURE_JOB_USAGE)
+    attempts = [
+        {"attempt_id": "repair-1", "status": "failed", "usage": None},
+        {"attempt_id": "repair-2", "status": "completed", "usage": {"complete": False}},
+    ]
+    copied, acknowledged = [], []
+
+    def record(client, scope, operation, model, job_id, *, source):
+        assert (scope.owner_id, scope.caller, operation, source) == (
+            "owner",
+            "mihari",
+            "mihari.activity",
+            "mihari",
+        )
+        if copy_fails:
+            raise RuntimeError("product usage database unavailable")
+        copied.extend(client.usage(job_id)["attempts"])
+
+    monkeypatch.setitem(
+        sys.modules, "services.ai.accounting", SimpleNamespace(record_job_usage=record)
+    )
+    runner = SimpleNamespace(
+        usage=lambda _: {"attempts": attempts}, acknowledge=lambda *_: acknowledged.append(True)
+    )
+    execution.acknowledge_publication(db, row, runner)
+    if copy_fails:
+        assert receipt["captured_at"] is None
+        assert acknowledged == []
+    else:
+        assert copied == attempts
+        assert copied[0]["usage"] is None
+        assert receipt["captured_at"] is not None
+        assert acknowledged == [True]
+
+
+def test_usage_receipt_persists_failed_jobs_without_domain_publication(configured):
+    row = prepared_row()
+    db = DB()
+    execution.track_terminal_usage(db, row, "failed-job", "failed")
+    assert db.rows["maintenance_usage_outbox"][0]["outcome"] == "failed"
+    assert db.calls == []
+
+
+def test_needs_input_job_still_copies_attempt_usage_without_applying_facts(configured, monkeypatch):
+    import sys
+
+    row = prepared_row()
+    row["request"] = {"operation": "mihari.activity", "model": "claude-sonnet-4-6"}
+    db = DB({"maintenance_preparations": [row]})
+    copied = []
+    monkeypatch.setattr(execution, "capture_job_usage", CAPTURE_JOB_USAGE)
+    monkeypatch.setattr(execution, "capability", lambda *_: "cap")
+    expected = hashlib.sha256(
+        json.dumps(row["request"], sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    monkeypatch.setattr(
+        execution.httpx,
+        "get",
+        lambda *_a, **_k: SimpleNamespace(
+            raise_for_status=lambda: None,
+            json=lambda: {"request_sha256": expected, "status": "completed"},
+        ),
+    )
+
+    class Runner:
+        def __init__(self, *_):
+            pass
+
+        def result(self, _):
+            raise ExecutionError("needs_input")
+
+        def usage(self, _):
+            return {
+                "attempts": [
+                    {"attempt_id": "repair-failed", "usage": None},
+                    {"attempt_id": "needs-input", "usage": {"complete": False}},
+                ]
+            }
+
+        def close(self):
+            pass
+
+        def acknowledge(self, *_):
+            pytest.fail("needs-input domain publication was acknowledged")
+
+    monkeypatch.setattr(execution, "TsukaiClient", Runner)
+    monkeypatch.setitem(
+        sys.modules,
+        "services.ai.accounting",
+        SimpleNamespace(
+            record_job_usage=lambda client, _scope, _operation, _model, job, **_kwargs: (
+                copied.extend(client.usage(job)["attempts"])
+            )
+        ),
+    )
+    with pytest.raises(ExecutionError, match="needs_input"):
+        execution.publish(db, "owner", "folder", "prep", "job")
+    assert len(copied) == 2
+    assert copied[0]["usage"] is None
+    assert copied[1]["usage"]["complete"] is False
+    assert db.rows["maintenance_usage_outbox"][0]["captured_at"] is not None
+    assert db.calls == []
