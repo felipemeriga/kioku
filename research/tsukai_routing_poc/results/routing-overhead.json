@@ -1,0 +1,372 @@
+[
+  {
+    "path": "chat",
+    "engine": "mock",
+    "total_s": 0.0042742479126900434,
+    "first_text_s": 0.002648020861670375,
+    "result": {
+      "type": "result",
+      "text": "fixture",
+      "success": true,
+      "model": "mock"
+    },
+    "observed_events": 2
+  },
+  {
+    "path": "chat",
+    "engine": "mock",
+    "total_s": 0.003121325047686696,
+    "first_text_s": 0.00251603196375072,
+    "result": {
+      "type": "result",
+      "text": "fixture",
+      "success": true,
+      "model": "mock"
+    },
+    "observed_events": 2
+  },
+  {
+    "path": "chat",
+    "engine": "mock",
+    "total_s": 0.0025776841212064028,
+    "first_text_s": 0.0020677640568464994,
+    "result": {
+      "type": "result",
+      "text": "fixture",
+      "success": true,
+      "model": "mock"
+    },
+    "observed_events": 2
+  },
+  {
+    "path": "chat",
+    "engine": "mock",
+    "total_s": 0.002357371849939227,
+    "first_text_s": 0.0021731529850512743,
+    "result": {
+      "type": "result",
+      "text": "fixture",
+      "success": true,
+      "model": "mock"
+    },
+    "observed_events": 2
+  },
+  {
+    "path": "chat",
+    "engine": "mock",
+    "total_s": 0.0023487391881644726,
+    "first_text_s": 0.0018925101030617952,
+    "result": {
+      "type": "result",
+      "text": "fixture",
+      "success": true,
+      "model": "mock"
+    },
+    "observed_events": 2
+  },
+  {
+    "path": "chat",
+    "engine": "mock",
+    "total_s": 0.0029655310790985823,
+    "first_text_s": 0.0019224651623517275,
+    "result": {
+      "type": "result",
+      "text": "fixture",
+      "success": true,
+      "model": "mock"
+    },
+    "observed_events": 2
+  },
+  {
+    "path": "chat",
+    "engine": "mock",
+    "total_s": 0.0020874838810414076,
+    "first_text_s": 0.0019540630746632814,
+    "result": {
+      "type": "result",
+      "text": "fixture",
+      "success": true,
+      "model": "mock"
+    },
+    "observed_events": 2
+  },
+  {
+    "path": "chat",
+    "engine": "mock",
+    "total_s": 0.0014625901822000742,
+    "first_text_s": 0.0012004731688648462,
+    "result": {
+      "type": "result",
+      "text": "fixture",
+      "success": true,
+      "model": "mock"
+    },
+    "observed_events": 2
+  },
+  {
+    "path": "chat",
+    "engine": "mock",
+    "total_s": 0.0014399560168385506,
+    "first_text_s": 0.0011249000672250986,
+    "result": {
+      "type": "result",
+      "text": "fixture",
+      "success": true,
+      "model": "mock"
+    },
+    "observed_events": 2
+  },
+  {
+    "path": "chat",
+    "engine": "mock",
+    "total_s": 0.0017120367847383022,
+    "first_text_s": 0.0012403337750583887,
+    "result": {
+      "type": "result",
+      "text": "fixture",
+      "success": true,
+      "model": "mock"
+    },
+    "observed_events": 2
+  },
+  {
+    "path": "mihari",
+    "engine": "mock",
+    "total_s": 0.0012540151365101337,
+    "first_text_s": 0.0010995010379701853,
+    "result": {
+      "type": "result",
+      "text": "fixture",
+      "success": true,
+      "model": "mock"
+    },
+    "observed_events": 2
+  },
+  {
+    "path": "mihari",
+    "engine": "mock",
+    "total_s": 0.0013204750139266253,
+    "first_text_s": 0.0011809940915554762,
+    "result": {
+      "type": "result",
+      "text": "fixture",
+      "success": true,
+      "model": "mock"
+    },
+    "observed_events": 2
+  },
+  {
+    "path": "mihari",
+    "engine": "mock",
+    "total_s": 0.001542380079627037,
+    "first_text_s": 0.0011081150732934475,
+    "result": {
+      "type": "result",
+      "text": "fixture",
+      "success": true,
+      "model": "mock"
+    },
+    "observed_events": 2
+  },
+  {
+    "path": "mihari",
+    "engine": "mock",
+    "total_s": 0.0011353760492056608,
+    "first_text_s": 0.001051620114594698,
+    "result": {
+      "type": "result",
+      "text": "fixture",
+      "success": true,
+      "model": "mock"
+    },
+    "observed_events": 2
+  },
+  {
+    "path": "mihari",
+    "engine": "mock",
+    "total_s": 0.0013593030162155628,
+    "first_text_s": 0.001205601030960679,
+    "result": {
+      "type": "result",
+      "text": "fixture",
+      "success": true,
+      "model": "mock"
+    },
+    "observed_events": 2
+  },
+  {
+    "path": "mihari",
+    "engine": "mock",
+    "total_s": 0.001546687912195921,
+    "first_text_s": 0.001129465876147151,
+    "result": {
+      "type": "result",
+      "text": "fixture",
+      "success": true,
+      "model": "mock"
+    },
+    "observed_events": 2
+  },
+  {
+    "path": "mihari",
+    "engine": "mock",
+    "total_s": 0.0011634679976850748,
+    "first_text_s": 0.0007956319022923708,
+    "result": {
+      "type": "result",
+      "text": "fixture",
+      "success": true,
+      "model": "mock"
+    },
+    "observed_events": 2
+  },
+  {
+    "path": "mihari",
+    "engine": "mock",
+    "total_s": 0.0019047078676521778,
+    "first_text_s": 0.0017407608684152365,
+    "result": {
+      "type": "result",
+      "text": "fixture",
+      "success": true,
+      "model": "mock"
+    },
+    "observed_events": 2
+  },
+  {
+    "path": "mihari",
+    "engine": "mock",
+    "total_s": 0.0018572360277175903,
+    "first_text_s": 0.0014326248783618212,
+    "result": {
+      "type": "result",
+      "text": "fixture",
+      "success": true,
+      "model": "mock"
+    },
+    "observed_events": 2
+  },
+  {
+    "path": "mihari",
+    "engine": "mock",
+    "total_s": 0.0012295579072088003,
+    "first_text_s": 0.0009982888586819172,
+    "result": {
+      "type": "result",
+      "text": "fixture",
+      "success": true,
+      "model": "mock"
+    },
+    "observed_events": 2
+  },
+  {
+    "path": "mcp",
+    "engine": "mock",
+    "total_s": 0.08689419296570122,
+    "first_text_s": null,
+    "result": {
+      "success": true,
+      "text": "fixture"
+    },
+    "observed_events": 0
+  },
+  {
+    "path": "mcp",
+    "engine": "mock",
+    "total_s": 0.09482528502121568,
+    "first_text_s": null,
+    "result": {
+      "success": true,
+      "text": "fixture"
+    },
+    "observed_events": 0
+  },
+  {
+    "path": "mcp",
+    "engine": "mock",
+    "total_s": 0.09608015208505094,
+    "first_text_s": null,
+    "result": {
+      "success": true,
+      "text": "fixture"
+    },
+    "observed_events": 0
+  },
+  {
+    "path": "mcp",
+    "engine": "mock",
+    "total_s": 0.09001326584257185,
+    "first_text_s": null,
+    "result": {
+      "success": true,
+      "text": "fixture"
+    },
+    "observed_events": 0
+  },
+  {
+    "path": "mcp",
+    "engine": "mock",
+    "total_s": 0.09556935098953545,
+    "first_text_s": null,
+    "result": {
+      "success": true,
+      "text": "fixture"
+    },
+    "observed_events": 0
+  },
+  {
+    "path": "mcp",
+    "engine": "mock",
+    "total_s": 0.08828848809935153,
+    "first_text_s": null,
+    "result": {
+      "success": true,
+      "text": "fixture"
+    },
+    "observed_events": 0
+  },
+  {
+    "path": "mcp",
+    "engine": "mock",
+    "total_s": 0.08736380189657211,
+    "first_text_s": null,
+    "result": {
+      "success": true,
+      "text": "fixture"
+    },
+    "observed_events": 0
+  },
+  {
+    "path": "mcp",
+    "engine": "mock",
+    "total_s": 0.09260851587168872,
+    "first_text_s": null,
+    "result": {
+      "success": true,
+      "text": "fixture"
+    },
+    "observed_events": 0
+  },
+  {
+    "path": "mcp",
+    "engine": "mock",
+    "total_s": 0.09552883799187839,
+    "first_text_s": null,
+    "result": {
+      "success": true,
+      "text": "fixture"
+    },
+    "observed_events": 0
+  },
+  {
+    "path": "mcp",
+    "engine": "mock",
+    "total_s": 0.09183483710512519,
+    "first_text_s": null,
+    "result": {
+      "success": true,
+      "text": "fixture"
+    },
+    "observed_events": 0
+  }
+]
