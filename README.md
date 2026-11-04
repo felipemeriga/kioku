@@ -1,3 +1,5 @@
+![Kioku — second brain for your repositories. Animated connections between documents, code, journals, and context.](docs/assets/kioku-banner.gif)
+
 # Kioku (記憶)
 
 Second brain for your repositories. Kioku brings repository briefings, documents,
