@@ -176,7 +176,7 @@ def _learning_quotes(snapshot):
                     quote = sentence[start : start + 250].strip()
                     if 12 <= len(quote) <= 250 and quote not in excerpts:
                         excerpts.append(quote)
-        choices[entry["id"]] = excerpts[:32]
+        choices[entry["id"]] = excerpts[:12]
     return choices
 
 
