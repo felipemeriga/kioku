@@ -63,13 +63,16 @@ describe("ChatInput", () => {
 
 it("restores accepted execution model and mode for the next follow-up", async () => {
   const onSend = vi.fn();
-  renderWithProviders(
+  const view = renderWithProviders(
     <ChatInput
       conversationId="recovered"
       onSend={onSend}
       disabled={false}
       restoredSettings={{ model: "sonnet", mode: "plain" }}
     />,
+  );
+  view.rerender(
+    <ChatInput conversationId="recovered" onSend={onSend} disabled={false} />,
   );
   const user = userEvent.setup();
   await user.type(
