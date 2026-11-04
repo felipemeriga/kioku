@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import threading
+from collections.abc import Callable
 from uuid import uuid4
 
 import httpx
@@ -84,6 +85,8 @@ def prepare_turn(
     rebuild: bool = False,
     folder_id: str | None,
     filename: str | None,
+    model_resolver: Callable[[str], str] | None = None,
+    operation: str | None = None,
 ) -> dict:
     sb = get_supabase_thread_safe()
     turn_id = turn_id or str(uuid4())
@@ -158,7 +161,16 @@ def prepare_turn(
         },
         ensure_ascii=False,
     )
-    task = Task.RAG_AGENT_SONNET if model == "sonnet" else Task.RAG_AGENT
+    if model_resolver is None and model not in {"haiku", "sonnet"}:
+        raise HTTPException(422, "Native model selection requires catalog validation")
+    task = (
+        Task(operation)
+        if operation
+        else Task.RAG_AGENT_SONNET
+        if model == "sonnet"
+        else Task.RAG_AGENT
+    )
+    resolved_model = model_resolver(model) if model_resolver else MODEL_FOR_TASK[task]
     request = {
         "schema_version": 1,
         "idempotency_key": turn_id,
@@ -175,13 +187,13 @@ def prepare_turn(
             "turns; cite only evidence returned for this current turn. Do not use local files, "
             "shells, web tools outside Kioku, or claim native memory proves repository facts."
         ),
-        "model": MODEL_FOR_TASK[task],
+        "model": resolved_model,
         "max_tokens": 6000,
         "max_turns": 8,
         "thinking_tokens": 2048 if mode == "deep" else 0,
         "folder_ids": folders,
         "tool_allowlist": [] if mode == "plain" else list(TOOLS),
-        "metadata": {"turn_id": turn_id, "intent": intent},
+        "metadata": {"turn_id": turn_id, "intent": intent, "requested_model_id": resolved_model},
     }
     if mode != "plain":
         request["conversation_id"] = conversation_id

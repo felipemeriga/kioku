@@ -12,7 +12,8 @@ import {
 } from "@mui/material";
 import AttachFileIcon from "@mui/icons-material/AttachFile";
 import CenterFocusStrongIcon from "@mui/icons-material/CenterFocusStrong";
-import { uploadDocument } from "../lib/api";
+import { uploadDocument, fetchChatModels } from "../lib/api";
+import { useQuery } from "@tanstack/react-query";
 import type { ChatFilters, ChatMode, ChatModel, ChatScope } from "../lib/api";
 import { useToast } from "./ToastProvider";
 import { brand, fonts } from "../theme";
@@ -50,6 +51,46 @@ export default function ChatInput({
   onClearScope,
 }: ChatInputProps) {
   const toast = useToast();
+  const catalog = useQuery({
+    queryKey: ["chat-model-catalog"],
+    queryFn: fetchChatModels,
+    staleTime: 15 * 60_000,
+    retry: false,
+    throwOnError: false,
+  });
+  const native = catalog.data?.engine === "tsukai";
+  const rows = catalog.data?.models ?? [];
+  const uniqueModels = new Map<string, (typeof rows)[number]>();
+  for (const row of rows) {
+    if (!uniqueModels.has(row.resolvedModel) || row.value !== "default")
+      uniqueModels.set(row.resolvedModel, row);
+  }
+  const choices = native
+    ? [...uniqueModels.values()].map((row) => ({
+        id: row.resolvedModel,
+        label: row.displayName,
+        description: row.requires_usage_credits
+          ? "Extra usage credits — unavailable"
+          : row.description,
+        disabled:
+          Boolean(catalog.data?.stale) ||
+          row.requires_usage_credits ||
+          !row.selectable,
+      }))
+    : [
+        {
+          id: "sonnet",
+          label: "Sonnet",
+          description: "stronger reasoning",
+          disabled: false,
+        },
+        {
+          id: "haiku",
+          label: "Haiku",
+          description: "faster & cheaper",
+          disabled: false,
+        },
+      ];
   const [input, setInput] = useState("");
   const [uploading, setUploading] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<string | null>(null);
@@ -57,6 +98,10 @@ export default function ChatInput({
   const [mode, setMode] = useState<ChatMode>("deep");
   const [modeAnchor, setModeAnchor] = useState<null | HTMLElement>(null);
   const [model, setModel] = useState<ChatModel>("haiku");
+  const selectedModel = native
+    ? (rows.find((row) => row.value === model)?.resolvedModel ?? model)
+    : model;
+  const selectedChoice = choices.find((choice) => choice.id === selectedModel);
   const previousConversationId = useRef(conversationId);
   useEffect(() => {
     if (previousConversationId.current !== conversationId) {
@@ -84,7 +129,11 @@ export default function ChatInput({
   const handleSend = () => {
     const trimmed = input.trim();
     if (!trimmed) return;
-    onSend(trimmed, undefined, model, mode, debug);
+    if (native && (!selectedChoice || selectedChoice.disabled)) {
+      toast.show("Choose an available subscription model.", "error");
+      return;
+    }
+    onSend(trimmed, undefined, selectedModel, mode, debug);
     setInput("");
     setUploadedFile(null);
   };
@@ -290,9 +339,9 @@ export default function ChatInput({
         </Menu>
 
         {/* Model chip */}
-        <Tooltip title="Model — pick Sonnet (stronger) or Haiku (faster/cheaper)">
+        <Tooltip title="Model — choose the model for this response">
           <Chip
-            label={model === "sonnet" ? "Sonnet" : "Haiku"}
+            label={selectedChoice?.label ?? "Unavailable model"}
             size="small"
             variant="outlined"
             disabled={disabled}
@@ -312,25 +361,43 @@ export default function ChatInput({
           anchorEl={modelAnchor}
           open={Boolean(modelAnchor)}
           onClose={() => setModelAnchor(null)}
+          slotProps={{
+            paper: { sx: { maxWidth: "min(480px, calc(100vw - 32px))" } },
+          }}
         >
-          <MenuItem
-            selected={model === "sonnet"}
-            onClick={() => {
-              setModel("sonnet");
-              setModelAnchor(null);
-            }}
-          >
-            Sonnet — stronger reasoning
-          </MenuItem>
-          <MenuItem
-            selected={model === "haiku"}
-            onClick={() => {
-              setModel("haiku");
-              setModelAnchor(null);
-            }}
-          >
-            Haiku — faster & cheaper
-          </MenuItem>
+          {catalog.isError && (
+            <MenuItem disabled>
+              Model catalog unavailable — legacy choices shown
+            </MenuItem>
+          )}
+          {catalog.isPending && (
+            <MenuItem disabled>Loading model catalog…</MenuItem>
+          )}
+          {catalog.data?.stale && (
+            <MenuItem disabled>Showing the last cached model catalog</MenuItem>
+          )}
+          {(catalog.isError || catalog.data?.stale) && (
+            <MenuItem
+              onClick={() => void catalog.refetch({ throwOnError: false })}
+            >
+              Refresh model catalog
+            </MenuItem>
+          )}
+          {choices.map((choice) => (
+            <MenuItem
+              key={choice.id}
+              sx={{ whiteSpace: "normal", overflowWrap: "anywhere" }}
+              disabled={choice.disabled}
+              selected={selectedModel === choice.id}
+              onClick={() => {
+                setModel(choice.id);
+                setModelAnchor(null);
+              }}
+            >
+              {choice.label}
+              {choice.description ? ` — ${choice.description}` : ""}
+            </MenuItem>
+          ))}
         </Menu>
 
         {/* DBG toggle */}

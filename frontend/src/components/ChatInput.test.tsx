@@ -1,5 +1,6 @@
 // frontend/src/components/ChatInput.test.tsx
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { fetchChatModels } from "../lib/api";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "../test/renderWithProviders";
@@ -9,7 +10,127 @@ import ChatInput from "./ChatInput";
 vi.mock("../lib/api", () => ({
   uploadDocument: vi.fn(),
   getAuthHeaders: vi.fn().mockResolvedValue({ Authorization: "Bearer test" }),
+  fetchChatModels: vi.fn(),
 }));
+
+beforeEach(() => {
+  vi.mocked(fetchChatModels).mockResolvedValue({ engine: "api", models: [] });
+});
+
+it("offers actual subscription models, deduplicates aliases, and disables paid choices", async () => {
+  vi.mocked(fetchChatModels).mockResolvedValue({
+    engine: "tsukai",
+    models: [
+      {
+        value: "default",
+        resolvedModel: "sonnet-current",
+        displayName: "Default Sonnet",
+        selectable: true,
+        requires_usage_credits: false,
+      },
+      {
+        value: "sonnet",
+        resolvedModel: "sonnet-current",
+        displayName: "Sonnet Current",
+        selectable: true,
+        requires_usage_credits: false,
+      },
+      {
+        value: "haiku",
+        resolvedModel: "haiku-current",
+        displayName: "Haiku Current",
+        selectable: true,
+        requires_usage_credits: false,
+      },
+      {
+        value: "opus",
+        resolvedModel: "opus-current",
+        displayName: "Opus Current",
+        selectable: true,
+        requires_usage_credits: false,
+      },
+      {
+        value: "fable",
+        resolvedModel: "fable-current",
+        displayName: "Fable Current",
+        selectable: false,
+        requires_usage_credits: true,
+      },
+    ],
+  });
+  const user = userEvent.setup();
+  const onSend = vi.fn();
+  renderWithProviders(<ChatInput onSend={onSend} disabled={false} />);
+  await user.click(await screen.findByText("Haiku Current"));
+  expect(screen.queryByText("Default Sonnet")).not.toBeInTheDocument();
+  expect(
+    screen.getByRole("menuitem", {
+      name: /Fable Current.*Extra usage credits/,
+    }),
+  ).toHaveAttribute("aria-disabled", "true");
+  await user.click(screen.getByRole("menuitem", { name: "Opus Current" }));
+  await user.type(
+    screen.getByPlaceholderText("Ask a question about your documents..."),
+    "question{Enter}",
+  );
+  expect(onSend).toHaveBeenCalledWith(
+    "question",
+    undefined,
+    "opus-current",
+    "deep",
+    true,
+  );
+});
+
+it("labels catalog failure instead of claiming legacy choices are discovered", async () => {
+  vi.mocked(fetchChatModels).mockRejectedValue(new Error("unavailable"));
+  const user = userEvent.setup();
+  renderWithProviders(<ChatInput onSend={vi.fn()} disabled={false} />);
+  await user.click(screen.getByText("Haiku"));
+  expect(
+    await screen.findByText("Model catalog unavailable — legacy choices shown"),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole("menuitem", { name: "Refresh model catalog" }),
+  ).toBeInTheDocument();
+});
+
+it("restores a catalog model ID from a saved execution without replacing it with Haiku", async () => {
+  vi.mocked(fetchChatModels).mockResolvedValue({
+    engine: "tsukai",
+    models: [
+      {
+        value: "opus",
+        resolvedModel: "opus-current",
+        displayName: "Opus Current",
+        selectable: true,
+        requires_usage_credits: false,
+      },
+    ],
+  });
+  const onSend = vi.fn();
+  const user = userEvent.setup();
+  renderWithProviders(
+    <ChatInput
+      conversationId="saved"
+      onSend={onSend}
+      disabled={false}
+      restoredSettings={{ model: "opus-current", mode: "plain" }}
+    />,
+  );
+  await screen.findByText("Opus Current");
+  await user.type(
+    screen.getByPlaceholderText("Ask a question about your documents..."),
+    "follow up{Enter}",
+  );
+  expect(onSend).toHaveBeenCalledWith(
+    "follow up",
+    undefined,
+    "opus-current",
+    "plain",
+    true,
+  );
+});
 
 describe("ChatInput", () => {
   it("renders the text input", () => {
