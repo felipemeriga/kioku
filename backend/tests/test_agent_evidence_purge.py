@@ -1,5 +1,6 @@
+import asyncio
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from services.agent_evidence_purge import purge_evidence_outbox
 
@@ -35,3 +36,17 @@ def test_empty_receipt_finishes_without_storage_call():
     purge_evidence_outbox(sb)
     storage.remove.assert_not_called()
     table.delete.return_value.eq.assert_called_once_with("id", "receipt")
+
+
+def test_disabled_capture_still_processes_erasure_receipts():
+    from services.agent_evidence_jobs import agent_evidence_maintenance
+
+    with (
+        patch("services.agent_evidence_jobs.enabled", return_value=False),
+        patch("services.agent_evidence_jobs.get_supabase_thread_safe", return_value="db"),
+        patch("services.agent_evidence_jobs.purge_evidence_outbox") as purge,
+        patch("services.agent_evidence_jobs.reap_evidence") as capture,
+    ):
+        asyncio.run(agent_evidence_maintenance({}))
+    purge.assert_called_once_with("db")
+    capture.assert_not_called()
