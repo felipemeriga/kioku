@@ -175,104 +175,146 @@ def run(config, scenario="metadata-first"):
 
     reads = []
     samples = []
+    stop_monitor = threading.Event()
+    fast_overlap_seen = threading.Event()
+    monitor_errors = []
+
+    def monitor_admin():
+        with httpx.Client(**options) as client:
+            while not stop_monitor.is_set():
+                tick = time.monotonic()
+                try:
+                    response = client.get(
+                        "/api/usage/native/active-sessions", timeout=10
+                    )
+                    response.raise_for_status()
+                    telemetry = response.json()
+                    sessions = telemetry.get("sessions") or []
+                    samples.append(
+                        {
+                            "elapsed_seconds": time.monotonic() - began,
+                            "queued_counts": telemetry.get("queued_counts"),
+                            "sessions": [
+                                {
+                                    key: session.get(key)
+                                    for key in (
+                                        "job_id",
+                                        "attempt_id",
+                                        "profile",
+                                        "caller",
+                                        "state",
+                                        "pid",
+                                        "conversation_id",
+                                        "folder_ids",
+                                        "native_session_id",
+                                    )
+                                }
+                                for session in sessions
+                            ],
+                        }
+                    )
+                    save(
+                        config["evidence"],
+                        {"kind": "real_load_admin_sample", **samples[-1]},
+                        append=True,
+                    )
+                    current = samples[-1]["sessions"]
+                    if (
+                        any(
+                            a.get("profile") == "metadata_child" and a.get("pid")
+                            for a in current
+                        )
+                        and sum(
+                            bool(a.get("pid"))
+                            and a.get("conversation_id") in identifiers
+                            for a in current
+                        )
+                        >= 2
+                    ):
+                        fast_overlap_seen.set()
+                except Exception as exc:
+                    monitor_errors.append(type(exc).__name__)
+                    save(
+                        config["evidence"],
+                        {"kind": "real_load_admin_error", "reason": type(exc).__name__},
+                        append=True,
+                    )
+                interval = 5 if fast_overlap_seen.is_set() else 1
+                stop_monitor.wait(max(0.05, interval - (time.monotonic() - tick)))
+
     began = time.monotonic()
     with (
-        concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor,
+        concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor,
         httpx.Client(**options) as client,
     ):
-        if scenario == "metadata-first":
-            futures = [executor.submit(job, 0)]
-            deadline = time.monotonic() + 90
-            while not metadata_admitted.wait(0.25):
-                if futures[0].done():
-                    futures[0].result()
-                    raise CheckFailure(
-                        "Metadata root finished before actual admission was observed"
+        monitor_future = executor.submit(monitor_admin)
+        try:
+            if scenario == "metadata-first":
+                futures = [executor.submit(job, 0)]
+                deadline = time.monotonic() + 90
+                while not metadata_admitted.wait(0.25):
+                    if futures[0].done():
+                        futures[0].result()
+                        raise CheckFailure(
+                            "Metadata root finished before actual admission was observed"
+                        )
+                    if time.monotonic() > deadline:
+                        raise CheckFailure(
+                            "Metadata root was not admitted; other load jobs were not started"
+                        )
+                futures.extend(executor.submit(job, index) for index in (1, 2))
+            else:
+                futures = [executor.submit(job, index) for index in range(3)]
+            while not all(future.done() for future in futures):
+                for name, path, params in load_read_paths(config):
+                    start = time.monotonic()
+                    response = client.get(path, params=params, timeout=10)
+                    response.raise_for_status()
+                    elapsed = time.monotonic() - start
+                    data = response.json()
+                    item_count = (
+                        len(data)
+                        if isinstance(data, list)
+                        else len(data.get("days", data.get("learnings", [])))
                     )
-                if time.monotonic() > deadline:
-                    raise CheckFailure(
-                        "Metadata root was not admitted; other load jobs were not started"
-                    )
-            futures.extend(executor.submit(job, index) for index in (1, 2))
-        else:
-            futures = [executor.submit(job, index) for index in range(3)]
-        while not all(future.done() for future in futures):
-            for name, path, params in load_read_paths(config):
-                start = time.monotonic()
-                response = client.get(path, params=params, timeout=10)
-                response.raise_for_status()
-                elapsed = time.monotonic() - start
-                data = response.json()
-                item_count = (
-                    len(data)
-                    if isinstance(data, list)
-                    else len(data.get("days", data.get("learnings", [])))
-                )
-                if name == "existing_calendar" and not item_count:
-                    raise CheckFailure(
-                        "Known nonempty calendar lost metadata during concurrent load"
-                    )
-                reads.append(
-                    {
-                        "name": name,
-                        "seconds": elapsed,
-                        "status": response.status_code,
-                        "item_count": item_count,
-                        "sha256": hashlib.sha256(
-                            json.dumps(data, sort_keys=True).encode()
-                        ).hexdigest(),
-                    }
-                )
-                save(
-                    config["evidence"],
-                    {"kind": "real_load_read_sample", **reads[-1]},
-                    append=True,
-                )
-            response = client.get("/api/usage/native/active-sessions", timeout=10)
-            response.raise_for_status()
-            telemetry = response.json()
-            sessions = telemetry.get("sessions") or []
-            samples.append(
-                {
-                    "elapsed_seconds": time.monotonic() - began,
-                    "queued_counts": telemetry.get("queued_counts"),
-                    "sessions": [
+                    if name == "existing_calendar" and not item_count:
+                        raise CheckFailure(
+                            "Known nonempty calendar lost metadata during concurrent load"
+                        )
+                    reads.append(
                         {
-                            key: session.get(key)
-                            for key in (
-                                "job_id",
-                                "attempt_id",
-                                "profile",
-                                "caller",
-                                "state",
-                                "pid",
-                                "conversation_id",
-                                "folder_ids",
-                            )
+                            "name": name,
+                            "seconds": elapsed,
+                            "status": response.status_code,
+                            "item_count": item_count,
+                            "sha256": hashlib.sha256(
+                                json.dumps(data, sort_keys=True).encode()
+                            ).hexdigest(),
                         }
-                        for session in sessions
-                    ],
-                }
-            )
-            save(
-                config["evidence"],
-                {"kind": "real_load_admin_sample", **samples[-1]},
-                append=True,
-            )
-            time.sleep(2)
-        jobs, failures = [], []
-        for index, future in enumerate(futures):
-            try:
-                jobs.append(future.result())
-            except Exception as exc:
-                failures.append(
-                    {
-                        "index": index,
-                        "reason": str(exc)
-                        if isinstance(exc, CheckFailure)
-                        else type(exc).__name__,
-                    }
-                )
+                    )
+                    save(
+                        config["evidence"],
+                        {"kind": "real_load_read_sample", **reads[-1]},
+                        append=True,
+                    )
+                time.sleep(2)
+            jobs, failures = [], []
+            for index, future in enumerate(futures):
+                try:
+                    jobs.append(future.result())
+                except Exception as exc:
+                    failures.append(
+                        {
+                            "index": index,
+                            "reason": str(exc)
+                            if isinstance(exc, CheckFailure)
+                            else type(exc).__name__,
+                        }
+                    )
+        finally:
+            stop_monitor.set()
+            monitor_future.result(timeout=20)
+
     result = {
         "kind": "real_three_conversation_load",
         "scenario": scenario,
@@ -281,6 +323,8 @@ def run(config, scenario="metadata-first"):
         "failures": failures,
         "read_samples": reads,
         "admin_samples": samples,
+        "admin_monitor_errors": monitor_errors,
+        "fast_pid_overlap_seen": fast_overlap_seen.is_set(),
         "maximum_read_seconds": max(sample["seconds"] for sample in reads),
     }
     save(config["evidence"], result, append=True)
