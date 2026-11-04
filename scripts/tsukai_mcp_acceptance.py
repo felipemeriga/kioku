@@ -95,6 +95,22 @@ async def probe(config, metadata=False):
                         "Schema responsiveness failed during metadata request"
                     )
                 answer = text_content(await pending)
+                parsed = json.loads(answer)
+                if parsed.get("operation") != "count_files" or not isinstance(
+                    parsed.get("data", {}).get("count"), int
+                ):
+                    raise RuntimeError(
+                        "Native typed metadata count response is missing"
+                    )
+                if (
+                    "expected_document_count" in config
+                    and parsed["data"]["count"] != config["expected_document_count"]
+                ):
+                    raise RuntimeError("Metadata count disagrees with isolated fixture")
+                if not result["metadata_pending_during_schema"]:
+                    raise RuntimeError(
+                        "Concurrent schema call did not overlap metadata work"
+                    )
                 result["metadata_sha256"] = hashlib.sha256(answer.encode()).hexdigest()
     result["elapsed_seconds"] = time.monotonic() - began
     evidence = Path(config["evidence"])
