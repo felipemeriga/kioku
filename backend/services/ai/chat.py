@@ -6,6 +6,7 @@ import logging
 import os
 import threading
 from collections.abc import Callable
+from datetime import datetime, timezone
 from uuid import uuid4
 
 import httpx
@@ -88,6 +89,7 @@ def prepare_turn(
     model_resolver: Callable[[str], str] | None = None,
     operation: str | None = None,
 ) -> dict:
+    response_started_at = datetime.now(timezone.utc).isoformat()
     sb = get_supabase_thread_safe()
     turn_id = turn_id or str(uuid4())
     existing = (
@@ -193,7 +195,12 @@ def prepare_turn(
         "thinking_tokens": 2048 if mode == "deep" else 0,
         "folder_ids": folders,
         "tool_allowlist": [] if mode == "plain" else list(TOOLS),
-        "metadata": {"turn_id": turn_id, "intent": intent, "requested_model_id": resolved_model},
+        "metadata": {
+            "turn_id": turn_id,
+            "intent": intent,
+            "requested_model_id": resolved_model,
+            "response_started_at": response_started_at,
+        },
     }
     if mode != "plain":
         request["conversation_id"] = conversation_id
@@ -426,7 +433,13 @@ def publish_turn(turn: dict, result, *, attempt_id: str | None = None) -> str:
         )
     finally:
         usage_client.close()
+    started_at = request.get("metadata", {}).get("response_started_at") or turn.get("created_at")
+    total_seconds = None
+    if started_at:
+        started = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+        total_seconds = round(max(0, (datetime.now(timezone.utc) - started).total_seconds()), 3)
     debug = {
+        "timings": {"total_seconds": total_seconds},
         "reasoning": [],
         "tool_calls": [
             {

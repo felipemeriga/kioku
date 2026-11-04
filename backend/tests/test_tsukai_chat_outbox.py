@@ -1,6 +1,7 @@
 """Crash-window contract: durable admission can be replayed without new inference."""
 
 import copy
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -27,11 +28,17 @@ def test_accepted_request_lost_before_job_mapping_recovers_after_backend_restart
             "idempotency_key": "turn",
             "model": "haiku",
             "prompt": "canonical input",
+            "metadata": {
+                "response_started_at": (
+                    datetime.now(timezone.utc) - timedelta(seconds=20)
+                ).isoformat()
+            },
             "folder_ids": [],
             "tool_allowlist": [],
         },
     }
     runner_jobs, assistant_messages = {}, []
+    saved_debug = []
     starts = []
     drop_response = [True]
 
@@ -70,6 +77,7 @@ def test_accepted_request_lost_before_job_mapping_recovers_after_backend_restart
             if self.rpc == "tsukai_commit_chat_turn":
                 if not assistant_messages:
                     assistant_messages.append(self.body["p_content"])
+                    saved_debug.append(self.body["p_debug"])
                 turn.update({"state": "committed", "assistant_message_id": "message"})
                 return SimpleNamespace(data="message")
             if self.table == "tsukai_chat_turns" and self.update_body:
@@ -106,6 +114,7 @@ def test_accepted_request_lost_before_job_mapping_recovers_after_backend_restart
         publish_turn(copy.deepcopy(turn), result)
     assert len(starts) == 1
     assert assistant_messages == ["canonical answer"]
+    assert 20 <= saved_debug[0]["timings"]["total_seconds"] < 60
 
 
 def test_slow_second_admission_response_cannot_regress_an_acknowledged_turn():

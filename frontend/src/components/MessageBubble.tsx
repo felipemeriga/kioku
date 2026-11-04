@@ -38,7 +38,7 @@ function citationDetails(c: Citation) {
   const field = (name: string) =>
     metadata
       .match(
-        new RegExp(`\\[${name}(?:\\s*[:=]\\s*|\\s+)([^\\]]+)\\]`, "i")
+        new RegExp(`\\[${name}(?:\\s*[:=]\\s*|\\s+)([^\\]]+)\\]`, "i"),
       )?.[1]
       ?.trim();
   const raw =
@@ -71,8 +71,8 @@ function citationDetails(c: Citation) {
     filename && !/^(unknown|\[unknown\])$/i.test(filename)
       ? filename
       : c.source_type === "code"
-      ? "Retrieved code source"
-      : "Retrieved source";
+        ? "Retrieved code source"
+        : "Retrieved source";
   return { title, path: path !== title ? path : "", repo, lineRange };
 }
 
@@ -87,7 +87,7 @@ function citationPreview(value: string): string {
     .replace(/\[Code\s*:\s*[^\]]*\]/gi, " ")
     .replace(
       /\[(?:repo|file|lines?|symbol|source_type)(?:\s*[:=]\s*|\s+)[^\]]*\]/gi,
-      " "
+      " ",
     )
     .replace(/(^|\n)[ \t]*(?:`{3,}|~{3,})[\w+-]*[ \t]*(?:\r?\n|$)/g, "$1")
     .replace(/`+|~{3,}/g, "")
@@ -293,7 +293,7 @@ function CitationChip({
 function splitCitations(
   text: string,
   cited: Map<number, Citation>,
-  onClick: (c: Citation) => void
+  onClick: (c: Citation) => void,
 ): ReactNode {
   const parts: ReactNode[] = [];
   let last = 0;
@@ -317,10 +317,10 @@ function splitCitations(
 function renderWithCitations(
   children: ReactNode,
   cited: Map<number, Citation>,
-  onClick: (c: Citation) => void
+  onClick: (c: Citation) => void,
 ): ReactNode {
   return Children.map(children, (child) =>
-    typeof child === "string" ? splitCitations(child, cited, onClick) : child
+    typeof child === "string" ? splitCitations(child, cited, onClick) : child,
   );
 }
 
@@ -351,7 +351,7 @@ export default function MessageBubble({
         setExcerptSource(c);
       }
     },
-    [onOpenDocument]
+    [onOpenDocument],
   );
 
   // Markdown renderers: always wrap tables; when citations exist, also linkify
@@ -696,7 +696,25 @@ export default function MessageBubble({
           </Box>
         )}
         {!isUser && (
-          <Box sx={{ display: "flex", gap: 2, alignItems: "center", mt: 1 }}>
+          <Box
+            sx={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 2,
+              alignItems: "center",
+              mt: 1,
+            }}
+          >
+            {typeof debug?.timings?.total_seconds === "number" &&
+              Number.isFinite(debug.timings.total_seconds) &&
+              debug.timings.total_seconds >= 0 && (
+                <Typography variant="caption" sx={{ color: brand.muted }}>
+                  Completed in{" "}
+                  {debug.timings.total_seconds < 60
+                    ? `${debug.timings.total_seconds.toFixed(1)}s`
+                    : `${Math.floor(debug.timings.total_seconds / 60)}m ${Math.floor(debug.timings.total_seconds % 60)}s`}
+                </Typography>
+              )}
             <Button
               size="small"
               startIcon={<ContentCopyIcon sx={{ fontSize: 14 }} />}
@@ -712,13 +730,13 @@ export default function MessageBubble({
                   .writeText(content)
                   .then(() => toast.showSuccess("Answer copied."))
                   .catch((err) =>
-                    toast.showError(err, "Couldn’t copy answer.")
+                    toast.showError(err, "Couldn’t copy answer."),
                   );
               }}
             >
               Copy answer
             </Button>
-            {debug && (
+            {debug && !debug.timing_only && (
               <Button
                 size="small"
                 sx={{

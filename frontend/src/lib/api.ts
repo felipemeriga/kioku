@@ -344,6 +344,8 @@ export interface DebugReasoningStep {
   text: string;
 }
 export interface DebugTrace {
+  timings?: { total_seconds?: number | null };
+  timing_only?: boolean;
   model?: string;
   reasoning: DebugReasoningStep[];
   tool_calls: DebugToolCall[];

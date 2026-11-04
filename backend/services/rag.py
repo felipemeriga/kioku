@@ -5,6 +5,7 @@ import logging
 import queue as _queue
 import re
 import threading
+import time
 import uuid
 from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor
@@ -256,6 +257,7 @@ def stream_rag_response(
     scope_filename: str | None = None,
 ) -> Generator[str, None, None]:
     """Agentic RAG pipeline: save message, run tool-use loop, stream response."""
+    response_started = time.monotonic()
     sb = get_supabase_thread_safe()
 
     # Resolve a folder scope to its subtree once — the agent may call the
@@ -320,6 +322,7 @@ def stream_rag_response(
         usage_rounds: list[dict] = []
         side_calls = UsageCollector()
         citations_payload: list | None = None
+        succeeded = True
         try:
             with (
                 collect_request(f"rag chat turn ({_label})"),
@@ -351,6 +354,8 @@ def stream_rag_response(
                     if chunk_kind == "usage_round":
                         usage_rounds.append(json.loads(payload))
                         continue
+                    if chunk_kind == "error":
+                        succeeded = False
                     events.put((chunk_kind, payload))
                     if chunk_kind == "text_delta":
                         full += payload
@@ -359,12 +364,24 @@ def stream_rag_response(
                     elif chunk_kind == "citations":
                         citations_payload = json.loads(payload)
         except Exception as exc:  # noqa: BLE001
+            succeeded = False
             logger.warning("rag generation failed", exc_info=True)
             events.put(("error", str(exc)))
         finally:
             save_usage(usage_rounds + side_calls.rows)
             # Save the full assistant message regardless of client connection.
             if full:
+                if succeeded:
+                    debug_payload = debug_payload or {
+                        "reasoning": [],
+                        "tool_calls": [],
+                        "retrieval": [],
+                        "timing_only": True,
+                    }
+                    debug_payload["timings"] = {
+                        "total_seconds": round(time.monotonic() - response_started, 3),
+                    }
+                    events.put(("debug", json.dumps(debug_payload)))
                 row: dict = {
                     "conversation_id": conversation_id,
                     "role": "assistant",
