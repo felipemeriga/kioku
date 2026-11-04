@@ -205,6 +205,55 @@ def prepare_turn(
             },
             evidence,
         )
+    if mode != "plain" and folders:
+        retrieval = []
+        evidence = execute_tool(
+            "knowledge_base_search",
+            {"query": content},
+            owner_id,
+            fast_mode=True,
+            scope_folder_ids=folders,
+            scope_filename=filename,
+            debug_retrieval=retrieval,
+            citations=DurableCitations(turn_id, "bootstrap", owner_id, conversation_id),
+            full_debug=True,
+        )
+        request["prompt"] = json.dumps(
+            {
+                "canonical_history": history[-60:],
+                "user_message": content,
+                "evidence_namespace": turn_id,
+                "current_turn_evidence": evidence,
+                "citation_instruction": (
+                    "Use only this turn's evidence or new Kioku tool results for citations. "
+                    "Previous session citation numbers are not evidence for this turn. "
+                    "Search again when this initial evidence does not answer the question."
+                ),
+            },
+            ensure_ascii=False,
+        )
+        save_trace(
+            owner_id,
+            turn_id,
+            "bootstrap",
+            folders,
+            {
+                "name": "knowledge_base_search",
+                "origin": "backend_bootstrap",
+                "native_call_id": None,
+                "native_call_id_unavailable_reason": "Backend initial retrieval before CLI launch",
+                "conversation_id": conversation_id,
+                "query": content,
+                "effective_scope": {
+                    "user_id": owner_id,
+                    "folder_ids": folders,
+                    "filename": filename,
+                },
+                "status": "completed",
+                "sources": retrieval,
+            },
+            evidence,
+        )
     try:
         return (
             sb.rpc(
