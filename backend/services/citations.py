@@ -182,5 +182,5 @@ def enrich_source_urls(sb, user_id: str, entries: list[dict]) -> None:
     stored before GitHub URL enrichment. No message or source row is rewritten.
     """
     registry = CitationRegistry()
-    registry._entries = entries
+    registry._entries = [entry for entry in entries if entry.get("source_type") == "code"]
     registry.enrich_urls(sb, user_id)

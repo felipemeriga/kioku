@@ -280,3 +280,13 @@ def test_historical_source_urls_are_enriched_without_changing_identity():
     assert source["url"] == "https://github.com/org/repo/blob/main/src/main.rs#L42"
     assert source["source_id"] == "durable-id" and source["number"] == 3
     assert sb.calls["eq"] == ("user_id", "owner")
+
+
+def test_url_enrichment_preserves_legacy_partial_citations():
+    from services.citations import enrich_source_urls
+
+    entries = [{"number": 1, "source": "legacy"}]
+    sb = _FakeSupabase([])
+    enrich_source_urls(sb, "owner", entries)
+    assert entries == [{"number": 1, "source": "legacy"}]
+    assert not sb.calls
