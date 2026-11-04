@@ -41,7 +41,7 @@ def finish_receipt(receipt: dict):
         )
         status = client.status(receipt["job_id"])["status"]
         if status == "completed":
-            client.acknowledge(receipt["job_id"], receipt["consumer"], receipt["reference"])
+            client.acknowledge(receipt["job_id"], scope.caller, receipt["reference"])
         elif status not in {"failed", "cancelled", "uncertain"}:
             raise RuntimeError("consumption awaits a terminal native job")
         sb.table("tsukai_completion_receipts").update(

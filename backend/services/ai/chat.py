@@ -391,7 +391,7 @@ def publish_turn(turn: dict, result, *, attempt_id: str | None = None) -> str:
                 "message_id": message_id,
             }
         ).eq("job_id", turn["job_id"]).eq("owner_id", turn["owner_id"]).execute()
-        client.acknowledge(turn["job_id"], "chat", str(message_id))
+        client.acknowledge(turn["job_id"], scope.caller, str(message_id))
         get_supabase_thread_safe().table("tsukai_chat_turns").update(
             {
                 "state": "acknowledged",
