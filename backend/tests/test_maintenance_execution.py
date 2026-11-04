@@ -904,12 +904,14 @@ def test_exact_proof_stops_after_required_sections_not_old_retained_jobs(partial
     "status,code,retryable",
     [
         ("failed", "wall_timeout", True),
+        ("failed", "native_error_max_turns", True),
+        ("uncertain", "native_error_max_turns", False),
         ("running", "client_deadline", False),
         ("uncertain", "wall_timeout", False),
         ("failed", "reauth_required", False),
     ],
 )
-def test_only_confirmed_terminal_timeout_enters_bounded_repair(
+def test_only_confirmed_terminal_budget_exhaustion_enters_bounded_repair(
     configured, monkeypatch, status, code, retryable
 ):
     row = prepared_row()
