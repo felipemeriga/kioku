@@ -31,3 +31,11 @@ DO $$ BEGIN
     IF SQLERRM <> 'metadata scope revoked' THEN RAISE; END IF;
   END;
 END $$;
+
+-- Even a stale lifecycle write must never create another assistant message.
+UPDATE tsukai_chat_turns SET state='submitted' WHERE id='55555555-5555-5555-5555-555555555555';
+SELECT tsukai_commit_chat_turn('55555555-5555-5555-5555-555555555555','11111111-1111-1111-1111-111111111111','job-1','answer','{}','[]');
+DO $$ BEGIN
+  IF (SELECT count(*) FROM messages WHERE role='assistant') <> 1 THEN
+    RAISE EXCEPTION 'lifecycle regression duplicated assistant publication'; END IF;
+END $$;

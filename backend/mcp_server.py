@@ -6,8 +6,10 @@ import hashlib
 import inspect
 import json
 import os
+import time
 from datetime import datetime, timedelta, timezone
 from functools import wraps
+from urllib.parse import parse_qs, urlsplit
 
 from dotenv import load_dotenv
 
@@ -70,7 +72,18 @@ def _verify_api_key(key: str) -> tuple[str, str] | None:
         sb.table("api_keys").select("user_id, scope_folder_id").eq("key_hash", key_hash).execute()
     )
     if result.data and result.data[0].get("scope_folder_id"):
-        return result.data[0]["user_id"], result.data[0]["scope_folder_id"]
+        row = result.data[0]
+        current = (
+            sb.table("folders")
+            .select("id")
+            .eq("id", row["scope_folder_id"])
+            .eq("user_id", row["user_id"])
+            .limit(1)
+            .execute()
+            .data
+        )
+        if current:
+            return row["user_id"], row["scope_folder_id"]
     return None
 
 
@@ -1727,6 +1740,7 @@ class ApiKeyAuthMiddleware:
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
+        self._session_scopes: dict[str, tuple[str, str, float]] = {}
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -1766,20 +1780,72 @@ class ApiKeyAuthMiddleware:
             return
 
         user_id, scope_folder_id = result
-        _current_user_id.set(user_id)
-        _current_scope_folder_id.set(scope_folder_id)
-        with execution_scope(
-            ExecutionScope(
-                user_id,
-                tuple(
-                    await asyncio.to_thread(
-                        _descendant_folder_ids, get_supabase(), scope_folder_id, user_id
-                    )
-                ),
-                caller="mcp",
-            )
-        ):
-            await self.app(scope, receive, send)
+        session = headers.get(b"mcp-session-id", b"").decode()
+        query_session = parse_qs(scope.get("query_string", b"").decode()).get("session_id", [""])[0]
+        session_key = (
+            "mcp:" + session if session else ("sse:" + query_session if query_session else None)
+        )
+        if session_key:
+            bound = self._session_scopes.get(session_key)
+            if bound is None or bound[:2] != (user_id, scope_folder_id):
+                await JSONResponse(
+                    {"error": "MCP session does not belong to this API key scope"}, status_code=403
+                )(scope, receive, send)
+                return
+            self._session_scopes[session_key] = (user_id, scope_folder_id, time.monotonic())
+
+        def bind(key: str):
+            self._session_scopes[key] = (user_id, scope_folder_id, time.monotonic())
+            if len(self._session_scopes) > 8192:
+                oldest = min(self._session_scopes, key=lambda item: self._session_scopes[item][2])
+                self._session_scopes.pop(oldest, None)
+
+        endpoint_buffer = bytearray()
+        endpoint_bound = False
+
+        async def scoped_send(message):
+            nonlocal endpoint_bound
+            if message["type"] == "http.response.start":
+                response_headers = dict(message.get("headers", []))
+                identifier = response_headers.get(b"mcp-session-id")
+                if identifier and message["status"] < 400:
+                    bind("mcp:" + identifier.decode())
+            elif path == "/sse" and not endpoint_bound and message["type"] == "http.response.body":
+                endpoint_buffer.extend(message.get("body", b"")[:2048])
+                text = endpoint_buffer.decode(errors="replace").replace("\r\n", "\n")
+                lines = text.split("\n\n", 1)[0].splitlines() if "\n\n" in text else []
+                for line in lines:
+                    if line.startswith("data:") and "session_id=" in line:
+                        endpoint = line[5:].strip()
+                        identifier = parse_qs(urlsplit(endpoint).query).get("session_id", [""])[0]
+                        if identifier:
+                            bind("sse:" + identifier)
+                            endpoint_bound = True
+                            break
+                if len(endpoint_buffer) >= 2048:
+                    endpoint_bound = True
+            await send(message)
+
+        user_token = _current_user_id.set(user_id)
+        scope_token = _current_scope_folder_id.set(scope_folder_id)
+        try:
+            with execution_scope(
+                ExecutionScope(
+                    user_id,
+                    tuple(
+                        await asyncio.to_thread(
+                            _descendant_folder_ids, get_supabase(), scope_folder_id, user_id
+                        )
+                    ),
+                    caller="mcp",
+                )
+            ):
+                await self.app(scope, receive, scoped_send)
+        finally:
+            _current_user_id.reset(user_token)
+            _current_scope_folder_id.reset(scope_token)
+            if session_key and scope.get("method") == "DELETE":
+                self._session_scopes.pop(session_key, None)
 
 
 # ── Code graph tools ────────────────────────────────────────────────

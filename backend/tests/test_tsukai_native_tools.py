@@ -171,3 +171,45 @@ def test_mounted_mcp_slow_tool_does_not_block_health():
             finally:
                 release.set()
             assert pending.result().status_code == 200
+
+
+def test_metadata_child_is_consumed_only_after_root_tool_artifact_commits():
+    grant = {
+        "owner_id": "owner",
+        "folder_ids": ["folder"],
+        "job_id": "parent",
+        "attempt_id": "attempt",
+        "turn_id": "turn",
+        "operation": "rag_agent",
+        "tool_allowlist": ["query_documents_metadata"],
+    }
+    order = []
+    client = MagicMock()
+
+    def metadata(question, authority, *, on_consumption):
+        on_consumption({"job_id": "child"})
+        return '{"count":3}'
+
+    def saved(*args):
+        order.append("artifact")
+        return "durable-artifact"
+
+    token = native_tools._authority.set(grant)
+    try:
+        with (
+            patch.object(native_tools, "client_for", return_value=client),
+            patch.object(native_tools, "scope_locations", return_value={"folder_ids": ["folder"]}),
+            patch.object(native_tools, "save_trace", side_effect=saved),
+            patch("services.ai.metadata.metadata_query", side_effect=metadata),
+            patch(
+                "services.ai.metadata.consume_metadata",
+                side_effect=lambda receipt, artifact: order.append("consume"),
+            ),
+        ):
+            assert (
+                native_tools.run_tool("query_documents_metadata", {"question": "count"})
+                == '{"count":3}'
+            )
+        assert order == ["artifact", "consume"]
+    finally:
+        native_tools._authority.reset(token)

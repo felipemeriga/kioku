@@ -30,13 +30,25 @@ def test_emitted_completion_matches_canonical_request_and_capability(monkeypatch
     monkeypatch.setenv("TSUKAI_CAPABILITY_KEY", "f" * 32)
     client = MagicMock()
     client.complete.return_value = ExecutionResult(
-        "job", "rewritten", None, None, "session", "attempt"
+        "job",
+        "rewritten",
+        {
+            "schema_version": 1,
+            "outcome": "completed",
+            "data": {"text": "rewritten"},
+            "missing_inputs": [],
+            "failure": None,
+            "warnings": [],
+        },
+        None,
+        "session",
+        "attempt",
     )
     scope = ExecutionScope("owner", ("folder",), caller="mcp")
     with (
         execution_scope(scope),
         patch("services.ai.facade.client_for", return_value=client),
-        patch("services.ai.facade.record_job_usage"),
+        patch("services.ai.facade.consume_result"),
     ):
         native_completion(
             operation="query_rewrite",

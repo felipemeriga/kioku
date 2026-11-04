@@ -9,11 +9,12 @@ class TaskPolicy:
     profile: str = "completion"
     native_verified: bool = True
     tools: bool = False
+    output: str = "text"
 
 
 TASK_POLICIES = {
     "query_rewrite": TaskPolicy(),
-    "multi_query": TaskPolicy(),
+    "multi_query": TaskPolicy(output="queries"),
     "contextual": TaskPolicy(),
     "image_ocr": TaskPolicy(native_verified=False),
     "text_to_sql": TaskPolicy(),
@@ -21,8 +22,8 @@ TASK_POLICIES = {
     "rag_agent": TaskPolicy(profile="chat", tools=True),
     "rag_agent_sonnet": TaskPolicy(profile="chat", tools=True),
     "folder_summary_doc": TaskPolicy(),
-    "folder_summary_rollup": TaskPolicy(),
-    "folder_summary_reground": TaskPolicy(),
+    "folder_summary_rollup": TaskPolicy(output="json"),
+    "folder_summary_reground": TaskPolicy(output="json"),
 }
 
 

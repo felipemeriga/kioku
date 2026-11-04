@@ -315,11 +315,47 @@ def active_native_sessions(user_id: str = Depends(get_current_user)):
         raise HTTPException(503, "Tsukai runtime telemetry is unavailable") from None
     finally:
         client.close()
-    sessions = result.get("sessions") or []
+    allowed = (
+        "job_id",
+        "attempt_id",
+        "native_session_id",
+        "owner_id",
+        "caller",
+        "conversation_id",
+        "folder_ids",
+        "operation",
+        "profile",
+        "model_requested",
+        "native_cli_version",
+        "state",
+        "started_at",
+        "elapsed_seconds",
+        "pid",
+    )
+    sessions = [{key: row.get(key) for key in allowed} for row in result.get("sessions") or []]
     owners = {}
     for owner_id in {session["owner_id"] for session in sessions}:
         account = sb.auth.admin.get_user_by_id(owner_id).user
         owners[owner_id] = account.email if account else owner_id
+    folder_ids = sorted({folder for session in sessions for folder in session["folder_ids"]})
+    folders = (
+        (sb.table("folders").select("id,name").in_("id", folder_ids).execute().data or [])
+        if folder_ids
+        else []
+    )
+    folder_names = {row["id"]: row["name"] for row in folders}
     for session in sessions:
         session["owner_label"] = owners.get(session["owner_id"], session["owner_id"])
-    return {**result, "available": True}
+        session["folder_labels"] = {
+            folder: folder_names.get(folder, folder) for folder in session["folder_ids"]
+        }
+    return {
+        "schema_version": 1,
+        "generated_at": result.get("generated_at"),
+        "sessions": sessions,
+        "queued_counts": {
+            key: (result.get("queued_counts") or {}).get(key, 0)
+            for key in ("total", "chat", "completion", "metadata_child")
+        },
+        "available": True,
+    }

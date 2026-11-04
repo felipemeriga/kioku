@@ -8,7 +8,7 @@ from functools import cache
 import anthropic
 from langsmith.wrappers import wrap_anthropic
 
-from services.ai.facade import native_completion
+from services.ai.facade import Completion, native_completion
 from services.ai.registry import TASK_POLICIES
 from services.ai.scope import ExecutionScope
 from services.usage_ledger import UsageAttribution, current_usage, save_usage, usage_row
@@ -137,7 +137,7 @@ def complete(
     thinking_budget: int | None = None,
     attribution: UsageAttribution | None = None,
     capture_usage: bool = True,
-) -> anthropic.types.Message:
+) -> anthropic.types.Message | Completion:
     """Run a Claude completion routed by task.
 
     When cache_system=True, attaches cache_control: ephemeral on the system prompt
@@ -160,6 +160,7 @@ def complete(
                 scoped.user_id,
                 (scoped.folder_id,) if scoped.folder_id else (),
                 caller="mihari" if scoped.source == "mihari" else "backend",
+                conversation_id=scoped.conversation_id,
             )
             if scoped
             else None
