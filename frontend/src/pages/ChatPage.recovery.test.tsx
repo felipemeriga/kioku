@@ -158,72 +158,84 @@ it("shows terminal recovery failure once without an automatic reattach loop", as
   ).not.toBeInTheDocument();
 });
 
-it("offers explicit uncertain recovery only after the exact accepted user message hydrates", async () => {
-  state.activeExecution = {
-    ...execution,
-    state: "uncertain",
-    user_message_id: "saved",
-    scope_folder_id: "original-folder",
-    scope_filename: "original-guide.md",
-  };
-  state.messages = [
-    {
-      id: "newer",
-      role: "user",
-      content: "Unrelated later question",
-      created_at: "later",
-    },
-  ];
-  state.stream.mockRejectedValueOnce(new Error("execution_uncertain"));
-  const view = renderWithProviders(<ChatPage />);
-  await waitFor(() => expect(state.retry).toHaveBeenCalledTimes(1));
-  expect(state.stream).toHaveBeenCalledTimes(1);
-  expect(
-    screen.queryByRole("button", { name: "Rebuild context and retry" }),
-  ).not.toBeInTheDocument();
-  state.messages = [
-    {
-      id: "saved",
-      role: "user",
-      content: "Original saved question",
-      created_at: "now",
-    },
-    ...state.messages,
-  ];
-  view.rerender(<ChatPage />);
-  const rebuild = await screen.findByRole("button", {
-    name: "Rebuild context and retry",
-  });
-  expect(state.stream).toHaveBeenCalledTimes(1);
-  fireEvent.click(rebuild);
-  await waitFor(() => expect(state.stream).toHaveBeenCalledTimes(2));
-  const args = state.stream.mock.calls[1];
-  expect(args[1]).toBe("Original saved question");
-  expect(args[4]).toEqual({
-    scopeFolderId: "original-folder",
-    scopeFilename: "original-guide.md",
-  });
-  expect(args[6]).toBe("sonnet");
-  expect(args[7]).toBe("plain");
-  expect(args[15]).toBe(true);
-});
+it.each(["uncertain", "cancelled"] as const)(
+  "offers explicit %s recovery only after the exact accepted user message hydrates",
+  async (terminalState) => {
+    const restoredMode = terminalState === "cancelled" ? "agentic" : "plain";
+    state.activeExecution = {
+      ...execution,
+      state: terminalState,
+      mode: restoredMode,
+      user_message_id: "saved",
+      scope_folder_id: "original-folder",
+      scope_filename: "original-guide.md",
+    };
+    state.messages = [
+      {
+        id: "newer",
+        role: "user",
+        content: "Unrelated later question",
+        created_at: "later",
+      },
+    ];
+    state.stream.mockRejectedValueOnce(
+      new Error(
+        terminalState === "cancelled" ? "cancelled" : "execution_uncertain",
+      ),
+    );
+    const view = renderWithProviders(<ChatPage />);
+    await waitFor(() => expect(state.retry).toHaveBeenCalledTimes(1));
+    expect(state.stream).toHaveBeenCalledTimes(1);
+    expect(
+      screen.queryByRole("button", { name: "Rebuild context and retry" }),
+    ).not.toBeInTheDocument();
+    state.messages = [
+      {
+        id: "saved",
+        role: "user",
+        content: "Original saved question",
+        created_at: "now",
+      },
+      ...state.messages,
+    ];
+    view.rerender(<ChatPage />);
+    const rebuild = await screen.findByRole("button", {
+      name: "Rebuild context and retry",
+    });
+    expect(state.stream).toHaveBeenCalledTimes(1);
+    fireEvent.click(rebuild);
+    await waitFor(() => expect(state.stream).toHaveBeenCalledTimes(2));
+    const args = state.stream.mock.calls[1];
+    expect(args[1]).toBe("Original saved question");
+    expect(args[4]).toEqual({
+      scopeFolderId: "original-folder",
+      scopeFilename: "original-guide.md",
+    });
+    expect(args[6]).toBe("sonnet");
+    expect(args[7]).toBe(restoredMode);
+    expect(args[15]).toBe(true);
+  },
+);
 
-it("waits for authoritative terminal state when replay disconnects from a submitted job", async () => {
-  state.activeExecution = {
-    ...execution,
-    state: "submitted",
-    user_message_id: "saved",
-  };
-  state.stream.mockRejectedValueOnce(new Error("connection ended"));
-  const view = renderWithProviders(<ChatPage />);
-  await waitFor(() => expect(state.retry).toHaveBeenCalledTimes(1));
-  expect(
-    screen.queryByRole("button", { name: "Rebuild context and retry" }),
-  ).not.toBeInTheDocument();
-  state.activeExecution = { ...state.activeExecution, state: "uncertain" };
-  view.rerender(<ChatPage />);
-  expect(
-    await screen.findByRole("button", { name: "Rebuild context and retry" }),
-  ).toBeInTheDocument();
-  expect(state.stream).toHaveBeenCalledTimes(1);
-});
+it.each(["uncertain", "cancelled"] as const)(
+  "waits for authoritative %s state when replay disconnects from a submitted job",
+  async (terminalState) => {
+    state.activeExecution = {
+      ...execution,
+      state: "submitted",
+      user_message_id: "saved",
+    };
+    state.stream.mockRejectedValueOnce(new Error("connection ended"));
+    const view = renderWithProviders(<ChatPage />);
+    await waitFor(() => expect(state.retry).toHaveBeenCalledTimes(1));
+    expect(
+      screen.queryByRole("button", { name: "Rebuild context and retry" }),
+    ).not.toBeInTheDocument();
+    state.activeExecution = { ...state.activeExecution, state: terminalState };
+    view.rerender(<ChatPage />);
+    expect(
+      await screen.findByRole("button", { name: "Rebuild context and retry" }),
+    ).toBeInTheDocument();
+    expect(state.stream).toHaveBeenCalledTimes(1);
+  },
+);
