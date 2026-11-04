@@ -448,6 +448,70 @@ async def test_admin_lists_only_active_sessions_and_forbids_owner_capabilities(a
     await client.post(f"/v1/jobs/{submitted['job_id']}/cancel", headers=normal)
 
 
+async def test_admin_reports_finishing_while_process_is_gone_and_publication_is_pending(
+    app_client, monkeypatch
+):
+    app, client, settings = app_client
+    scheduler = app.state.scheduler
+    blocked, release = asyncio.Event(), asyncio.Event()
+    original = scheduler.store.append
+
+    async def delayed_append(*args, **kwargs):
+        blocked.set()
+        await release.wait()
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(scheduler.store, "append", delayed_append)
+    payload = body(profile="chat", conversation_id="publishing")
+    auth = headers(settings, payload)
+    submitted = (await client.post("/v1/jobs", json=payload, headers=auth)).json()
+    try:
+        await asyncio.wait_for(blocked.wait(), 2)
+        async with asyncio.timeout(2):
+            while not scheduler.finishing:
+                await asyncio.sleep(0.01)
+        assert not scheduler.native.processes
+        admin = headers(
+            settings,
+            payload,
+            admin=True,
+            operations=["runtime.sessions.read"],
+            profiles=[],
+            folder_ids=[],
+            tool_allowlist=[],
+        )
+        response = await client.get("/v1/admin/active-sessions", headers=admin)
+        active = response.json()["sessions"]
+        assert len(active) == 1 and active[0]["job_id"] == submitted["job_id"]
+        assert active[0]["state"] == "finishing" and active[0]["pid"] is None
+    finally:
+        release.set()
+    assert (await terminal(client, submitted["result_url"], auth))["status"] == "completed"
+    async with asyncio.timeout(2):
+        while scheduler.finishing:
+            await asyncio.sleep(0.01)
+
+
+@pytest.mark.parametrize("prompt", ["TEXT_EOF", "SLEEP"])
+async def test_finishing_phase_is_cleared_after_error_or_cancellation(app_client, prompt):
+    app, client, settings = app_client
+    scheduler = app.state.scheduler
+    payload = body(profile="chat", conversation_id="cleanup")
+    payload["prompt"] = prompt
+    auth = headers(settings, payload)
+    submitted = (await client.post("/v1/jobs", json=payload, headers=auth)).json()
+    if prompt == "SLEEP":
+        async with asyncio.timeout(2):
+            while not scheduler.native.processes:
+                await asyncio.sleep(0.01)
+        await client.post(f"/v1/jobs/{submitted['job_id']}/cancel", headers=auth)
+    result = await terminal(client, submitted["result_url"], auth)
+    assert result["status"] == ("cancelled" if prompt == "SLEEP" else "uncertain")
+    async with asyncio.timeout(2):
+        while scheduler.finishing:
+            await asyncio.sleep(0.01)
+
+
 async def test_usage_exposes_observed_native_timings_without_invented_browser_latency(app_client):
     _, client, settings = app_client
     payload = body()
