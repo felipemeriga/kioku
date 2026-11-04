@@ -3,7 +3,7 @@ import { StrictMode } from "react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { renderWithProviders } from "../test/renderWithProviders";
 import ChatPage from "./ChatPage";
-import type { NativeChatExecution } from "../lib/api";
+import { ApiError, type NativeChatExecution } from "../lib/api";
 
 const state = vi.hoisted(() => ({
   selectedId: "conversation",
@@ -237,5 +237,67 @@ it.each(["uncertain", "cancelled"] as const)(
       await screen.findByRole("button", { name: "Rebuild context and retry" }),
     ).toBeInTheDocument();
     expect(state.stream).toHaveBeenCalledTimes(1);
+  },
+);
+
+it.each(["cancelled", "execution_uncertain"])(
+  "offers manual retry from trusted %s even while the domain reference still says submitted",
+  async (code) => {
+    state.activeExecution = {
+      ...execution,
+      model: "sonnet",
+      mode: "agentic",
+      state: "submitted",
+      user_message_id: "saved",
+      scope_folder_id: "original-folder",
+      scope_filename: "original-guide.md",
+    };
+    state.messages = [
+      {
+        id: "newer",
+        role: "user",
+        content: "Unrelated later question",
+        created_at: "later",
+      },
+    ];
+    state.stream.mockRejectedValueOnce(
+      new ApiError({
+        status: 409,
+        detail: { code },
+        userMessage: "Native execution ended",
+      }),
+    );
+    const view = renderWithProviders(<ChatPage />);
+    await waitFor(() => expect(state.retry).toHaveBeenCalledTimes(1));
+    expect(state.stream).toHaveBeenCalledTimes(1);
+    expect(
+      screen.queryByRole("button", { name: "Rebuild context and retry" }),
+    ).not.toBeInTheDocument();
+    state.messages = [
+      {
+        id: "saved",
+        role: "user",
+        content: "Original saved question",
+        created_at: "now",
+      },
+      ...state.messages,
+    ];
+    state.activeExecution = { ...state.activeExecution, state: "submitted" };
+    view.rerender(<ChatPage />);
+    const button = await screen.findByRole("button", {
+      name: "Rebuild context and retry",
+    });
+    expect(state.stream).toHaveBeenCalledTimes(1);
+    fireEvent.click(button);
+    await waitFor(() => expect(state.stream).toHaveBeenCalledTimes(2));
+    const args = state.stream.mock.calls[1];
+    expect(args[1]).toBe("Original saved question");
+    expect(args[4]).toEqual({
+      scopeFolderId: "original-folder",
+      scopeFilename: "original-guide.md",
+    });
+    expect(args[6]).toBe("sonnet");
+    expect(args[7]).toBe("agentic");
+    expect(args[15]).toBe(true);
   },
 );

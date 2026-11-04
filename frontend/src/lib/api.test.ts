@@ -181,3 +181,33 @@ it("preserves native recovery codes while exposing only a human API message", as
   expect(error.userMessage).not.toMatch(/hidden|diagnostic|[{}]/);
   expect(fetch).toHaveBeenCalledTimes(1);
 });
+
+it.each(["cancelled", "execution_uncertain"])(
+  "requires explicit rebuild for authoritative native %s",
+  (code) => {
+    expect(
+      api.requiresNativeRebuild(
+        new api.ApiError({
+          status: 409,
+          detail: { code },
+          userMessage: "Native execution ended",
+        }),
+      ),
+    ).toBe(true);
+  },
+);
+it("does not infer a rebuild requirement from generic network or HTTP error text", () => {
+  expect(api.requiresNativeRebuild(new Error("execution_uncertain"))).toBe(
+    false,
+  );
+  expect(
+    api.requiresNativeRebuild(
+      new api.ApiError({ status: 0, userMessage: "cancelled connection" }),
+    ),
+  ).toBe(false);
+  expect(
+    api.requiresNativeRebuild(
+      new api.ApiError({ status: 502, userMessage: "execution_uncertain" }),
+    ),
+  ).toBe(false);
+});
