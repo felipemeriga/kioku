@@ -274,6 +274,20 @@ def prepare_turn(
         )
     except Exception as exc:
         if getattr(exc, "code", None) == "23505":
+            # Another preparation may have won admission after our initial lookup.
+            # Its private candidate namespace differs even for an identical intent.
+            try:
+                accepted = owned_turn(owner_id, turn_id=turn_id)
+            except HTTPException as missing:
+                if missing.status_code != 404:
+                    raise
+            else:
+                if (
+                    accepted["owner_id"] == owner_id
+                    and accepted["conversation_id"] == conversation_id
+                    and accepted["request"]["metadata"]["intent"] == intent
+                ):
+                    return accepted
             raise HTTPException(409, "Conversation already has an active turn") from None
         raise
 
