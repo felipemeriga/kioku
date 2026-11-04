@@ -11,6 +11,72 @@ export class ChatTransportError extends Error {
 
 export type ChatFrame = Record<string, unknown>;
 
+const nativeMessages: Record<string, string> = {
+  cancelled: "Response cancelled.",
+  quota_limited:
+    "The native provider's usage limit was reached. Please try again later.",
+  reauth_required:
+    "The native provider needs to be signed in again. Please contact an administrator.",
+  wall_timeout: "The response took too long and was stopped. Please try again.",
+  conversation_policy_changed:
+    "The model or mode changed. Rebuild this session from saved history to continue.",
+  conversation_needs_rebuild:
+    "Rebuild this session from saved history to continue.",
+  execution_uncertain:
+    "The response could not be confirmed. Check the saved conversation before continuing.",
+  unverified_citation:
+    "The response's sources could not be verified. Please try again.",
+  tool_backend_unavailable:
+    "Knowledge tools are temporarily unavailable. Please try again.",
+  invalid_tool_backend:
+    "Knowledge tools could not be connected. Please try again.",
+  prelaunch_failed: "The response could not be started. Please try again.",
+};
+
+function chatFailure(error: unknown, status: number, explicitCode?: unknown) {
+  const nestedCode =
+    error && typeof error === "object" && "code" in error
+      ? error.code
+      : undefined;
+  const code =
+    typeof explicitCode === "string"
+      ? explicitCode
+      : typeof nestedCode === "string"
+        ? nestedCode
+        : typeof error === "string" && Object.hasOwn(nativeMessages, error)
+          ? error
+          : undefined;
+  let message =
+    code && Object.hasOwn(nativeMessages, code)
+      ? nativeMessages[code]
+      : "Chat request failed. Please try again.";
+  // Legacy API errors can be useful plain text; never expose serialized native
+  // objects, proxy HTML, stack traces or diagnostic credential assignments.
+  if (
+    !code &&
+    typeof error === "string" &&
+    error.trim() &&
+    error.length <= 500 &&
+    !/^\s*[[{]|<[^>]*>|Traceback|\bat \S+.*:\d+|(?:password|secret|authorization|api[_-]?key|access[_-]?token)\s*[:=]/i.test(
+      error,
+    )
+  ) {
+    message = error;
+  }
+  return new ChatTransportError(message, status, code);
+}
+
+function terminalFailure(turn: { error_code?: unknown; state?: string }) {
+  const code =
+    turn.error_code ??
+    (turn.state === "cancelled"
+      ? "cancelled"
+      : turn.state === "uncertain"
+        ? "execution_uncertain"
+        : undefined);
+  return chatFailure(undefined, 409, code);
+}
+
 export async function runChatTransport(options: {
   payload: Record<string, unknown>;
   headers: () => Promise<Record<string, string>>;
@@ -46,11 +112,7 @@ export async function runChatTransport(options: {
           return;
         }
         if (["failed", "cancelled", "uncertain"].includes(turn.state)) {
-          throw new ChatTransportError(
-            turn.error_code ?? `Execution ${turn.state}`,
-            409,
-            typeof turn.error_code === "string" ? turn.error_code : undefined,
-          );
+          throw terminalFailure(turn);
         }
         // A durable prepared turn proves the exact same-key POST is safe.
         if (options.resume)
@@ -89,11 +151,7 @@ export async function runChatTransport(options: {
       throw new ChatTransportError("Saved execution identity changed", 409);
     }
     if (["failed", "cancelled", "uncertain"].includes(turn.state)) {
-      const code =
-        typeof turn.error_code === "string"
-          ? turn.error_code
-          : `Execution ${turn.state}`;
-      throw new ChatTransportError(code, 409, code);
+      throw terminalFailure(turn);
     }
     jobId = options.resume.job_id;
     knownNative = true;
@@ -113,26 +171,23 @@ export async function runChatTransport(options: {
       );
       first = false;
       if (!response.ok) {
-        let detail = "Chat request failed";
+        let detail: unknown;
         let code: string | undefined;
         try {
           const body = await response.json();
           code =
-            typeof body.detail === "string"
-              ? body.detail
-              : typeof body.detail?.code === "string"
-                ? body.detail.code
-                : typeof body.error?.code === "string"
-                  ? body.error.code
+            typeof body.detail?.code === "string"
+              ? body.detail.code
+              : typeof body.error?.code === "string"
+                ? body.error.code
+                : typeof body.error_code === "string"
+                  ? body.error_code
                   : undefined;
-          detail =
-            typeof body.detail === "string"
-              ? body.detail
-              : JSON.stringify(body.detail ?? body);
+          detail = body.detail ?? body.error;
         } catch {
           /* Preserve HTTP status for non-JSON proxy errors. */
         }
-        throw new ChatTransportError(detail, response.status, code);
+        throw chatFailure(detail, response.status, code);
       }
       const reader = response.body?.getReader();
       if (!reader) throw new ChatTransportError("Empty chat response");
@@ -172,14 +227,10 @@ export async function runChatTransport(options: {
               continue;
             if (sequence !== undefined) cursor = Math.max(cursor, sequence);
             if (frame.error)
-              throw new ChatTransportError(
-                typeof frame.error === "string"
-                  ? frame.error
-                  : JSON.stringify(frame.error),
+              throw chatFailure(
+                frame.error,
                 dataRecoveryStatus(frame),
-                typeof frame.error_code === "string"
-                  ? frame.error_code
-                  : undefined,
+                frame.error_code,
               );
             options.onFrame(frame);
             if (frame.done) return;
