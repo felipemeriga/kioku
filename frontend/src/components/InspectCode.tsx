@@ -58,7 +58,23 @@ function displayCode(text: string, filename?: string, language?: string) {
       /* Incomplete JSON stays intact and readable. */
     }
   }
-  if (!syntax && /^\s*[\w.-]+\s*=\s*\S/m.test(code)) syntax = "toml";
+  // Assignment syntax occurs in many languages; only infer configuration from
+  // a whole simple configuration block, never from aggregated source excerpts.
+  const lines = code
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (
+    !syntax &&
+    lines.length &&
+    lines.every(
+      (line) =>
+        /^#/.test(line) ||
+        /^\[\[?[\w."'-]+\]\]?$/.test(line) ||
+        /^[\w.-]+\s*=\s*(?:["'\d[{]|true\b|false\b)/.test(line),
+    )
+  )
+    syntax = "toml";
   if (!syntax && /^\s*[\w.-]+:\s*(?:\S|$)/m.test(code)) syntax = "yaml";
   return { code, syntax: syntax ?? "text" };
 }

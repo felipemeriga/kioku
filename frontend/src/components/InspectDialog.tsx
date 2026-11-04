@@ -18,6 +18,7 @@ import { brand, fonts, scanlines } from "../theme";
 import CornerCard from "./neo/CornerCard";
 import RerankBar from "./neo/RerankBar";
 import InspectCode from "./InspectCode";
+import InspectScope from "./InspectScope";
 
 interface InspectDialogProps {
   open: boolean;
@@ -271,14 +272,7 @@ export default function InspectDialog({
                   result
                 </Typography>
                 {t.effective_scope && (
-                  <>
-                    <Typography sx={{ color: brand.muted, mt: 1, mb: 0.5 }}>
-                      Kioku location and scope
-                    </Typography>
-                    <InspectCode language="json">
-                      {JSON.stringify(t.effective_scope, null, 2)}
-                    </InspectCode>
-                  </>
+                  <InspectScope scope={t.effective_scope} />
                 )}
                 <InspectCode>
                   {t.result_preview ??

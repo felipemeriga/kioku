@@ -66,3 +66,13 @@ it("leaves malformed JSON intact", () => {
   renderWithProviders(<InspectCode language="json">{content}</InspectCode>);
   expect(screen.getByTestId("inspect-code-content").textContent).toBe(content);
 });
+
+it("does not mistake mixed retrieved source excerpts for TOML", () => {
+  const content =
+    "[2] Code: marker_conv.rs:223-245\nfn convert() {\n    let advantage = marker;\n}\n---\n[6] Code: Panel.tsx:909-1028\nteamInfo = homeTeamInfo;";
+  renderWithProviders(<InspectCode>{content}</InspectCode>);
+  expect(screen.getByTestId("inspect-code-content").dataset.language).toBe(
+    "text",
+  );
+  expect(screen.getByTestId("inspect-code-content").textContent).toBe(content);
+});
