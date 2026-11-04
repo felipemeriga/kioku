@@ -420,7 +420,29 @@ export interface ChatScope {
 
 export type ChatStage = "thinking" | "searching" | "analyzing" | "generating";
 
-export type ChatModel = "haiku" | "sonnet";
+export type ChatModel = string;
+
+export interface ChatModelOption {
+  value: string;
+  resolvedModel: string;
+  displayName: string;
+  description?: string;
+  requires_usage_credits: boolean;
+  selectable: boolean;
+}
+
+export interface ChatModelCatalog {
+  engine: "api" | "tsukai";
+  models: ChatModelOption[];
+  cli_version?: string;
+  fetched_at?: string;
+  stale?: boolean;
+}
+
+export async function fetchChatModels(): Promise<ChatModelCatalog> {
+  const response = await apiFetch("/api/chat/models");
+  return response.json();
+}
 export type ChatMode = "plain" | "agentic" | "deep";
 
 export interface StageEvent {

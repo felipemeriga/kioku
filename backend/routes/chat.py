@@ -2,7 +2,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from auth import get_current_user
 from db.client import get_supabase_thread_safe as get_supabase
@@ -21,7 +21,7 @@ class ChatRequest(BaseModel):
     rebuild_from_committed_history: bool = False
     # Two independent knobs: which model, and the mode.
     # mode: plain (classic one-shot RAG) | agentic (tool loop) | deep (+ thinking)
-    model: Literal["haiku", "sonnet"] = "haiku"
+    model: str = Field(default="haiku", min_length=1, max_length=160)
     mode: Literal["plain", "agentic", "deep"] = "deep"
     # When true, the stream ends with a debug frame (reasoning, tool calls,
     # retrieved chunks + rerank scores) for the UI's Inspect card.
@@ -29,6 +29,13 @@ class ChatRequest(BaseModel):
     # RAG scope: restrict retrieval to a folder subtree and/or one document.
     scope_folder_id: str | None = None
     scope_filename: str | None = None
+
+
+@router.get("/chat/models")
+def available_chat_models(user_id: str = Depends(get_current_user)):
+    from services.ai.models import chat_models
+
+    return chat_models(user_id)
 
 
 @router.post("/chat")
@@ -58,7 +65,9 @@ def chat(request: ChatRequest, user_id: str = Depends(get_current_user)):
         require_uuid(request.scope_folder_id, "Scope folder not found")
         validate_scope_folder(request.scope_folder_id, user_id)
 
-    operation = "rag_agent_sonnet" if request.model == "sonnet" else "rag_agent"
+    from services.ai.models import chat_operation, resolve_native_model
+
+    operation = chat_operation(request.model, user_id)
     if engine_for(operation, user_id) == "tsukai":
         from services.ai.chat import prepare_turn, stream_turn, wake_reconciliation
 
@@ -75,6 +84,8 @@ def chat(request: ChatRequest, user_id: str = Depends(get_current_user)):
             rebuild=request.rebuild_from_committed_history,
             folder_id=request.scope_folder_id,
             filename=request.scope_filename,
+            model_resolver=lambda model: resolve_native_model(model, user_id),
+            operation=operation,
         )
         wake_reconciliation()
         return StreamingResponse(stream_turn(turn), media_type="text/event-stream")

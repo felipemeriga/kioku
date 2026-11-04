@@ -73,6 +73,12 @@ class TsukaiClient:
         response.raise_for_status()
         return response.json()
 
+    def models(self) -> dict:
+        self._authorize()
+        response = self._http.get("/v1/models")
+        response.raise_for_status()
+        return response.json()
+
     def active_attempt(self, job_id: str, attempt_id: str) -> dict:
         self._authorize()
         response = self._http.get(f"/v1/jobs/{job_id}/attempts/{attempt_id}")
