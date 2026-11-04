@@ -263,3 +263,26 @@ async def test_logical_and_effective_output_budgets_survive_success_and_failure(
         )
     assert failed.value.result["usage"]["requested_max_output_tokens_per_inference"] == 120
     assert failed.value.result["usage"]["effective_max_output_tokens_per_inference"] == 1024
+
+
+@pytest.mark.parametrize("model", ["claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-5-5"])
+@pytest.mark.parametrize("thinking,effort", [(0, "low"), (2048, "high")])
+async def test_adaptive_only_models_preserve_deep_effort_without_claiming_fixed_budget(
+    tmp_path, model, thinking, effort
+):
+    async def emit(*args):
+        pass
+
+    result = await NativeRunner(settings(tmp_path)).run(
+        claim(tmp_path), request("INSPECT", model=model, thinking_tokens=thinking), emit
+    )
+    inspected = json.loads(result["text"])
+    assert inspected["args"][inspected["args"].index("--effort") + 1] == effort
+    assert "MAX_THINKING_TOKENS" not in inspected["environment_names"]
+    assert "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING" not in inspected["environment_names"]
+    assert result["usage"]["thinking_control"] == {
+        "mode": "adaptive_effort",
+        "effort": effort,
+        "requested_thinking_tokens": thinking,
+        "fixed_thinking_budget_supported": False,
+    }

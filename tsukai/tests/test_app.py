@@ -726,3 +726,101 @@ async def test_cancel_during_native_error_retry_jitter_prevents_repair(app_clien
     usage = (await client.get(f"/v1/jobs/{submitted['job_id']}/usage", headers=auth)).json()
     assert len(usage["attempts"]) == 1
     assert usage["attempts"][0]["status"] == "cancelled"
+
+
+async def test_model_catalog_requires_exact_owner_capability_and_never_admits_a_job(app_client):
+    from unittest.mock import AsyncMock
+
+    app, client, settings = app_client
+    app.state.model_catalog.discover = AsyncMock(
+        return_value={
+            "models": [
+                {
+                    "value": "opus",
+                    "resolvedModel": "claude-opus-5-5",
+                    "displayName": "Opus",
+                    "description": "Opus 5.5",
+                },
+                {
+                    "value": "fable",
+                    "resolvedModel": "claude-fable-5-1",
+                    "displayName": "Fable",
+                    "description": "Requires usage credits",
+                },
+            ],
+            "account": {"email": "private@example.com", "tokenSource": "CLAUDE_CODE_OAUTH_TOKEN"},
+        }
+    )
+    payload = body()
+    auth = headers(
+        settings,
+        payload,
+        operations=["runtime.models.read"],
+        profiles=[],
+        folder_ids=[],
+        tool_allowlist=[],
+    )
+    assert (await client.get("/v1/models")).status_code == 401
+    assert (await client.get("/v1/models", headers=headers(settings, payload))).status_code == 403
+    response = await client.get("/v1/models", headers=auth)
+    assert response.status_code == 200
+    assert response.json()["models"][1]["selectable"] is False
+    assert "private@example.com" not in response.text
+    assert app.state.model_catalog.discover.await_count == 1
+    await client.get("/v1/models", headers=auth)
+    assert app.state.model_catalog.discover.await_count == 1
+    rows, queued = await app.state.scheduler.store.active_sessions()
+    assert rows == [] and not sum(queued.values())
+
+
+@pytest.mark.parametrize("profile", ["chat", "completion"])
+async def test_catalog_admits_resolved_subscription_ids_but_never_usage_credit_model(
+    app_client, profile
+):
+    from unittest.mock import AsyncMock
+
+    app, client, settings = app_client
+    app.state.model_catalog.discover = AsyncMock(
+        return_value={
+            "models": [
+                {
+                    "value": "opus",
+                    "resolvedModel": "claude-opus-5-5",
+                    "displayName": "Opus",
+                    "description": "Opus 5.5",
+                },
+                {
+                    "value": "fable",
+                    "resolvedModel": "claude-fable-5-1",
+                    "displayName": "Fable",
+                    "description": "Requires usage credits",
+                },
+            ],
+            "account": {},
+        }
+    )
+    payload = body(
+        profile=profile,
+        model="claude-opus-5-5",
+        conversation_id="new-model" if profile == "chat" else None,
+    )
+    accepted = await client.post("/v1/jobs", json=payload, headers=headers(settings, payload))
+    assert accepted.status_code == 202
+    await terminal(client, accepted.json()["result_url"], headers(settings, payload))
+    for model in ("claude-fable-5-1", "unrecognized", "opus"):
+        denied = body(
+            profile=profile, model=model, conversation_id="denied" if profile == "chat" else None
+        )
+        response = await client.post("/v1/jobs", json=denied, headers=headers(settings, denied))
+        assert response.status_code == 422
+    app.state.model_catalog._fetched = 0
+    app.state.model_catalog.discover.side_effect = RuntimeError("private")
+    stale = body(model="claude-opus-5-5")
+    assert (
+        await client.post("/v1/jobs", json=stale, headers=headers(settings, stale))
+    ).status_code == 503
+    # Existing internal tasks retain their established pinned model, independent of catalog outage.
+    legacy = body()
+    assert (
+        await client.post("/v1/jobs", json=legacy, headers=headers(settings, legacy))
+    ).status_code == 202
