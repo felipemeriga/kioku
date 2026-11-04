@@ -1,3 +1,6 @@
+> Offline preview snapshot. Verify current props, tokens, and behavior in
+> `frontend/src/` before implementation. See [design-system guidance](../../README.md).
+
 The app's toast system (ToastProvider + `useToast`): bottom snackbars for success, info, warning and error, with an optional action.
 
 ## Use

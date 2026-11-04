@@ -1,3 +1,6 @@
+> Offline preview snapshot. Verify current props, tokens, and behavior in
+> `frontend/src/` before implementation. See [design-system guidance](../../README.md).
+
 Folder browser for moving a document, with back navigation and a Root option.
 
 ## Use

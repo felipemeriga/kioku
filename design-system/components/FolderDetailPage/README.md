@@ -1,3 +1,6 @@
+> Offline preview snapshot. Verify current props, tokens, and behavior in
+> `frontend/src/` before implementation. See [design-system guidance](../../README.md).
+
 Screen: a folder (`/folder/:id`) — header with doc/memory counts, Briefing · Documents · Memory tabs; repo folders open on the briefing.
 
 ## Use

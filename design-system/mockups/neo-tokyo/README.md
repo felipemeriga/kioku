@@ -1,3 +1,6 @@
+> Historical design-canvas mockups; these boards are not the current application contract.
+> See [current design guidance](../../README.md).
+
 # Neo-Tokyo restyle — mockups
 
 Design-canvas boards for the cyberpunk 80s Japan restyle of Kioku's **existing** screens (no new features). Each `.dc.html` is one artboard; `canvas.json` is the layout. They render in the Kioku design canvas (Claude Design), which supplies the `support.js` runtime — opened directly in a browser they show unstyled markup only.

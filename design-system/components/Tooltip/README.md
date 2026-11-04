@@ -1,3 +1,6 @@
+> Offline preview snapshot. Verify current props, tokens, and behavior in
+> `frontend/src/` before implementation. See [design-system guidance](../../README.md).
+
 Themed MUI Tooltip — `surface` fill, 1px magenta border at 33%, 12px Rubik 500.
 
 ## Use

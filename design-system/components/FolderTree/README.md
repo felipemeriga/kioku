@@ -1,3 +1,6 @@
+> Offline preview snapshot. Verify current props, tokens, and behavior in
+> `frontend/src/` before implementation. See [design-system guidance](../../README.md).
+
 Lazy-loading folder tree with repo/folder icons, drag-and-drop targets (documents and OS files) and a per-folder menu (integrations, delete).
 
 ## Use

@@ -1,3 +1,6 @@
+> Offline preview snapshot. Verify current props, tokens, and behavior in
+> `frontend/src/` before implementation. See [design-system guidance](../../README.md).
+
 Settings card listing Notion connections with poll interval, last fast/full sync, and Check pending · Sync now · Reconcile · Disconnect.
 
 ## Use

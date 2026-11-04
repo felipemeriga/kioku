@@ -1,3 +1,6 @@
+> Offline preview snapshot. Verify current props, tokens, and behavior in
+> `frontend/src/` before implementation. See [design-system guidance](../../README.md).
+
 The themed MUI Button — contained runs the magenta→purple `gradient-cta` with a `shadow-cta` glow; outlined is a `line` border that turns magenta on hover; text is a bare label.
 
 ## Use

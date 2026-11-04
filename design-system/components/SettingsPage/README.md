@@ -1,3 +1,6 @@
+> Offline preview snapshot. Verify current props, tokens, and behavior in
+> `frontend/src/` before implementation. See [design-system guidance](../../README.md).
+
 Screen: Settings — MCP API keys scoped to root folders, Notion integration.
 
 ## Use

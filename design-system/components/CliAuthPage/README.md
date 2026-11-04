@@ -1,3 +1,6 @@
+> Offline preview snapshot. Verify current props, tokens, and behavior in
+> `frontend/src/` before implementation. See [design-system guidance](../../README.md).
+
 Screen: the CLI browser-handoff — confirm or deny a `kioku login` request from a named device.
 
 ## Use

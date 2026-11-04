@@ -1,3 +1,6 @@
+> Offline preview snapshot. Verify current props, tokens, and behavior in
+> `frontend/src/` before implementation. See [design-system guidance](../../README.md).
+
 The authenticated shell: IconRail on the left, the collapsible ContextPanel, and the page in the remaining space.
 
 ## Use

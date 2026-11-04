@@ -1,3 +1,6 @@
+> Offline preview snapshot. Verify current props, tokens, and behavior in
+> `frontend/src/` before implementation. See [design-system guidance](../../README.md).
+
 The second column: conversations on the Chat page (with + new), the FolderTree on Documents.
 
 ## Use

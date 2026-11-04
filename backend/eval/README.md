@@ -1,18 +1,24 @@
-# Eval harness
+# Retrieval evaluation
 
-Runs the agentic-rag retrieval pipeline against a fixture corpus + golden set
+Runs the Kioku retrieval pipeline against a fixture corpus + golden set
 and computes deterministic IR metrics (Recall@k, MRR, nDCG). CI fails on
 regressions. RAGAS quality metrics (faithfulness, answer_relevancy,
 context_precision, context_recall) are available behind `--ragas` for occasional
 diagnostic runs but are NOT part of the default gate — they're slow and
 judge-model-dependent.
 
+See [development](../../docs/development.md) for service checks and
+[architecture](../../docs/architecture.md) for the current search path. These
+retrieval benchmarks do not certify Tsukai chat recovery or native execution.
+The `obol/` documents/repos and `tests/fixtures/corpus/` are synthetic evaluation
+inputs; do not refactor their content as product documentation.
+
 ## One-shot local run
 
 From the project root:
 
 ```bash
-./backend/eval/run_local.sh              # IR-only full eval (~100s)
+./backend/eval/run_local.sh              # IR-only full eval (duration depends on providers)
 ./backend/eval/run_local.sh --ragas      # add RAGAS metrics (slow, can be hours)
 ./backend/eval/run_local.sh --gate       # also assert against baseline.json
 ./backend/eval/run_local.sh --capture    # write baseline.json from this run
@@ -47,7 +53,9 @@ Default (IR-only) captures only IR thresholds.
 
 ## When the schema changes
 
-Re-dump from prod and re-clean:
+Refresh the snapshot from the intended authorized source database, then clean it.
+Verify the Supabase CLI target before dumping; this is schema maintenance, not a
+normal prerequisite for running tests:
 
 ```bash
 supabase db dump --schema public --file backend/db/schema.sql

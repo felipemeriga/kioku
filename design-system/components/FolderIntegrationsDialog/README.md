@@ -1,3 +1,6 @@
+> Offline preview snapshot. Verify current props, tokens, and behavior in
+> `frontend/src/` before implementation. See [design-system guidance](../../README.md).
+
 Per-folder integrations: GitHub (repo binding via `kioku init`), Notion (connect / sync / reconcile).
 
 ## Use

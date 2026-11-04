@@ -1,3 +1,6 @@
+> Offline preview snapshot. Verify current props, tokens, and behavior in
+> `frontend/src/` before implementation. See [design-system guidance](../../README.md).
+
 Themed MUI Card — `gradient-card` fill (surface → surface-2) with a 1px `line` border.
 
 ## Use

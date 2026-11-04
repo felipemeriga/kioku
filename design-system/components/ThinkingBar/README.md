@@ -1,3 +1,6 @@
+> Offline preview snapshot. Verify current props, tokens, and behavior in
+> `frontend/src/` before implementation. See [design-system guidance](../../README.md).
+
 Four-segment progress strip for the agent's stages — thinking, searching, analyzing, generating — with a docs-found count.
 
 ## Use
