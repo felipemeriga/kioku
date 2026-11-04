@@ -89,7 +89,7 @@ def run(config):
         futures = [executor.submit(job, index) for index in range(3)]
         while not all(future.done() for future in futures):
             for name, path, params in [
-                ("health", "/health", {}),
+                ("health", "/api/health", {}),
                 ("folders", "/api/folders", {}),
                 ("documents", "/api/documents", {"folder_id": config["folder_id"]}),
                 ("conversations", "/api/conversations", {}),
