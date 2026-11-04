@@ -101,6 +101,9 @@ def review_complete(body: ReviewCompleteRequest, request: Request):
     from services.maintenance.execution import native_enabled
 
     if native_enabled(user_id):
+        from services.maintenance.execution import acknowledge_absent_documentation
+
+        acknowledge_absent_documentation(sb, user_id, body.folder_id, body.head_sha)
         passes = (
             sb.table("maintenance_review_passes")
             .select("head_sha,selected,acknowledged")

@@ -228,3 +228,48 @@ def test_documentation_refresh_collects_streamed_response(monkeypatch):
     assert response.json() == {"ok": True, "updated": False, "reason": "content unchanged"}
     assert saved[0]["source"] == "mihari"
     assert saved[0]["operation"] == "documentation"
+
+
+def test_native_review_complete_inspects_absent_doc_without_claiming_creation(monkeypatch):
+    from services.maintenance import execution
+
+    state = {
+        "head_sha": "a" * 40,
+        "selected": ["activity", "documentation"],
+        "acknowledged": ["activity"],
+    }
+    inspections = []
+
+    class PassDB:
+        def table(self, name):
+            assert name == "maintenance_review_passes"
+            return Query([state])
+
+    db = PassDB()
+    monkeypatch.setattr(mihari, "_api_key_auth", lambda _: ("owner", "folder", "rag_key"))
+    monkeypatch.setattr(mihari, "get_supabase", lambda: db)
+    monkeypatch.setattr("mcp_server._descendant_folder_ids", lambda *_: ["folder"])
+    monkeypatch.setenv("TSUKAI_MIHARI_NATIVE", "true")
+    monkeypatch.setenv("TSUKAI_CREDENTIAL_OWNER_ID", "owner")
+
+    def inspect(sb, owner, folder, head):
+        assert (sb, owner, folder, head) == (db, "owner", "folder", "a" * 40)
+        inspections.append("authoritative absence")
+        state["acknowledged"].append("documentation")
+
+    monkeypatch.setattr(execution, "acknowledge_absent_documentation", inspect)
+    monkeypatch.setattr(
+        "services.llm.complete",
+        lambda **_: (_ for _ in ()).throw(AssertionError("must not regenerate")),
+    )
+    response = TestClient(app).post(
+        "/api/mihari/review-complete",
+        json={
+            "folder_id": "folder",
+            "head_sha": "a" * 40,
+            "reviewed": ["activity", "documentation"],
+        },
+    )
+    assert response.status_code == 200
+    assert "updated" not in response.json()
+    assert inspections == ["authoritative absence"]
