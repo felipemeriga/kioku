@@ -178,3 +178,19 @@ jobs:
           psql -h localhost -U postgres -d tsukai_fixture -v runtime_role=tsukai_fixture_runtime -f tsukai/ops/grant-runtime.sql
           psql -h localhost -U postgres -d tsukai_fixture -v runtime_role=tsukai_fixture_runtime -f tsukai/ops/grant-runtime.sql
           PGPASSWORD=fixture-runtime-only psql -h localhost -U tsukai_fixture_runtime -d tsukai_fixture -v ON_ERROR_STOP=1 -c 'SELECT count(*) FROM public.tsukai_tombstones;'
+      - name: Verify operational usage receipts with restricted PostgreSQL writes
+        env:
+          PGPASSWORD: fixture-admin-only
+        run: |
+          createdb -h localhost -U postgres tsukai_readiness_fixture
+          for sql in \
+            supabase/migrations/20261104090000_tsukai_execution.sql \
+            supabase/migrations/20261104110000_tsukai_execution_lifecycle.sql \
+            supabase/migrations/20261104120000_tsukai_attempt_timings.sql \
+            backend/tests/sql/tsukai_readiness_fixture.sql \
+            supabase/migrations/20261104220000_tsukai_readiness_usage_receipts.sql \
+            backend/tests/sql/tsukai_readiness_acceptance.sql; do
+            psql -h localhost -U postgres -d tsukai_readiness_fixture -v ON_ERROR_STOP=1 -f "$sql"
+          done
+          psql -h localhost -U postgres -d tsukai_readiness_fixture -v ON_ERROR_STOP=1 -c "ALTER ROLE tsukai_readiness_fixture_runtime PASSWORD 'fixture-readiness-only';"
+          PGPASSWORD=fixture-readiness-only psql -h localhost -U tsukai_readiness_fixture_runtime -d tsukai_readiness_fixture -v ON_ERROR_STOP=1 -c "UPDATE public.tsukai_attempts SET status='completed',finished_at=3 WHERE id='fresh-probe';"
