@@ -397,6 +397,7 @@ export async function captureSource(
     progress?: boolean;
     finalizeJournal?: boolean;
     endOffset?: number;
+    verifyPrefix?: boolean;
   } = {},
 ): Promise<EvidenceManifest> {
   const dir = sessionDir(root, source),
@@ -464,13 +465,12 @@ export async function captureSource(
       let rewritten = false;
       if (
         cursor &&
-        stat.size === cursor.size &&
-        stat.mtimeMs !== cursor.mtime_ms &&
+        (options.verifyPrefix ||
+          (stat.size === cursor.size && stat.mtimeMs !== cursor.mtime_ms)) &&
         cursor.offset > 0
       ) {
-        // Native append checkpoints use only boundary fingerprints. Same-size
-        // rewrites are rare and require a full prefix comparison to catch edits
-        // outside those fingerprints without rereading history on every append.
+        // Finalization and recovery verify every archived prefix byte, so an
+        // earlier rewrite followed by append cannot silently mix generations.
         const priorHash = createHash("sha256");
         for (const object of m.objects
           .filter(

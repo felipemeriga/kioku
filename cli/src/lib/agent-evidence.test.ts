@@ -627,3 +627,69 @@ test("worker drains a 130 MiB session across bounded checkpoints before acknowle
     f.cleanup();
   }
 });
+test("final checkpoint detects an unsampled prefix rewrite followed by append", async () => {
+  const f = fixture();
+  try {
+    const original = Buffer.concat([
+      line("a", "x".repeat(15000)),
+      line("b", "z".repeat(15000)),
+    ]);
+    writeFileSync(f.source.path, original);
+    await captureSource(f.root, "folder", f.source, { producer: "test" });
+    const rewritten = Buffer.from(original);
+    rewritten[10000] = 89;
+    const current = Buffer.concat([rewritten, line("c")]);
+    writeFileSync(f.source.path, current);
+    const m = await captureSource(f.root, "folder", f.source, {
+      producer: "test",
+      verifyPrefix: true,
+    });
+    assert.deepEqual(reconstruct(f.root, f.source, m, 1), original);
+    assert.deepEqual(reconstruct(f.root, f.source, m, 2), current);
+  } finally {
+    f.cleanup();
+  }
+});
+test("installation upload limiter permits at most four simultaneous processes", async () => {
+  const f = fixture(),
+    log = join(f.root, "slots.log");
+  const moduleUrl = new URL("./agent-evidence-sync.js", import.meta.url).href;
+  const code = `import {withEvidenceUploadSlot} from ${JSON.stringify(moduleUrl)};import {appendFileSync} from 'node:fs';await withEvidenceUploadSlot(async()=>{appendFileSync(process.env.SLOT_LOG,'start\\n');await new Promise(r=>setTimeout(r,100));appendFileSync(process.env.SLOT_LOG,'end\\n');});`;
+  try {
+    await Promise.all(
+      Array.from(
+        { length: 9 },
+        () =>
+          new Promise<void>((resolve, reject) => {
+            const child = spawn(
+              process.execPath,
+              ["--input-type=module", "-e", code],
+              {
+                env: {
+                  ...process.env,
+                  XDG_CONFIG_HOME: join(f.root, "config"),
+                  SLOT_LOG: log,
+                },
+                stdio: "ignore",
+              },
+            );
+            child.on("error", reject);
+            child.on("exit", (n) =>
+              n === 0 ? resolve() : reject(new Error(`slot child ${n}`)),
+            );
+          }),
+      ),
+    );
+    let active = 0,
+      maximum = 0;
+    for (const entry of readFileSync(log, "utf8").trim().split("\n")) {
+      active += entry === "start" ? 1 : -1;
+      maximum = Math.max(maximum, active);
+      assert.ok(active <= 4);
+    }
+    assert.equal(active, 0);
+    assert.ok(maximum > 1);
+  } finally {
+    f.cleanup();
+  }
+});
