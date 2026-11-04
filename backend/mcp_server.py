@@ -15,6 +15,7 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from db.client import get_supabase
+from services.ai.scope import ExecutionScope, execution_scope
 from services.embeddings import embed_query
 from services.evaluation import evaluate_rag_pipeline
 from services.folder_summary.briefing_schema import snapshot_sections
@@ -1733,7 +1734,14 @@ class ApiKeyAuthMiddleware:
         user_id, scope_folder_id = result
         _current_user_id.set(user_id)
         _current_scope_folder_id.set(scope_folder_id)
-        await self.app(scope, receive, send)
+        with execution_scope(
+            ExecutionScope(
+                user_id,
+                tuple(_descendant_folder_ids(get_supabase(), scope_folder_id, user_id)),
+                caller="mcp",
+            )
+        ):
+            await self.app(scope, receive, send)
 
 
 # ── Code graph tools ────────────────────────────────────────────────
