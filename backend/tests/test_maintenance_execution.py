@@ -34,6 +34,13 @@ class Query:
         self.filters[key] = value
         return self
 
+    def is_(self, key, value):
+        self.filters[key] = None if value == "null" else value
+        return self
+
+    def order(self, *_):
+        return self
+
     def limit(self, *_):
         return self
 
@@ -164,7 +171,8 @@ def test_unpublishable_result_never_reaches_database(configured, monkeypatch, fa
     assert db.calls == []
 
 
-def test_foreign_owner_and_duplicate_job_binding(configured):
+def test_foreign_owner_and_duplicate_job_binding(configured, monkeypatch):
+    monkeypatch.setattr(execution, "acknowledge_publication", lambda *_: None)
     row = prepared_row()
     db = DB({"maintenance_preparations": [row]})
     with pytest.raises(PermissionError):
@@ -199,3 +207,93 @@ def test_quality_repair_is_a_new_bounded_session(configured, monkeypatch):
     db.rows["maintenance_preparations"][1]["validation_error"] = "still invalid"
     with pytest.raises(ValueError, match="exhausted"):
         execution.prepare(db, "owner", "folder", "activity", snapshot["input"])
+
+
+def test_publish_retries_lost_ack_without_result_fetch_or_second_database_apply(
+    configured, monkeypatch
+):
+    row = prepared_row()
+    db = DB({"maintenance_preparations": [row]})
+    expected = hashlib.sha256(
+        json.dumps(row["request"], sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    monkeypatch.setattr(execution, "capability", lambda *_: "cap")
+    monkeypatch.setattr(
+        execution.httpx,
+        "get",
+        lambda *_a, **_k: SimpleNamespace(
+            raise_for_status=lambda: None, json=lambda: {"request_sha256": expected}
+        ),
+    )
+    calls = {"result": 0, "apply": 0, "ack": 0}
+
+    class Runner:
+        def __init__(self, *_):
+            pass
+
+        def result(self, job):
+            calls["result"] += 1
+            return ExecutionResult(
+                job,
+                "",
+                {"summary": "Accurate summary", "highlights": ["Verified change"]},
+                {},
+                None,
+            )
+
+        def acknowledge(self, *_):
+            calls["ack"] += 1
+            if calls["ack"] == 1:
+                raise TimeoutError("runner acknowledgement timeout after commit")
+
+        def close(self):
+            pass
+
+    def committed(*_):
+        calls["apply"] += 1
+        row.update(execution_job_id="job", publication={"ok": True, "updated": True})
+        db.rows["maintenance_runner_ack_outbox"] = [
+            {
+                "preparation_id": "prep",
+                "user_id": "owner",
+                "folder_id": "folder",
+                "job_id": "job",
+                "acknowledged_at": None,
+            }
+        ]
+        return row["publication"]
+
+    monkeypatch.setattr(execution, "TsukaiClient", Runner)
+    monkeypatch.setattr(execution, "apply_result", committed)
+    with pytest.raises(TimeoutError):
+        execution.publish(db, "owner", "folder", "prep", "job")
+    assert db.rows["maintenance_runner_ack_outbox"][0]["acknowledged_at"] is None
+    assert execution.publish(db, "owner", "folder", "prep", "job") == row["publication"]
+    assert db.rows["maintenance_runner_ack_outbox"][0]["acknowledged_at"] is not None
+    assert calls == {"result": 1, "apply": 1, "ack": 2}
+
+
+def test_pending_ack_reconciles_even_when_prepare_skips_model(configured, monkeypatch):
+    row = {**prepared_row(), "execution_job_id": "job", "publication": {"ok": True}}
+    pending = {
+        "preparation_id": "prep",
+        "user_id": "owner",
+        "folder_id": "folder",
+        "job_id": "job",
+        "acknowledged_at": None,
+    }
+    db = DB({"maintenance_preparations": [row], "maintenance_runner_ack_outbox": [pending]})
+    monkeypatch.setattr(execution, "capture", lambda *_: (None, "no files"))
+    acknowledgements = []
+
+    def ack(sb, prepared, client=None):
+        acknowledgements.append(prepared["execution_job_id"])
+        pending["acknowledged_at"] = "confirmed"
+
+    monkeypatch.setattr(execution, "acknowledge_publication", ack)
+    assert (
+        execution.prepare(db, "owner", "folder", "activity", {"head_sha": "a" * 40})["engine"]
+        == "skip"
+    )
+    assert acknowledgements == ["job"]
+    assert pending["acknowledged_at"] == "confirmed"

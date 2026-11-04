@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import logging
 import os
 import time
 from datetime import datetime, timezone
@@ -136,7 +137,62 @@ def capture_pending(sb, owner, folder, operation, payload):
     return None, "empty journal revisions acknowledged"
 
 
+def acknowledge_publication(sb, row, client=None):
+    """Replay the idempotent runner ACK; publication remains committed on failure."""
+    own_client = client is None
+    if own_client:
+        client = TsukaiClient(
+            os.environ["TSUKAI_URL"],
+            os.environ["TSUKAI_SERVICE_TOKEN"],
+            capability(row["user_id"], row["folder_id"], row["request"]),
+        )
+    try:
+        client.acknowledge(row["execution_job_id"], "mihari", "maintenance:" + row["id"])
+        sb.table("maintenance_runner_ack_outbox").update(
+            {"acknowledged_at": datetime.now(timezone.utc).isoformat()}
+        ).eq("preparation_id", row["id"]).eq("user_id", row["user_id"]).execute()
+    finally:
+        if own_client:
+            client.close()
+
+
+def reconcile_acknowledgements(sb, owner, folder):
+    """Bounded per-repo reconciliation also runs when HEAD needs no model work."""
+    pending = (
+        sb.table("maintenance_runner_ack_outbox")
+        .select("preparation_id,job_id")
+        .eq("user_id", owner)
+        .eq("folder_id", folder)
+        .is_("acknowledged_at", "null")
+        .order("created_at")
+        .limit(10)
+        .execute()
+        .data
+        or []
+    )
+    for item in pending:
+        rows = (
+            sb.table("maintenance_preparations")
+            .select("*")
+            .eq("id", item["preparation_id"])
+            .eq("user_id", owner)
+            .eq("folder_id", folder)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if rows:
+            try:
+                acknowledge_publication(sb, rows[0])
+            except Exception:
+                logging.getLogger(__name__).warning(
+                    "Mihari runner acknowledgement remains pending", exc_info=True
+                )
+
+
 def prepare(sb, owner, folder, operation, payload):
+    reconcile_acknowledgements(sb, owner, folder)
     snapshot, reason = capture_pending(sb, owner, folder, operation, payload)
     if snapshot is None:
         promoted = (
@@ -323,6 +379,7 @@ def publish(sb, owner, folder, preparation, job_id):
     if row.get("execution_job_id"):
         if row["execution_job_id"] != job_id:
             raise ValueError("preparation already has another execution")
+        acknowledge_publication(sb, row)
         return row["publication"]
     client = TsukaiClient(
         os.environ["TSUKAI_URL"],
@@ -358,7 +415,7 @@ def publish(sb, owner, folder, preparation, job_id):
             ).eq("user_id", owner).execute()
             raise ValueError("invalid_result:" + str(exc)) from exc
         publication = apply_result(sb, preparation, owner, job_id, value)
-        client.acknowledge(job_id, "mihari", "maintenance:" + preparation)
+        acknowledge_publication(sb, {**row, "execution_job_id": job_id}, client)
         return publication
     finally:
         client.close()

@@ -672,3 +672,125 @@ def test_failed_direct_job_never_calls_publication(monkeypatch):
             "https://backend/api/mihari/activity", headers={}, json={"folder_id": "f1"}, timeout=30
         )
     assert all(not url.endswith("/execution/publish") for url in calls)
+
+
+def test_partial_pass_retry_skips_activity_completes_review_and_advances_sha(monkeypatch, tmp_path):
+    """Worker retry uses the real skip gate and backend review-complete guard.
+
+    The SQL retry fixture independently checks replacement-plan ACK reseeding.
+    """
+    from fastapi.testclient import TestClient
+
+    from main import app
+    from routes import mihari as routes
+    from services.maintenance import execution
+    from tests.test_maintenance_execution import DB
+
+    head = "b" * 40
+    repo = {
+        "id": "r1",
+        "user_id": "owner",
+        "folder_id": "folder",
+        "remote_url": "repo",
+        "branch": "main",
+        "last_sha": "a" * 40,
+        "api_key_encrypted": "cipher",
+    }
+    clone = tmp_path / "owner" / "folder"
+    (clone / ".git").mkdir(parents=True)
+    state = {"head_sha": head, "selected": ["activity", "deployment"], "acknowledged": []}
+    reviews = {}
+    db = DB(
+        {
+            "maintenance_review_passes": [state],
+            "repo_freshness": [
+                {"folder_id": "folder", "user_id": "owner", "section_reviews": reviews}
+            ],
+        }
+    )
+    state.update(folder_id="folder", user_id="owner")
+    monkeypatch.setattr(routes, "_api_key_auth", lambda _: ("owner", "folder", "rag_key"))
+    monkeypatch.setattr(routes, "get_supabase", lambda: db)
+    monkeypatch.setattr("mcp_server._descendant_folder_ids", lambda *_: ["folder"])
+    monkeypatch.setenv("TSUKAI_MIHARI_NATIVE", "true")
+    monkeypatch.setenv("TSUKAI_CREDENTIAL_OWNER_ID", "owner")
+    monkeypatch.setattr(
+        execution,
+        "capture",
+        lambda *_: ({"expected_sections": {"activity": {}}, "input": {}}, None),
+    )
+    monkeypatch.setattr(mihari, "API_URL", "http://testserver")
+    monkeypatch.setattr(mihari, "DATA", tmp_path)
+    monkeypatch.setattr(mihari, "decrypt", lambda _: "key")
+    monkeypatch.setattr(mihari, "git_env", lambda _: {})
+    monkeypatch.setattr(mihari, "run_git", lambda *_a, **_k: (0, head, ""))
+    monkeypatch.setattr(mihari, "rest_get", lambda *_: [{"name": "repo"}])
+    monkeypatch.setattr(mihari, "seed_bindings", lambda *_: None)
+    monkeypatch.setattr(mihari, "kioku_index", lambda *_: (True, ""))
+    monkeypatch.setattr(mihari, "compute_freshness", lambda *_: None)
+    recorded, plans, activity_skips = [], [], []
+    monkeypatch.setattr(
+        mihari,
+        "rest_patch",
+        lambda table, _filters, patch: recorded.append(patch) if table == "watched_repos" else None,
+    )
+    client = TestClient(app)
+
+    def plan(*_a, **_k):
+        plans.append(True)
+        # This is the DB state asserted by retry.sql after a replacement plan.
+        state["acknowledged"] = [
+            name for name in state["selected"] if (reviews.get(name) or {}).get("head_sha") == head
+        ]
+        return type(
+            "Response",
+            (),
+            {
+                "raise_for_status": lambda _: None,
+                "json": lambda _: {"selected": state["selected"], "reviewed": state["selected"]},
+            },
+        )()
+
+    def activity(*_a, **_k):
+        if "activity" in reviews:
+            result = execution.prepare(db, "owner", "folder", "activity", {"head_sha": head})
+            assert result["engine"] == "skip"
+            activity_skips.append(True)
+        else:
+            reviews["activity"] = {"head_sha": head}
+            state["acknowledged"].append("activity")
+
+    def deployment(*_a, **_k):
+        if len(plans) == 1:
+            raise RuntimeError("deployment failed")
+        state["acknowledged"].append("deployment")
+        reviews["deployment"] = {"head_sha": head}
+
+    monkeypatch.setattr(mihari, "maintenance_post", plan)
+    monkeypatch.setattr(mihari, "refresh_activity", activity)
+    monkeypatch.setattr(mihari, "refresh_sections", deployment)
+    monkeypatch.setattr(
+        mihari.requests,
+        "post",
+        lambda url, **kwargs: client.post("/api/mihari/review-complete", json=kwargs["json"]),
+    )
+    mihari.process_repo(repo, {"private_key_encrypted": "cipher"})
+    assert not any(p.get("last_sha") == head for p in recorded)
+    assert (
+        client.post(
+            "/api/mihari/review-complete",
+            json={"folder_id": "folder", "head_sha": head, "reviewed": state["selected"]},
+        ).status_code
+        == 409
+    )
+    mihari.process_repo(repo, {"private_key_encrypted": "cipher"})
+    assert activity_skips == [True]
+    assert recorded[-1]["last_sha"] == head
+    assert recorded[-1]["last_error"] is None
+    assert (
+        client.post(
+            "/api/mihari/review-complete",
+            json={"folder_id": "folder", "head_sha": head, "reviewed": state["selected"]},
+        ).status_code
+        == 200
+    )
