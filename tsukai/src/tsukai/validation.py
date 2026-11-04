@@ -34,7 +34,7 @@ def validate_result(req, result):
         if "refresh" in lower and "another" in lower:
             raise NativeError("refresh_contention", True)
         if result.get("subtype") == "success":
-            raise NativeError("native_provider_error")
+            raise NativeError("native_provider_error", diagnostic=provider_diagnostic(result))
         raise NativeError(
             "native_" + re.sub(r"[^a-z0-9_]", "", str(result.get("subtype", "error")))[:60]
         )
@@ -89,6 +89,36 @@ def sanitize_private(value):
         value = re.sub(r"(?i)bearer\s+[a-z0-9._~+/-]+=*", "Bearer [REDACTED]", value)
         return re.sub(r"\bsk-[a-zA-Z0-9_-]{8,}", "[REDACTED]", value)
     return value
+
+
+def provider_diagnostic(result):
+    """Private bounded terminal-error evidence, never a native transcript."""
+    errors = result.get("errors", [])
+    if not isinstance(errors, list):
+        errors = [errors]
+    selected = []
+    for error in errors[:5]:
+        if isinstance(error, str):
+            selected.append(error)
+        elif isinstance(error, dict):
+            selected.append(
+                {
+                    key: error[key]
+                    for key in ("type", "code", "status", "status_code", "message")
+                    if key in error and isinstance(error[key], (str, int, bool))
+                }
+            )
+    safe = sanitize_private(
+        {
+            "subtype": str(result.get("subtype", ""))[:80],
+            "errors": selected,
+            "result": result.get("result") if isinstance(result.get("result"), str) else None,
+        }
+    )
+    encoded = json.dumps(safe)
+    if len(encoded) > 8192:
+        return {"provider_error": encoded[:3500], "truncated": True}
+    return {"provider_error": safe, "truncated": False}
 
 
 def repair_diagnostic(result, errors):
