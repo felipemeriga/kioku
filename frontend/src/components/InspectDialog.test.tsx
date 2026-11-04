@@ -141,3 +141,69 @@ it("highlights retrieved configuration chunks using their source filenames", () 
       .map((el) => el.dataset.language),
   ).toEqual(["toml", "yaml"]);
 });
+
+it("links code chunks to their verified GitHub source and exact line range", () => {
+  renderWithProviders(
+    <InspectDialog
+      open
+      onClose={vi.fn()}
+      citations={[
+        {
+          number: 1,
+          source: "src/schema.proto:10-20",
+          source_type: "code",
+          file: "src/schema.proto",
+          folder_id: "repo",
+          url: "https://github.com/org/repo/blob/main/src/schema.proto#L10",
+          excerpt: "message Example {}",
+        },
+      ]}
+      trace={{
+        retrieval: [
+          {
+            source: "src/schema.proto:10-20",
+            source_type: "code",
+            folder_id: "repo",
+            content: "message Example {}",
+            rerank_score: 0.8,
+          },
+        ],
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("tab", { name: "Chunks (1)" }));
+  expect(
+    screen.getByRole("link", { name: "src/schema.proto:10-20" }),
+  ).toHaveAttribute(
+    "href",
+    "https://github.com/org/repo/blob/main/src/schema.proto#L10-L20",
+  );
+  expect(screen.getByText("Proto")).toBeInTheDocument();
+  expect(screen.queryByText("PROTOBUF")).not.toBeInTheDocument();
+});
+
+it("opens document chunks in the existing preview flow", () => {
+  const onClose = vi.fn();
+  const onOpenDocument = vi.fn();
+  renderWithProviders(
+    <InspectDialog
+      open
+      onClose={onClose}
+      onOpenDocument={onOpenDocument}
+      trace={{
+        retrieval: [
+          {
+            source: "guide.pdf",
+            source_type: "document",
+            folder_id: "docs",
+            content: "Guide",
+          },
+        ],
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("tab", { name: "Chunks (1)" }));
+  fireEvent.click(screen.getByRole("button", { name: "guide.pdf" }));
+  expect(onClose).toHaveBeenCalledOnce();
+  expect(onOpenDocument).toHaveBeenCalledWith("guide.pdf", "docs");
+});

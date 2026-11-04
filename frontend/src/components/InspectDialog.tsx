@@ -10,10 +10,11 @@ import {
   Chip,
   Typography,
   IconButton,
+  Link,
   alpha,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
-import { fetchToolArtifact, type DebugTrace } from "../lib/api";
+import { fetchToolArtifact, type Citation, type DebugTrace } from "../lib/api";
 import { brand, fonts, scanlines } from "../theme";
 import CornerCard from "./neo/CornerCard";
 import RerankBar from "./neo/RerankBar";
@@ -23,6 +24,8 @@ interface InspectDialogProps {
   open: boolean;
   onClose: () => void;
   trace: DebugTrace;
+  citations?: Citation[];
+  onOpenDocument?: (filename: string, folderId?: string | null) => void;
 }
 
 const MONO = fonts.mono;
@@ -31,6 +34,8 @@ export default function InspectDialog({
   open,
   onClose,
   trace,
+  citations = [],
+  onOpenDocument,
 }: InspectDialogProps) {
   const [tab, setTab] = useState(0);
   const [artifacts, setArtifacts] = useState<Record<string, string>>({});
@@ -322,6 +327,57 @@ export default function InspectDialog({
             {chunks.map((c, i) => {
               const score = c.rerank_score;
               const filename = c.source + (c.symbol ? ` · ${c.symbol}` : "");
+              const file = c.source.replace(/:\d+(?:-\d+)?$/, "");
+              const matching = citations.filter(
+                (citation) =>
+                  citation.source_type === c.source_type &&
+                  (!c.folder_id || citation.folder_id === c.folder_id) &&
+                  (citation.source === c.source || citation.file === file),
+              );
+              const citation = matching.length === 1 ? matching[0] : undefined;
+              let githubUrl: string | undefined;
+              if (c.source_type === "code" && citation?.url) {
+                try {
+                  const url = new URL(citation.url);
+                  if (
+                    url.protocol === "https:" &&
+                    url.hostname === "github.com"
+                  ) {
+                    const range = c.source.match(/:(\d+)(?:-(\d+))?$/);
+                    if (range)
+                      url.hash = `L${range[1]}${range[2] ? `-L${range[2]}` : ""}`;
+                    githubUrl = url.toString();
+                  }
+                } catch {
+                  /* Historical sources may have no valid URL. */
+                }
+              }
+              const sourceLabel = githubUrl ? (
+                <Link
+                  href={githubUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  sx={{ color: brand.cyan }}
+                >
+                  {filename}
+                </Link>
+              ) : c.source_type !== "code" && onOpenDocument ? (
+                <Link
+                  component="button"
+                  onClick={() => {
+                    onClose();
+                    onOpenDocument(
+                      c.source,
+                      c.folder_id ?? citation?.folder_id,
+                    );
+                  }}
+                  sx={{ color: brand.cyan, textAlign: "left", font: "inherit" }}
+                >
+                  {filename}
+                </Link>
+              ) : (
+                filename
+              );
               return (
                 <CornerCard
                   key={i}
@@ -335,13 +391,13 @@ export default function InspectDialog({
                 >
                   {score != null ? (
                     <RerankBar
-                      file={filename}
+                      file={sourceLabel}
                       score={score}
                       kind={c.source_type}
                     />
                   ) : (
                     <Typography sx={{ color: brand.text }}>
-                      {filename} · rerank score unavailable
+                      {sourceLabel} · rerank score unavailable
                     </Typography>
                   )}
                   {c.date && (
