@@ -20,6 +20,8 @@ services:
       - TSUKAI_SERVICE_TOKEN=${TSUKAI_SERVICE_TOKEN:?runner transport credential required}
       - TSUKAI_CAPABILITY_KEY=${TSUKAI_CAPABILITY_KEY:?capability signer required}
       - TSUKAI_CAPABILITY_ISSUER=${TSUKAI_CAPABILITY_ISSUER:-kioku-backend}
+      - TSUKAI_ENTITLED_OWNER_IDS=${TSUKAI_ENTITLED_OWNER_IDS:?explicit entitled owner IDs required}
+      - TSUKAI_AUTH_PROBE=${TSUKAI_AUTH_PROBE:-true}
       - TSUKAI_BACKEND_URL=${TSUKAI_BACKEND_URL:-http://kioku-backend:8000}
       - TSUKAI_REDIS_URL=${TSUKAI_REDIS_URL:-redis://kioku-redis:6379/0}
       - TSUKAI_WORKSPACE_DIR=/data/workspaces
