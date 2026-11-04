@@ -92,6 +92,7 @@ def run(config, scenario="metadata-first"):
             identifiers.append(conversation(client, config, "load-" + str(index)))
 
     metadata_admitted = threading.Event()
+    known_jobs = set()
 
     def job(index):
         content = (
@@ -106,12 +107,19 @@ def run(config, scenario="metadata-first"):
             )
         )
         request = body(config, identifiers[index], content)
+        if scenario == "simultaneous-plain":
+            request["mode"] = "plain"
+            request["content"] = (
+                "Describe this synthetic test guide in one short sentence and cite its source."
+            )
         began = time.monotonic()
         try:
             with httpx.Client(**options) as client:
                 final, deltas = None, 0
                 with client.stream("POST", "/api/chat", json=request) as response:
                     for frame in frames(response):
+                        if frame.get("job_id"):
+                            known_jobs.add(frame["job_id"])
                         if (
                             index == 0
                             and (frame.get("progress") or {}).get("type")
@@ -264,8 +272,7 @@ def run(config, scenario="metadata-first"):
                             for a in current
                         )
                         and sum(
-                            bool(a.get("pid"))
-                            and a.get("conversation_id") in identifiers
+                            bool(a.get("pid")) and a.get("job_id") in known_jobs
                             for a in current
                         )
                         >= 2
@@ -357,6 +364,7 @@ def run(config, scenario="metadata-first"):
     result = {
         "kind": "real_three_conversation_load",
         "scenario": scenario,
+        "known_root_job_ids": sorted(known_jobs),
         "elapsed_seconds": time.monotonic() - began,
         "jobs": jobs,
         "failures": failures,
@@ -376,10 +384,7 @@ def run(config, scenario="metadata-first"):
             "Existing HTTP reads exceeded the bounded load responsiveness threshold"
         )
     root_counts = [
-        sum(
-            session.get("conversation_id") in identifiers
-            for session in sample["sessions"]
-        )
+        sum(session.get("job_id") in known_jobs for session in sample["sessions"])
         for sample in samples
     ]
     if max(root_counts) > 2:
@@ -395,8 +400,7 @@ def run(config, scenario="metadata-first"):
         )
         >= 1
         and sum(
-            session.get("conversation_id") in identifiers
-            and session.get("pid") is not None
+            session.get("job_id") in known_jobs and session.get("pid") is not None
             for session in sample["sessions"]
         )
         >= 2
@@ -413,7 +417,7 @@ def main():
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument(
         "--scenario",
-        choices=("metadata-first", "simultaneous"),
+        choices=("metadata-first", "simultaneous", "simultaneous-plain"),
         default="metadata-first",
     )
     args = parser.parse_args()
