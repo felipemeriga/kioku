@@ -152,6 +152,25 @@ async def probe(config, metadata=False, surfaces=False):
                             "sha256": hashlib.sha256(answer.encode()).hexdigest(),
                         }
                     )
+                    descriptor = os.open(
+                        config["evidence"],
+                        os.O_WRONLY | os.O_CREAT | os.O_APPEND,
+                        0o600,
+                    )
+                    with os.fdopen(descriptor, "a") as stream:
+                        stream.write(
+                            json.dumps(
+                                {
+                                    "kind": "real_mcp_surface",
+                                    "ok": True,
+                                    **result["surfaces"][-1],
+                                },
+                                sort_keys=True,
+                            )
+                            + "\n"
+                        )
+                        stream.flush()
+                        os.fsync(stream.fileno())
             if metadata:
                 pending = asyncio.create_task(
                     session.call_tool(
