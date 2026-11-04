@@ -23,6 +23,7 @@ import {
 import {
   installSessionStartHook,
   installClaudeMemoryCaptureHook,
+  installClaudeEvidenceHooks,
   removeLegacyCaptureHooks,
   removeLegacyPushHooks,
   readRepoState,
@@ -34,6 +35,7 @@ import {
 import {
   installCodexSessionStartHook,
   installCodexMemoryCaptureHook,
+  installCodexEvidenceHooks,
   removeCodexCaptureHooks,
   removeCodexLegacyPostPushHook,
   updateAgentsMd,
@@ -429,6 +431,12 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
         ? "Codex memory Stop hook installed"
         : "Codex memory Stop hook already present",
     );
+    const claudeEvidence = installClaudeEvidenceHooks(repoRoot);
+    const codexEvidence = installCodexEvidenceHooks();
+    ok(claudeEvidence.addedHook || codexEvidence.addedHook
+      ? "Original-evidence hooks installed for Claude Code and Codex"
+      : "Original-evidence hooks already present");
+    info("Original transcripts are archived privately for this repository; journal extraction is unchanged. Use kioku evidence-status --disable to pause originals.");
   });
 
   // Step 6b.5: remove legacy push hooks (pre-v0.3.0 installed a Claude

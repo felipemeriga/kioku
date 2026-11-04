@@ -14,6 +14,7 @@ import { quickstart } from "./commands/quickstart.js";
 import { search } from "./commands/search.js";
 import { sessionStart } from "./commands/session-start.js";
 import { memoryCapture, memoryWorker, memorySync } from "./commands/memory.js";
+import { evidenceCapture, evidenceWorker, evidenceSync, evidenceStatus, evidenceConfigure } from "./commands/evidence.js";
 import { status } from "./commands/status.js";
 import { whoami } from "./commands/whoami.js";
 import { banner, printError, warn } from "./lib/banner.js";
@@ -239,6 +240,31 @@ program.command("memory-sync")
   .action(async () => {
     try { await memorySync(); }
     catch (err) { printError(err); process.exitCode = 1; }
+  });
+
+program.command("evidence-capture", { hidden: true })
+  .requiredOption("--agent <claude_code|codex>")
+  .action(async ({ agent }) => {
+    try { if (agent === "claude_code" || agent === "codex") await evidenceCapture(agent); }
+    catch { /* durable intent/recovery is independent of the foreground agent */ }
+    console.log("{}");
+  });
+program.command("evidence-worker", { hidden: true })
+  .requiredOption("--root <path>")
+  .action(async ({ root }) => { try { await evidenceWorker(root); } catch { /* next hook retries durable jobs */ } });
+program.command("evidence-sync")
+  .description("Retry original-evidence capture and upload for this repository")
+  .action(async () => { try { await evidenceSync(); } catch (err) { printError(err); process.exitCode = 1; } });
+program.command("evidence-status")
+  .description("Show local originals, upload backlog and capture gaps")
+  .option("--enable", "Enable original-evidence capture in this repository")
+  .option("--disable", "Pause original-evidence capture; journals are unchanged")
+  .action(({ enable, disable }) => {
+    try {
+      if (enable && disable) throw new Error("Choose --enable or --disable");
+      if (enable || disable) evidenceConfigure(Boolean(enable));
+      console.log(JSON.stringify(evidenceStatus(process.cwd()), null, 2));
+    } catch (err) { printError(err); process.exitCode = 1; }
   });
 
 program
