@@ -213,6 +213,30 @@ class Scheduler:
         task.cancel()
         return True
 
+    async def finalize_attempt(
+        self,
+        attempt,
+        status,
+        *,
+        result=None,
+        error=None,
+        diagnostic=None,
+        retry=False,
+        stop_native=False,
+    ):
+        async def finalize():
+            with contextlib.suppress(Exception):
+                await self.store.heartbeat(attempt)
+            if stop_native:
+                await self.native.stop(attempt["id"])
+            if retry:
+                await asyncio.sleep(random.uniform(0.1, 0.5))
+            await self.store.finish(
+                attempt, status, result=result, error=error, diagnostic=diagnostic, retry=retry
+            )
+
+        return await complete_cleanup(finalize(), 20)
+
     async def execute(self, claim):
         attempt = claim["attempt"]
         req = JobRequest.model_validate(claim["job"]["request"])
@@ -292,6 +316,7 @@ class Scheduler:
 
         heartbeat_task = asyncio.create_task(heartbeat())
         publisher = asyncio.create_task(publish())
+        result = None
         try:
             config = await self.tool_config(claim, req)
             remaining = attempt["deadline"] - time.time()
@@ -301,24 +326,25 @@ class Scheduler:
                 result = await self.native.run(claim, req, emit, config)
             events.put_nowait(None)
             await publisher
-            await self.store.finish(attempt, "completed", result=result)
+            await self.finalize_attempt(attempt, "completed", result=result)
         except asyncio.CancelledError:
             self.cancelling.add(attempt["id"])
-
-            async def terminate_and_commit():
-                with contextlib.suppress(Exception):
-                    await self.store.heartbeat(attempt)
-                await self.native.stop(attempt["id"])
-                await self.store.finish(
-                    attempt, "cancelled", error={"code": "cancelled", "usage_complete": False}
-                )
-
             with contextlib.suppress(Exception):
-                await complete_cleanup(terminate_and_commit(), 20)
+                await self.finalize_attempt(
+                    attempt,
+                    "cancelled",
+                    result=result,
+                    error={"code": "cancelled", "usage_complete": False},
+                    stop_native=True,
+                )
         except TimeoutError:
             with contextlib.suppress(Exception):
-                await self.store.finish(
-                    attempt, "failed", error={"code": "wall_timeout", "usage_complete": False}
+                await self.finalize_attempt(
+                    attempt,
+                    "failed",
+                    result=result,
+                    error={"code": "wall_timeout", "usage_complete": False},
+                    stop_native=True,
                 )
         except NativeError as exc:
             if exc.code == "reauth_required":
@@ -326,9 +352,7 @@ class Scheduler:
             elif exc.code == "quota_limited":
                 self.quota_until = time.monotonic() + 60
             with contextlib.suppress(Exception):
-                if exc.retryable:
-                    await asyncio.sleep(random.uniform(0.1, 0.5))
-                await self.store.finish(
+                await self.finalize_attempt(
                     attempt,
                     "uncertain" if exc.uncertain else "failed",
                     result=exc.result,
@@ -337,16 +361,17 @@ class Scheduler:
                     retry=exc.retryable and not exc.uncertain and req.profile != "chat",
                 )
         except Exception:
-            await self.native.stop(attempt["id"])
             with contextlib.suppress(Exception):
-                await self.store.finish(
+                await self.finalize_attempt(
                     attempt,
                     "uncertain",
+                    result=result,
                     error={
                         "code": "execution_uncertain",
                         "usage_complete": False,
                         "requires_explicit_recovery": True,
                     },
+                    stop_native=True,
                 )
         finally:
             heartbeat_task.cancel()
