@@ -140,11 +140,7 @@ def main():
     args = parser.parse_args()
     if args.seconds < 14460:
         parser.error("Acceptance soak requires at least 14460 healthy seconds")
-    print(
-        json.dumps(
-            supervise(json.loads(args.plan.read_text()), args.output, args.seconds)
-        )
-    )
+    print(json.dumps(supervise(json.loads(args.plan.read_text()), args.output, args.seconds)))
 
 
 if __name__ == "__main__":

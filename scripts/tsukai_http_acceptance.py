@@ -50,9 +50,7 @@ def probe(config, read_only=False):
         else {"cycle": 0, "conversations": {}}
     )
     combinations = [
-        (model, mode)
-        for model in ("haiku", "sonnet")
-        for mode in ("plain", "agentic", "deep")
+        (model, mode) for model in ("haiku", "sonnet") for mode in ("plain", "agentic", "deep")
     ]
     model, mode = combinations[(state["cycle"] // 2) % len(combinations)]
     key = f"{model}-{mode}"
@@ -114,9 +112,7 @@ def probe(config, read_only=False):
                 ):
                     raise CheckFailure("Learning calendar response has wrong shape")
                 if name == "existing_calendar" and not data["days"]:
-                    raise CheckFailure(
-                        "Known nonempty existing journal calendar returned no days"
-                    )
+                    raise CheckFailure("Known nonempty existing journal calendar returned no days")
                 checks.append(
                     {
                         "name": name,
@@ -124,11 +120,7 @@ def probe(config, read_only=False):
                         "status": response.status_code,
                         "item_count": len(data)
                         if isinstance(data, list)
-                        else len(
-                            data.get(
-                                "days", data.get("learnings", data.get("sessions", []))
-                            )
-                        ),
+                        else len(data.get("days", data.get("learnings", data.get("sessions", [])))),
                         "sha256": hashlib.sha256(
                             json.dumps(data, sort_keys=True).encode()
                         ).hexdigest(),
@@ -173,13 +165,13 @@ def probe(config, read_only=False):
                 + config.get("seed_question", "Reply briefly with the acceptance code.")
             )
             if seed
-            else (
-                "What acceptance code did I ask you to remember? Reply only with that code."
-            )
+            else ("What acceptance code did I ask you to remember? Reply only with that code.")
         )
         long_sample = state["cycle"] == 2 and not state.get("long_sample_done")
         if long_sample:
-            content += " For this one streaming sample, write at least 150 words explaining your answer."
+            content += (
+                " For this one streaming sample, write at least 150 words explaining your answer."
+            )
         body = {
             "conversation_id": conversation,
             "turn_id": turn,
@@ -254,21 +246,13 @@ def probe(config, read_only=False):
             or not terminal.get("message_id")
             or nonce not in terminal.get("replace", "")
         ):
-            raise CheckFailure(
-                "Missing durable terminal answer or incorrect stateful recall"
-            )
+            raise CheckFailure("Missing durable terminal answer or incorrect stateful recall")
         if token_count == 0:
-            raise CheckFailure(
-                "Chat returned terminal-only output without streamed delta frames"
-            )
+            raise CheckFailure("Chat returned terminal-only output without streamed delta frames")
         if long_sample and (len(terminal["replace"].split()) <= 100 or token_count < 2):
-            raise CheckFailure(
-                "Long streaming sample lacks >100 words and separate delta frames"
-            )
+            raise CheckFailure("Long streaming sample lacks >100 words and separate delta frames")
         if long_sample and admin_observation is None:
-            raise CheckFailure(
-                "Admin telemetry never observed the actual active native job"
-            )
+            raise CheckFailure("Admin telemetry never observed the actual active native job")
         execution = (terminal.get("debug") or {}).get("execution") or {}
         if execution.get("turn_id") != turn or not execution.get("timings"):
             raise CheckFailure("Native debug identity/timings missing")
@@ -281,9 +265,7 @@ def probe(config, read_only=False):
             or attempt["elapsed_seconds"] < 0
             for attempt in attempt_timings
         ):
-            raise CheckFailure(
-                "Debug lacks measured durable per-attempt timing evidence"
-            )
+            raise CheckFailure("Debug lacks measured durable per-attempt timing evidence")
         if config.get("require_citations") and seed and not terminal.get("citations"):
             raise CheckFailure("Fixture retrieval answer has no citations")
         artifacts = []
@@ -305,9 +287,7 @@ def probe(config, read_only=False):
                         break
                     offset = artifact["next_offset"]
                     if offset > 200000:
-                        raise CheckFailure(
-                            "Synthetic tool artifact unexpectedly exceeds bound"
-                        )
+                        raise CheckFailure("Synthetic tool artifact unexpectedly exceeds bound")
                 visible = "".join(chunks)
                 scope = trace.get("effective_scope") or {}
                 if (
@@ -341,12 +321,10 @@ def probe(config, read_only=False):
                                 )
                             }
                             | {
-                                "revision_id": (source.get("metadata") or {}).get(
-                                    "revision_id"
+                                "revision_id": (source.get("metadata") or {}).get("revision_id"),
+                                "snapshot_availability": (source.get("metadata") or {}).get(
+                                    "snapshot_availability"
                                 ),
-                                "snapshot_availability": (
-                                    source.get("metadata") or {}
-                                ).get("snapshot_availability"),
                             }
                             for source in sources
                         ],
@@ -367,25 +345,17 @@ def probe(config, read_only=False):
         response = client.get(f"/api/conversations/{conversation}")
         response.raise_for_status()
         messages = response.json()["messages"]
-        saved = [
-            message for message in messages if message["id"] == terminal["message_id"]
-        ]
+        saved = [message for message in messages if message["id"] == terminal["message_id"]]
         if len(saved) != 1 or nonce not in saved[0]["content"]:
             raise CheckFailure("Terminal answer was not persisted exactly once")
-        used_citations = {
-            int(number) for number in re.findall(r"\[(\d+)\]", saved[0]["content"])
-        }
-        available_citations = {
-            citation["number"] for citation in terminal.get("citations") or []
-        }
+        used_citations = {int(number) for number in re.findall(r"\[(\d+)\]", saved[0]["content"])}
+        available_citations = {citation["number"] for citation in terminal.get("citations") or []}
         if (
             config.get("require_citations")
             and seed
             and (not used_citations or not used_citations.issubset(available_citations))
         ):
-            raise CheckFailure(
-                "Answer does not actually cite its verified available sources"
-            )
+            raise CheckFailure("Answer does not actually cite its verified available sources")
         response = client.get(f"/api/chat/turns/{turn}")
         response.raise_for_status()
         if response.json()["state"] not in {"committed", "acknowledged"}:

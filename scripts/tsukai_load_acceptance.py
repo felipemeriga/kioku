@@ -18,7 +18,6 @@ import time
 from pathlib import Path
 
 import httpx
-
 from tsukai_chat_lifecycle_acceptance import body, conversation, terminal
 from tsukai_http_acceptance import CheckFailure, save
 
@@ -67,9 +66,7 @@ def run(config):
             response.raise_for_status()
             data = response.json()
             if name == "existing_calendar" and not data.get("days"):
-                raise CheckFailure(
-                    "Known nonempty calendar preflight failed before load admission"
-                )
+                raise CheckFailure("Known nonempty calendar preflight failed before load admission")
             preflight.append({"name": name, "status": response.status_code})
         response = client.get("/api/usage/native/active-sessions", timeout=10)
         response.raise_for_status()
@@ -79,9 +76,7 @@ def run(config):
             or telemetry.get("sessions")
             or (telemetry.get("queued_counts") or {}).get("total", 0)
         ):
-            raise CheckFailure(
-                "Load deferred before admission: runtime is unavailable or busy"
-            )
+            raise CheckFailure("Load deferred before admission: runtime is unavailable or busy")
         save(
             config["evidence"],
             {"kind": "real_load_preflight", "ok": True, "checks": preflight},
@@ -93,13 +88,16 @@ def run(config):
     def job(index):
         content = (
             (
-                "Use the query_documents_metadata tool to count documents in this exact fixture scope. "
+                "Use the query_documents_metadata tool to count documents "
+                "in this exact fixture scope. "
                 "Report the count briefly, then say load-metadata-complete."
             )
             if index == 0
             else (
-                "Use knowledge_base_search exactly once in this fixture scope for the acceptance guide. "
-                "Cite its source and explain in one short sentence what this synthetic repository does."
+                "Use knowledge_base_search exactly once in this fixture scope "
+                "for the acceptance guide. "
+                "Cite its source and explain in one short sentence "
+                "what this synthetic repository does."
             )
         )
         request = body(config, identifiers[index], content)
@@ -113,9 +111,7 @@ def run(config):
         if index == 0 and not any(
             "query_documents_metadata" in tool.get("name", "") for tool in tools
         ):
-            raise CheckFailure(
-                "Real load job did not invoke the reserved metadata-child path"
-            )
+            raise CheckFailure("Real load job did not invoke the reserved metadata-child path")
         return {
             "index": index,
             "conversation_id": identifiers[index],
@@ -201,20 +197,13 @@ def run(config):
     }
     save(config["evidence"], result, append=True)
     if result["maximum_read_seconds"] > config.get("max_read_seconds", 3):
-        raise CheckFailure(
-            "Existing HTTP reads exceeded the bounded load responsiveness threshold"
-        )
+        raise CheckFailure("Existing HTTP reads exceeded the bounded load responsiveness threshold")
     root_counts = [
-        sum(
-            session.get("conversation_id") in identifiers
-            for session in sample["sessions"]
-        )
+        sum(session.get("conversation_id") in identifiers for session in sample["sessions"])
         for sample in samples
     ]
     if max(root_counts) > 2:
-        raise CheckFailure(
-            "Actual root concurrency exceeded configured two-root capacity"
-        )
+        raise CheckFailure("Actual root concurrency exceeded configured two-root capacity")
     if not any(
         sum(
             session.get("profile") == "metadata_child"
@@ -224,8 +213,7 @@ def run(config):
         )
         >= 1
         and sum(
-            session.get("conversation_id") in identifiers
-            and session.get("pid") is not None
+            session.get("conversation_id") in identifiers and session.get("pid") is not None
             for session in sample["sessions"]
         )
         >= 2

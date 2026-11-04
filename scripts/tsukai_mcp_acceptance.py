@@ -29,9 +29,7 @@ def safe_assertions(error):
     if isinstance(error, CheckFailure):
         return [str(error)]
     return [
-        message
-        for child in getattr(error, "exceptions", ())
-        for message in safe_assertions(child)
+        message for child in getattr(error, "exceptions", ()) for message in safe_assertions(child)
     ]
 
 
@@ -65,33 +63,23 @@ async def probe(config, metadata=False, surfaces=False):
             names = {tool.name for tool in tools.tools}
             required = {"get_folder_briefing_schema", "get_folder_briefing"}
             if not required.issubset(names):
-                raise CheckFailure(
-                    "Expected Kioku tools missing from actual MCP server"
-                )
-            schema = text_content(
-                await session.call_tool("get_folder_briefing_schema", {})
-            )
+                raise CheckFailure("Expected Kioku tools missing from actual MCP server")
+            schema = text_content(await session.call_tool("get_folder_briefing_schema", {}))
             if "overview" not in schema:
                 raise CheckFailure("Briefing schema did not contain overview")
             briefing = text_content(
-                await session.call_tool(
-                    "get_folder_briefing", {"folder": config["folder_name"]}
-                )
+                await session.call_tool("get_folder_briefing", {"folder": config["folder_name"]})
             )
             identity = json.loads(briefing).get("folder")
             if isinstance(identity, dict):
                 identity = identity.get("name")
             if identity != config["folder_name"]:
-                raise CheckFailure(
-                    "Actual briefing identity differs from the exact fixture name"
-                )
+                raise CheckFailure("Actual briefing identity differs from the exact fixture name")
             scope_listing = json.loads(
                 text_content(await session.call_tool("list_folders_in_scope", {}))
             )
             if scope_listing.get("scope_folder_id") != config["folder_id"]:
-                raise CheckFailure(
-                    "Actual MCP API key scope differs from the exact fixture UUID"
-                )
+                raise CheckFailure("Actual MCP API key scope differs from the exact fixture UUID")
             result = {
                 "kind": "real_mcp",
                 "tool_count": len(names),
@@ -139,9 +127,7 @@ async def probe(config, metadata=False, surfaces=False):
                 result["surfaces"] = []
                 for name, arguments, expected in calls:
                     if name not in names:
-                        raise CheckFailure(
-                            "Required real MCP read surface is missing: " + name
-                        )
+                        raise CheckFailure("Required real MCP read surface is missing: " + name)
                     started = time.monotonic()
                     value = await session.call_tool(name, arguments)
                     try:
@@ -190,37 +176,24 @@ async def probe(config, metadata=False, surfaces=False):
                     )
                 )
                 concurrent_began = time.monotonic()
-                concurrent = text_content(
-                    await session.call_tool("get_folder_briefing_schema", {})
-                )
-                result["concurrent_schema_seconds"] = (
-                    time.monotonic() - concurrent_began
-                )
+                concurrent = text_content(await session.call_tool("get_folder_briefing_schema", {}))
+                result["concurrent_schema_seconds"] = time.monotonic() - concurrent_began
                 result["metadata_pending_during_schema"] = not pending.done()
-                if (
-                    "overview" not in concurrent
-                    or result["concurrent_schema_seconds"] > 10
-                ):
-                    raise CheckFailure(
-                        "Schema responsiveness failed during metadata request"
-                    )
+                if "overview" not in concurrent or result["concurrent_schema_seconds"] > 10:
+                    raise CheckFailure("Schema responsiveness failed during metadata request")
                 answer = text_content(await pending)
                 parsed = json.loads(answer)
                 if parsed.get("operation") != "count_files" or not isinstance(
                     parsed.get("data", {}).get("count"), int
                 ):
-                    raise CheckFailure(
-                        "Native typed metadata count response is missing"
-                    )
+                    raise CheckFailure("Native typed metadata count response is missing")
                 if (
                     "expected_document_count" in config
                     and parsed["data"]["count"] != config["expected_document_count"]
                 ):
                     raise CheckFailure("Metadata count disagrees with isolated fixture")
                 if not result["metadata_pending_during_schema"]:
-                    raise CheckFailure(
-                        "Concurrent schema call did not overlap metadata work"
-                    )
+                    raise CheckFailure("Concurrent schema call did not overlap metadata work")
                 result["metadata_sha256"] = hashlib.sha256(answer.encode()).hexdigest()
     result["elapsed_seconds"] = time.monotonic() - began
     evidence = Path(config["evidence"])
@@ -257,9 +230,7 @@ def main():
         }
         failure["assertions"] = safe_assertions(exc)
         if config.get("evidence"):
-            descriptor = os.open(
-                config["evidence"], os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600
-            )
+            descriptor = os.open(config["evidence"], os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
             with os.fdopen(descriptor, "a") as stream:
                 stream.write(json.dumps(failure, sort_keys=True) + "\n")
                 stream.flush()

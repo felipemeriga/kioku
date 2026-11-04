@@ -14,7 +14,6 @@ import uuid
 from pathlib import Path
 
 import httpx
-
 from tsukai_http_acceptance import CheckFailure, save
 
 
@@ -93,17 +92,13 @@ def reconnect(client, config):
             if (frame.get("progress") or {}).get("type") == "attempt.started":
                 break
             if frame.get("done"):
-                raise CheckFailure(
-                    "Disconnect probe did not detach during actual execution"
-                )
+                raise CheckFailure("Disconnect probe did not detach during actual execution")
     if not job or not cursor:
         raise CheckFailure("Disconnect probe lacks actual active attempt cursor")
     final = None
     sequences = []
     deltas = 0
-    with client.stream(
-        "GET", f"/api/chat/jobs/{job}/events", params={"after": cursor}
-    ) as response:
+    with client.stream("GET", f"/api/chat/jobs/{job}/events", params={"after": cursor}) as response:
         for frame in frames(response):
             if frame.get("event_id") is not None:
                 sequences.append(frame["event_id"])
@@ -112,12 +107,8 @@ def reconnect(client, config):
                 final = frame
     if not final or marker not in final.get("replace", "") or not deltas:
         raise CheckFailure("Reconnect did not recover the actual streamed answer")
-    if any(sequence <= cursor for sequence in sequences) or sequences != sorted(
-        set(sequences)
-    ):
-        raise CheckFailure(
-            "Reconnect replay repeated or reordered durable event sequence"
-        )
+    if any(sequence <= cursor for sequence in sequences) or sequences != sorted(set(sequences)):
+        raise CheckFailure("Reconnect replay repeated or reordered durable event sequence")
     deadline = time.monotonic() + 30
     acknowledged = False
     while time.monotonic() < deadline:
@@ -128,9 +119,7 @@ def reconnect(client, config):
             break
         time.sleep(1)
     if not acknowledged:
-        raise CheckFailure(
-            "Disconnect probe did not durably acknowledge before idempotent replay"
-        )
+        raise CheckFailure("Disconnect probe did not durably acknowledge before idempotent replay")
     replay, _ = terminal(client, request)
     if replay["job_id"] != job or replay["message_id"] != final["message_id"]:
         raise CheckFailure("Stable-turn replay started a different job or message")
@@ -172,16 +161,12 @@ def cancel_rebuild(client, config):
                 )
                 conflict = client.post("/api/chat", json=competing)
                 if conflict.status_code != 409:
-                    raise CheckFailure(
-                        "Same-conversation concurrent turn was not rejected with409"
-                    )
+                    raise CheckFailure("Same-conversation concurrent turn was not rejected with409")
                 cancelled = client.post(f"/api/chat/turns/{request['turn_id']}/cancel")
                 cancelled.raise_for_status()
                 break
             if frame.get("done"):
-                raise CheckFailure(
-                    "Cancellation probe missed the actual running attempt"
-                )
+                raise CheckFailure("Cancellation probe missed the actual running attempt")
     if not job:
         raise CheckFailure("Cancellation probe has no actual native job")
     deadline = time.monotonic() + 90
@@ -264,9 +249,7 @@ def policy_switch(client, config):
     }:
         rejected = True
     if not rejected:
-        raise CheckFailure(
-            "Model/mode switch did not expose controlled policy rejection"
-        )
+        raise CheckFailure("Model/mode switch did not expose controlled policy rejection")
     rebuilt = {
         **changed,
         "turn_id": str(uuid.uuid4()),
@@ -279,9 +262,7 @@ def policy_switch(client, config):
         )
     usage = ((final.get("debug") or {}).get("execution") or {}).get("usage") or {}
     if not any("sonnet" in model.lower() for model in usage.get("model_usage", {})):
-        raise CheckFailure(
-            "Policy rebuild has no actual Sonnet model usage attribution"
-        )
+        raise CheckFailure("Policy rebuild has no actual Sonnet model usage attribution")
     return {
         "case": "same_conversation_model_mode_switch",
         "conversation_id": identifier,
