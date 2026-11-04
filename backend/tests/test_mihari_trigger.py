@@ -90,6 +90,7 @@ def test_activity_only_review_skips_expensive_briefing_generation(monkeypatch):
         return Response({"ok": True})
 
     monkeypatch.setattr(mihari.requests, "post", post)
+    monkeypatch.setattr(mihari, "maintenance_post", post)
     activity = []
     monkeypatch.setattr(mihari, "refresh_activity", lambda *_a, **_k: activity.append(True))
     mihari.review_new_commits(
@@ -148,7 +149,7 @@ def _setup_reground(monkeypatch, posted):
         posted["n"] += 1
         return _R()
 
-    monkeypatch.setattr(mihari.requests, "post", fake_post)
+    monkeypatch.setattr(mihari, "maintenance_post", fake_post)
 
 
 def test_reground_skips_when_not_forced(monkeypatch):
@@ -306,7 +307,7 @@ def test_failed_reground_attempt_has_cooldown_on_same_head(monkeypatch, tmp_path
         def json(self):
             return {"updated": False}
 
-    monkeypatch.setattr(mihari.requests, "post", lambda *a, **k: posted.append(k) or Response())
+    monkeypatch.setattr(mihari, "maintenance_post", lambda *a, **k: posted.append(k) or Response())
     repo = {"folder_id": "f1", "remote_url": "r", "api_key_encrypted": "x"}
     mihari.maybe_reground_holistic(tmp_path, repo, {})
     mihari.maybe_reground_holistic(tmp_path, repo, {})
@@ -349,7 +350,7 @@ def test_guide_upgrade_uses_grounded_repo_context_without_new_commits(monkeypatc
             return {"updated": True}
 
     monkeypatch.setattr(
-        mihari.requests, "post", lambda *a, **k: posted.append(k["json"]) or Response()
+        mihari, "maintenance_post", lambda *a, **k: posted.append(k["json"]) or Response()
     )
     mihari.refresh_sections(
         tmp_path,
@@ -571,3 +572,103 @@ def test_legacy_trigger_header_remains_accepted(monkeypatch):
         {"X-Watcher-Token": "test-token"}, '{"folder_id":"f1","target":"index"}'
     )
     assert status == 404  # Auth succeeded; the requested repo was not found.
+
+
+def test_direct_maintenance_sends_model_only_to_runner_and_publishes_job_id(monkeypatch):
+    monkeypatch.setattr(mihari, "API_URL", "https://backend")
+    monkeypatch.setenv("MIHARI_TSUKAI_SERVICE_TOKEN", "runner-service")
+    submitted = {
+        "owner_id": "u1",
+        "caller": "mihari",
+        "profile": "completion",
+        "idempotency_key": "immutable",
+        "prompt": "supplied evidence",
+        "conversation_id": None,
+        "tool_allowlist": [],
+    }
+    calls = []
+
+    class Response:
+        status_code = 200
+
+        def __init__(self, body):
+            self.body = body
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self.body
+
+    def post(url, **kwargs):
+        calls.append((url, kwargs))
+        if url.endswith("/execution/prepare"):
+            return Response(
+                {
+                    "engine": "tsukai",
+                    "url": "https://runner",
+                    "capability": "bound-token",
+                    "preparation_id": "prepared",
+                    "request": submitted,
+                }
+            )
+        if url == "https://runner/v1/jobs":
+            assert kwargs["json"] == submitted
+            assert kwargs["headers"]["X-Tsukai-Capability"] == "bound-token"
+            return Response({"job_id": "job-1"})
+        assert url.endswith("/execution/publish")
+        assert kwargs["json"] == {
+            "folder_id": "f1",
+            "preparation_id": "prepared",
+            "job_id": "job-1",
+        }
+        return Response({"ok": True, "updated": True})
+
+    monkeypatch.setattr(mihari.requests, "post", post)
+    monkeypatch.setattr(
+        mihari.requests,
+        "get",
+        lambda *_a, **_k: Response(
+            {"status": "completed", "result": {"text": "untrusted model output"}}
+        ),
+    )
+    result = mihari.maintenance_post(
+        "https://backend/api/mihari/activity",
+        headers={"Authorization": "Bearer rag_key"},
+        json={"folder_id": "f1", "head_sha": "a" * 40},
+        timeout=30,
+    )
+    assert result.json()["updated"]
+    assert len(calls) == 3
+
+
+def test_failed_direct_job_never_calls_publication(monkeypatch):
+    monkeypatch.setattr(mihari, "API_URL", "https://backend")
+    monkeypatch.setenv("MIHARI_TSUKAI_SERVICE_TOKEN", "runner-service")
+    calls = []
+
+    class Response:
+        def __init__(self, body):
+            self.body = body
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self.body
+
+    def post(url, **_kwargs):
+        calls.append(url)
+        if url.endswith("/execution/prepare"):
+            return Response(
+                {"engine": "tsukai", "url": "https://runner", "capability": "token", "request": {}}
+            )
+        return Response({"job_id": "job-1"})
+
+    monkeypatch.setattr(mihari.requests, "post", post)
+    monkeypatch.setattr(mihari.requests, "get", lambda *_a, **_k: Response({"status": "failed"}))
+    with pytest.raises(RuntimeError, match="failed"):
+        mihari.maintenance_post(
+            "https://backend/api/mihari/activity", headers={}, json={"folder_id": "f1"}, timeout=30
+        )
+    assert all(not url.endswith("/execution/publish") for url in calls)

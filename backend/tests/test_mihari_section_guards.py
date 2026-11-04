@@ -111,6 +111,9 @@ def test_reground_preserves_pinned_overview(monkeypatch):
         def limit(self, *_args):
             return self
 
+        def insert(self, _payload):
+            return self
+
         def execute(self):
             return SimpleNamespace(data=[])
 
@@ -120,7 +123,9 @@ def test_reground_preserves_pinned_overview(monkeypatch):
 
         def rpc(self, _name, payload):
             writes.append(payload)
-            return Query()
+            return SimpleNamespace(
+                execute=lambda: SimpleNamespace(data={"ok": True, "sections": ["architecture"]})
+            )
 
     monkeypatch.setattr(mihari, "_api_key_auth", lambda _request: ("u1", "f1", "rag_test"))
     monkeypatch.setattr(mihari, "get_supabase", lambda: DB())
@@ -141,7 +146,6 @@ def test_reground_preserves_pinned_overview(monkeypatch):
         },
     )
     data = {
-        "overview": {"purpose": "Model", "description": "Generated"},
         "architecture": {
             "summary": "The API handles requests.",
             "components": [{"name": "API", "role": "Handles requests", "path": "main.py"}],
@@ -158,4 +162,4 @@ def test_reground_preserves_pinned_overview(monkeypatch):
     )
     assert response.status_code == 200
     assert response.json()["sections"] == ["architecture"]
-    assert [write["p_section"] for write in writes] == ["architecture"]
+    assert list(writes[0]["p_value"]) == ["architecture"]

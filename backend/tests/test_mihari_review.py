@@ -35,6 +35,11 @@ class Query:
     def execute(self):
         return SimpleNamespace(data=self.data)
 
+    def insert(self, payload):
+        if self.writes is not None:
+            self.writes.append(payload)
+        return self
+
     def upsert(self, payload, **_kwargs):
         self.writes.append(payload)
         return self
@@ -52,7 +57,22 @@ class DB:
                 [{"section_reviews": {"activity": {"reviewed_at": "old", "head_sha": "a" * 40}}}],
                 self.writes,
             )
+        if name == "maintenance_preparations":
+            return Query([], self.writes)
         raise AssertionError(name)
+
+    def rpc(self, name, payload):
+        assert name == "apply_maintenance_result"
+        value = payload["p_value"]
+        if "selected" in value:
+            return Query(
+                {
+                    "ok": True,
+                    "selected": value["selected"],
+                    "reviewed": ["architecture", "overview", "documentation"],
+                }
+            )
+        return Query({"ok": True, "updated": False, "reason": "content unchanged"})
 
 
 def test_review_plan_can_choose_activity_only_and_still_review_full_briefing(monkeypatch):
@@ -168,8 +188,16 @@ def test_documentation_refresh_collects_streamed_response(monkeypatch):
 
     class DocumentationDB:
         def table(self, name):
-            assert name == "repo_documentation"
-            return Query([{"content": guide, "abstract": abstract}])
+            if name == "repo_documentation":
+                return Query([{"content": guide, "abstract": abstract}])
+            if name in ("repo_freshness", "maintenance_preparations"):
+                return Query([])
+            raise AssertionError(name)
+
+        def rpc(self, name, payload):
+            assert name == "apply_maintenance_result"
+            assert payload["p_value"] == {"content": guide.strip()}
+            return Query({"ok": True, "updated": False, "reason": "content unchanged"})
 
     @contextmanager
     def streamed_response(**_kwargs):
@@ -191,7 +219,7 @@ def test_documentation_refresh_collects_streamed_response(monkeypatch):
     )
     monkeypatch.setattr("services.llm.stream_complete", streamed_response)
     saved = []
-    monkeypatch.setattr(mihari, "save_usage", lambda rows: saved.extend(rows))
+    monkeypatch.setattr("services.usage_ledger.save_usage", lambda rows: saved.extend(rows))
     response = TestClient(app).post(
         "/api/mihari/documentation",
         json={"folder_id": "f1", "head_sha": "a" * 40},
