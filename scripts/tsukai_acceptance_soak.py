@@ -91,8 +91,10 @@ def supervise(plan, output, required_seconds):
             ended = time.monotonic()
             healthy[name] = code == 0
             counts[name]["passed" if code == 0 else "failed"] += 1
-            # Exclude all probe execution time from credit; this conservative
-            # clock cannot credit time spent blocked inside a failing probe.
+            # Successful probe execution is active integrated testing. Failed
+            # or blocked execution earns no credit, including timeout waits.
+            if code == 0 and all(healthy.values()):
+                healthy_seconds += ended - began
             last_tick = ended
             due[name] = ended + case["every"]
             append(
