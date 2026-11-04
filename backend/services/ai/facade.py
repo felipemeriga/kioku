@@ -13,6 +13,10 @@ from services.ai.registry import TASK_POLICIES, engine_for
 from services.ai.scope import ExecutionScope, operation_scope, sign_capability
 
 logger = logging.getLogger(__name__)
+# The native harness must serialize a closed outcome envelope through its own
+# StructuredOutput turn. Tiny task budgets (e.g. 120-token contextual blurbs)
+# cannot also serve as that transport ceiling. Task instructions stay unchanged.
+STRUCTURED_TRANSPORT_MIN_TOKENS = 1024
 
 
 @dataclass(frozen=True)
@@ -69,6 +73,7 @@ def native_completion(
         ):
             raise ExecutionError("unsupported_content")
     profile = "metadata_child" if scope.ai_depth else "completion"
+    transport_max_tokens = max(max_tokens, STRUCTURED_TRANSPORT_MIN_TOKENS)
     request = {
         "schema_version": 1,
         "idempotency_key": str(uuid4()),
@@ -88,7 +93,11 @@ def native_completion(
         ),
         "response_schema": completion_schema(operation),
         "model": model,
-        "max_tokens": max_tokens,
+        "max_tokens": transport_max_tokens,
+        "metadata": {
+            "caller_requested_max_tokens": max_tokens,
+            "structured_transport_max_tokens": transport_max_tokens,
+        },
         "max_turns": 3,
         "folder_ids": list(scope.folder_ids),
         "tool_allowlist": [],

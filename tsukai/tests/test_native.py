@@ -243,3 +243,23 @@ async def test_native_root_union_is_wrapped_and_original_outcome_validated(tmp_p
         await runner.run(
             claim(tmp_path), request("ENVELOPE BAD_WRAPPER", response_schema=schema), emit
         )
+
+
+async def test_logical_and_effective_output_budgets_survive_success_and_failure(tmp_path):
+    async def emit(*args):
+        pass
+
+    runner = NativeRunner(settings(tmp_path))
+    req = request(max_tokens=1024, metadata={"caller_requested_max_tokens": 120})
+    assert runner.environment(req)["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] == "1024"
+    result = await runner.run(claim(tmp_path), req, emit)
+    assert result["usage"]["requested_max_output_tokens_per_inference"] == 120
+    assert result["usage"]["effective_max_output_tokens_per_inference"] == 1024
+    with pytest.raises(NativeError) as failed:
+        await runner.run(
+            claim(tmp_path),
+            request("AUTH", max_tokens=1024, metadata={"caller_requested_max_tokens": 120}),
+            emit,
+        )
+    assert failed.value.result["usage"]["requested_max_output_tokens_per_inference"] == 120
+    assert failed.value.result["usage"]["effective_max_output_tokens_per_inference"] == 1024

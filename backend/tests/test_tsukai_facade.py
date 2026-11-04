@@ -115,3 +115,46 @@ def test_accepted_native_failure_is_tracked_without_masking_failure(monkeypatch,
     assert receipt.call_args.args[3] == "accepted-job"
     assert receipt.call_args.args[-1]["acknowledge_completed"] is False
     assert receipt.call_args.args[-1]["outcome"] == "native_process_failed"
+
+
+@pytest.mark.parametrize(
+    "task_budget,effective", [(120, 1024), (256, 1024), (1024, 1024), (2048, 2048)]
+)
+def test_structured_transport_has_bounded_envelope_headroom(monkeypatch, task_budget, effective):
+    monkeypatch.setenv("TSUKAI_NATIVE_TASKS", "contextual")
+    monkeypatch.setenv("TSUKAI_CREDENTIAL_OWNER_ID", "owner")
+    client = MagicMock()
+    client.complete.return_value = ExecutionResult(
+        "job",
+        "",
+        {
+            "schema_version": 1,
+            "outcome": "completed",
+            "data": {"text": "Short context"},
+            "missing_inputs": [],
+            "failure": None,
+            "warnings": [],
+        },
+        None,
+        "native",
+    )
+    with (
+        execution_scope(ExecutionScope("owner")),
+        patch("services.ai.facade.client_for", return_value=client),
+        patch("services.ai.facade.consume_result"),
+    ):
+        native_completion(
+            operation="contextual",
+            model="haiku",
+            messages=[{"role": "user", "content": "source"}],
+            system="Only a short context",
+            max_tokens=task_budget,
+            tools=None,
+        )
+    sent = client.complete.call_args.args[0]
+    assert sent["max_tokens"] == effective
+    assert sent["metadata"] == {
+        "caller_requested_max_tokens": task_budget,
+        "structured_transport_max_tokens": effective,
+    }
+    assert sent["system_prompt"].startswith("Only a short context")

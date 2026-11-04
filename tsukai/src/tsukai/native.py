@@ -275,6 +275,14 @@ class NativeRunner:
             if not init_seen or final.get("session_id") != attempt["native_session_id"]:
                 raise NativeError("native_session_mismatch", uncertain=True)
             usage = usage_record(final, attempt, claim.get("previous_usage"))
+            requested = req.metadata.get("caller_requested_max_tokens", req.max_tokens)
+            if type(requested) is not int or not 1 <= requested <= req.max_tokens:
+                requested = req.max_tokens
+            usage.update(
+                requested_max_output_tokens_per_inference=requested,
+                effective_max_output_tokens_per_inference=req.max_tokens,
+                output_limit_semantics="native_request_control_not_aggregate_attempt_cap",
+            )
             evidence = {
                 "text": final.get("result", ""),
                 "structured": final.get("structured_output")
@@ -325,8 +333,6 @@ class NativeRunner:
             if proc.returncode:
                 evidence["usage"] = {**usage, "complete": False, "provider_outcome_uncertain": True}
                 raise NativeError("native_process_failed", uncertain=True, result=evidence)
-            usage["requested_max_output_tokens_per_inference"] = req.max_tokens
-            usage["output_limit_semantics"] = "native_request_control_not_aggregate_attempt_cap"
             return {
                 "text": text,
                 "structured": structured,
