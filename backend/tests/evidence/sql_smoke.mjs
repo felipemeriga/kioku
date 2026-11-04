@@ -4,7 +4,7 @@ const require=createRequire(import.meta.url);
 const {PGlite}=require(process.env.PGLITE_MODULE || '@electric-sql/pglite');
 const db=new PGlite();
 await db.exec(`CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role; CREATE SCHEMA auth; CREATE TABLE auth.users(id uuid PRIMARY KEY); CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS $$ SELECT nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$; CREATE TABLE folders(id uuid PRIMARY KEY,user_id uuid,kind text); CREATE SCHEMA storage; CREATE TABLE storage.buckets(id text PRIMARY KEY,name text,public boolean,file_size_limit bigint);`);
-await db.exec(fs.readFileSync('supabase/migrations/20261105090000_agent_evidence.sql','utf8'));
+await db.exec(fs.readFileSync(new URL('../../../supabase/migrations/20261105090000_agent_evidence.sql',import.meta.url),'utf8'));
 const user='11111111-1111-4111-8111-111111111111', folder='22222222-2222-4222-8222-222222222222';
 await db.query('INSERT INTO auth.users VALUES($1)',[user]); await db.query("INSERT INTO folders VALUES($1,$2,'repo')",[folder,user]);
 const request={folder_id:folder,agent:'codex',native_session_id:'root',producer_id:'pc',batch_id:'first',base_revision:0,objects:[],gaps:[],lifecycle:{status:'observed'}};
