@@ -8,7 +8,7 @@ import re
 import subprocess
 from pathlib import Path
 
-PACKAGES = ("backend", "mcp", "frontend", "mihari", "cli")
+PACKAGES = ("backend", "mcp", "frontend", "mihari", "cli", "tsukai")
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
 LEVELS = {"patch": 0, "minor": 1, "major": 2}
 
@@ -32,6 +32,8 @@ def affected(paths):
             result.update(PACKAGES)
         if path.startswith("backend/"):
             result.update(("backend", "mcp"))
+        if path.startswith("tsukai/"):
+            result.add("tsukai")
         if path.startswith("frontend/"):
             result.add("frontend")
         if path.startswith(("cli/",)) or path == ".github/workflows/cli-native.yml":
@@ -131,23 +133,26 @@ def bump_packages(root, packages, levels=None):
                 if count != 1:
                     raise ValueError("CLI VERSION constant not found exactly once")
                 entry.write_text(updated)
-        elif package == "backend":
-            path = root / "backend/pyproject.toml"
+        elif package in ("backend", "tsukai"):
+            path = root / package / "pyproject.toml"
             text = path.read_text()
             match = re.search(r'^version = "([^"]+)"', text, re.MULTILINE)
             version = bump(match[1], level)
             path.write_text(text[: match.start(1)] + version + text[match.end(1) :])
-            lock = root / "backend/uv.lock"
+            project_name = "kioku-tsukai" if package == "tsukai" else package
+            lock = root / package / "uv.lock"
             updated, count = re.subn(
-                r'(\[\[package\]\]\nname = "backend"\nversion = ")[^"]+("\n)',
+                rf'(\[\[package\]\]\nname = "{project_name}"\nversion = ")[^"]+("\n)',
                 rf"\g<1>{version}\2",
                 lock.read_text(),
             )
             if count != 1:
                 raise ValueError(
-                    "Backend uv.lock project stanza not found exactly once"
+                    f"{package} uv.lock project stanza not found exactly once"
                 )
             lock.write_text(updated)
+            if package == "tsukai":
+                versions[package] = version
         else:
             version = versions[package] = bump(versions[package], level)
         result[package] = version
@@ -211,7 +216,7 @@ def prepare(root, source):
         context = (
             "."
             if package == "mihari"
-            else ("backend" if package in ("backend", "mcp") else "frontend")
+            else ("backend" if package in ("backend", "mcp") else package)
         )
         images.append(
             {

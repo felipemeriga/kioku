@@ -86,6 +86,62 @@ describe("folder browser history", () => {
 
   afterEach(() => vi.unstubAllGlobals());
 
+  it("retries a failed document load and restores the current folder's files", async () => {
+    const user = userEvent.setup();
+    const fetchDocuments = vi
+      .spyOn(api, "fetchDocuments")
+      .mockRejectedValueOnce(
+        new api.ApiError({
+          status: 502,
+          userMessage:
+            "The server is temporarily unavailable. Please try again.",
+        }),
+      )
+      .mockResolvedValue([
+        {
+          source_filename: "recovered.md",
+          source_type: "markdown",
+          has_file: true,
+          chunks: 1,
+          status: "completed",
+          created_at: "2026-11-04",
+          folder_id: "parent",
+        },
+      ]);
+    renderWithProviders(<Navigation surface="grid" />, {
+      initialEntries: ["/documents?folder=parent"],
+    });
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "temporarily unavailable",
+    );
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("recovered.md")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(fetchDocuments).toHaveBeenLastCalledWith("parent");
+    expect(fetchDocuments).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a repeated retry failure visible and allows another manual attempt", async () => {
+    const user = userEvent.setup();
+    const fetchDocuments = vi
+      .spyOn(api, "fetchDocuments")
+      .mockRejectedValue(
+        new api.ApiError({
+          status: 503,
+          userMessage: "Temporarily unavailable",
+        }),
+      );
+    renderWithProviders(<Navigation surface="grid" />, {
+      initialEntries: ["/documents?folder=parent"],
+    });
+    await user.click(await screen.findByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(fetchDocuments).toHaveBeenCalledTimes(2));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Temporarily unavailable",
+    );
+    expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled();
+  });
+
   it("waits for folders before showing the empty corpus state", async () => {
     let finishFolders!: (folders: (typeof parent)[]) => void;
     vi.spyOn(api, "fetchFolders").mockImplementation(

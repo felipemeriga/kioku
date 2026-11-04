@@ -14,7 +14,7 @@ COPY --from=ghcr.io/astral-sh/uv:0.9 /uv /usr/local/bin/uv
 ENV UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never \
     UV_TOOL_DIR=/opt/uv-tools UV_TOOL_BIN_DIR=/opt/tool-bin
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv tool install --python /usr/local/bin/python graphifyy==0.9.94 && \
+    uv tool install --python /usr/local/bin/python graphifyy==0.9.102 && \
     uv venv /opt/mihari-venv && \
     uv pip install --python /opt/mihari-venv/bin/python requests cryptography boto3
 
@@ -26,11 +26,12 @@ COPY --from=cli-builder /build /opt/kioku-cli
 COPY --from=python-builder /opt/uv-tools /opt/uv-tools
 COPY --from=python-builder /opt/tool-bin /opt/tool-bin
 COPY --from=python-builder /opt/mihari-venv /opt/mihari-venv
+ENV PATH="/opt/tool-bin:$PATH" PYTHONDONTWRITEBYTECODE=1
 RUN ln -s /opt/kioku-cli/dist/index.js /usr/local/bin/kioku && \
     chmod +x /opt/kioku-cli/dist/index.js && kioku --version && \
     /opt/tool-bin/graphify --help >/dev/null && \
+    node --input-type=module -e "import { ensureGraphify } from '/opt/kioku-cli/dist/commands/graph-index.js'; if (!ensureGraphify()) process.exit(1)" && \
     /opt/mihari-venv/bin/python -c "import requests, cryptography, boto3"
-ENV PATH="/opt/tool-bin:$PATH" PYTHONDONTWRITEBYTECODE=1
 COPY mihari/mihari.py /app/mihari.py
 VOLUME /data
 CMD ["/opt/mihari-venv/bin/python", "/app/mihari.py"]

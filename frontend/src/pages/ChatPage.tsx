@@ -1,4 +1,5 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect, useEffectEvent } from "react";
+import { Box, Button, Typography } from "@mui/material";
 import { useSearchParams } from "react-router-dom";
 import ChatArea from "../components/ChatArea";
 import ScopePickerDialog from "../components/ScopePickerDialog";
@@ -11,10 +12,16 @@ import type {
   Citation,
   DebugTrace,
   StageEvent,
+  NativeChatExecution,
 } from "../lib/api";
-import { streamChat } from "../lib/api";
+import {
+  streamChat,
+  cancelChatExecution,
+  requiresNativeRebuild,
+} from "../lib/api";
 import DocumentViewerDrawer from "../components/DocumentViewerDrawer";
 import { useConversationsContext } from "../hooks/useConversationsContext";
+import { useAuth } from "../hooks/useAuth";
 import { useToast, messageFromError } from "../components/ToastProvider";
 
 const SCOPE_STORE_KEY = "kioku.chat.scopes";
@@ -30,8 +37,10 @@ function readScopes(): Record<string, ChatScope> {
 
 export default function ChatPage() {
   const toast = useToast();
+  const { user } = useAuth();
   const {
     selectedId,
+    activeExecution,
     conversationsLoading,
     messages,
     messagesLoading,
@@ -45,8 +54,44 @@ export default function ChatPage() {
 
   const [streamingContent, setStreamingContent] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
+  const [streamConversationId, setStreamConversationId] = useState<
+    string | null
+  >(null);
+  const selectedConversation = useRef(selectedId);
+  const activeRequest = useRef<string | null>(null);
+  const sendController = useRef<AbortController | null>(null);
+  const recoveredJobs = useRef(new Set<string>());
+  useEffect(
+    () => () => {
+      sendController.current?.abort();
+      activeRequest.current = null;
+    },
+    [user?.id],
+  );
+  useEffect(() => {
+    selectedConversation.current = selectedId;
+  }, [selectedId]);
+  const displayingStream = isStreaming && streamConversationId === selectedId;
   const [currentStage, setCurrentStage] = useState<StageEvent | null>(null);
   const streamingRef = useRef("");
+  const activeJob = useRef<string | null>(null);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [liveTools, setLiveTools] = useState<
+    Record<string, { name: string; status: string; sources?: number }>
+  >({});
+  const [pendingRecovery, setPendingRecovery] = useState<{
+    ownerId: string;
+    execution: NativeChatExecution;
+    allowRebuild: boolean;
+  } | null>(null);
+  const [recovery, setRecovery] = useState<{
+    conversationId: string;
+    content: string;
+    filters?: ChatFilters;
+    model?: ChatModel;
+    mode?: ChatMode;
+    debug?: boolean;
+  } | null>(null);
 
   const [scopes, setScopes] = useState<Record<string, ChatScope>>(() =>
     readScopes(),
@@ -87,7 +132,11 @@ export default function ChatPage() {
     } else {
       delete all[conversationId];
     }
-    localStorage.setItem(SCOPE_STORE_KEY, JSON.stringify(all));
+    try {
+      localStorage.setItem(SCOPE_STORE_KEY, JSON.stringify(all));
+    } catch {
+      // Browser storage policies must not prevent a scoped chat from being sent.
+    }
     setScopes(all);
   };
 
@@ -102,8 +151,9 @@ export default function ChatPage() {
     model?: ChatModel,
     mode?: ChatMode,
     debug?: boolean,
+    rebuild = false,
   ) => {
-    if (isStreaming) return;
+    if (displayingStream) return;
 
     // A brand-new user may not have a conversation yet. Create one on first
     // send instead of silently dropping the message — the old `!selectedId`
@@ -126,6 +176,12 @@ export default function ChatPage() {
       setSearchParams({}, { replace: true });
     }
 
+    const requestId = crypto.randomUUID();
+    activeRequest.current = requestId;
+    const controller = new AbortController();
+    sendController.current = controller;
+    setStreamConversationId(convId);
+
     const userMsg: Message = {
       id: crypto.randomUUID(),
       role: "user",
@@ -137,28 +193,37 @@ export default function ChatPage() {
     setStreamingContent("");
     setCurrentStage(null);
     streamingRef.current = "";
+    activeJob.current = null;
+    setActiveJobId(null);
+    setLiveTools({});
+    setRecovery(null);
+    setPendingRecovery(null);
     // Debug trace and citations arrive just before 'done'; hold them until we
     // build the committed assistant message.
     let debugTrace: DebugTrace | undefined;
     let citations: Citation[] | undefined;
 
-    const scopedFilters: ChatFilters | undefined = scope
-      ? {
-          ...(filters ?? {}),
-          scopeFolderId: scope.filename ? null : scope.folderId,
-          scopeFilename: scope.filename ?? null,
-        }
-      : filters;
+    const scopedFilters: ChatFilters | undefined = rebuild
+      ? filters
+      : scope
+        ? {
+            ...(filters ?? {}),
+            scopeFolderId: scope.folderId,
+            scopeFilename: scope.filename ?? null,
+          }
+        : filters;
 
     try {
       await streamChat(
         convId,
         content,
         (token) => {
+          if (activeRequest.current !== requestId) return;
           streamingRef.current += token;
           setStreamingContent(streamingRef.current);
         },
         () => {
+          if (activeRequest.current !== requestId) return;
           const assistantMsg: Message = {
             id: crypto.randomUUID(),
             role: "assistant",
@@ -167,15 +232,19 @@ export default function ChatPage() {
             debug: debugTrace,
             citations,
           };
-          setMessages((msgs) => [...msgs, assistantMsg]);
+          if (selectedConversation.current === convId)
+            setMessages((msgs) => [...msgs, assistantMsg]);
           setStreamingContent("");
           streamingRef.current = "";
           setIsStreaming(false);
           setCurrentStage(null);
           loadConversations();
+          activeRequest.current = null;
         },
         scopedFilters,
-        (stage) => setCurrentStage(stage),
+        (stage) => {
+          if (activeRequest.current === requestId) setCurrentStage(stage);
+        },
         model,
         mode,
         debug,
@@ -186,13 +255,61 @@ export default function ChatPage() {
         (cites) => {
           citations = cites;
         },
+        (text) => {
+          if (activeRequest.current !== requestId) return;
+          streamingRef.current = text;
+          setStreamingContent(text);
+        },
+        (jobId) => {
+          if (activeRequest.current !== requestId) return;
+          activeJob.current = jobId;
+          setActiveJobId(jobId);
+        },
+        (event) => {
+          if (activeRequest.current !== requestId) return;
+          if (
+            typeof event.tool_call_id !== "string" ||
+            typeof event.name !== "string"
+          )
+            return;
+          const id = event.tool_call_id;
+          const name = event.name;
+          setLiveTools((previous) => ({
+            ...previous,
+            [id]: {
+              name,
+              status:
+                typeof event.status === "string" ? event.status : "running",
+              sources: Array.isArray(event.sources)
+                ? event.sources.length
+                : previous[id]?.sources,
+            },
+          }));
+        },
+        rebuild,
+        undefined,
+        controller.signal,
       );
     } catch (err) {
+      if (activeRequest.current !== requestId) return;
       // Preserve any partial content the assistant already streamed by
       // committing it as a real assistant message with a warning suffix,
       // instead of dropping it silently.
+      if (activeJob.current || requiresNativeRebuild(err))
+        setRecovery({
+          conversationId: convId,
+          content,
+          filters: scopedFilters,
+          model,
+          mode,
+          debug,
+        });
       const partial = streamingRef.current;
-      if (partial.length > 0) {
+      if (
+        partial.length > 0 &&
+        !activeJob.current &&
+        selectedConversation.current === convId
+      ) {
         const truncatedMsg: Message = {
           id: crypto.randomUUID(),
           role: "assistant",
@@ -210,11 +327,240 @@ export default function ChatPage() {
       setStreamingContent("");
       setCurrentStage(null);
       streamingRef.current = "";
+      activeRequest.current = null;
     }
   };
 
+  const resumeExecution = useEffectEvent(
+    async (
+      execution: NativeChatExecution,
+      controller: AbortController,
+      requestId: string,
+      settled: () => void,
+    ) => {
+      const current = () =>
+        !controller.signal.aborted && activeRequest.current === requestId;
+      setStreamConversationId(execution.conversation_id);
+      setIsStreaming(true);
+      setStreamingContent("");
+      streamingRef.current = "";
+      activeJob.current = execution.job_id;
+      setActiveJobId(execution.job_id);
+      setLiveTools({});
+      setCurrentStage({
+        stage: "thinking",
+        detail: "Reconnecting to the saved execution…",
+      });
+      try {
+        await streamChat(
+          execution.conversation_id,
+          "",
+          (token) => {
+            if (!current()) return;
+            streamingRef.current += token;
+            setStreamingContent(streamingRef.current);
+          },
+          () => {
+            if (!current()) return;
+            settled();
+            setIsStreaming(false);
+            // The backend committed the canonical message; never append a duplicate replay.
+            retryMessages();
+            void loadConversations();
+          },
+          undefined,
+          (stage) => {
+            if (current()) setCurrentStage(stage);
+          },
+          execution.model,
+          execution.mode,
+          true,
+          undefined,
+          undefined,
+          undefined,
+          (text) => {
+            if (current()) {
+              streamingRef.current = text;
+              setStreamingContent(text);
+            }
+          },
+          (job) => {
+            if (current()) {
+              activeJob.current = job;
+              setActiveJobId(job);
+            }
+          },
+          (event) => {
+            if (
+              !current() ||
+              typeof event.tool_call_id !== "string" ||
+              typeof event.name !== "string"
+            )
+              return;
+            const id = event.tool_call_id;
+            const name = event.name;
+            setLiveTools((previous) => ({
+              ...previous,
+              [id]: {
+                name,
+                status:
+                  typeof event.status === "string" ? event.status : "running",
+                sources: Array.isArray(event.sources)
+                  ? event.sources.length
+                  : previous[id]?.sources,
+              },
+            }));
+          },
+          false,
+          execution,
+          controller.signal,
+        );
+      } catch (error) {
+        if (current()) {
+          settled();
+          setIsStreaming(false);
+          if (user?.id) {
+            setPendingRecovery({
+              ownerId: user.id,
+              execution,
+              allowRebuild:
+                execution.state === "uncertain" ||
+                execution.state === "failed" ||
+                execution.state === "cancelled" ||
+                requiresNativeRebuild(error),
+            });
+          }
+          toast.showError(error, "Could not recover the saved execution.");
+          retryMessages();
+        }
+      } finally {
+        if (current()) {
+          activeRequest.current = null;
+          setIsStreaming(false);
+          setStreamingContent("");
+          streamingRef.current = "";
+          setCurrentStage(null);
+        }
+      }
+    },
+  );
+  const offerPendingRecovery = useEffectEvent(() => {
+    if (
+      !pendingRecovery ||
+      pendingRecovery.ownerId !== user?.id ||
+      pendingRecovery.execution.conversation_id !== selectedId
+    )
+      return;
+    const execution = pendingRecovery.execution;
+    const latestState =
+      activeExecution?.job_id === execution.job_id
+        ? activeExecution.state
+        : undefined;
+    if (
+      !pendingRecovery.allowRebuild &&
+      latestState !== "failed" &&
+      latestState !== "uncertain" &&
+      latestState !== "cancelled"
+    )
+      return;
+    const message = messages.find(
+      (row) => row.id === execution.user_message_id && row.role === "user",
+    );
+    if (!message) return;
+    setRecovery({
+      conversationId: execution.conversation_id,
+      content: message.content,
+      filters: {
+        scopeFolderId: execution.scope_folder_id ?? null,
+        scopeFilename: execution.scope_filename ?? null,
+      },
+      model: execution.model,
+      mode: execution.mode,
+      debug: true,
+    });
+    setPendingRecovery(null);
+  });
+  useEffect(() => {
+    offerPendingRecovery();
+  }, [messages, pendingRecovery, selectedId, user?.id, activeExecution]);
+  useEffect(() => {
+    if (
+      !user?.id ||
+      !activeExecution ||
+      activeExecution.conversation_id !== selectedId ||
+      activeRequest.current ||
+      recoveredJobs.current.has(`${user.id}:${activeExecution.job_id}`)
+    )
+      return;
+    const key = `${user.id}:${activeExecution.job_id}`;
+    const jobs = recoveredJobs.current;
+    jobs.add(key);
+    let settled = false;
+    const controller = new AbortController();
+    const requestId = crypto.randomUUID();
+    activeRequest.current = requestId;
+    void resumeExecution(activeExecution, controller, requestId, () => {
+      settled = true;
+    });
+    return () => {
+      controller.abort(); // Disconnect only; the accepted model execution remains durable.
+      if (!settled) jobs.delete(key);
+      if (activeRequest.current === requestId) activeRequest.current = null;
+    };
+  }, [selectedId, user?.id, activeExecution]);
+
   return (
     <>
+      {recovery &&
+        recovery.conversationId === selectedId &&
+        !displayingStream && (
+          <Box sx={{ p: 2 }}>
+            <Typography sx={{ fontSize: 13, mb: 1 }}>
+              Retry this request in a fresh native session using saved
+              conversation history.
+            </Typography>
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() =>
+                void handleSend(
+                  recovery.content,
+                  recovery.filters,
+                  recovery.model,
+                  recovery.mode,
+                  recovery.debug,
+                  true,
+                )
+              }
+            >
+              Rebuild context and retry
+            </Button>
+          </Box>
+        )}
+      {displayingStream && Object.keys(liveTools).length > 0 && (
+        <Box role="log" aria-label="Agent execution" sx={{ px: 2, py: 1 }}>
+          {Object.entries(liveTools).map(([id, tool], index) => (
+            <Typography key={id} sx={{ fontSize: 13 }}>
+              {index + 1}. {tool.name} · {tool.status}
+              {tool.sources !== undefined ? ` · ${tool.sources} sources` : ""}
+            </Typography>
+          ))}
+        </Box>
+      )}
+      {displayingStream && activeJobId && (
+        <Button
+          size="small"
+          variant="outlined"
+          onClick={() => {
+            void cancelChatExecution(activeJob.current!).catch((error) =>
+              toast.showError(error, "Cancellation failed"),
+            );
+          }}
+          sx={{ alignSelf: "flex-end", m: "8px 16px" }}
+        >
+          Cancel generation
+        </Button>
+      )}
       <ChatArea
         conversationId={selectedId}
         messages={messages}
@@ -223,10 +569,15 @@ export default function ChatPage() {
         }
         messagesError={messagesError}
         onRetryMessages={retryMessages}
-        streamingContent={streamingContent}
-        isStreaming={isStreaming}
-        currentStage={currentStage}
+        streamingContent={displayingStream ? streamingContent : ""}
+        isStreaming={displayingStream}
+        currentStage={displayingStream ? currentStage : null}
         onSend={handleSend}
+        restoredSettings={
+          activeExecution && activeExecution.conversation_id === selectedId
+            ? activeExecution
+            : undefined
+        }
         scope={scope}
         onPickScope={() => setPickerOpen(true)}
         onClearScope={() => setScope(null)}

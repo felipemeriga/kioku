@@ -52,7 +52,72 @@ def get_conversation(conversation_id: str, user_id: str = Depends(get_current_us
         .order("created_at")
         .execute()
     )
-    return {**conv.data[0], "messages": messages.data}
+    active_execution = None
+    from services.ai.registry import engine_for
+
+    if any(engine_for(op, user_id) == "tsukai" for op in ("rag_agent", "rag_agent_sonnet")):
+        from services.ai.chat import turn_scope
+
+        turns = (
+            sb.table("tsukai_chat_turns")
+            .select("*")
+            .eq("owner_id", user_id)
+            .eq("conversation_id", conversation_id)
+            .not_.is_("job_id", "null")
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        missing_assistant = False
+        if turns:
+            turn = turns[0]
+            expected_ids = {turn.get("user_message_id"), turn.get("assistant_message_id")} - {None}
+            if not expected_ids.issubset({row["id"] for row in messages.data}):
+                # Admission or publication may commit between messages and turn reads.
+                messages = (
+                    sb.table("messages")
+                    .select("id, role, content, created_at, debug, citations")
+                    .eq("conversation_id", conversation_id)
+                    .order("created_at")
+                    .execute()
+                )
+            missing_assistant = bool(turn.get("assistant_message_id")) and (
+                turn["assistant_message_id"] not in {row["id"] for row in messages.data}
+            )
+        if (
+            turns
+            and turns[0].get("job_id")
+            and (
+                missing_assistant
+                or (
+                    not turns[0].get("assistant_message_id")
+                    and turns[0]["state"]
+                    in {"prepared", "submitted", "failed", "cancelled", "uncertain"}
+                )
+            )
+        ):
+            turn = turns[0]
+            try:
+                turn_scope(turn)
+            except HTTPException as exc:
+                if exc.status_code not in (403, 404):
+                    raise
+            else:
+                intent = turn["request"]["metadata"]["intent"]
+                active_execution = {
+                    "state": turn["state"],
+                    "user_message_id": turn.get("user_message_id"),
+                    "scope_folder_id": intent.get("scope_folder_id"),
+                    "scope_filename": intent.get("scope_filename"),
+                    "turn_id": turn["id"],
+                    "job_id": turn["job_id"],
+                    "conversation_id": conversation_id,
+                    "model": intent["model"],
+                    "mode": intent["mode"],
+                }
+    return {**conv.data[0], "messages": messages.data, "active_execution": active_execution}
 
 
 @router.patch("/{conversation_id}")

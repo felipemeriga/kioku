@@ -29,6 +29,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import stat
 import subprocess
 import sys
@@ -102,6 +103,87 @@ HEADERS = {
 
 def log(msg: str) -> None:
     print(f"{datetime.now(timezone.utc).isoformat()} {msg}", flush=True)
+
+
+def maintenance_post(url, *, headers, json, timeout, _repair=True, _batches=3):
+    """Direct model transport after backend authorization and immutable prepare.
+
+    This is an explicit maintenance call site, not an HTTP/LLM interception.
+    API is the default engine. Runner results are never submitted as client data.
+    """
+    from json import dumps
+
+    operation = url.rsplit("/", 1)[-1].replace("-", "_")
+    if operation == "section":
+        operation = json["section"]
+    prepared = requests.post(
+        f"{API_URL}/api/mihari/execution/prepare",
+        headers=headers,
+        json={"operation": operation, "payload": json},
+        timeout=30,
+    )
+    prepared.raise_for_status()
+    body = prepared.json()
+    if body["engine"] == "api":
+        return requests.post(url, headers=headers, json=json, timeout=timeout)
+    if body["engine"] == "skip":
+        response = requests.Response()
+        response.status_code = 200
+        response._content = dumps(body).encode()
+        return response
+    token = os.environ.get("MIHARI_TSUKAI_SERVICE_TOKEN") or os.environ.get("TSUKAI_SERVICE_TOKEN")
+    if not token:
+        raise RuntimeError("Mihari Tsukai service token is unavailable")
+    runner_headers = {"Authorization": f"Bearer {token}", "X-Tsukai-Capability": body["capability"]}
+    runner = body["url"].rstrip("/")
+    submitted = requests.post(
+        runner + "/v1/jobs", headers=runner_headers, json=body["request"], timeout=30
+    )
+    submitted.raise_for_status()
+    job = submitted.json()["job_id"]
+    if not isinstance(job, str) or not re.fullmatch(r"[a-zA-Z0-9_-]+", job):
+        raise RuntimeError("Runner returned invalid job ID")
+    deadline = time.monotonic() + min(timeout, 780)
+    while time.monotonic() < deadline:
+        result = requests.get(runner + f"/v1/jobs/{job}/result", headers=runner_headers, timeout=30)
+        result.raise_for_status()
+        outcome = result.json()
+        status = outcome.get("status")
+        if status in ("completed", "failed", "cancelled", "uncertain"):
+            # Backend records terminal usage even when there is no publishable
+            # domain result. It fetches and validates the job independently.
+            break
+        if status not in ("queued", "running", "launching"):
+            raise RuntimeError(f"Maintenance execution ended: {status}")
+        time.sleep(1)
+    else:
+        raise RuntimeError("Maintenance execution deadline; durable job retained for retry")
+    publication = requests.post(
+        f"{API_URL}/api/mihari/execution/publish",
+        headers=headers,
+        json={
+            "folder_id": json["folder_id"],
+            "preparation_id": body["preparation_id"],
+            "job_id": job,
+        },
+        timeout=30,
+    )
+    if _repair and publication.status_code == 409:
+        detail = publication.json().get("detail", "")
+        if isinstance(detail, str) and detail.startswith("invalid_result:"):
+            return maintenance_post(url, headers=headers, json=json, timeout=timeout, _repair=False)
+    if operation == "learnings" and _batches > 1 and publication.ok:
+        current = publication.json()
+        if current.get("processed_entries"):
+            more = maintenance_post(
+                url, headers=headers, json=json, timeout=timeout, _batches=_batches - 1
+            )
+            more.raise_for_status()
+            following = more.json()
+            for name in ("processed_entries", "updated_learnings"):
+                current[name] = current.get(name, 0) + following.get(name, 0)
+            publication._content = dumps(current).encode()
+    return publication
 
 
 def raise_review_response(response: requests.Response) -> None:
@@ -346,7 +428,7 @@ def refresh_activity(
     if not commits:
         return
     try:
-        r = requests.post(
+        r = maintenance_post(
             f"{API_URL}/api/mihari/activity",
             headers={
                 "Authorization": f"Bearer {decrypt(repo['api_key_encrypted'])}",
@@ -522,7 +604,7 @@ def refresh_sections(
                 raise RuntimeError(f"No source files available for {section} review")
             continue
         try:
-            r = requests.post(
+            r = maintenance_post(
                 f"{API_URL}/api/mihari/section",
                 headers={
                     "Authorization": f"Bearer {key}",
@@ -531,6 +613,7 @@ def refresh_sections(
                 json={
                     "folder_id": repo["folder_id"],
                     "section": section,
+                    "head_sha": run_git(["rev-parse", "HEAD"], env, cwd=str(clone))[1],
                     "files": files,
                 },
                 timeout=120,
@@ -712,7 +795,7 @@ def maybe_reground_holistic(
         except OSError:
             pass  # deployment without a writable clone still functions
     try:
-        r = requests.post(
+        r = maintenance_post(
             f"{API_URL}/api/mihari/reground",
             headers={
                 "Authorization": f"Bearer {key}",
@@ -720,6 +803,7 @@ def maybe_reground_holistic(
             },
             json={
                 "folder_id": repo["folder_id"],
+                "head_sha": head,
                 "files": files,
                 "structure": structure,
                 "selected": selected_sections or ["architecture", "overview"],
@@ -761,7 +845,7 @@ def review_new_commits(clone: Path, repo: dict, old_sha: str | None, head: str, 
         subjects = ""
     key = decrypt(repo["api_key_encrypted"])
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-    r = requests.post(
+    r = maintenance_post(
         f"{API_URL}/api/mihari/review-plan",
         headers=headers,
         json={
@@ -799,7 +883,7 @@ def review_new_commits(clone: Path, repo: dict, old_sha: str | None, head: str, 
                     )
             except OSError:
                 continue
-        r = requests.post(
+        r = maintenance_post(
             f"{API_URL}/api/mihari/documentation",
             headers=headers,
             json={
@@ -1131,7 +1215,7 @@ def refresh_repo_learnings(repo: dict) -> None:
     code, out, _ = run_git(["log", "-80", "--format=%H"], plain_env, cwd=str(clone))
     if code != 0:
         return
-    response = requests.post(
+    response = maintenance_post(
         f"{API_URL}/api/mihari/learnings",
         headers={"Authorization": f"Bearer {decrypt(repo['api_key_encrypted'])}"},
         json={"folder_id": repo["folder_id"], "head_sha": head, "main_commits": out.splitlines()},

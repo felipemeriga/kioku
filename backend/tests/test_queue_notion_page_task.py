@@ -58,6 +58,14 @@ class TestIngestNotionPageTask(unittest.TestCase):
 
         pool = self._mock_enqueue_pool()
 
+        def contextual_with_scope(document, chunks):
+            from services.ai.scope import current_scope
+
+            scope = current_scope()
+            self.assertEqual(scope.owner_id, "u1")
+            self.assertEqual(scope.folder_ids, ("leaf-fid",))
+            return [""] * len(chunks)
+
         payload = {
             "job_id": "page-job-1",
             "parent_job_id": "sync-job-1",
@@ -91,6 +99,7 @@ class TestIngestNotionPageTask(unittest.TestCase):
                 create=True,
             ),
             patch("services.queue.tasks.set_total_batches") as set_total_mock,
+            patch("services.queue.tasks.contextualize_chunks", side_effect=contextual_with_scope),
         ):
             _run(ingest_notion_page_task({"redis": pool}, payload))
 

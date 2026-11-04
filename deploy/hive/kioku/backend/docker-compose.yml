@@ -26,6 +26,13 @@ services:
       - REDIS_URL=redis://kioku-redis:6379/0
       - MCP_PUBLIC_URL=https://kioku.mcp.${DOMAIN}/sse
       - FRONTEND_URL=https://kioku.${DOMAIN}
+      - TSUKAI_URL=${TSUKAI_URL:-http://tsukai:8788}
+      - TSUKAI_SERVICE_TOKEN=${TSUKAI_SERVICE_TOKEN:-}
+      - TSUKAI_CAPABILITY_KEY=${TSUKAI_CAPABILITY_KEY:-}
+      - TSUKAI_CREDENTIAL_OWNER_ID=${TSUKAI_CREDENTIAL_OWNER_ID:-}
+      - TSUKAI_NATIVE_TASKS=${TSUKAI_NATIVE_TASKS:-}
+      - TSUKAI_MIHARI_NATIVE=${TSUKAI_MIHARI_NATIVE:-false}
+      - TSUKAI_NATIVE_MCP_URL=${TSUKAI_NATIVE_MCP_URL:-http://kioku-backend:8000/internal/tsukai/mcp/}
     networks:
       kioku:
         aliases:

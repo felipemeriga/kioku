@@ -8,6 +8,9 @@ from functools import cache
 import anthropic
 from langsmith.wrappers import wrap_anthropic
 
+from services.ai.facade import Completion, native_completion
+from services.ai.registry import TASK_POLICIES
+from services.ai.scope import ExecutionScope
 from services.usage_ledger import UsageAttribution, current_usage, save_usage, usage_row
 
 
@@ -78,6 +81,17 @@ def get_client() -> anthropic.Anthropic:
     return wrap_anthropic(client) if _tracing_enabled() else client
 
 
+def api_only_client(task: Task) -> anthropic.Anthropic:
+    """Declared API-only SDK capability until native parity is verified.
+
+    RAGAS owns its SDK message interface; it cannot silently masquerade as a
+    Tsukai completion. Its explicit registry restriction is reviewed separately.
+    """
+    if TASK_POLICIES[task.value].native_verified:
+        raise ValueError("Use the execution facade for native-verified tasks")
+    return get_client()
+
+
 def _build_kwargs(
     *,
     task: Task,
@@ -123,7 +137,7 @@ def complete(
     thinking_budget: int | None = None,
     attribution: UsageAttribution | None = None,
     capture_usage: bool = True,
-) -> anthropic.types.Message:
+) -> anthropic.types.Message | Completion:
     """Run a Claude completion routed by task.
 
     When cache_system=True, attaches cache_control: ephemeral on the system prompt
@@ -132,6 +146,28 @@ def complete(
 
     Pass thinking_budget to enable extended thinking (must be < max_tokens).
     """
+    active = current_usage()
+    scoped = attribution or (active[0] if active else None)
+    native = native_completion(
+        operation=task.value,
+        model=MODEL_FOR_TASK[task],
+        messages=messages,
+        system=system,
+        max_tokens=max_tokens,
+        tools=tools,
+        fallback_scope=(
+            ExecutionScope(
+                scoped.user_id,
+                (scoped.folder_id,) if scoped.folder_id else (),
+                caller="mihari" if scoped.source == "mihari" else "backend",
+                conversation_id=scoped.conversation_id,
+            )
+            if scoped
+            else None
+        ),
+    )
+    if native is not None:
+        return native
     kwargs = _build_kwargs(
         task=task,
         messages=messages,

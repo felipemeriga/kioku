@@ -35,6 +35,11 @@ class Query:
     def execute(self):
         return SimpleNamespace(data=self.data)
 
+    def insert(self, payload):
+        if self.writes is not None:
+            self.writes.append(payload)
+        return self
+
     def upsert(self, payload, **_kwargs):
         self.writes.append(payload)
         return self
@@ -52,7 +57,22 @@ class DB:
                 [{"section_reviews": {"activity": {"reviewed_at": "old", "head_sha": "a" * 40}}}],
                 self.writes,
             )
+        if name == "maintenance_preparations":
+            return Query([], self.writes)
         raise AssertionError(name)
+
+    def rpc(self, name, payload):
+        assert name == "apply_maintenance_result"
+        value = payload["p_value"]
+        if "selected" in value:
+            return Query(
+                {
+                    "ok": True,
+                    "selected": value["selected"],
+                    "reviewed": ["architecture", "overview", "documentation"],
+                }
+            )
+        return Query({"ok": True, "updated": False, "reason": "content unchanged"})
 
 
 def test_review_plan_can_choose_activity_only_and_still_review_full_briefing(monkeypatch):
@@ -168,8 +188,16 @@ def test_documentation_refresh_collects_streamed_response(monkeypatch):
 
     class DocumentationDB:
         def table(self, name):
-            assert name == "repo_documentation"
-            return Query([{"content": guide, "abstract": abstract}])
+            if name == "repo_documentation":
+                return Query([{"content": guide, "abstract": abstract}])
+            if name in ("repo_freshness", "maintenance_preparations"):
+                return Query([])
+            raise AssertionError(name)
+
+        def rpc(self, name, payload):
+            assert name == "apply_maintenance_result"
+            assert payload["p_value"] == {"content": guide.strip()}
+            return Query({"ok": True, "updated": False, "reason": "content unchanged"})
 
     @contextmanager
     def streamed_response(**_kwargs):
@@ -191,7 +219,7 @@ def test_documentation_refresh_collects_streamed_response(monkeypatch):
     )
     monkeypatch.setattr("services.llm.stream_complete", streamed_response)
     saved = []
-    monkeypatch.setattr(mihari, "save_usage", lambda rows: saved.extend(rows))
+    monkeypatch.setattr("services.usage_ledger.save_usage", lambda rows: saved.extend(rows))
     response = TestClient(app).post(
         "/api/mihari/documentation",
         json={"folder_id": "f1", "head_sha": "a" * 40},
@@ -200,3 +228,48 @@ def test_documentation_refresh_collects_streamed_response(monkeypatch):
     assert response.json() == {"ok": True, "updated": False, "reason": "content unchanged"}
     assert saved[0]["source"] == "mihari"
     assert saved[0]["operation"] == "documentation"
+
+
+def test_native_review_complete_inspects_absent_doc_without_claiming_creation(monkeypatch):
+    from services.maintenance import execution
+
+    state = {
+        "head_sha": "a" * 40,
+        "selected": ["activity", "documentation"],
+        "acknowledged": ["activity"],
+    }
+    inspections = []
+
+    class PassDB:
+        def table(self, name):
+            assert name == "maintenance_review_passes"
+            return Query([state])
+
+    db = PassDB()
+    monkeypatch.setattr(mihari, "_api_key_auth", lambda _: ("owner", "folder", "rag_key"))
+    monkeypatch.setattr(mihari, "get_supabase", lambda: db)
+    monkeypatch.setattr("mcp_server._descendant_folder_ids", lambda *_: ["folder"])
+    monkeypatch.setenv("TSUKAI_MIHARI_NATIVE", "true")
+    monkeypatch.setenv("TSUKAI_CREDENTIAL_OWNER_ID", "owner")
+
+    def inspect(sb, owner, folder, head):
+        assert (sb, owner, folder, head) == (db, "owner", "folder", "a" * 40)
+        inspections.append("authoritative absence")
+        state["acknowledged"].append("documentation")
+
+    monkeypatch.setattr(execution, "acknowledge_absent_documentation", inspect)
+    monkeypatch.setattr(
+        "services.llm.complete",
+        lambda **_: (_ for _ in ()).throw(AssertionError("must not regenerate")),
+    )
+    response = TestClient(app).post(
+        "/api/mihari/review-complete",
+        json={
+            "folder_id": "folder",
+            "head_sha": "a" * 40,
+            "reviewed": ["activity", "documentation"],
+        },
+    )
+    assert response.status_code == 200
+    assert "updated" not in response.json()
+    assert inspections == ["authoritative absence"]

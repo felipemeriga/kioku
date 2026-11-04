@@ -4,6 +4,7 @@ import {
   DialogTitle,
   DialogContent,
   Box,
+  Button,
   Tab,
   Tabs,
   Chip,
@@ -12,7 +13,7 @@ import {
   alpha,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
-import type { DebugTrace } from "../lib/api";
+import { fetchToolArtifact, type DebugTrace } from "../lib/api";
 import { brand, fonts, scanlines } from "../theme";
 import CornerCard from "./neo/CornerCard";
 import RerankBar from "./neo/RerankBar";
@@ -55,9 +56,13 @@ export default function InspectDialog({
   trace,
 }: InspectDialogProps) {
   const [tab, setTab] = useState(0);
+  const [artifacts, setArtifacts] = useState<Record<string, string>>({});
   const reasoning = trace.reasoning ?? [];
   const toolCalls = trace.tool_calls ?? [];
   const chunks = trace.retrieval ?? [];
+  const hasBackendRetrieval = toolCalls.some((t) =>
+    ["backend_retrieval", "backend_bootstrap"].includes(t.origin ?? ""),
+  );
 
   return (
     <Dialog
@@ -161,8 +166,14 @@ export default function InspectDialog({
           },
         }}
       >
-        <Tab label={`Reasoning (${reasoning.length})`} />
-        <Tab label={`Tool calls (${toolCalls.length})`} />
+        <Tab
+          label={
+            trace.execution ? "Execution" : `Reasoning (${reasoning.length})`
+          }
+        />
+        <Tab
+          label={`${hasBackendRetrieval ? "Retrieval and tools" : "Tool calls"} (${toolCalls.length})`}
+        />
         <Tab label={`Chunks (${chunks.length})`} />
       </Tabs>
 
@@ -177,7 +188,10 @@ export default function InspectDialog({
       >
         {tab === 0 && (
           <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            {reasoning.length === 0 && (
+            {trace.execution && (
+              <Pre>{JSON.stringify(trace.execution, null, 2)}</Pre>
+            )}
+            {!trace.execution && reasoning.length === 0 && (
               <Typography sx={{ color: alpha(brand.text, 0.5), fontSize: 13 }}>
                 No reasoning captured — this answer ran without extended
                 thinking (Fast mode).
@@ -235,17 +249,38 @@ export default function InspectDialog({
                       border: `1px solid ${brand.cyan}44`,
                     }}
                   />
+                  {t.origin === "backend_bootstrap" ||
+                  t.origin === "backend_retrieval" ? (
+                    <Typography sx={{ color: brand.muted, fontSize: 12 }}>
+                      {t.origin === "backend_bootstrap"
+                        ? "Backend initial retrieval"
+                        : "Backend retrieval"}
+                    </Typography>
+                  ) : null}
                   <Typography sx={{ color: brand.muted, fontSize: 12 }}>
-                    round {t.round}
+                    {t.round !== undefined
+                      ? `round ${t.round}`
+                      : (t.status ?? "completed")}
                   </Typography>
                   {t.is_error && (
                     <Chip label="error" size="small" color="error" />
                   )}
                 </Box>
+                {t.started_at && (
+                  <Typography sx={{ fontSize: 12, color: brand.muted }}>
+                    Timing: {t.started_at} → {t.finished_at ?? "in progress"}
+                  </Typography>
+                )}
                 <Typography sx={{ color: brand.muted, fontSize: 13, mb: 0.5 }}>
                   input
                 </Typography>
-                <Pre>{JSON.stringify(t.input, null, 2)}</Pre>
+                <Pre>
+                  {t.input != null
+                    ? JSON.stringify(t.input, null, 2)
+                    : t.query
+                      ? JSON.stringify({ query: t.query }, null, 2)
+                      : "No input recorded."}
+                </Pre>
                 <Typography
                   sx={{
                     color: brand.muted,
@@ -256,7 +291,53 @@ export default function InspectDialog({
                 >
                   result
                 </Typography>
-                <Pre>{t.result_preview}</Pre>
+                {t.effective_scope && (
+                  <>
+                    <Typography sx={{ color: brand.muted, mt: 1, mb: 0.5 }}>
+                      Kioku location and scope
+                    </Typography>
+                    <Pre>{JSON.stringify(t.effective_scope, null, 2)}</Pre>
+                  </>
+                )}
+                <Pre>
+                  {t.result_preview ??
+                    "Result available in the evidence artifact."}
+                </Pre>
+                {t.artifact_id && trace.execution?.job_id && (
+                  <>
+                    <Button
+                      size="small"
+                      onClick={() => {
+                        const id = t.artifact_id!;
+                        setArtifacts((previous) => ({
+                          ...previous,
+                          [id]: "Loading…",
+                        }));
+                        void fetchToolArtifact(trace.execution!.job_id, id)
+                          .then((artifact) => {
+                            setArtifacts((previous) => ({
+                              ...previous,
+                              [id]: artifact.result,
+                            }));
+                          })
+                          .catch((error: unknown) => {
+                            setArtifacts((previous) => ({
+                              ...previous,
+                              [id]:
+                                error instanceof Error
+                                  ? error.message
+                                  : "Could not load evidence",
+                            }));
+                          });
+                      }}
+                    >
+                      View exact returned evidence
+                    </Button>
+                    {artifacts[t.artifact_id] && (
+                      <Pre>{artifacts[t.artifact_id]}</Pre>
+                    )}
+                  </>
+                )}
               </Box>
             ))}
           </Box>
@@ -270,7 +351,7 @@ export default function InspectDialog({
               </Typography>
             )}
             {chunks.map((c, i) => {
-              const score = c.rerank_score ?? 0;
+              const score = c.rerank_score;
               const filename = c.source + (c.symbol ? ` · ${c.symbol}` : "");
               return (
                 <CornerCard
@@ -283,11 +364,17 @@ export default function InspectDialog({
                     p: "14px 16px",
                   }}
                 >
-                  <RerankBar
-                    file={filename}
-                    score={score}
-                    kind={c.source_type}
-                  />
+                  {score != null ? (
+                    <RerankBar
+                      file={filename}
+                      score={score}
+                      kind={c.source_type}
+                    />
+                  ) : (
+                    <Typography sx={{ color: brand.text }}>
+                      {filename} · rerank score unavailable
+                    </Typography>
+                  )}
                   {c.date && (
                     <Typography sx={{ color: brand.muted, fontSize: 13 }}>
                       {c.date}
