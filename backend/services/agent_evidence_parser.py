@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
+from dateutil.parser import isoparse
+
 from services.agent_evidence_models import event_id
 
 PREVIEW_BYTES = 4096
@@ -18,7 +20,7 @@ def instant(value):
     try:
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             return datetime.fromtimestamp(value / 1000, timezone.utc).isoformat()
-        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        parsed = isoparse(str(value))
         if parsed.tzinfo:
             return parsed.astimezone(timezone.utc).isoformat()
     except (ValueError, OverflowError, TypeError):

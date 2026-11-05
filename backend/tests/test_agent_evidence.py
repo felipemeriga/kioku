@@ -522,3 +522,33 @@ def test_session_days_explicit_bounds_remain_unchanged(monkeypatch):
     monkeypatch.setattr(module, "rpc", lambda *args: calls.append(args[2]) or [])
     store.days("session", "America/Sao_Paulo", date(2026, 11, 1), date(2026, 11, 3))
     assert calls[0]["p_from"] == "2026-11-01" and calls[0]["p_to"] == "2026-11-03"
+
+
+@pytest.mark.parametrize("fraction", ["1", "51", "1234", "12345"])
+def test_python310_supabase_fractional_timestamp_defaults(monkeypatch, fraction):
+    from datetime import datetime, timezone
+
+    import services.agent_evidence as module
+    from services.agent_evidence_models import Lifecycle
+    from services.agent_evidence_parser import instant
+
+    stamp = f"2026-11-05T02:31:57.{fraction}+00:00"
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 11, 5, 1, 0, tzinfo=timezone.utc).astimezone(tz)
+
+    monkeypatch.setattr(module, "datetime", FrozenDateTime)
+    store = EvidenceStore(None, "owner", FOLDER)
+    monkeypatch.setattr(
+        store,
+        "session",
+        lambda *args: {"folder_id": FOLDER, "first_event_at": stamp, "last_event_at": stamp},
+    )
+    calls = []
+    monkeypatch.setattr(module, "rpc", lambda *args: calls.append(args[2]) or [])
+    store.days("session", "America/Sao_Paulo")
+    assert calls[0]["p_from"] == "2026-11-04" and calls[0]["p_to"] == "2026-11-04"
+    assert Lifecycle(status="ended", ended_at=stamp).ended_at == stamp
+    assert instant(stamp) is not None

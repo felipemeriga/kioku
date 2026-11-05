@@ -8,6 +8,7 @@ import os
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from dateutil.parser import isoparse
 from fastapi import HTTPException
 from storage3.exceptions import StorageApiError
 
@@ -292,7 +293,7 @@ class EvidenceStore:
             fail("invalid_timezone", 422)
 
         def local_day(value):
-            return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(zone).date()
+            return isoparse(value).astimezone(zone).date()
 
         first_day = local_day(s["first_event_at"]) if s.get("first_event_at") else None
         if end is None:

@@ -94,3 +94,17 @@ def test_history_routes_auth_and_bounded_parameters(monkeypatch):
     }
     assert client.get(base + "/sessions?date=2026-03-08&limit=101").status_code == 422
     assert client.get(base + "/days?start=2026-01-01&end=2026-12-01").status_code == 422
+
+
+@pytest.mark.parametrize("fraction", ["1", "51", "1234", "12345"])
+def test_python310_calendar_cursor_accepts_supabase_fractional_timestamp(monkeypatch, fraction):
+    stamp = f"2026-11-05T02:31:57.{fraction}+00:00"
+    rows = [{"id": "33333333-3333-4333-8333-333333333333", "day_last_event_at": stamp}] * 2
+    monkeypatch.setattr(agent_history, "rpc", lambda *args: rows)
+    cursor = agent_history.sessions(STORE, date(2026, 11, 4), limit=1)["next_cursor"]
+    captured = []
+    monkeypatch.setattr(agent_history, "rpc", lambda *args: captured.append(args[2]) or [])
+    assert (
+        agent_history.sessions(STORE, date(2026, 11, 4), cursor=cursor, limit=1)["sessions"] == []
+    )
+    assert captured[0]["p_before_at"] == stamp
