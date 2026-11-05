@@ -4,6 +4,7 @@ import { renderWithProviders } from "../../test/renderWithProviders";
 import { ReadableContent } from "./ReadableContent";
 import {
   filePresentation,
+  prettyJsonSource,
   previewableText,
   readableBlocks,
 } from "./contentBlocks";
@@ -97,6 +98,23 @@ describe("shared readable agent content", () => {
     expect(readableBlocks(noise, "terminal")).toEqual([
       { kind: "terminal", text: noise },
     ]);
+  });
+
+  it("formats only whitespace while preserving numeric literals, duplicate keys and escapes", () => {
+    const source =
+      '{"id":9007199254740993,"fraction":0.1234567890123456789,"key":1,"key":2,"escaped":"\\u0061\\n\\\\"}';
+    const formatted = prettyJsonSource(source);
+    expect(formatted).toContain("9007199254740993");
+    expect(formatted).toContain("0.1234567890123456789");
+    expect(formatted?.match(/"key"/g)).toHaveLength(2);
+    expect(formatted).toContain('"escaped": "\\u0061\\n\\\\"');
+    expect(readableBlocks(source, "json")[0].text).toBe(formatted);
+    expect(readableBlocks(source, "json", false)).toEqual([
+      { kind: "text", text: source },
+    ]);
+    expect(prettyJsonSource('{"a":1,}')).toBeUndefined();
+    expect(prettyJsonSource('{/* comment */"a":1}')).toBeUndefined();
+    expect(prettyJsonSource('{"incomplete":')).toBeUndefined();
   });
 
   it("never treats clipped fragments as complete JSON or hides application fields", () => {
