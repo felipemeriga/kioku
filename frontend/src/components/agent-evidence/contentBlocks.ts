@@ -1,4 +1,25 @@
+import { applyEdits, format, parseTree, type ParseError } from "jsonc-parser";
 import { detectedCodeSpans, syntax } from "./syntax";
+
+/** Whitespace-only formatting; never round-trip source values through JS numbers. */
+export function prettyJsonSource(text: string): string | undefined {
+  if (text.length > 65536) return undefined;
+  try {
+    const errors: ParseError[] = [];
+    const tree = parseTree(text, errors, {
+      disallowComments: true,
+      allowTrailingComma: false,
+      allowEmptyContent: false,
+    });
+    if (!tree || errors.length) return undefined;
+    return applyEdits(
+      text,
+      format(text, undefined, { tabSize: 2, insertSpaces: true, eol: "\n" })
+    );
+  } catch {
+    return undefined;
+  }
+}
 
 export type ReadableKind = "markdown" | "code" | "terminal" | "json" | "text";
 
@@ -109,19 +130,9 @@ export function readableBlocks(
       text.trimStart().startsWith("{") ||
       text.trimStart().startsWith("["))
   ) {
-    try {
-      const parsed: unknown = JSON.parse(text);
-      if (kind === "json" || (parsed !== null && typeof parsed === "object"))
-        return [
-          {
-            kind: "json",
-            text: JSON.stringify(parsed, null, 2),
-            language: "json",
-          },
-        ];
-    } catch {
-      /* Incomplete or non-JSON text remains faithful text below. */
-    }
+    const formatted = prettyJsonSource(text);
+    if (formatted !== undefined)
+      return [{ kind: "json", text: formatted, language: "json" }];
   }
   if (kind === "json") return [{ kind: "text", text }];
   if (kind === "markdown" && /(^|\n)\s*(?:```|~~~)/.test(text))
