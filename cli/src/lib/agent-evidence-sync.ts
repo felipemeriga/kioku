@@ -36,6 +36,13 @@ export async function withEvidenceUploadSlot<T>(
   }
   throw new Error("evidence_upload_budget_exhausted");
 }
+/** Object storage can acknowledge after tens of seconds; keep control calls short. */
+export function evidenceRequestTimeout(
+  method: string | undefined,
+  remaining: number,
+): number {
+  return Math.max(1, Math.min(method === "PUT" ? 120_000 : 30_000, remaining));
+}
 export class EvidenceHttpError extends Error {
   constructor(
     public status: number,
@@ -95,32 +102,58 @@ export async function syncEvidence(
         path: string,
         init: RequestInit = {},
       ): Promise<Record<string, unknown>> => {
-        return withEvidenceUploadSlot(async () => {
-          const response = await fetch(base + path, {
-            ...init,
-            redirect: "manual",
-            signal: AbortSignal.timeout(
-              Math.max(1, Math.min(30_000, deadline - Date.now())),
-            ),
-            headers: { Authorization: `Bearer ${entry.key}`, ...init.headers },
-          });
-          let payload: Record<string, unknown> = {};
+        for (let attempt = 0; ; attempt++) {
           try {
-            payload = (await response.json()) as Record<string, unknown>;
-          } catch {
-            /* response not JSON */
+            return await withEvidenceUploadSlot(async () => {
+              const response = await fetch(base + path, {
+                ...init,
+                redirect: "manual",
+                signal: AbortSignal.timeout(
+                  evidenceRequestTimeout(init.method, deadline - Date.now()),
+                ),
+                headers: {
+                  Authorization: `Bearer ${entry.key}`,
+                  ...init.headers,
+                },
+              });
+              let payload: Record<string, unknown> = {};
+              try {
+                payload = (await response.json()) as Record<string, unknown>;
+              } catch {
+                /* response not JSON */
+              }
+              if (!response.ok) {
+                const delay = response.headers.get("retry-after");
+                const retryAfter = delay
+                  ? Number.isFinite(Number(delay))
+                    ? Number(delay) * 1000
+                    : Math.max(0, Date.parse(delay) - Date.now())
+                  : 0;
+                throw new EvidenceHttpError(
+                  response.status,
+                  payload,
+                  retryAfter,
+                );
+              }
+              return payload;
+            }, deadline);
+          } catch (error) {
+            const retryable =
+              !(error instanceof EvidenceHttpError) ||
+              [408, 429, 500, 502, 503, 504].includes(error.status);
+            const wait = Math.max(
+              error instanceof EvidenceHttpError ? error.retryAfterMs : 0,
+              250 * 2 ** attempt,
+            );
+            if (
+              !retryable ||
+              attempt >= 2 ||
+              Date.now() + wait + 100 >= deadline
+            )
+              throw error;
+            await new Promise((resolve) => setTimeout(resolve, wait));
           }
-          if (!response.ok) {
-            const delay = response.headers.get("retry-after");
-            const retryAfter = delay
-              ? Number.isFinite(Number(delay))
-                ? Number(delay) * 1000
-                : Math.max(0, Date.parse(delay) - Date.now())
-              : 0;
-            throw new EvidenceHttpError(response.status, payload, retryAfter);
-          }
-          return payload;
-        }, deadline);
+        }
       };
       try {
         const capabilities = await request("/capabilities");
@@ -138,7 +171,12 @@ export async function syncEvidence(
         );
         let conflicts = 0;
         while (true) {
-          if (Date.now() >= deadline) return state;
+          if (Date.now() >= deadline) {
+            state.blocked = "retry_pending";
+            state.retry_at = Date.now() + 1000;
+            writeJson(statePath, state);
+            return state;
+          }
           const outstanding = manifest.objects.filter(
             (o) => !state.acknowledged.includes(o.id),
           );
