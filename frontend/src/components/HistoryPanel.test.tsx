@@ -253,6 +253,48 @@ describe("unified History", () => {
       screen.getByRole("region", { name: "Mock original reader" })
     ).toHaveAttribute("data-session", "child-server");
   });
+  it("opens journal details when clicking the summary below its title", async () => {
+    renderWithProviders(<LearningsPanel folderId="repo" />);
+    await journalDay();
+    fireEvent.click(await screen.findByText("Existing summary"));
+    expect(
+      screen.getByRole("region", { name: "Session overview" })
+    ).toHaveTextContent("Existing summary");
+    expect(
+      screen.getByRole("heading", { name: "Findings" })
+    ).toBeInTheDocument();
+  });
+  it("preserves links inside a journal summary", async () => {
+    const originalMock = vi.mocked(api.apiFetch).getMockImplementation()!;
+    vi.mocked(api.apiFetch).mockImplementation(async (path, options) => {
+      const response = await originalMock(path, options);
+      if (!String(path).includes(`/learning-days/${date}?`)) return response;
+      const body = await response.json();
+      body.sessions[0].summary = "Read the [reference](#reference).";
+      return json(body);
+    });
+    renderWithProviders(<LearningsPanel folderId="repo" />);
+    await journalDay();
+    fireEvent.click(await screen.findByRole("link", { name: "reference" }));
+    expect(
+      screen.queryByRole("region", { name: "Session overview" })
+    ).not.toBeInTheDocument();
+  });
+  it("keeps summary text selectable without opening the journal", async () => {
+    renderWithProviders(<LearningsPanel folderId="repo" />);
+    await journalDay();
+    const summary = await screen.findByText("Existing summary");
+    const range = document.createRange();
+    range.selectNodeContents(summary);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    fireEvent.click(summary);
+    expect(
+      screen.queryByRole("region", { name: "Session overview" })
+    ).not.toBeInTheDocument();
+    selection.removeAllRanges();
+  });
   it("retains journal-only summaries with unavailable archival service and gentle evidence feedback", async () => {
     unavailable = true;
     renderWithProviders(<LearningsPanel folderId="repo" />);
