@@ -271,7 +271,7 @@ export default function DocumentsPage() {
     enabled: !!currentFolderId,
   });
   const breadcrumbs: Breadcrumb[] = currentFolderId
-    ? (breadcrumbsQuery.data ?? [])
+    ? breadcrumbsQuery.data ?? []
     : [];
 
   // Global drag-and-drop from OS: dim entire content area whenever the user
@@ -330,12 +330,16 @@ export default function DocumentsPage() {
     enabled: currentFolderIsRepo && !!currentFolderId,
   });
   const hasBriefing = Boolean(briefingQuery.data?.last_generated_at);
-  const folderTab =
-    selectedFolderTab?.folderId === currentFolderId
-      ? selectedFolderTab.tab
-      : hasBriefing
-        ? "briefing"
-        : "files";
+  const requestedTab = searchParams.get("tab");
+  const folderTab = ["files", "briefing", "status", "learnings"].includes(
+    requestedTab ?? "",
+  )
+    ? requestedTab!
+    : selectedFolderTab?.folderId === currentFolderId
+    ? selectedFolderTab.tab
+    : hasBriefing
+    ? "briefing"
+    : "files";
 
   const handleCreateFolder = async () => {
     if (!newFolderName.trim()) return;
@@ -468,7 +472,7 @@ export default function DocumentsPage() {
               }}
             >
               {currentFolderId
-                ? (breadcrumbs.at(-1)?.name ?? "Loading folder…")
+                ? breadcrumbs.at(-1)?.name ?? "Loading folder…"
                 : "All documents"}
               {currentFolderId && (
                 <NotionFolderIndicator folderId={currentFolderId} />
@@ -606,9 +610,12 @@ export default function DocumentsPage() {
           <Tabs
             className="folder-tabs"
             value={folderTab}
-            onChange={(_, v) =>
-              setSelectedFolderTab({ folderId: currentFolderId!, tab: v })
-            }
+            onChange={(_, v) => {
+              setSelectedFolderTab({ folderId: currentFolderId!, tab: v });
+              const next = new URLSearchParams(searchParams);
+              next.set("tab", v);
+              setSearchParams(next, { replace: true });
+            }}
             sx={{
               mb: 3,
               minHeight: 40,

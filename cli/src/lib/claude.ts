@@ -304,6 +304,14 @@ export function installClaudeMemoryCaptureHook(repoRoot: string): {
   });
 }
 
+/** Originals are a separate deterministic pipeline; journal Stop stays intact. */
+export function installClaudeEvidenceHooks(repoRoot: string): { addedHook: boolean } {
+  let addedHook = false;
+  for (const event of ["SessionStart", "PostToolUse", "Stop", "SubagentStart", "SubagentStop", "PreCompact", "SessionEnd"])
+    addedHook = installHook(repoRoot, event, "evidence-capture --agent claude_code", undefined, { timeout: 3 }).addedHook || addedHook;
+  return { addedHook };
+}
+
 /** Remove retired transcript-capture hooks without touching other handlers. */
 export function removeLegacyCaptureHooks(repoRoot: string): boolean {
   const dir = join(repoRoot, ".claude");

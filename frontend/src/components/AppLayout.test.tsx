@@ -61,6 +61,21 @@ describe("responsive application workspace", () => {
       })
     ).toBeVisible();
   });
+  it("classifies original transcript routes as Documents without a folder sidebar", () => {
+    renderWithProviders(
+      <AppLayout>
+        <h1>Original transcript</h1>
+      </AppLayout>,
+      { initialEntries: ["/folders/repo/agent-sessions/archive-id"] }
+    );
+    expect(
+      within(screen.getByTestId("app-topbar")).getByText("Documents")
+    ).toBeVisible();
+    expect(screen.queryByTestId("context-panel")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Original transcript" })
+    ).toBeVisible();
+  });
   it("opens and closes the mobile folder navigator without replacing the workspace", async () => {
     viewport.mobile = true;
     const user = userEvent.setup();

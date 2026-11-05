@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Alert,
@@ -20,6 +20,42 @@ import { decorateJournalMarkdown } from "./journalMarkdown";
 import { apiFetch } from "../lib/api";
 import { brand, fonts } from "../theme";
 import "./LearningsPanel.css";
+import { useAuth } from "../hooks/useAuth";
+import type { EvidenceLocation } from "../lib/agentEvidenceApi";
+import EvidenceDrawer from "./evidence/EvidenceDrawer";
+import JournalEvidenceLink from "./evidence/JournalEvidenceLink";
+import OriginalSessions from "./evidence/OriginalSessions";
+
+type JournalReturnState = {
+  year: number;
+  month: number;
+  selectedDate: string | null;
+  selectedSession: { date: string; key: string } | null;
+  raw: boolean;
+  view: "journal" | "learnings" | "originals";
+  scrollY: number;
+  savedAt: number;
+};
+function readJournalReturn(key: string): JournalReturnState | null {
+  try {
+    const value = JSON.parse(
+      sessionStorage.getItem(key) || "null",
+    ) as JournalReturnState | null;
+    if (
+      !value ||
+      !Number.isInteger(value.year) ||
+      !Number.isInteger(value.month) ||
+      value.month < 0 ||
+      value.month > 11 ||
+      Date.now() - value.savedAt > 600_000 ||
+      !["journal", "learnings", "originals"].includes(value.view)
+    )
+      return null;
+    return value;
+  } catch {
+    return null;
+  }
+}
 
 type JournalDay = {
   journal_date: string;
@@ -111,7 +147,10 @@ function entriesFromMarkdown(markdown: string): Entry[] {
 
 function localDay(epochMs: number) {
   const date = new Date(epochMs);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(
+    2,
+    "0",
+  )}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function localTime(epochMs: number) {
@@ -132,23 +171,79 @@ function dateLabel(day: string) {
 }
 
 export default function LearningsPanel({ folderId }: { folderId: string }) {
+  const { user } = useAuth();
+  const returnKey = `kioku.evidence-journal-return:${
+    user?.id ?? "anonymous"
+  }:${folderId}`;
+  const [restored] = useState(() =>
+    user ? readJournalReturn(returnKey) : null,
+  );
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  const [view, setView] = useState<"journal" | "learnings">("journal");
-  const [month, setMonth] = useState(() => new Date().getMonth());
-  const [year, setYear] = useState(() => new Date().getFullYear());
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [raw, setRaw] = useState(false);
+  const [view, setView] = useState<"journal" | "learnings" | "originals">(
+    restored?.view ?? "journal",
+  );
+  const [month, setMonth] = useState(
+    () => restored?.month ?? new Date().getMonth(),
+  );
+  const [year, setYear] = useState(
+    () => restored?.year ?? new Date().getFullYear(),
+  );
+  const [selectedDate, setSelectedDate] = useState<string | null>(
+    restored?.selectedDate ?? null,
+  );
+  const [raw, setRaw] = useState(restored?.raw ?? false);
   const [selectedSession, setSelectedSession] = useState<{
     date: string;
     key: string;
-  } | null>(null);
+  } | null>(restored?.selectedSession ?? null);
+  const [evidenceLocation, setEvidenceLocation] =
+    useState<EvidenceLocation | null>(null);
+  const saveReturn = () => {
+    if (!user) return;
+    try {
+      sessionStorage.setItem(
+        returnKey,
+        JSON.stringify({
+          year,
+          month,
+          selectedDate,
+          selectedSession,
+          raw,
+          view,
+          scrollY: window.scrollY,
+          savedAt: Date.now(),
+        }),
+      );
+    } catch {
+      /* Optional browser UI storage. */
+    }
+  };
+  const openEvidence = (location: EvidenceLocation) => {
+    saveReturn();
+    setEvidenceLocation(location);
+  };
+  useEffect(() => {
+    try {
+      for (const key of Object.keys(sessionStorage)) {
+        if (
+          key.startsWith("kioku.evidence-journal-return:") &&
+          (!user || key !== returnKey)
+        )
+          sessionStorage.removeItem(key);
+      }
+    } catch {
+      /* Browser storage is optional. */
+    }
+  }, [returnKey, user]);
 
   const daysQuery = useQuery({
     queryKey: ["learning-days", folderId, year, month, timezone],
     queryFn: async () =>
       (await (
         await apiFetch(
-          `/api/folders/${folderId}/learning-days?year=${year}&month=${month + 1}&timezone=${encodeURIComponent(timezone)}`,
+          `/api/folders/${folderId}/learning-days?year=${year}&month=${
+            month + 1
+          }&timezone=${encodeURIComponent(timezone)}`,
         )
       ).json()) as { days: JournalDay[] },
     staleTime: 60_000,
@@ -169,7 +264,9 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
     queryFn: async () =>
       (await (
         await apiFetch(
-          `/api/folders/${folderId}/learning-days/${activeDate}?timezone=${encodeURIComponent(timezone)}`,
+          `/api/folders/${folderId}/learning-days/${activeDate}?timezone=${encodeURIComponent(
+            timezone,
+          )}`,
         )
       ).json()) as {
         status: string;
@@ -190,6 +287,18 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
     enabled: view === "learnings",
     staleTime: 30_000,
   });
+
+  useEffect(() => {
+    if (restored && (dayQuery.data || view !== "journal")) {
+      try {
+        sessionStorage.removeItem(returnKey);
+      } catch {
+        /* Optional UI storage. */
+      }
+      if (restored.scrollY > 0)
+        requestAnimationFrame(() => window.scrollTo({ top: restored.scrollY }));
+    }
+  }, [restored, dayQuery.data, view, returnKey]);
 
   const firstWeekday = (new Date(year, month, 1).getDay() + 6) % 7;
   const count = new Date(year, month + 1, 0).getDate();
@@ -301,6 +410,7 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
         >
           <Tab value="journal" label="Journal" />
           <Tab value="learnings" label="Learnings" />
+          <Tab value="originals" label="Original sessions" />
         </Tabs>
       </Stack>
 
@@ -360,14 +470,25 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
                   ))}
                   {calendarCells.map((date, index) => {
                     if (date < 1) return <span key={`blank-${index}`} />;
-                    const key = `${year}-${String(month + 1).padStart(2, "0")}-${String(date).padStart(2, "0")}`;
+                    const key = `${year}-${String(month + 1).padStart(
+                      2,
+                      "0",
+                    )}-${String(date).padStart(2, "0")}`;
                     const day = dayMap.get(key);
                     return (
                       <button
                         key={key}
                         type="button"
-                        className={`learnings-day ${activeDate === key ? "selected" : ""} ${day ? "has-entry" : ""}`}
-                        aria-label={`${dateLabel(key)}${day ? `, ${day.approximate ? "at least " : ""}${day.entry_count} journal entries` : ", no entries"}`}
+                        className={`learnings-day ${
+                          activeDate === key ? "selected" : ""
+                        } ${day ? "has-entry" : ""}`}
+                        aria-label={`${dateLabel(key)}${
+                          day
+                            ? `, ${day.approximate ? "at least " : ""}${
+                                day.entry_count
+                              } journal entries`
+                            : ", no entries"
+                        }`}
                         aria-pressed={activeDate === key}
                         onClick={() => {
                           setSelectedDate(key);
@@ -421,8 +542,8 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
                     {dayQuery.data?.status === "ok"
                       ? entries.length
                       : dayMap.get(activeDate)?.approximate
-                        ? `At least ${dayMap.get(activeDate)?.entry_count}`
-                        : dayMap.get(activeDate)?.entry_count}{" "}
+                      ? `At least ${dayMap.get(activeDate)?.entry_count}`
+                      : dayMap.get(activeDate)?.entry_count}{" "}
                     entries · {sessions.length} sessions · {timezone}
                   </Typography>
                 )}
@@ -544,7 +665,9 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
                   {visibleEntries.map((entry) => (
                     <article key={entry.id} className="learnings-entry">
                       <span
-                        className={`learnings-entry-dot ${entry.agent === "codex" ? "codex" : "claude"}`}
+                        className={`learnings-entry-dot ${
+                          entry.agent === "codex" ? "codex" : "claude"
+                        }`}
                       />
                       <div className="learnings-entry-heading">
                         <time dateTime={new Date(entry.time).toISOString()}>
@@ -559,7 +682,11 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
                         {entry.sessionId && (
                           <span
                             className="learnings-session-id"
-                            title={`Resume with: ${entry.agent === "codex" ? "codex resume" : "claude --resume"} ${entry.sessionId}`}
+                            title={`Resume with: ${
+                              entry.agent === "codex"
+                                ? "codex resume"
+                                : "claude --resume"
+                            } ${entry.sessionId}`}
                             aria-label={`Session ID: ${entry.sessionId}`}
                           >
                             Session {entry.sessionId.slice(0, 8)}
@@ -581,6 +708,12 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
                           {entry.markdown}
                         </ReactMarkdown>
                       </div>
+                      <JournalEvidenceLink
+                        folderId={folderId}
+                        entryId={entry.id}
+                        timezone={timezone}
+                        onOpen={openEvidence}
+                      />
                     </article>
                   ))}
                 </div>
@@ -588,6 +721,13 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
             )}
           </Box>
         </Box>
+      ) : view === "originals" ? (
+        <OriginalSessions
+          folderId={folderId}
+          timezone={timezone}
+          onOpen={openEvidence}
+          onBeforeNavigate={saveReturn}
+        />
       ) : (
         <Box className="learnings-current">
           <Typography sx={{ color: brand.muted, mb: 2, maxWidth: 680 }}>
@@ -672,6 +812,11 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
           )}
         </Box>
       )}
+      <EvidenceDrawer
+        location={evidenceLocation}
+        onLocationChange={setEvidenceLocation}
+        onClose={() => setEvidenceLocation(null)}
+      />
     </Box>
   );
 }
