@@ -53,6 +53,7 @@ export interface EvidencePresentation {
     kind: "markdown" | "code" | "terminal" | "json" | "text";
     text: string;
     language?: string;
+    viewer_truncated?: boolean;
   }>;
   tool?: {
     name?: string;
@@ -164,11 +165,11 @@ export const evidenceKeys = {
 export async function listEvidenceSessions(
   folder: string,
   cursor?: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ) {
   const response = await apiFetch(
     `${prefix(folder)}${query({ cursor, limit: 50 })}`,
-    { signal }
+    { signal },
   );
   return response.json() as Promise<{
     sessions: EvidenceSession[];
@@ -178,7 +179,7 @@ export async function listEvidenceSessions(
 export async function getEvidenceSession(
   folder: string,
   session: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ) {
   const response = await apiFetch(sessionPath(folder, session), { signal });
   return response.json() as Promise<EvidenceSession>;
@@ -187,11 +188,11 @@ export async function getEvidenceDays(
   folder: string,
   session: string,
   timezone: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ) {
   const response = await apiFetch(
     `${sessionPath(folder, session)}/days${query({ timezone })}`,
-    { signal }
+    { signal },
   );
   return response.json() as Promise<{
     days: {
@@ -206,7 +207,7 @@ export async function getEvidenceDays(
 export async function getEvidenceWindow(
   location: EvidenceLocation,
   options: EvidenceWindowOptions,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<EvidenceWindow> {
   const route = location.mode === "raw" ? "raw-records" : "events";
   const response = await apiFetch(
@@ -214,7 +215,7 @@ export async function getEvidenceWindow(
       ...options,
       limit: options.limit ?? 50,
     })}`,
-    { signal }
+    { signal },
   );
   const body = (await response.json()) as Partial<EvidenceWindow>;
   return {
@@ -230,11 +231,11 @@ export async function getEvidenceWindow(
 export async function getJournalEvidence(
   folder: string,
   entry: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ) {
   const response = await apiFetch(
     `${prefix(folder)}/evidence-for-entry/${segment(entry)}`,
-    { signal }
+    { signal },
   );
   return response.json() as Promise<JournalEvidenceLink>;
 }
@@ -242,13 +243,13 @@ export async function getEvidenceContent(
   location: EvidenceLocation,
   event: string,
   offset = 0,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ) {
   const response = await apiFetch(
     `${sessionPath(location.folderId, location.sessionId)}/events/${segment(
-      event
+      event,
     )}/content${query({ offset, limit_bytes: 65536 })}`,
-    { signal }
+    { signal },
   );
   return response.json() as Promise<{
     event_id: string;
@@ -263,42 +264,42 @@ export async function getEvidenceContent(
 export async function getAttachmentMetadata(
   location: EvidenceLocation,
   attachment: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ) {
   const response = await apiFetch(
     `${sessionPath(
       location.folderId,
-      location.sessionId
+      location.sessionId,
     )}/attachments/${segment(attachment)}`,
-    { signal }
+    { signal },
   );
   return response.json() as Promise<EvidenceAttachment>;
 }
 export async function getAttachmentPreview(
   location: EvidenceLocation,
   attachment: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ) {
   const response = await apiFetch(
     `${sessionPath(
       location.folderId,
-      location.sessionId
+      location.sessionId,
     )}/attachments/${segment(attachment)}?content=true`,
-    { signal, headers: { Range: "bytes=0-65535" } }
+    { signal, headers: { Range: "bytes=0-65535" } },
   );
   return response.text();
 }
 export async function downloadEvidence(
   location: EvidenceLocation,
   kind: "raw" | "attachment",
-  id: string
+  id: string,
 ) {
   const path =
     kind === "raw"
       ? `/events/${segment(id)}/raw?download=true`
       : `/attachments/${segment(id)}?download=true`;
   const response = await apiFetch(
-    sessionPath(location.folderId, location.sessionId) + path
+    sessionPath(location.folderId, location.sessionId) + path,
   );
   const blob = await response.blob();
   const url = URL.createObjectURL(blob);
@@ -312,7 +313,7 @@ export async function downloadEvidence(
 }
 export function evidenceUrl(location: EvidenceLocation) {
   return `/folders/${segment(location.folderId)}/agent-sessions/${segment(
-    location.sessionId
+    location.sessionId,
   )}${query({
     event: location.eventId,
     end: location.endEventId,
