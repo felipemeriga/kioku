@@ -1,1 +1,1 @@
-{"private":true,"type":"module","scripts":{"test":"node sql_smoke.mjs && node calendar_sql.mjs"},"devDependencies":{"@electric-sql/pglite":"0.3.14"}}
+{"private":true,"type":"module","scripts":{"test":"node sql_smoke.mjs && node calendar_sql.mjs && node history_search_sql.mjs"},"devDependencies":{"@electric-sql/pglite":"0.3.14"}}

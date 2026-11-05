@@ -34,7 +34,7 @@ vi.mock("./evidence/EvidenceDrawer", () => ({
 const now = new Date();
 const prefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
   2,
-  "0",
+  "0"
 )}`;
 const date = `${prefix}-04`;
 const originalOnlyDate = `${prefix}-05`;
@@ -179,14 +179,14 @@ function storage() {
       }),
       get: (target, key) =>
         key in target ? Reflect.get(target, key) : data[String(key)],
-    },
+    }
   );
 }
 async function journalDay() {
   fireEvent.click(
     await screen.findByRole("button", {
       name: new RegExp("4, .*1 journal entries"),
-    }),
+    })
   );
 }
 describe("unified History", () => {
@@ -198,11 +198,11 @@ describe("unified History", () => {
     ]);
     await journalDay();
     expect(
-      await screen.findAllByRole("button", { name: /Journal title/ }),
+      await screen.findAllByRole("button", { name: /Journal title/ })
     ).toHaveLength(1);
     expect(screen.queryByRole("button", { name: /Original title/ })).toBeNull();
     expect(
-      screen.getByRole("button", { name: /5, .*24 original events/ }),
+      screen.getByRole("button", { name: /5, .*24 original events/ })
     ).toBeInTheDocument();
   });
   it("shows originals-only on their active day and routes a child-only source anchor", async () => {
@@ -212,64 +212,64 @@ describe("unified History", () => {
     fireEvent.click(
       within(screen.getByText("Original title").closest("article")!).getByRole(
         "button",
-        { name: "View originals" },
-      ),
+        { name: "View originals" }
+      )
     );
     expect(
-      screen.getByRole("region", { name: "Mock original reader" }),
+      screen.getByRole("region", { name: "Mock original reader" })
     ).toHaveAttribute("data-session", "child-server");
     expect(
-      screen.getByRole("region", { name: "Mock original reader" }),
+      screen.getByRole("region", { name: "Mock original reader" })
     ).toHaveAttribute("data-date", originalOnlyDate);
     expect(
-      screen.getByRole("region", { name: "Mock original reader" }),
+      screen.getByRole("region", { name: "Mock original reader" })
     ).toHaveAttribute("data-event", "first-event");
   });
   it("opens journal overview/timeline through the shared renderer while Markdown source stays exact", async () => {
     renderWithProviders(<LearningsPanel folderId="repo" />);
     await journalDay();
     fireEvent.click(
-      await screen.findByRole("button", { name: /Journal title/ }),
+      await screen.findByRole("button", { name: /Journal title/ })
     );
     expect(
-      screen.getByRole("region", { name: "Session overview" }),
+      screen.getByRole("region", { name: "Session overview" })
     ).toHaveTextContent("Existing summary");
     expect(
-      screen.getByRole("heading", { name: "Findings" }),
+      screen.getByRole("heading", { name: "Findings" })
     ).toBeInTheDocument();
     expect(
-      document.querySelector(".learnings-entry pre code"),
+      document.querySelector(".learnings-entry pre code")
     ).toHaveTextContent('fn main() { println!("safe"); }');
     fireEvent.click(screen.getByRole("button", { name: "Markdown" }));
     expect(document.querySelector(".learnings-raw")?.textContent).toBe(
-      markdown,
+      markdown
     );
     fireEvent.click(screen.getByRole("button", { name: "Timeline" }));
     expect(
-      screen.getByRole("heading", { name: "Findings" }),
+      screen.getByRole("heading", { name: "Findings" })
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "View evidence" }));
     expect(
-      screen.getByRole("region", { name: "Mock original reader" }),
+      screen.getByRole("region", { name: "Mock original reader" })
     ).toHaveAttribute("data-session", "child-server");
   });
   it("retains journal-only summaries with unavailable archival service and gentle evidence feedback", async () => {
     unavailable = true;
     renderWithProviders(<LearningsPanel folderId="repo" />);
     fireEvent.click(
-      await screen.findByRole("button", { name: /Journal title/ }),
+      await screen.findByRole("button", { name: /Journal title/ })
     );
     expect(
-      await screen.findByText(/Original activity is currently unavailable/),
+      await screen.findByText(/Original activity is currently unavailable/)
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "View evidence" }));
     expect(
       await screen.findByText(
-        "Original evidence is unavailable for this entry.",
-      ),
+        "Original evidence is unavailable for this entry."
+      )
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole("region", { name: "Mock original reader" }),
+      screen.queryByRole("region", { name: "Mock original reader" })
     ).toBeNull();
   });
   it("fetches month-local bounded dates and explicit day pages and leaves idle days empty", async () => {
@@ -278,10 +278,10 @@ describe("unified History", () => {
     fireEvent.click(
       screen.getByRole("button", {
         name: new RegExp(`\\b6, ${now.getFullYear()}, no entries`),
-      }),
+      })
     );
     expect(
-      await screen.findByText("No history recorded on this day."),
+      await screen.findByText("No history recorded on this day.")
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Previous month" }));
     await waitFor(() =>
@@ -291,26 +291,26 @@ describe("unified History", () => {
           .mock.calls.some(
             ([p]) =>
               String(p).includes("agent-history/days?start=") &&
-              !String(p).includes(`start=${prefix}`),
-          ),
-      ).toBe(true),
+              !String(p).includes(`start=${prefix}`)
+          )
+      ).toBe(true)
     );
     const urls = vi.mocked(api.apiFetch).mock.calls.map(([p]) => String(p));
     expect(
       urls
         .filter((u) => u.includes("agent-history/days"))
-        .every((u) => u.includes("timezone=") && u.includes("&end=")),
+        .every((u) => u.includes("timezone=") && u.includes("&end="))
     ).toBe(true);
   });
   it("restores selected History day/session and its owning main scroll without repeated resets", async () => {
     const first = renderWithProviders(
       <main>
         <LearningsPanel folderId="repo" />
-      </main>,
+      </main>
     );
     await journalDay();
     fireEvent.click(
-      await screen.findByRole("button", { name: /Journal title/ }),
+      await screen.findByRole("button", { name: /Journal title/ })
     );
     document.querySelector("main")!.scrollTop = 240;
     fireEvent.click(screen.getByRole("button", { name: "View evidence" }));
@@ -327,11 +327,11 @@ describe("unified History", () => {
     renderWithProviders(
       <main>
         <LearningsPanel folderId="repo" />
-      </main>,
+      </main>
     );
     await screen.findByRole("region", { name: "Session overview" });
     await waitFor(() =>
-      expect(document.querySelector("main")!.scrollTop).toBe(240),
+      expect(document.querySelector("main")!.scrollTop).toBe(240)
     );
     expect(sessionStorage.getItem(key)).toBeNull();
   });
@@ -347,27 +347,27 @@ describe("unified History", () => {
         raw: false,
         scrollY: 0,
         savedAt: Date.now(),
-      }),
+      })
     );
     const rendered = renderWithProviders(<LearningsPanel folderId="repo" />);
     expect(screen.getByRole("tab", { name: "History" })).toHaveAttribute(
       "aria-selected",
-      "true",
+      "true"
     );
     await screen.findByText("Original-only task");
     rendered.rerender(<LearningsPanel folderId="other" />);
     await waitFor(() =>
       expect(
         sessionStorage.getItem(
-          "kioku.evidence-journal-return:history-user:repo",
-        ),
-      ).toBeNull(),
+          "kioku.evidence-journal-return:history-user:repo"
+        )
+      ).toBeNull()
     );
     auth.id = undefined;
     rendered.rerender(<LearningsPanel folderId="other" />);
     expect(screen.getByRole("tab", { name: "History" })).toHaveAttribute(
       "aria-selected",
-      "true",
+      "true"
     );
   });
   it("loads additional original metadata using the selected day's opaque cursor", async () => {
@@ -375,17 +375,56 @@ describe("unified History", () => {
     renderWithProviders(<LearningsPanel folderId="repo" />);
     await journalDay();
     fireEvent.click(
-      await screen.findByRole("button", { name: "Load more sessions" }),
+      await screen.findByRole("button", { name: "Load more sessions" })
     );
     await waitFor(() =>
       expect(
         vi
           .mocked(api.apiFetch)
-          .mock.calls.some(([p]) => String(p).includes("cursor=next-page")),
-      ).toBe(true),
+          .mock.calls.some(([p]) => String(p).includes("cursor=next-page"))
+      ).toBe(true)
     );
     expect(
-      screen.getAllByRole("button", { name: /Journal title/ }),
+      screen.getAllByRole("button", { name: /Journal title/ })
     ).toHaveLength(1);
+  });
+  it("opens a journal search match and returns with query preserved", async () => {
+    const originalMock = vi.mocked(api.apiFetch).getMockImplementation()!;
+    vi.mocked(api.apiFetch).mockImplementation(async (path, options) => {
+      if (String(path).includes("history-search?"))
+        return json({
+          total_sessions: 1,
+          total_entries: 1,
+          has_more: false,
+          sessions: [
+            {
+              agent: "codex",
+              session_id: native,
+              title: "Search result title",
+              dates: [date],
+              title_match: false,
+              overview_match: false,
+              matches: [
+                { id: "entry-one", date, excerpt: "Preserved journal text" },
+              ],
+            },
+          ],
+        });
+      return originalMock(path, options);
+    });
+    renderWithProviders(<LearningsPanel folderId="repo" />);
+    fireEvent.change(screen.getByRole("textbox", { name: "Search history" }), {
+      target: { value: "journal" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Preserved journal text/ })
+    );
+    await screen.findByRole("region", { name: "Session overview" });
+    fireEvent.click(screen.getByRole("button", { name: /Search results/ }));
+    await screen.findByRole("button", { name: /Search result title/ });
+    expect(screen.getByRole("textbox", { name: "Search history" })).toHaveValue(
+      "journal"
+    );
   });
 });
