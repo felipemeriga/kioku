@@ -833,6 +833,37 @@ function HistoryPanel({ folderId }: { folderId: string }) {
                               session.session_id
                             )}
                             className="learnings-session-card"
+                            onClick={(event) => {
+                              // Keep embedded links, controls, and text selection usable.
+                              if (
+                                event.defaultPrevented ||
+                                !(event.target instanceof Element) ||
+                                event.target.closest(
+                                  "a, button, input, select, textarea, [role='button']"
+                                )
+                              )
+                                return;
+                              const selection = window.getSelection();
+                              if (
+                                selection &&
+                                !selection.isCollapsed &&
+                                event.currentTarget.contains(
+                                  selection.anchorNode
+                                ) &&
+                                event.currentTarget.contains(
+                                  selection.focusNode
+                                )
+                              )
+                                return;
+                              listScroll.current = currentScroll();
+                              setSelectedSession({
+                                date: activeDate,
+                                key: historyIdentity(
+                                  session.agent,
+                                  session.session_id
+                                ),
+                              });
+                            }}
                           >
                             <button
                               type="button"
