@@ -357,6 +357,7 @@ def present(record, agent, event=None, limit_bytes=4096, max_blocks=MAX_BLOCKS):
                 **block,
                 "kind": "text" if trimmed and block["kind"] == "json" else block["kind"],
                 "text": shortened,
+                "viewer_truncated": trimmed,
             }
         )
         remaining -= len(shortened.encode())
@@ -375,7 +376,7 @@ def present(record, agent, event=None, limit_bytes=4096, max_blocks=MAX_BLOCKS):
     ):
         # Account for control-character escaping and block/metadata overhead, not text alone.
         text = bounded_text("\n".join(block["text"] for block in bounded), min(limit_bytes, 4096))
-        result["blocks"] = [{"kind": "text", "text": text}]
+        result["blocks"] = [{"kind": "text", "text": text, "viewer_truncated": True}]
         result["viewer_truncated"] = True
         if len(json.dumps(result, ensure_ascii=False).encode()) > MAX_PRESENTATION_BYTES:
             result.pop("tool", None)
@@ -385,7 +386,7 @@ def present(record, agent, event=None, limit_bytes=4096, max_blocks=MAX_BLOCKS):
 def fragment_presentation(text, source_truncated=False):
     return {
         "version": VERSION,
-        "blocks": [{"kind": "text", "text": text}],
+        "blocks": [{"kind": "text", "text": text, "viewer_truncated": True}],
         "viewer_truncated": True,
         "source_truncated": bool(source_truncated),
     }
