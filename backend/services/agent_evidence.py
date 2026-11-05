@@ -11,7 +11,13 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from fastapi import HTTPException
 from storage3.exceptions import StorageApiError
 
-from services.agent_evidence_models import BUCKET, canonical, safe_id, sha256
+from services.agent_evidence_models import (
+    BUCKET,
+    attachment_content_type,
+    canonical,
+    safe_id,
+    sha256,
+)
 from services.agent_evidence_parser import project_record
 
 
@@ -373,7 +379,7 @@ class EvidenceStore:
                 "id": o["object_id"],
                 "original_name": o["descriptor"].get("original_name", "attachment"),
                 "byte_length": o["byte_length"],
-                "content_type": "application/octet-stream",
+                "content_type": attachment_content_type(o["descriptor"].get("original_name")),
                 "source_event_id": o["descriptor"].get("source_event_id"),
                 "available": bool(o.get("uploaded_at")),
                 "sha256": o["sha256"],
@@ -490,7 +496,9 @@ class EvidenceStore:
                         "id": obj["object_id"],
                         "original_name": obj["descriptor"].get("original_name", "attachment"),
                         "byte_length": obj["byte_length"],
-                        "content_type": "application/octet-stream",
+                        "content_type": attachment_content_type(
+                            obj["descriptor"].get("original_name")
+                        ),
                         "available": bool(obj.get("uploaded_at")),
                         "sha256": obj["sha256"],
                     }
