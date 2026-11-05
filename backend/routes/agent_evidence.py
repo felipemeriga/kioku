@@ -8,6 +8,7 @@ import tempfile
 from datetime import date
 from uuid import UUID
 
+from anyio import fail_after
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
@@ -145,7 +146,7 @@ async def upload(batch_id: str, object_id: str, request: Request):
         digest = hashlib.sha256()
         with tempfile.TemporaryFile(buffering=0) as body:
             try:
-                async with asyncio.timeout(300):
+                with fail_after(300):
                     async for chunk in request.stream():
                         length += len(chunk)
                         if length > MAX_OBJECT_BYTES:
