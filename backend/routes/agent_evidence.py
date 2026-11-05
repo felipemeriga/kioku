@@ -143,7 +143,7 @@ async def upload(batch_id: str, object_id: str, request: Request):
     async with _uploads:
         length = 0
         digest = hashlib.sha256()
-        with tempfile.TemporaryFile() as body:
+        with tempfile.TemporaryFile(buffering=0) as body:
             try:
                 async with asyncio.timeout(300):
                     async for chunk in request.stream():
