@@ -307,3 +307,146 @@ def test_empty_attachment_descriptor_accepted_but_empty_segment_rejected():
                 "record_count": 1,
             }
         )
+
+
+class EvidenceLookupDB:
+    """Apply real owner/folder filters in fallback tests, without external services."""
+
+    def __init__(self, tables):
+        self.tables = tables
+
+    def table(self, name):
+        from types import SimpleNamespace
+
+        class Query:
+            def __init__(self, rows):
+                self.rows = list(rows)
+
+            def select(self, *_):
+                return self
+
+            def eq(self, key, value):
+                self.rows = [r for r in self.rows if r.get(key) == value]
+                return self
+
+            def is_(self, key, _):
+                self.rows = [r for r in self.rows if r.get(key) is None]
+                return self
+
+            def limit(self, count):
+                self.rows = self.rows[:count]
+                return self
+
+            def execute(self):
+                return SimpleNamespace(data=self.rows)
+
+        return Query(self.tables.get(name, []))
+
+
+def fallback_store(sessions, links=None, events=None):
+    return EvidenceStore(
+        EvidenceLookupDB(
+            {
+                "agent_evidence_sessions": sessions,
+                "agent_evidence_journal_links": links or [],
+                "agent_evidence_events": events or [],
+            }
+        ),
+        "owner",
+        FOLDER,
+    )
+
+
+def evidence_session(**overrides):
+    return {
+        "id": "session-id",
+        "user_id": "owner",
+        "folder_id": FOLDER,
+        "agent": "codex",
+        "native_session_id": "native",
+        "parent_session_id": None,
+        **overrides,
+    }
+
+
+def test_missing_alias_returns_only_approximate_session_no_event_range():
+    assert fallback_store([evidence_session()]).resolve_entry("codex:native:turn") == {
+        "status": "approximate",
+        "session_id": "session-id",
+    }
+    assert (
+        fallback_store([evidence_session(native_session_id="native:with:colon")]).resolve_entry(
+            "codex:native:with:colon:turn"
+        )["status"]
+        == "approximate"
+    )
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "",
+        "native",
+        "codex:native",
+        "codex::turn",
+        "codex:native:",
+        "unknown:native:turn",
+        "codex:../native:turn",
+    ],
+)
+def test_malformed_alias_does_not_guess_session(entry):
+    assert fallback_store([evidence_session()]).resolve_entry(entry) == {"status": "absent"}
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"user_id": "other"},
+        {"folder_id": "other"},
+        {"agent": "claude_code"},
+        {"parent_session_id": "parent"},
+    ],
+)
+def test_approximate_link_respects_owner_folder_agent_root(overrides):
+    assert fallback_store([evidence_session(**overrides)]).resolve_entry("codex:native:turn") == {
+        "status": "absent",
+    }
+
+
+def test_ambiguous_fallback_and_deleted_session():
+    assert fallback_store([evidence_session(), evidence_session(id="duplicate")]).resolve_entry(
+        "codex:native:turn"
+    ) == {"status": "absent"}
+    assert fallback_store([evidence_session(deleted_at="now")]).resolve_entry(
+        "codex:native:turn"
+    ) == {
+        "status": "deleted",
+    }
+
+
+@pytest.mark.parametrize("indexed,expected", [(False, "pending"), (True, "available")])
+def test_exact_alias_still_wins_over_approximate(indexed, expected):
+    link = {
+        "user_id": "owner",
+        "folder_id": FOLDER,
+        "journal_entry_id": "codex:native:turn",
+        "session_id": "session-id",
+        "start_event_id": "anchor",
+        "end_event_id": None,
+    }
+    events = (
+        [
+            {
+                "user_id": "owner",
+                "folder_id": FOLDER,
+                "session_id": "session-id",
+                "event_id": "anchor",
+            }
+        ]
+        if indexed
+        else []
+    )
+    result = fallback_store([evidence_session()], links=[link], events=events).resolve_entry(
+        "codex:native:turn"
+    )
+    assert result["status"] == expected and result["start_event_id"] == "anchor"
