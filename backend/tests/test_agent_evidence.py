@@ -228,7 +228,8 @@ def test_authenticated_raw_range_and_attachment_metadata(monkeypatch):
     )
 
 
-def test_upload_route_passes_supported_file_to_real_storage_sdk(monkeypatch):
+@pytest.mark.parametrize("source", [b'{"type":"user","message":{"content":"original"}}\n', b""])
+def test_upload_route_passes_supported_file_to_real_storage_sdk(monkeypatch, source):
     """Exercise real SDK multipart encoding; BufferedRandom is not supported."""
     import io
 
@@ -239,7 +240,6 @@ def test_upload_route_passes_supported_file_to_real_storage_sdk(monkeypatch):
 
     import routes.agent_evidence as module
 
-    source = b'{"type":"user","message":{"content":"original"}}\n'
     calls = []
 
     def respond(request):
@@ -282,3 +282,28 @@ def test_attachment_metadata_mime_hint(name, expected):
     from services.agent_evidence_models import attachment_content_type
 
     assert attachment_content_type(name) == expected
+
+
+def test_empty_attachment_descriptor_accepted_but_empty_segment_rejected():
+    attachment = dict(
+        id="empty",
+        kind="attachment",
+        stream_id="native",
+        generation=1,
+        sha256=sha256(b""),
+        byte_length=0,
+        original_name="empty.txt",
+    )
+    assert ObjectDescriptor(**attachment).byte_length == 0
+    with pytest.raises(ValidationError):
+        ObjectDescriptor(
+            **{
+                **attachment,
+                "kind": "segment",
+                "source_start": 0,
+                "source_end": 1,
+                "first_record": 1,
+                "last_record": 1,
+                "record_count": 1,
+            }
+        )
