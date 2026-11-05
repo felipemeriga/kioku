@@ -88,7 +88,7 @@ export default function DocumentsPage() {
   const [viewMode, setViewMode] = useState<"grid" | "list">(() =>
     localStorage.getItem("kioku.documents.viewMode") === "grid"
       ? "grid"
-      : "list",
+      : "list"
   );
   useEffect(() => {
     localStorage.setItem("kioku.documents.viewMode", viewMode);
@@ -109,7 +109,7 @@ export default function DocumentsPage() {
       if (id === currentFolderId) return;
       setSearchParams(id ? { folder: id } : {});
     },
-    [currentFolderId, setSearchParams],
+    [currentFolderId, setSearchParams]
   );
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -189,7 +189,7 @@ export default function DocumentsPage() {
   // Refresh document list when ingestion tasks complete
   useEffect(() => {
     const completedCount = ingestionTasks.filter(
-      (t) => t.stage === "completed",
+      (t) => t.stage === "completed"
     ).length;
     if (completedCount > 0) {
       loadDocuments();
@@ -212,11 +212,11 @@ export default function DocumentsPage() {
       } catch (err) {
         toast.show(
           `Upload failed for “${file.name}”: ${messageFromError(err)}`,
-          "error",
+          "error"
         );
       }
     },
-    [upload, currentFolderId, toast],
+    [upload, currentFolderId, toast]
   );
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -238,7 +238,7 @@ export default function DocumentsPage() {
         void uploadOne(file);
       }
     },
-    [uploadOne],
+    [uploadOne]
   );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -261,7 +261,7 @@ export default function DocumentsPage() {
         name: f.name,
         kind: f.kind,
       })),
-    [subFoldersQuery.data],
+    [subFoldersQuery.data]
   );
 
   // Breadcrumbs for the current folder (empty at root). keepPreviousData so the
@@ -332,7 +332,7 @@ export default function DocumentsPage() {
   const hasBriefing = Boolean(briefingQuery.data?.last_generated_at);
   const requestedTab = searchParams.get("tab");
   const folderTab = ["files", "briefing", "status", "learnings"].includes(
-    requestedTab ?? "",
+    requestedTab ?? ""
   )
     ? requestedTab!
     : selectedFolderTab?.folderId === currentFolderId
@@ -357,7 +357,7 @@ export default function DocumentsPage() {
     (folderId: string, folderName: string) => {
       setDeleteConfirm({ type: "folder", id: folderId, name: folderName });
     },
-    [setDeleteConfirm],
+    [setDeleteConfirm]
   );
 
   const handleConfirmDelete = async () => {
@@ -382,7 +382,7 @@ export default function DocumentsPage() {
         if (failed.length > 0) {
           toast.show(
             `Couldn't delete ${failed.length} of ${filenames.length} files (${failed[0]})`,
-            "error",
+            "error"
           );
         }
         clearSelection();
@@ -403,7 +403,7 @@ export default function DocumentsPage() {
     } catch (err) {
       toast.show(
         `Couldn't download “${filename}”: ${messageFromError(err)}`,
-        "error",
+        "error"
       );
     }
   };
@@ -498,9 +498,7 @@ export default function DocumentsPage() {
                     badgeContent={
                       ingestionTasks.filter(
                         (t) =>
-                          !["completed", "error", "duplicate"].includes(
-                            t.stage,
-                          ),
+                          !["completed", "error", "duplicate"].includes(t.stage)
                       ).length || undefined
                     }
                     color="primary"
@@ -635,7 +633,7 @@ export default function DocumentsPage() {
             <Tab value="files" label="Files" />
             {!hasBriefing && <Tab value="briefing" label="Briefing" />}
             <Tab value="status" label="Status" />
-            <Tab value="learnings" label="Learnings" />
+            <Tab value="learnings" label="Agents" />
           </Tabs>
         )}
 
@@ -755,7 +753,7 @@ export default function DocumentsPage() {
                         e.preventDefault();
                         e.stopPropagation();
                         setDragOverFolderId((prev) =>
-                          prev === folder.id ? null : prev,
+                          prev === folder.id ? null : prev
                         );
                       }}
                       onDrop={(e: React.DragEvent) => {
@@ -764,7 +762,7 @@ export default function DocumentsPage() {
                         setDragOverFolderId(null);
                         setDragOver(false);
                         const docFilename = e.dataTransfer.getData(
-                          "application/x-document-filename",
+                          "application/x-document-filename"
                         );
                         if (docFilename) {
                           move(docFilename, folder.id);
@@ -822,7 +820,7 @@ export default function DocumentsPage() {
                           e.stopPropagation();
                           navigate(
                             `/?scope_folder=${folder.id}` +
-                              `&scope_name=${encodeURIComponent(folder.name)}`,
+                              `&scope_name=${encodeURIComponent(folder.name)}`
                           );
                         }}
                       >
@@ -1025,7 +1023,7 @@ export default function DocumentsPage() {
                           `/?scope_file=${encodeURIComponent(filename)}` +
                             (currentFolderId
                               ? `&scope_folder=${currentFolderId}`
-                              : ""),
+                              : "")
                         )
                       }
                       variant={viewMode}
