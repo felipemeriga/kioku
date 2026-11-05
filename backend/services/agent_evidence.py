@@ -287,15 +287,18 @@ class EvidenceStore:
     def days(self, session_id, tz, start=None, end=None):
         s = self.session(session_id)
         try:
-            ZoneInfo(tz)
+            zone = ZoneInfo(tz)
         except (ValueError, ZoneInfoNotFoundError):
             fail("invalid_timezone", 422)
-        end = end or date.today()
-        start = start or (
-            date.fromisoformat(s["first_event_at"][:10])
-            if s.get("first_event_at")
-            else end - timedelta(days=365)
-        )
+
+        def local_day(value):
+            return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(zone).date()
+
+        first_day = local_day(s["first_event_at"]) if s.get("first_event_at") else None
+        if end is None:
+            latest = local_day(s["last_event_at"]) if s.get("last_event_at") else first_day
+            end = max(datetime.now(zone).date(), latest or date.min)
+        start = start or first_day or end - timedelta(days=365)
         if end < start or (end - start).days > 366:
             fail("date_range_exceeds_limit", 422)
         return {

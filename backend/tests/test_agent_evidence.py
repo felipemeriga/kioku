@@ -450,3 +450,75 @@ def test_exact_alias_still_wins_over_approximate(indexed, expected):
         "codex:native:turn"
     )
     assert result["status"] == expected and result["start_event_id"] == "anchor"
+
+
+@pytest.mark.parametrize(
+    "zone,first,last,expected_start,expected_end",
+    [
+        (
+            "America/Sao_Paulo",
+            "2026-11-05T00:30:00Z",
+            "2026-11-05T00:45:00+00:00",
+            "2026-11-04",
+            "2026-11-04",
+        ),
+        (
+            "Pacific/Kiritimati",
+            "2026-11-04T12:30:00Z",
+            "2026-11-04T13:00:00Z",
+            "2026-11-05",
+            "2026-11-05",
+        ),
+        (
+            "Pacific/Kiritimati",
+            "2026-11-06T12:30:00Z",
+            "2026-11-06T13:00:00Z",
+            "2026-11-07",
+            "2026-11-07",
+        ),
+    ],
+)
+def test_session_days_defaults_use_requested_timezone_and_include_future_archive(
+    monkeypatch, zone, first, last, expected_start, expected_end
+):
+    from datetime import datetime, timezone
+
+    import services.agent_evidence as module
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 11, 5, 1, 0, tzinfo=timezone.utc).astimezone(tz)
+
+    monkeypatch.setattr(module, "datetime", FrozenDateTime)
+    store = EvidenceStore(None, "owner", FOLDER)
+    monkeypatch.setattr(
+        store,
+        "session",
+        lambda *args: {"folder_id": FOLDER, "first_event_at": first, "last_event_at": last},
+    )
+    calls = []
+    monkeypatch.setattr(module, "rpc", lambda *args: calls.append(args[2]) or [])
+    store.days("session", zone)
+    assert calls[0]["p_from"] == expected_start and calls[0]["p_to"] == expected_end
+
+
+def test_session_days_explicit_bounds_remain_unchanged(monkeypatch):
+    from datetime import date
+
+    import services.agent_evidence as module
+
+    store = EvidenceStore(None, "owner", FOLDER)
+    monkeypatch.setattr(
+        store,
+        "session",
+        lambda *args: {
+            "folder_id": FOLDER,
+            "first_event_at": "2026-11-05T00:30:00Z",
+            "last_event_at": "2026-11-05T00:45:00Z",
+        },
+    )
+    calls = []
+    monkeypatch.setattr(module, "rpc", lambda *args: calls.append(args[2]) or [])
+    store.days("session", "America/Sao_Paulo", date(2026, 11, 1), date(2026, 11, 3))
+    assert calls[0]["p_from"] == "2026-11-01" and calls[0]["p_to"] == "2026-11-03"
