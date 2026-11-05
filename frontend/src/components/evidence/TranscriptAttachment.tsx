@@ -37,6 +37,7 @@ export default function TranscriptAttachment({
     retry: 1,
   });
   const value = metadata.data ?? attachment;
+  const empty = value.byte_length === 0;
   const text =
     !value.content_type ||
     /^(text\/|application\/(json|x-ndjson))/.test(value.content_type);
@@ -49,7 +50,7 @@ export default function TranscriptAttachment({
     ],
     queryFn: ({ signal }) =>
       getAttachmentPreview(location, attachment.id, signal),
-    enabled: open && !!metadata.data && value.available && text,
+    enabled: open && !!metadata.data && value.available && text && !empty,
     retry: 1,
   });
   return (
@@ -117,7 +118,10 @@ export default function TranscriptAttachment({
               </Typography>
             </>
           )}
-          {!text && (
+          {value.available && empty && (
+            <Typography variant="body2">Empty attachment (0 bytes).</Typography>
+          )}
+          {!text && !empty && (
             <Typography variant="body2">
               Binary attachment. Download to inspect its original bytes.
             </Typography>
@@ -129,7 +133,7 @@ export default function TranscriptAttachment({
                 void downloadEvidence(
                   location,
                   "attachment",
-                  attachment.id,
+                  attachment.id
                 ).catch(() => setError("Could not download the attachment."))
               }
             >

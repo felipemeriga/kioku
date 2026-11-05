@@ -2013,3 +2013,33 @@ END $$;
 CREATE TRIGGER agent_evidence_object_purge_before_delete BEFORE DELETE ON public.agent_evidence_objects
     FOR EACH ROW EXECUTE FUNCTION public.archive_agent_evidence_object_purge_path();
 REVOKE ALL ON FUNCTION public.archive_agent_evidence_object_purge_path() FROM PUBLIC;
+
+-- Empty tool output is valid evidence; JSONL segments must remain nonempty.
+ALTER TABLE public.agent_evidence_objects
+    DROP CONSTRAINT agent_evidence_objects_byte_length_check;
+ALTER TABLE public.agent_evidence_objects
+    ADD CONSTRAINT agent_evidence_objects_byte_length_check
+    CHECK (byte_length >= 0 AND byte_length <= 67108864
+        AND (kind = 'attachment' OR byte_length > 0));
+
+-- Supabase grants client roles EXECUTE explicitly; revoking PUBLIC is insufficient.
+REVOKE ALL ON FUNCTION public.prepare_agent_evidence(uuid,jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.prepare_agent_evidence(uuid,jsonb) TO service_role;
+REVOKE ALL ON FUNCTION public.commit_agent_evidence(uuid,text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.commit_agent_evidence(uuid,text) TO service_role;
+REVOKE ALL ON FUNCTION public.publish_agent_evidence_index(uuid,text,jsonb,jsonb,integer,boolean) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.publish_agent_evidence_index(uuid,text,jsonb,jsonb,integer,boolean) TO service_role;
+REVOKE ALL ON FUNCTION public.delete_agent_evidence(uuid,uuid,uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.delete_agent_evidence(uuid,uuid,uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.agent_evidence_days(uuid,uuid,uuid,text,date,date) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.agent_evidence_days(uuid,uuid,uuid,text,date,date) TO service_role;
+REVOKE ALL ON FUNCTION public.claim_agent_evidence_upload(uuid,uuid,text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.claim_agent_evidence_upload(uuid,uuid,text) TO service_role;
+REVOKE ALL ON FUNCTION public.finish_agent_evidence_upload(uuid,uuid,text,uuid,text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.finish_agent_evidence_upload(uuid,uuid,text,uuid,text) TO service_role;
+REVOKE ALL ON FUNCTION public.expire_agent_evidence_batch(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.expire_agent_evidence_batch(uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.archive_agent_evidence_purge_paths() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.archive_agent_evidence_purge_paths() TO service_role;
+REVOKE ALL ON FUNCTION public.archive_agent_evidence_object_purge_path() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.archive_agent_evidence_object_purge_path() TO service_role;

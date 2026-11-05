@@ -9,6 +9,7 @@ import {
 } from "../../lib/agentEvidenceApi";
 import TranscriptViewer from "./TranscriptViewer";
 import JournalEvidenceLink from "./JournalEvidenceLink";
+import TranscriptAttachment from "./TranscriptAttachment";
 
 vi.mock("../../lib/supabase", () => ({
   supabase: { auth: { getSession: vi.fn() } },
@@ -129,22 +130,22 @@ describe("shared original transcript reader", () => {
   });
   it("shows native session identity beside the agent in a full reader and keeps source inert", async () => {
     renderWithProviders(
-      <TranscriptViewer location={location} onLocationChange={vi.fn()} />,
+      <TranscriptViewer location={location} onLocationChange={vi.fn()} />
     );
     expect(
       await screen.findByRole("button", {
         name: `Copy session ID: ${nativeId}`,
-      }),
+      })
     ).toBeInTheDocument();
     expect(await screen.findByText(/fixture total31/)).toHaveTextContent(
-      "<script>not executable</script>",
+      "<script>not executable</script>"
     );
     expect(document.querySelector("script")).toBeNull();
     expect(screen.getByText(/truncated before capture/)).toBeInTheDocument();
     expect(screen.getByText(/8 active days/)).toBeInTheDocument();
     expect(api.apiFetch).not.toHaveBeenCalledWith(
       expect.stringContaining("/content?"),
-      expect.anything(),
+      expect.anything()
     );
   });
   it("highlights the visible linked range and distinguishes attachment-backed truncation", async () => {
@@ -160,18 +161,18 @@ describe("shared original transcript reader", () => {
             snapshot_revision: 4,
             status: "ok",
           })
-        : original(...args),
+        : original(...args)
     );
     renderWithProviders(
       <TranscriptViewer
         location={{ ...location, endEventId: "last" }}
         onLocationChange={vi.fn()}
-      />,
+      />
     );
     await screen.findAllByText(/fixture total31/);
     expect(document.querySelectorAll(".evidence-selected")).toHaveLength(3);
     expect(
-      screen.getAllByText(/An archived attachment is available below/),
+      screen.getAllByText(/An archived attachment is available below/)
     ).toHaveLength(3);
   });
   it("loads expanded output and attachments only after explicit actions", async () => {
@@ -180,13 +181,13 @@ describe("shared original transcript reader", () => {
         location={location}
         onLocationChange={vi.fn()}
         variant="drawer"
-      />,
+      />
     );
     fireEvent.click(
-      await screen.findByRole("button", { name: "Expand content" }),
+      await screen.findByRole("button", { name: "Expand content" })
     );
     expect(
-      await screen.findByText("expanded archived output"),
+      await screen.findByText("expanded archived output")
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Preview attachment" }));
     expect(await screen.findByText("POC_LARGE_END")).toBeInTheDocument();
@@ -194,39 +195,39 @@ describe("shared original transcript reader", () => {
   it("changes the source anchor for cross-month day jumps and native child sessions", async () => {
     const changed = vi.fn();
     renderWithProviders(
-      <TranscriptViewer location={location} onLocationChange={changed} />,
+      <TranscriptViewer location={location} onLocationChange={changed} />
     );
     fireEvent.click(await screen.findByRole("button", { name: /2026-12-03/ }));
     expect(changed).toHaveBeenLastCalledWith(
-      expect.objectContaining({ date: "2026-12-03", eventId: undefined }),
+      expect.objectContaining({ date: "2026-12-03", eventId: undefined })
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "View child evidence" }),
+      screen.getByRole("button", { name: "View child evidence" })
     );
     expect(changed).toHaveBeenLastCalledWith(
       expect.objectContaining({
         sessionId: "child",
         eventId: undefined,
         mode: "conversation",
-      }),
+      })
     );
   });
   it("passes stable before/after cursors and indexed revision instead of fetching whole sessions", async () => {
     renderWithProviders(
-      <TranscriptViewer location={location} onLocationChange={vi.fn()} />,
+      <TranscriptViewer location={location} onLocationChange={vi.fn()} />
     );
     fireEvent.click(await screen.findByRole("button", { name: "Load later" }));
     await waitFor(() =>
       expect(api.apiFetch).toHaveBeenCalledWith(
         expect.stringContaining("after=newer"),
-        expect.anything(),
-      ),
+        expect.anything()
+      )
     );
     const calls = vi
       .mocked(api.apiFetch)
       .mock.calls.map(([path]) => String(path));
     expect(calls.find((url) => url.includes("after=newer"))).toContain(
-      "snapshot_revision=4",
+      "snapshot_revision=4"
     );
   });
   it("keeps legacy journal summaries available when originals do not exist", async () => {
@@ -238,25 +239,46 @@ describe("shared original transcript reader", () => {
         entryId="legacy:entry"
         timezone="UTC"
         onOpen={open}
-      />,
+      />
     );
     fireEvent.click(screen.getByRole("button", { name: "View evidence" }));
     expect(
       await screen.findByText(
-        "Original evidence is unavailable for this entry.",
-      ),
+        "Original evidence is unavailable for this entry."
+      )
     ).toBeInTheDocument();
     expect(open).not.toHaveBeenCalled();
   });
+  it("shows an empty archived attachment without requesting an unsatisfiable byte range", async () => {
+    const attachment = {
+      id: "empty",
+      original_name: "empty.txt",
+      byte_length: 0,
+      available: true,
+      content_type: "text/plain",
+    };
+    vi.spyOn(api, "apiFetch").mockResolvedValue(response(attachment));
+    renderWithProviders(
+      <TranscriptAttachment attachment={attachment} location={location} />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Preview attachment" }));
+    expect(
+      await screen.findByText("Empty attachment (0 bytes).")
+    ).toBeInTheDocument();
+    expect(api.apiFetch).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByRole("button", { name: "Download attachment" })
+    ).toBeInTheDocument();
+  });
   it("shows a feature-unavailable message without hiding the selected source", async () => {
     vi.spyOn(api, "apiFetch").mockRejectedValue(
-      new ApiError({ status: 404, userMessage: "Not found" }),
+      new ApiError({ status: 404, userMessage: "Not found" })
     );
     renderWithProviders(
-      <TranscriptViewer location={location} onLocationChange={vi.fn()} />,
+      <TranscriptViewer location={location} onLocationChange={vi.fn()} />
     );
     expect(
-      await screen.findByText(/archival is not enabled yet/),
+      await screen.findByText(/archival is not enabled yet/)
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
   });
