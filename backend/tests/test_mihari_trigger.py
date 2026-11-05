@@ -590,6 +590,7 @@ def test_direct_maintenance_sends_model_only_to_runner_and_publishes_job_id(monk
 
     class Response:
         status_code = 200
+        ok = True
 
         def __init__(self, body):
             self.body = body

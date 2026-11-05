@@ -253,10 +253,33 @@ def maintenance_post(url, *, headers, json, timeout, _repair=True, _batches=3):
         },
         timeout=30,
     )
-    if _repair and publication.status_code == 409:
+    try:
         detail = publication.json().get("detail", "")
-        if isinstance(detail, str) and detail.startswith("invalid_result:"):
-            return maintenance_post(url, headers=headers, json=json, timeout=timeout, _repair=False)
+    except (ValueError, AttributeError):
+        detail = ""
+    failure_code = (outcome.get("error") or {}).get("code")
+    recoverable_budget = (
+        publication.status_code == 502
+        and outcome.get("status") == "failed"
+        and failure_code in {"native_error_max_turns", "wall_timeout"}
+        and detail == f"maintenance execution: {failure_code}"
+    )
+    invalid_result = (
+        publication.status_code == 409
+        and isinstance(detail, str)
+        and detail.startswith("invalid_result:")
+    )
+    if _repair and (invalid_result or recoverable_budget):
+        log(f"Maintenance attempt needs bounded recovery: {detail}")
+        return maintenance_post(
+            url, headers=headers, json=json, timeout=timeout, _repair=False, _batches=_batches
+        )
+    if (
+        not publication.ok
+        and isinstance(detail, str)
+        and detail.startswith("maintenance execution:")
+    ):
+        raise RuntimeError(detail)
     if operation == "learnings" and _batches > 1 and publication.ok:
         current = publication.json()
         if current.get("processed_entries"):

@@ -123,7 +123,7 @@ def test_prepare_idempotent_request_bound_no_tools_no_resume(configured, monkeyp
     assert claims["operations"] == ["mihari.activity"]
     assert request["conversation_id"] is None
     assert request["tool_allowlist"] == []
-    assert request["max_turns"] == 3
+    assert request["max_turns"] == 6
 
 
 def prepared_row():
@@ -711,7 +711,9 @@ def test_partial_plan_does_not_hide_external_edits_or_new_authority(
     assert result["preparation_id"] != plan["preparation_id"]
 
 
-@pytest.mark.parametrize("operation", ["activity", "reground", "review_plan", "documentation"])
+@pytest.mark.parametrize(
+    "operation", ["activity", "reground", "review_plan", "documentation", "learnings"]
+)
 def test_formatter_budget_policy_changes_identity_without_mutating_accepted_work(
     configured, monkeypatch, operation
 ):
@@ -719,24 +721,35 @@ def test_formatter_budget_policy_changes_identity_without_mutating_accepted_work
 
     snapshot = {
         "operation": operation,
-        "input": {"head_sha": "a" * 40, "selected": ["overview"]},
+        "input": {"head_sha": "a" * 40, "selected": ["overview"], "new_entries": []},
         "current": {},
         "expected_sections": {},
     }
+    if operation == "learnings":
+        snapshot["input"]["new_entries"] = [{"id": "entry", "text": "Verified durable evidence."}]
+        snapshot["current"] = []
     monkeypatch.setattr(execution, "capture", lambda *_: (snapshot, None))
     db = DB()
-    monkeypatch.setattr(execution, "MAINTENANCE_MAX_TURNS", 1)
+    monkeypatch.setattr(execution, "MAINTENANCE_MAX_TURNS", 3)
     old = execution.prepare(db, "owner", "folder", operation, snapshot["input"])
     immutable = deepcopy(old["request"])
-    monkeypatch.setattr(execution, "MAINTENANCE_MAX_TURNS", 3)
+    monkeypatch.setattr(execution, "MAINTENANCE_MAX_TURNS", 6)
     new = execution.prepare(db, "owner", "folder", operation, snapshot["input"])
     assert old["preparation_id"] != new["preparation_id"]
     assert old["request"] == immutable
-    assert new["request"]["max_turns"] == 3
+    assert new["request"]["max_turns"] == 6
     assert new["request"]["max_turns"] > old["request"]["max_turns"]
     assert new["request"]["tool_allowlist"] == []
     assert new["request"]["conversation_id"] is None
     assert new["request"]["idempotency_key"] != immutable["idempotency_key"]
+    assert (
+        new["request"]["metadata"]["prompt_policy_sha256"]
+        != immutable["metadata"]["prompt_policy_sha256"]
+    )
+    assert new["request"]["max_tokens"] == immutable["max_tokens"]
+    assert new["request"]["response_schema"] == immutable["response_schema"]
+    assert execution.request_matches_policy(db.rows["maintenance_preparations"][-1])
+    assert not execution.request_matches_policy(db.rows["maintenance_preparations"][0])
 
 
 def test_reground_source_change_cannot_reuse_graph_order_equivalent_preparation(

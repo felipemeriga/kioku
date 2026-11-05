@@ -215,3 +215,72 @@ def test_idempotent_control_calls_retry_only_transport_and_non_json_gateway(monk
         else:
             assert response.status_code == 200 and len(calls) == 2
     assert set(calls) == {url}
+
+
+@pytest.mark.parametrize(
+    "code,status,expected,backend_code",
+    [
+        ("native_error_max_turns", "failed", 2, None),
+        ("wall_timeout", "failed", 2, None),
+        ("quota_limited", "failed", 1, None),
+        ("reauth_required", "failed", 1, None),
+        ("native_error_max_turns", "uncertain", 1, None),
+        ("cancelled", "cancelled", 1, None),
+        ("native_error_max_turns", "failed", 1, "wall_timeout"),
+    ],
+)
+def test_budget_repair_is_once_only_for_confirmed_failures(
+    monkeypatch, code, status, expected, backend_code
+):
+    backend_code = backend_code or code
+    for key in ("SUPABASE_URL", "KIOKU_MCP_URL", "KIOKU_API_URL"):
+        monkeypatch.setenv(key, "http://fixture")
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "fixture")
+    monkeypatch.setenv("MIHARI_TSUKAI_SERVICE_TOKEN", "fixture")
+    spec = importlib.util.spec_from_file_location(
+        "mihari_budget_fixture", Path(__file__).parents[2] / "mihari/mihari.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    admitted = []
+
+    def response(body, status_code=200):
+        return SimpleNamespace(
+            json=lambda: body,
+            status_code=status_code,
+            ok=status_code < 400,
+            raise_for_status=lambda: None,
+        )
+
+    def post(url, **kwargs):
+        if url.endswith("/prepare"):
+            return response(
+                {
+                    "engine": "tsukai",
+                    "url": "http://runner",
+                    "capability": "cap",
+                    "request": {},
+                    "preparation_id": "prep",
+                }
+            )
+        if url.endswith("/v1/jobs"):
+            admitted.append(kwargs["json"])
+            return response({"job_id": f"job-{len(admitted)}"})
+        return response({"detail": f"maintenance execution: {backend_code}"}, 502)
+
+    monkeypatch.setattr(module.requests, "post", post)
+    monkeypatch.setattr(
+        module.requests,
+        "get",
+        lambda *a, **kw: response({"status": status, "error": {"code": code}}),
+    )
+    monkeypatch.setattr(module.time, "sleep", lambda _: None)
+    with pytest.raises(RuntimeError, match=f"maintenance execution: {backend_code}"):
+        module.maintenance_post(
+            "http://fixture/api/mihari/learnings",
+            headers={},
+            json={"folder_id": "folder"},
+            timeout=120,
+            _batches=1,
+        )
+    assert len(admitted) == expected

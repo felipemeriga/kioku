@@ -318,7 +318,9 @@ def acknowledge_absent_documentation(sb, owner, folder, head):
 
 
 MAINTENANCE_MODEL = "claude-sonnet-4-6"
-MAINTENANCE_MAX_TURNS = 3
+# Native structured output consumes formatter turns in addition to synthesis.
+# Keep the allowance finite; one backend validation repair remains the only retry.
+MAINTENANCE_MAX_TURNS = 6
 
 
 def completion_system(built):
