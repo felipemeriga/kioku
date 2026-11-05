@@ -1,5 +1,6 @@
 """Deterministic, read-time native content presentation; originals are untouched."""
 
+import hashlib
 import json
 import math
 import re
@@ -8,6 +9,8 @@ import shlex
 from services.agent_evidence_parser import bounded_text, content_text
 
 VERSION = 1
+MAX_BLOCKS = 128
+MAX_PRESENTATION_BYTES = 65536
 
 
 def _reject_nonfinite(_):
@@ -23,9 +26,28 @@ def _json(value):
         return None
 
 
+def _field_text(value, tool, limit=2048):
+    text = str(value)
+    shortened = bounded_text(text, limit)
+    if shortened != text:
+        tool["_viewer_truncated"] = True
+    return shortened
+
+
+def _call_identifier(value, tool):
+    text = str(value)
+    if len(text.encode()) <= 512:
+        return text
+    tool["_viewer_truncated"] = True
+    # Keep distinct oversized native identities distinct when the UI pairs tool events.
+    return bounded_text(text, 430) + "#sha256:" + hashlib.sha256(text.encode()).hexdigest()
+
+
 def _metadata(source, tool):
     if not isinstance(source, dict):
         return
+    if source.get("truncated") is True:
+        tool["_source_truncated"] = True
     aliases = {
         "cwd": "cwd",
         "exit_code": "exit_code",
@@ -39,7 +61,7 @@ def _metadata(source, tool):
         if isinstance(value, float) and not math.isfinite(value):
             continue
         if isinstance(value, (str, int, float)) and not isinstance(value, bool):
-            normalized = bounded_text(value, 2048) if isinstance(value, str) else value
+            normalized = _field_text(value, tool) if isinstance(value, str) else value
             if target == "orchestration_seconds" and target in tool:
                 tool.setdefault("duration_seconds", normalized)
             else:
@@ -53,10 +75,10 @@ def _metadata(source, tool):
     for key in ("cmd", "command", "command_line"):
         value = source.get(key)
         if isinstance(value, str):
-            tool["command_text"] = bounded_text(value, 4096)
+            tool["command_text"] = _field_text(value, tool, 4096)
             break
         if isinstance(value, list) and all(isinstance(x, str) for x in value):
-            tool["command_text"] = bounded_text(shlex.join(value), 4096)
+            tool["command_text"] = _field_text(shlex.join(value), tool, 4096)
             break
 
 
@@ -68,7 +90,10 @@ def _tool_output(value, tool, depth=0):
         return _tool_output(decoded, tool, depth + 1)
     if isinstance(value, list):
         blocks = []
-        for part in value:
+        maximum = tool.get("_max_blocks")
+        if maximum is not None and len(value) > maximum:
+            tool["_viewer_truncated"] = True
+        for part in value[:maximum]:
             if (
                 isinstance(part, dict)
                 and part.get("type") in {"text", "input_text", "output_text"}
@@ -77,6 +102,11 @@ def _tool_output(value, tool, depth=0):
                 blocks.extend(_tool_output(part.get("text", ""), tool, depth + 1))
             else:
                 blocks.extend(_tool_output(part, tool, depth + 1))
+            if maximum is not None and len(blocks) >= maximum:
+                if len(blocks) > maximum or part is not value[-1]:
+                    tool["_viewer_truncated"] = True
+                blocks = blocks[:maximum]
+                break
         return blocks
     envelope = decoded if isinstance(decoded, dict) else value
     if isinstance(envelope, dict):
@@ -169,17 +199,17 @@ def _tool_output(value, tool, depth=0):
     return [{"kind": "terminal", "text": text}]
 
 
-def present(record, agent, event=None, limit_bytes=4096):
+def present(record, agent, event=None, limit_bytes=4096, max_blocks=MAX_BLOCKS):
     """Native boundaries retained; JSON is marked JSON only when complete and valid."""
     event = event or {}
     payload = record.get("payload") if agent == "codex" else record.get("message")
     payload = payload if isinstance(payload, dict) else {}
-    tool = {}
+    tool = {"_max_blocks": max_blocks}
     _metadata(payload, tool)
     event_type = event.get("event_type")
     call_id = event.get("call_id") or payload.get("call_id")
     if call_id:
-        tool["call_id"] = str(call_id)
+        tool["call_id"] = _call_identifier(call_id, tool)
     blocks = []
     if agent == "codex" and payload.get("type") in {"function_call", "custom_tool_call"}:
         tool["name"] = str(payload.get("name", "tool"))[:256]
@@ -217,21 +247,23 @@ def present(record, agent, event=None, limit_bytes=4096):
         )
         if not isinstance(content, list):
             content = [{"type": "text", "text": content}]
-        for part in content:
+        if max_blocks is not None and len(content) > max_blocks:
+            tool["_viewer_truncated"] = True
+        for part in content[:max_blocks]:
             if not isinstance(part, dict):
                 blocks.append({"kind": "text", "text": content_text(part)})
                 continue
             kind = part.get("type")
             if kind == "tool_use":
                 tool["name"] = str(part.get("name", "tool"))[:256]
-                tool["call_id"] = str(part.get("id", call_id or ""))
+                tool["call_id"] = _call_identifier(part.get("id", call_id or ""), tool)
                 args = part.get("input", {})
                 _metadata(args, tool)
                 blocks.append(
                     {"kind": "json", "text": json.dumps(args, ensure_ascii=False, indent=2)}
                 )
             elif kind == "tool_result":
-                tool["call_id"] = str(part.get("tool_use_id", call_id or ""))
+                tool["call_id"] = _call_identifier(part.get("tool_use_id", call_id or ""), tool)
                 detail = record.get("toolUseResult")
                 blocks.extend(
                     _tool_output(
@@ -299,6 +331,7 @@ def present(record, agent, event=None, limit_bytes=4096):
                 )
     source_truncated = bool(
         event.get("source_truncated")
+        or tool.get("_source_truncated")
         or record.get("truncated") is True
         or payload.get("truncated") is True
     )
@@ -307,8 +340,10 @@ def present(record, agent, event=None, limit_bytes=4096):
             source_truncated = True
     bounded = []
     remaining = limit_bytes
-    clipped = False
-    for block in blocks:
+    clipped = bool(tool.pop("_viewer_truncated", False))
+    if max_blocks is not None and len(blocks) > max_blocks:
+        clipped = True
+    for block in blocks[:max_blocks]:
         text = block["text"]
         if remaining <= 0:
             clipped = True
@@ -326,13 +361,25 @@ def present(record, agent, event=None, limit_bytes=4096):
         )
         remaining -= len(shortened.encode())
         clipped = clipped or trimmed
-    return {
+    tool = {key: value for key, value in tool.items() if not key.startswith("_")}
+    result = {
         "version": VERSION,
         "blocks": bounded,
         **({"tool": tool} if tool else {}),
         "viewer_truncated": clipped,
         "source_truncated": source_truncated,
     }
+    if (
+        max_blocks is not None
+        and len(json.dumps(result, ensure_ascii=False).encode()) > MAX_PRESENTATION_BYTES
+    ):
+        # Account for control-character escaping and block/metadata overhead, not text alone.
+        text = bounded_text("\n".join(block["text"] for block in bounded), min(limit_bytes, 4096))
+        result["blocks"] = [{"kind": "text", "text": text}]
+        result["viewer_truncated"] = True
+        if len(json.dumps(result, ensure_ascii=False).encode()) > MAX_PRESENTATION_BYTES:
+            result.pop("tool", None)
+    return result
 
 
 def fragment_presentation(text, source_truncated=False):

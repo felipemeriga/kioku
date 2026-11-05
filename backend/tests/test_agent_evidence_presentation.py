@@ -177,7 +177,8 @@ def test_item_completed_message_uses_full_native_content_not_preview():
     assert value["blocks"][0]["text"] == "native complete"
 
 
-def test_window_reuses_one_segment_download_for_multiple_presentations(monkeypatch):
+@pytest.mark.parametrize("oversized", [False, True])
+def test_window_reuses_one_segment_download_for_multiple_presentations(monkeypatch, oversized):
     from types import SimpleNamespace
 
     from services.agent_evidence import EvidenceStore
@@ -211,7 +212,12 @@ def test_window_reuses_one_segment_download_for_multiple_presentations(monkeypat
     )
     for i, event in enumerate(events):
         event.update(object_id="obj", session_id="s", position=str(i + 1))
+    if oversized:
+        events[0]["call_id"] = "x" * 600000
     obj = {"object_id": "obj", "session_id": "s", "kind": "segment", "committed_revision": 1}
+
+    if oversized:
+        events[0]["call_id"] = "x" * 600000
 
     class Query:
         def __init__(self, rows):
@@ -260,6 +266,9 @@ def test_window_reuses_one_segment_download_for_multiple_presentations(monkeypat
     monkeypatch.setattr(store, "download", lambda *args: downloads.append("obj") or raw)
     value = store.window("s")
     assert len(downloads) == 1
+    assert len(value["events"]) == 2  # Even a first oversize event cannot hide the page.
+    if oversized:
+        assert value["events"][0]["viewer_truncated"]
     assert [e["presentation"]["blocks"][0]["text"] for e in value["events"]] == ["first", "second"]
 
 
@@ -334,3 +343,73 @@ def test_unknown_native_tool_payload_fields_are_preserved_as_json():
     result = present(record, "codex")
     assert result["blocks"][0]["text"] == "native text"
     assert json.loads(result["blocks"][1]["text"]) == {"future_field": {"preserved": 3}}
+
+
+def test_twenty_thousand_empty_blocks_are_bounded_and_expanded_text_remains_complete(monkeypatch):
+    from services.agent_evidence import EvidenceStore
+    from services.agent_evidence_models import canonical
+
+    record = codex(
+        "message",
+        role="assistant",
+        content=[{"type": "output_text", "text": ""} for _ in range(20000)],
+    )
+    before = canonical(record)
+    value = present(record, "codex")
+    assert len(value["blocks"]) <= 128 and value["viewer_truncated"]
+    assert len(canonical(value)) <= 65536
+    store = EvidenceStore(None, "owner", "folder")
+    monkeypatch.setattr(store, "session", lambda *args: {"agent": "codex"})
+    monkeypatch.setattr(store, "event_raw", lambda *args: before)
+    content, presentation = store.event_content_view("s", {})
+    assert (
+        content == "\n" * 19999
+    )  # Presentation preview bounds never remove expanded native content.
+    assert presentation["blocks"][0]["text"] == content
+    assert canonical(record) == before
+
+
+def test_huge_call_identifier_and_serialized_control_character_overhead_are_bounded():
+    from services.agent_evidence_models import canonical
+
+    huge = "c" * 600000
+    record = codex(
+        "function_call",
+        name="shell",
+        call_id=huge,
+        arguments=json.dumps({"cmd": "\u0001" * 6000, "cwd": "\u0002" * 6000}),
+        status="\u0003" * 6000,
+    )
+    value = present(record, "codex")
+    assert len(canonical(value)) <= 65536 and value["viewer_truncated"]
+    assert "tool" not in value or len(value["tool"]["call_id"].encode()) <= 512
+    assert record["payload"]["call_id"] == huge
+
+
+@pytest.mark.parametrize(
+    "envelope",
+    [
+        {"output": "partial", "exit_code": 0, "truncated": True},
+        {"output": "partial", "metadata": {"exit_code": 0, "truncated": True}},
+    ],
+)
+def test_recognized_native_truncation_flag_survives_unwrapping(envelope):
+    result = present(codex("function_call_output", output=json.dumps(envelope)), "codex")
+    assert result["source_truncated"] and result["blocks"][0]["text"] == "partial"
+    assert not result["viewer_truncated"]
+
+
+def test_unknown_business_truncation_field_is_not_inferred():
+    document = {"output": "business data", "truncated": True, "unknown_business": 3}
+    result = present(codex("function_call_output", output=json.dumps(document)), "codex")
+    assert not result["source_truncated"]
+    assert json.loads(result["blocks"][0]["text"]) == document
+
+
+def test_oversized_native_call_identifiers_remain_distinct_after_metadata_bounding():
+    one = "same-prefix" * 1000 + "one"
+    two = "same-prefix" * 1000 + "two"
+    first = present(codex("function_call_output", call_id=one, output="body"), "codex")
+    second = present(codex("function_call_output", call_id=two, output="body"), "codex")
+    assert first["tool"]["call_id"] != second["tool"]["call_id"]
+    assert len(first["tool"]["call_id"].encode()) <= 512 and first["viewer_truncated"]
