@@ -39,7 +39,11 @@ def _metadata(source, tool):
         if isinstance(value, float) and not math.isfinite(value):
             continue
         if isinstance(value, (str, int, float)) and not isinstance(value, bool):
-            tool[target] = bounded_text(value, 2048) if isinstance(value, str) else value
+            normalized = bounded_text(value, 2048) if isinstance(value, str) else value
+            if target == "orchestration_seconds" and target in tool:
+                tool.setdefault("duration_seconds", normalized)
+            else:
+                tool[target] = normalized
     for key in ("duration_ms", "durationMs"):
         value = source.get(key)
         if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value):
@@ -65,25 +69,79 @@ def _tool_output(value, tool, depth=0):
     if isinstance(value, list):
         blocks = []
         for part in value:
-            if isinstance(part, dict) and part.get("type") in {"text", "input_text", "output_text"}:
+            if (
+                isinstance(part, dict)
+                and part.get("type") in {"text", "input_text", "output_text"}
+                and set(part) <= {"type", "text"}
+            ):
                 blocks.extend(_tool_output(part.get("text", ""), tool, depth + 1))
             else:
                 blocks.extend(_tool_output(part, tool, depth + 1))
         return blocks
     envelope = decoded if isinstance(decoded, dict) else value
     if isinstance(envelope, dict):
-        _metadata(envelope, tool)
-        _metadata(envelope.get("metadata"), tool)
-        outputs = [
-            envelope[key] for key in ("stdout", "stderr") if isinstance(envelope.get(key), str)
-        ]
-        if not outputs:
-            for key in ("output", "aggregated_output", "content"):
-                if key in envelope:
-                    outputs = [envelope[key]]
-                    break
-        if outputs:
-            return [block for output in outputs for block in _tool_output(output, tool, depth + 1)]
+        transport_keys = {
+            "output",
+            "aggregated_output",
+            "content",
+            "stdout",
+            "stderr",
+            "metadata",
+            "chunk_id",
+            "wall_time_seconds",
+            "exit_code",
+            "original_token_count",
+            "duration_seconds",
+            "duration_ms",
+            "durationMs",
+            "exitCode",
+            "status",
+            "session_id",
+            "cwd",
+            "call_id",
+            "truncated",
+        }
+        metadata_keys = transport_keys - {
+            "output",
+            "aggregated_output",
+            "content",
+            "stdout",
+            "stderr",
+            "metadata",
+        }
+        metadata = envelope.get("metadata")
+        recognized = (
+            set(envelope) <= transport_keys
+            and (metadata is None or isinstance(metadata, dict) and set(metadata) <= metadata_keys)
+            and any(
+                key in envelope
+                for key in (
+                    "stdout",
+                    "stderr",
+                    "metadata",
+                    "chunk_id",
+                    "wall_time_seconds",
+                    "exit_code",
+                    "duration_seconds",
+                )
+            )
+        )
+        if recognized:
+            _metadata(envelope, tool)
+            _metadata(metadata, tool)
+            outputs = [
+                envelope[key] for key in ("stdout", "stderr") if isinstance(envelope.get(key), str)
+            ]
+            if not outputs:
+                for key in ("output", "aggregated_output", "content"):
+                    if key in envelope:
+                        outputs = [envelope[key]]
+                        break
+            if outputs:
+                return [
+                    block for output in outputs for block in _tool_output(output, tool, depth + 1)
+                ]
+        # Business JSON and unknown envelope fields are never dropped or guessed away.
         return [{"kind": "json", "text": json.dumps(envelope, ensure_ascii=False, indent=2)}]
     if isinstance(decoded, (list, int, float, bool)) or value is None:
         return [{"kind": "json", "text": json.dumps(decoded, ensure_ascii=False, indent=2)}]
@@ -100,7 +158,10 @@ def _tool_output(value, tool, depth=0):
         duration = re.search(r"Wall time:\s*([0-9.]+)\s*seconds", header)
         exit_code = re.search(r"(?:Process exited with code |Exit code:\s*)(-?\d+)", header)
         if duration:
-            tool["orchestration_seconds"] = float(duration.group(1))
+            target = (
+                "duration_seconds" if "orchestration_seconds" in tool else "orchestration_seconds"
+            )
+            tool[target] = float(duration.group(1))
         if exit_code:
             tool["exit_code"] = int(exit_code.group(1))
         text = text[match.end() :]
@@ -194,6 +255,47 @@ def present(record, agent, event=None, limit_bytes=4096):
             else:
                 blocks.append(
                     {"kind": "json", "text": json.dumps(part, ensure_ascii=False, indent=2)}
+                )
+    if agent == "codex" and (
+        payload.get("type")
+        in {"function_call", "custom_tool_call", "function_call_output", "custom_tool_call_output"}
+        or event_type == "tool_result"
+    ):
+        known_payload = {
+            "type",
+            "name",
+            "arguments",
+            "input",
+            "call_id",
+            "id",
+            "output",
+            "item",
+            "aggregated_output",
+            "turn_id",
+            "status",
+            "cwd",
+            "exit_code",
+            "duration_seconds",
+            "wall_time_seconds",
+            "duration_ms",
+            "durationMs",
+            "exitCode",
+            "command",
+            "cmd",
+            "command_line",
+        }
+        unknown = {key: value for key, value in payload.items() if key not in known_payload}
+        if unknown:
+            blocks.append(
+                {"kind": "json", "text": json.dumps(unknown, ensure_ascii=False, indent=2)}
+            )
+        item = payload.get("item")
+        if isinstance(item, dict):
+            known_item = known_payload | {"process_id", "session_id"}
+            unknown_item = {key: value for key, value in item.items() if key not in known_item}
+            if unknown_item:
+                blocks.append(
+                    {"kind": "json", "text": json.dumps(unknown_item, ensure_ascii=False, indent=2)}
                 )
     source_truncated = bool(
         event.get("source_truncated")
