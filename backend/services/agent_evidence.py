@@ -18,7 +18,7 @@ from services.agent_evidence_models import (
     safe_id,
     sha256,
 )
-from services.agent_evidence_parser import project_record
+from services.agent_evidence_presentation import present
 
 
 def enabled():
@@ -356,14 +356,28 @@ class EvidenceStore:
         start, end = event["byte_offset"], event["byte_offset"] + event["byte_length"]
         return raw[start:end]
 
-    def event_content(self, session_id, event):
+    def event_content_view(self, session_id, event):
         raw = self.event_raw(session_id, event)
         try:
             record = json.loads(raw)
-            content = project_record(record, self.session(session_id)["agent"], {})["_content"]
-        except (ValueError, TypeError):
+            if not isinstance(record, dict):
+                raise ValueError("opaque record")
+            presentation = present(
+                record, self.session(session_id)["agent"], event, 64 * 1024 * 1024
+            )
+            content = "\n".join(block["text"] for block in presentation["blocks"])
+        except (ValueError, TypeError, RecursionError):
             content = raw.decode("utf-8", errors="replace")
-        return content
+            presentation = {
+                "version": 1,
+                "blocks": [{"kind": "text", "text": content}],
+                "viewer_truncated": False,
+                "source_truncated": bool(event.get("source_truncated")),
+            }
+        return content, presentation
+
+    def event_content(self, session_id, event):
+        return self.event_content_view(session_id, event)[0]
 
     def attachments(self, session_id, event_id=None):
         q = (
@@ -503,14 +517,27 @@ class EvidenceStore:
                         "sha256": obj["sha256"],
                     }
                 )
+        object_map = {}
+        object_ids = list(dict.fromkeys(event["object_id"] for event in rows))
+        for offset in range(0, len(object_ids), 50):
+            objects = (
+                self._query("agent_evidence_objects")
+                .eq("session_id", session_id)
+                .not_.is_("committed_revision", "null")
+                .in_("object_id", object_ids[offset : offset + 50])
+                .execute()
+                .data
+            )
+            object_map.update({obj["object_id"]: obj for obj in objects})
         for event in rows:
+            if cached_object_id != event["object_id"]:
+                obj = object_map.get(event["object_id"])
+                if obj is None:
+                    fail("object_pending", 409)
+                cached_raw = self.download(obj)
+                cached_object_id = event["object_id"]
+            data = cached_raw[event["byte_offset"] : event["byte_offset"] + event["byte_length"]]
             if raw:
-                if cached_object_id != event["object_id"]:
-                    cached_raw = self.download(self.object(session_id, event["object_id"]))
-                    cached_object_id = event["object_id"]
-                data = cached_raw[
-                    event["byte_offset"] : event["byte_offset"] + event["byte_length"]
-                ]
                 try:
                     text = data.decode("utf-8") if len(data) <= 65536 else None
                     encoding = "utf-8"
@@ -548,6 +575,14 @@ class EvidenceStore:
                     > len(event["content_preview"].encode()),
                     attachments=attachment_map.get(event["event_id"], []),
                 )
+                try:
+                    record = json.loads(data)
+                    if isinstance(record, dict):
+                        entry["presentation"] = present(record, s["agent"], event)
+                        entry["viewer_truncated"] = entry["presentation"]["viewer_truncated"]
+                        entry["source_truncated"] = entry["presentation"]["source_truncated"]
+                except (ValueError, TypeError, RecursionError):
+                    pass  # Opaque originals keep their indexed preview and raw access.
                 if event["event_type"] == "tool_result":
                     for child in children:
                         if child["native_session_id"] in event["content_preview"]:
