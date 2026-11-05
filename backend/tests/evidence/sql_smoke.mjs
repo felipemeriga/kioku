@@ -61,6 +61,25 @@ const partialLease=await call('claim_agent_evidence_upload',[user,partial.sessio
 await call('finish_agent_evidence_upload',[user,partial.session_id,'obj',partialLease.nonce,'partial/body']);
 if((await call('commit_agent_evidence',[user,'partial'])).status!=='incomplete')throw Error('partial accepted');
 if((await db.query('SELECT committed_revision FROM agent_evidence_objects WHERE session_id=$1',[partial.session_id])).rows.some(r=>r.committed_revision!==null))throw Error('partial publication');
+// Reverse insertion of >256 segments must select numeric predecessors before LIMIT.
+const longSession=await call('prepare_agent_evidence',[user,{...request,native_session_id:'long',batch_id:'long'}]);
+await db.query(`INSERT INTO agent_evidence_objects(session_id,user_id,folder_id,object_id,
+  descriptor,producer_id,stream_id,generation,kind,sha256,byte_length,committed_revision)
+  SELECT $1,$2,$3,'segment-'||n,jsonb_build_object('first_record',n,'last_record',n),
+  'pc','native',1,'segment',repeat('a',64),3,1 FROM generate_series(600,1,-1) n`,
+  [longSession.session_id,user,folder]);
+let expected=1;
+for(let page=0;page<3;page++) {
+  const rows=(await db.query(`SELECT object_id,first_record FROM agent_evidence_objects
+    WHERE session_id=$1 AND kind='segment' AND committed_revision IS NOT NULL
+      AND indexed_parser_version<1 ORDER BY stream_id,generation,first_record LIMIT 256`,
+    [longSession.session_id])).rows;
+  if(!rows.length)throw Error('long indexing stalled');
+  for(const row of rows) {if(row.first_record!==expected++)throw Error('numeric source ordering broken');}
+  await db.query(`UPDATE agent_evidence_objects SET indexed_parser_version=1
+    WHERE session_id=$1 AND object_id=ANY($2::text[])`,[longSession.session_id,rows.map(r=>r.object_id)]);
+}
+if(expected!==601)throw Error('long index did not fully drain');
 // Cascade cleanup survives object-first FK deletion and includes planned unfinished uploads.
 await call('claim_agent_evidence_upload',[user,partial.session_id,'obj2']);
 const planned=(await db.query('SELECT storage_path FROM agent_evidence_objects WHERE session_id=$1',[partial.session_id])).rows.map(r=>r.storage_path);

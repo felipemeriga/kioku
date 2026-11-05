@@ -81,6 +81,7 @@ CREATE TABLE public.agent_evidence_objects (
     upload_nonce uuid NOT NULL DEFAULT gen_random_uuid(),
     upload_lease_until timestamptz,
     committed_revision bigint,
+    first_record bigint GENERATED ALWAYS AS ((descriptor->>'first_record')::bigint) STORED,
     indexed_parser_version integer NOT NULL DEFAULT 0,
     parser_state jsonb NOT NULL DEFAULT '{}',
     PRIMARY KEY(session_id, object_id),
@@ -88,7 +89,7 @@ CREATE TABLE public.agent_evidence_objects (
         REFERENCES public.agent_evidence_sessions(id, user_id, folder_id) ON DELETE CASCADE
 );
 CREATE INDEX agent_evidence_object_order ON public.agent_evidence_objects
-    (session_id, stream_id, generation, ((descriptor->>'first_record')::bigint));
+    (session_id, stream_id, generation, first_record);
 
 CREATE TABLE public.agent_evidence_events (
     session_id uuid NOT NULL,
