@@ -247,7 +247,7 @@ def test_upload_route_passes_supported_file_to_real_storage_sdk(monkeypatch):
 
     transport = httpx.MockTransport(respond)
     with httpx.Client(transport=transport) as client:
-        storage = SyncStorageClient("https://storage.example/storage/v1", {}, http_client=client)
+        storage = SyncStorageClient("https://storage.example/storage/v1/", {}, http_client=client)
 
         class Store:
             def upload(self, batch_id, object_id, file, content_hash, length):
