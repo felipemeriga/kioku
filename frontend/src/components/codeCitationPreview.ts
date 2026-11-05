@@ -46,10 +46,10 @@ export function codeCitationPreview(value: string, claim = ""): string {
     }
   });
   const start = best ? Math.max(0, focus - 2) : 0;
-  const body = lines.slice(start, start + 10).join("\n");
+  const body = lines.slice(start, start + 20).join("\n");
   return (
     (start ? "…\n" : "") +
-    body.slice(0, 1200) +
-    (body.length > 1200 || lines.length > start + 10 ? "\n…" : "")
+    body.slice(0, 2400) +
+    (body.length > 2400 || lines.length > start + 20 ? "\n…" : "")
   );
 }

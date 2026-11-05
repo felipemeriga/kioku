@@ -189,9 +189,9 @@ function CitationChip({
       slotProps={{
         tooltip: {
           sx: {
-            maxWidth: "min(480px, calc(100vw - 32px))",
+            maxWidth: "min(640px, calc(100vw - 32px))",
             boxSizing: "border-box",
-            maxHeight: "min(320px, calc(100dvh - 32px))",
+            maxHeight: "min(600px, calc(100dvh - 32px))",
             overflow: "hidden",
             p: "12px 14px",
             color: brand.text,

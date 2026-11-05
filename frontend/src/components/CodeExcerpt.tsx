@@ -65,7 +65,7 @@ export default function CodeExcerpt({
       data-language={language ?? "text"}
       sx={{
         mt: 1,
-        maxHeight: compact ? 180 : 480,
+        maxHeight: compact ? 460 : 480,
         overflow: compact ? "hidden" : "auto",
         bgcolor: brand.surface2,
         border: `1px solid ${brand.line}`,
