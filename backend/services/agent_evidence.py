@@ -586,7 +586,32 @@ class EvidenceStore:
             .data
         )
         if not rows:
-            return {"status": "absent"}
+            # The journal's stable ID encodes its source session. This proves only
+            # a same-owner/folder session association, never an exact event range.
+            agent, separator, remainder = entry_id.partition(":")
+            native, turn_separator, turn = remainder.rpartition(":")
+            if not separator or not turn_separator or agent not in {"codex", "claude_code"}:
+                return {"status": "absent"}
+            try:
+                safe_id(native)
+                safe_id(turn)
+            except (ValueError, TypeError):
+                return {"status": "absent"}
+            candidates = (
+                self._query("agent_evidence_sessions")
+                .eq("agent", agent)
+                .eq("native_session_id", native)
+                .is_("parent_session_id", "null")
+                .limit(2)
+                .execute()
+                .data
+            )
+            if len(candidates) != 1:
+                return {"status": "absent"}
+            session = candidates[0]
+            if session.get("deleted_at"):
+                return {"status": "deleted"}
+            return {"status": "approximate", "session_id": session["id"]}
         link = rows[0]
         s = self.session(link["session_id"], deleted=True)
         if s.get("deleted_at"):
