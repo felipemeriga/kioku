@@ -8,6 +8,7 @@ import os
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from dateutil.parser import isoparse
 from fastapi import HTTPException
 from storage3.exceptions import StorageApiError
 
@@ -18,7 +19,8 @@ from services.agent_evidence_models import (
     safe_id,
     sha256,
 )
-from services.agent_evidence_parser import project_record
+from services.agent_evidence_parser import bounded_text
+from services.agent_evidence_presentation import fragment_presentation, present
 
 
 def enabled():
@@ -286,15 +288,18 @@ class EvidenceStore:
     def days(self, session_id, tz, start=None, end=None):
         s = self.session(session_id)
         try:
-            ZoneInfo(tz)
+            zone = ZoneInfo(tz)
         except (ValueError, ZoneInfoNotFoundError):
             fail("invalid_timezone", 422)
-        end = end or date.today()
-        start = start or (
-            date.fromisoformat(s["first_event_at"][:10])
-            if s.get("first_event_at")
-            else end - timedelta(days=365)
-        )
+
+        def local_day(value):
+            return isoparse(value).astimezone(zone).date()
+
+        first_day = local_day(s["first_event_at"]) if s.get("first_event_at") else None
+        if end is None:
+            latest = local_day(s["last_event_at"]) if s.get("last_event_at") else first_day
+            end = max(datetime.now(zone).date(), latest or date.min)
+        start = start or first_day or end - timedelta(days=365)
         if end < start or (end - start).days > 366:
             fail("date_range_exceeds_limit", 422)
         return {
@@ -356,14 +361,30 @@ class EvidenceStore:
         start, end = event["byte_offset"], event["byte_offset"] + event["byte_length"]
         return raw[start:end]
 
-    def event_content(self, session_id, event):
+    def event_content_view(self, session_id, event):
         raw = self.event_raw(session_id, event)
         try:
             record = json.loads(raw)
-            content = project_record(record, self.session(session_id)["agent"], {})["_content"]
-        except (ValueError, TypeError):
+            if not isinstance(record, dict):
+                raise ValueError("opaque record")
+            agent = self.session(session_id)["agent"]
+            complete = present(record, agent, event, 64 * 1024 * 1024, max_blocks=None)
+            content = "\n".join(block["text"] for block in complete["blocks"])
+            presentation = present(record, agent, event, 65536)
+            if presentation["viewer_truncated"] and len(content.encode()) <= 65536:
+                presentation = fragment_presentation(content, complete["source_truncated"])
+        except (ValueError, TypeError, RecursionError):
             content = raw.decode("utf-8", errors="replace")
-        return content
+            presentation = {
+                "version": 1,
+                "blocks": [{"kind": "text", "text": content, "viewer_truncated": False}],
+                "viewer_truncated": False,
+                "source_truncated": bool(event.get("source_truncated")),
+            }
+        return content, presentation
+
+    def event_content(self, session_id, event):
+        return self.event_content_view(session_id, event)[0]
 
     def attachments(self, session_id, event_id=None):
         q = (
@@ -503,14 +524,27 @@ class EvidenceStore:
                         "sha256": obj["sha256"],
                     }
                 )
+        object_map = {}
+        object_ids = list(dict.fromkeys(event["object_id"] for event in rows))
+        for offset in range(0, len(object_ids), 50):
+            objects = (
+                self._query("agent_evidence_objects")
+                .eq("session_id", session_id)
+                .not_.is_("committed_revision", "null")
+                .in_("object_id", object_ids[offset : offset + 50])
+                .execute()
+                .data
+            )
+            object_map.update({obj["object_id"]: obj for obj in objects})
         for event in rows:
+            if cached_object_id != event["object_id"]:
+                obj = object_map.get(event["object_id"])
+                if obj is None:
+                    fail("object_pending", 409)
+                cached_raw = self.download(obj)
+                cached_object_id = event["object_id"]
+            data = cached_raw[event["byte_offset"] : event["byte_offset"] + event["byte_length"]]
             if raw:
-                if cached_object_id != event["object_id"]:
-                    cached_raw = self.download(self.object(session_id, event["object_id"]))
-                    cached_object_id = event["object_id"]
-                data = cached_raw[
-                    event["byte_offset"] : event["byte_offset"] + event["byte_length"]
-                ]
                 try:
                     text = data.decode("utf-8") if len(data) <= 65536 else None
                     encoding = "utf-8"
@@ -548,12 +582,42 @@ class EvidenceStore:
                     > len(event["content_preview"].encode()),
                     attachments=attachment_map.get(event["event_id"], []),
                 )
+                try:
+                    record = json.loads(data)
+                    if isinstance(record, dict):
+                        entry["presentation"] = present(record, s["agent"], event, 8192)
+                        entry["viewer_truncated"] = entry["presentation"]["viewer_truncated"]
+                        entry["source_truncated"] = entry["presentation"]["source_truncated"]
+                except (ValueError, TypeError, RecursionError):
+                    pass  # Opaque originals keep their indexed preview and raw access.
                 if event["event_type"] == "tool_result":
                     for child in children:
                         if child["native_session_id"] in event["content_preview"]:
                             entry["child_session_id"] = child["id"]
                             break
             cost = len(canonical(entry))
+            if cost > budget and not body and not raw:
+                # Oversized native IDs/attachment lists must never hide the first event.
+                preview = bounded_text(entry.get("content_preview") or "", 1024)
+                entry = {
+                    key: entry.get(key)
+                    for key in (
+                        "event_id",
+                        "role",
+                        "event_type",
+                        "event_at",
+                        "raw_available",
+                        "source",
+                        "source_truncated",
+                    )
+                }
+                entry.update(
+                    content_preview=preview,
+                    viewer_truncated=True,
+                    attachments=[],
+                    presentation=fragment_presentation(preview, entry.get("source_truncated")),
+                )
+                cost = len(canonical(entry))
             if cost > budget:
                 break
             budget -= cost

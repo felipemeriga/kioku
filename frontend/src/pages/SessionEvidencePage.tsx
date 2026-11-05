@@ -48,7 +48,7 @@ export default function SessionEvidencePage() {
           )
         }
       >
-        ‹ Back to journal
+        ‹ Back to history
       </Button>
       <TranscriptViewer
         key={`${folderId}:${sessionId}`}

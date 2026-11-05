@@ -255,3 +255,38 @@
     scroll-behavior: auto;
   }
 }
+.history-calendar-note {
+  display: block;
+  margin-top: 18px;
+  color: #beb0d7;
+  line-height: 1.6;
+}
+.history-availability {
+  color: #beb0d7;
+  font-size: 12px;
+}
+.history-original-only {
+  cursor: default;
+}
+.history-original-only strong {
+  overflow-wrap: anywhere;
+}
+.history-session-select {
+  display: grid;
+  gap: 9px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  text-align: left;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.history-session-select:focus-visible {
+  outline: 2px solid #00f0ff;
+  outline-offset: 5px;
+}
+.learnings-session-card:focus-within {
+  border-color: #00f0ff;
+}

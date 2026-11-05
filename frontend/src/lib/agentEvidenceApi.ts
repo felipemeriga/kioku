@@ -47,6 +47,27 @@ export interface EvidenceAttachment {
   available: boolean;
   sha256?: string;
 }
+export interface EvidencePresentation {
+  version: 1;
+  blocks: Array<{
+    kind: "markdown" | "code" | "terminal" | "json" | "text";
+    text: string;
+    language?: string;
+    viewer_truncated?: boolean;
+  }>;
+  tool?: {
+    name?: string;
+    command_text?: string;
+    call_id?: string;
+    cwd?: string;
+    exit_code?: number;
+    duration_seconds?: number;
+    orchestration_seconds?: number;
+    status?: string;
+  };
+  viewer_truncated: boolean;
+  source_truncated: boolean;
+}
 export interface EvidenceEvent {
   event_id: string;
   role: string;
@@ -62,6 +83,7 @@ export interface EvidenceEvent {
   inherited?: boolean;
   attachments: EvidenceAttachment[];
   source: EvidenceSource;
+  presentation?: EvidencePresentation;
 }
 export interface RawEvidenceRecord {
   event_id: string;
@@ -236,6 +258,7 @@ export async function getEvidenceContent(
     viewer_truncated: boolean;
     has_more: boolean;
     next_offset?: number;
+    presentation?: EvidencePresentation;
   }>;
 }
 export async function getAttachmentMetadata(
@@ -273,7 +296,7 @@ export async function downloadEvidence(
 ) {
   const path =
     kind === "raw"
-      ? `/events/${segment(id)}/raw`
+      ? `/events/${segment(id)}/raw?download=true`
       : `/attachments/${segment(id)}?download=true`;
   const response = await apiFetch(
     sessionPath(location.folderId, location.sessionId) + path,

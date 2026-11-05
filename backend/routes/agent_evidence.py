@@ -15,6 +15,7 @@ from starlette.concurrency import run_in_threadpool
 
 from auth import get_current_user
 from db.client import get_supabase_thread_safe
+from services import agent_history
 from services.agent_evidence import EvidenceStore, enabled, fail
 from services.agent_evidence_models import (
     MAX_BATCH_OBJECTS,
@@ -22,6 +23,7 @@ from services.agent_evidence_models import (
     BatchRequest,
     attachment_content_type,
 )
+from services.agent_evidence_presentation import fragment_presentation
 
 router = APIRouter(tags=["agent-evidence"])
 UPLOAD = "/api/agent-evidence"
@@ -264,7 +266,8 @@ def content(
     user_id: str = Depends(get_current_user),
 ):
     store = _read_store(folder_id, user_id)
-    full = store.event_content(session_id, store.event(session_id, event_id)).encode()
+    text, presentation = store.event_content_view(session_id, store.event(session_id, event_id))
+    full = text.encode()
     # UTF-8 boundaries are preserved in expanded text; raw byte reads remain exact.
     start = offset
     while start < len(full) and full[start] & 0xC0 == 0x80:
@@ -281,6 +284,9 @@ def content(
         "viewer_truncated": start > 0 or end < len(full),
         "has_more": end < len(full),
         "next_offset": end if end < len(full) else None,
+        "presentation": presentation
+        if start == 0 and end == len(full)
+        else fragment_presentation(value, presentation["source_truncated"]),
     }
 
 
@@ -374,3 +380,30 @@ def session(folder_id: str, session_id: str, user_id: str = Depends(get_current_
 @router.delete(READ + "/{session_id}")
 def delete(folder_id: str, session_id: str, user_id: str = Depends(get_current_user)):
     return _read_store(folder_id, user_id).delete(session_id)
+
+
+@router.get("/api/folders/{folder_id}/agent-history/days")
+def history_days(
+    folder_id: str,
+    start: date,
+    end: date,
+    timezone: str = "UTC",
+    agent: str | None = None,
+    user_id: str = Depends(get_current_user),
+):
+    return agent_history.days(_read_store(folder_id, user_id), start, end, timezone, agent)
+
+
+@router.get("/api/folders/{folder_id}/agent-history/sessions")
+def history_sessions(
+    folder_id: str,
+    date: date,
+    timezone: str = "UTC",
+    cursor: str | None = None,
+    limit: int = Query(50, ge=1, le=100),
+    agent: str | None = None,
+    user_id: str = Depends(get_current_user),
+):
+    return agent_history.sessions(
+        _read_store(folder_id, user_id), date, timezone, cursor, limit, agent
+    )

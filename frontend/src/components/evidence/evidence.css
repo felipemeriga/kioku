@@ -199,3 +199,33 @@
     max-height: calc(100dvh - 350px);
   }
 }
+.evidence-tool {
+  border: 1px solid #49335f;
+  border-radius: 5px;
+}
+.evidence-tool-metadata {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  color: #beb0d7;
+  font-size: 12px;
+  margin: 10px 0;
+}
+.evidence-source-details {
+  margin-top: 14px;
+  color: #beb0d7;
+  font-size: 12px;
+}
+.evidence-source-details summary {
+  cursor: pointer;
+  width: fit-content;
+}
+.evidence-source-details summary:focus-visible {
+  outline: 2px solid #00f0ff;
+}
+.evidence-command {
+  margin: 12px 0;
+}
+.evidence-event > .MuiToggleButtonGroup-root {
+  margin: 12px 0;
+}

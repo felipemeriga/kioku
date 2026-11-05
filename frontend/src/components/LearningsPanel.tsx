@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Alert,
@@ -14,9 +14,7 @@ import {
 } from "@mui/material";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import { decorateJournalMarkdown } from "./journalMarkdown";
+import { ReadableContent } from "./agent-evidence/ReadableContent";
 import { apiFetch } from "../lib/api";
 import { brand, fonts } from "../theme";
 import "./LearningsPanel.css";
@@ -24,7 +22,17 @@ import { useAuth } from "../hooks/useAuth";
 import type { EvidenceLocation } from "../lib/agentEvidenceApi";
 import EvidenceDrawer from "./evidence/EvidenceDrawer";
 import JournalEvidenceLink from "./evidence/JournalEvidenceLink";
-import OriginalSessions from "./evidence/OriginalSessions";
+import {
+  historyEvidenceLocation,
+  historyIdentity,
+  unionHistorySessions,
+  type JournalHistorySession,
+} from "../lib/agentHistoryApi";
+import {
+  useOriginalHistoryDays,
+  useOriginalHistorySessions,
+  historyUnsupported,
+} from "../hooks/useAgentHistory";
 
 type JournalReturnState = {
   year: number;
@@ -32,7 +40,9 @@ type JournalReturnState = {
   selectedDate: string | null;
   selectedSession: { date: string; key: string } | null;
   raw: boolean;
-  view: "journal" | "learnings" | "originals";
+  view: "history" | "journal" | "learnings" | "originals";
+  scrollOwner?: "container" | "main" | "window";
+  listScroll?: number;
   scrollY: number;
   savedAt: number;
 };
@@ -48,7 +58,7 @@ function readJournalReturn(key: string): JournalReturnState | null {
       value.month < 0 ||
       value.month > 11 ||
       Date.now() - value.savedAt > 600_000 ||
-      !["journal", "learnings", "originals"].includes(value.view)
+      !["history", "journal", "learnings", "originals"].includes(value.view)
     )
       return null;
     return value;
@@ -82,16 +92,7 @@ type Entry = {
   time: number;
   markdown: string;
 };
-type JournalSession = {
-  agent: string;
-  session_id: string;
-  title: string;
-  summary: string;
-  computer_name: string;
-  entry_count: number;
-  first_time: number;
-  last_time: number;
-};
+type JournalSession = JournalHistorySession;
 const SESSION_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -170,7 +171,24 @@ function dateLabel(day: string) {
   }).format(new Date(year, month - 1, date));
 }
 
+function historyScrollContainer(panel: HTMLElement | null): HTMLElement | null {
+  let node = panel?.parentElement ?? null;
+  while (node && node !== document.body && node !== document.documentElement) {
+    if (/auto|scroll/.test(getComputedStyle(node).overflowY)) return node;
+    node = node.parentElement;
+  }
+  return panel?.closest("main") ?? null;
+}
 export default function LearningsPanel({ folderId }: { folderId: string }) {
+  const { user } = useAuth();
+  return (
+    <HistoryPanel
+      key={`${user?.id ?? "anonymous"}:${folderId}`}
+      folderId={folderId}
+    />
+  );
+}
+function HistoryPanel({ folderId }: { folderId: string }) {
   const { user } = useAuth();
   const returnKey = `kioku.evidence-journal-return:${
     user?.id ?? "anonymous"
@@ -179,9 +197,20 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
     user ? readJournalReturn(returnKey) : null,
   );
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  const [view, setView] = useState<"journal" | "learnings" | "originals">(
-    restored?.view ?? "journal",
+  const [view, setView] = useState<"history" | "learnings">(
+    restored?.view === "learnings" ? "learnings" : "history",
   );
+  const panel = useRef<HTMLDivElement>(null);
+  const scrollRestored = useRef(false);
+  const listScroll = useRef(restored?.listScroll ?? 0);
+  const currentScroll = () =>
+    historyScrollContainer(panel.current)?.scrollTop ?? window.scrollY;
+  const restoreScroll = (top: number) =>
+    requestAnimationFrame(() => {
+      const main = historyScrollContainer(panel.current);
+      if (main) main.scrollTop = top;
+      else window.scrollTo({ top });
+    });
   const [month, setMonth] = useState(
     () => restored?.month ?? new Date().getMonth(),
   );
@@ -206,11 +235,15 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
         JSON.stringify({
           year,
           month,
-          selectedDate,
+          selectedDate: selectedDate ?? activeDate,
           selectedSession,
           raw,
           view,
-          scrollY: window.scrollY,
+          scrollY: currentScroll(),
+          listScroll: listScroll.current,
+          scrollOwner: historyScrollContainer(panel.current)
+            ? "container"
+            : "window",
           savedAt: Date.now(),
         }),
       );
@@ -237,7 +270,7 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
   }, [returnKey, user]);
 
   const daysQuery = useQuery({
-    queryKey: ["learning-days", folderId, year, month, timezone],
+    queryKey: ["learning-days", folderId, user?.id, year, month, timezone],
     queryFn: async () =>
       (await (
         await apiFetch(
@@ -247,20 +280,49 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
         )
       ).json()) as { days: JournalDay[] },
     staleTime: 60_000,
-    enabled: view === "journal",
+    enabled: view === "history",
     retry: 1,
   });
-  const dayMap = useMemo(
-    () =>
-      new Map(
-        (daysQuery.data?.days ?? []).map((day) => [day.journal_date, day]),
-      ),
-    [daysQuery.data],
+  const originalDays = useOriginalHistoryDays(
+    folderId,
+    user?.id,
+    year,
+    month,
+    timezone,
+    view === "history",
   );
+  const dayMap = useMemo(() => {
+    const map = new Map(
+      (daysQuery.data?.days ?? []).map((day) => [
+        day.journal_date,
+        { ...day, event_count: 0, session_count: 0 },
+      ]),
+    );
+    for (const day of originalDays.data?.days ?? []) {
+      const journal = map.get(day.date);
+      map.set(day.date, {
+        journal_date: day.date,
+        revision: journal?.revision ?? 0,
+        entry_count: journal?.entry_count ?? 0,
+        agents: [...new Set([...(journal?.agents ?? []), ...day.agents])],
+        approximate: journal?.approximate,
+        event_count: day.event_count,
+        session_count: day.session_count,
+      });
+    }
+    return map;
+  }, [daysQuery.data, originalDays.data]);
   const activeDate =
-    selectedDate ?? daysQuery.data?.days[0]?.journal_date ?? null;
+    selectedDate ?? [...dayMap.keys()].sort().reverse()[0] ?? null;
+  const originalSessions = useOriginalHistorySessions(
+    folderId,
+    user?.id,
+    activeDate,
+    timezone,
+    view === "history" && !historyUnsupported(originalDays.error),
+  );
   const dayQuery = useQuery({
-    queryKey: ["learning-day", folderId, activeDate, timezone],
+    queryKey: ["learning-day", folderId, user?.id, activeDate, timezone],
     queryFn: async () =>
       (await (
         await apiFetch(
@@ -274,12 +336,12 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
         revision: number;
         sessions?: JournalSession[];
       },
-    enabled: !!activeDate && view === "journal",
+    enabled: !!activeDate && view === "history",
     staleTime: 30_000,
     retry: 1,
   });
   const learningsQuery = useQuery({
-    queryKey: ["repo-learnings", folderId],
+    queryKey: ["repo-learnings", folderId, user?.id],
     queryFn: async () =>
       (await (await apiFetch(`/api/folders/${folderId}/learnings`)).json()) as {
         learnings: Learning[];
@@ -289,16 +351,39 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
   });
 
   useEffect(() => {
-    if (restored && (dayQuery.data || view !== "journal")) {
+    if (
+      restored &&
+      !scrollRestored.current &&
+      (view !== "history" ||
+        (dayQuery.isFetched &&
+          (originalSessions.isFetched ||
+            historyUnsupported(originalDays.error))))
+    ) {
+      scrollRestored.current = true;
       try {
         sessionStorage.removeItem(returnKey);
       } catch {
         /* Optional UI storage. */
       }
-      if (restored.scrollY > 0)
-        requestAnimationFrame(() => window.scrollTo({ top: restored.scrollY }));
+      requestAnimationFrame(() => {
+        const main = historyScrollContainer(panel.current);
+        if (
+          (restored.scrollOwner === "main" ||
+            restored.scrollOwner === "container") &&
+          main
+        )
+          main.scrollTop = restored.scrollY;
+        else window.scrollTo({ top: restored.scrollY });
+      });
     }
-  }, [restored, dayQuery.data, view, returnKey]);
+  }, [
+    restored,
+    dayQuery.isFetched,
+    originalSessions.isFetched,
+    originalDays.error,
+    view,
+    returnKey,
+  ]);
 
   const firstWeekday = (new Date(year, month, 1).getDay() + 6) % 7;
   const count = new Date(year, month + 1, 0).getDate();
@@ -311,7 +396,7 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
     year: "numeric",
   }).format(new Date(year, month, 1));
   const entries = entriesFromMarkdown(dayQuery.data?.markdown ?? "");
-  const sessions =
+  const journalSessions =
     dayQuery.data?.sessions ??
     Array.from(
       entries
@@ -337,10 +422,15 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
         }, new Map<string, JournalSession>())
         .values(),
     );
+  const sessions = unionHistorySessions(
+    journalSessions,
+    originalSessions.data?.pages.flatMap((page) => page.sessions ?? []) ?? [],
+  );
   const activeSession =
     selectedSession?.date === activeDate
       ? sessions.find(
           (session) =>
+            session.hasJournal &&
             `${session.agent}:${session.session_id}` === selectedSession.key,
         )
       : undefined;
@@ -376,11 +466,11 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
     setSelectedDate(viewerDay);
     setSelectedSession(null);
     setRaw(false);
-    setView("journal");
+    setView("history");
   };
 
   return (
-    <Box className="learnings-panel">
+    <Box className="learnings-panel" ref={panel}>
       <Stack
         direction={{ xs: "column", sm: "row" }}
         justifyContent="space-between"
@@ -393,10 +483,10 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
             variant="h5"
             sx={{ fontFamily: fonts.display, fontWeight: 650 }}
           >
-            Project memory
+            Agents
           </Typography>
           <Typography sx={{ color: brand.muted, fontSize: 14 }}>
-            Agent journal and current learnings from this repository.
+            Session history and repository learnings.
           </Typography>
         </Box>
         <Tabs
@@ -408,15 +498,14 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
             "& .MuiTab-root": { minHeight: 38, textTransform: "none" },
           }}
         >
-          <Tab value="journal" label="Journal" />
+          <Tab value="history" label="History" />
           <Tab value="learnings" label="Learnings" />
-          <Tab value="originals" label="Original sessions" />
         </Tabs>
       </Stack>
 
-      {view === "journal" ? (
+      {view === "history" ? (
         <Box className="learnings-journal-layout">
-          <Box className="learnings-calendar" aria-label="Journal calendar">
+          <Box className="learnings-calendar" aria-label="History calendar">
             <Stack
               direction="row"
               alignItems="center"
@@ -443,9 +532,9 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
                 </IconButton>
               </Stack>
             </Stack>
-            {daysQuery.isLoading ? (
+            {daysQuery.isLoading && originalDays.isLoading ? (
               <CircularProgress size={22} aria-label="Loading journal days" />
-            ) : daysQuery.isError ? (
+            ) : daysQuery.isError && !originalDays.data?.days.length ? (
               <Alert
                 severity="error"
                 action={
@@ -486,7 +575,9 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
                           day
                             ? `, ${day.approximate ? "at least " : ""}${
                                 day.entry_count
-                              } journal entries`
+                              } journal entries, ${
+                                day.event_count
+                              } original events`
                             : ", no entries"
                         }`}
                         aria-pressed={activeDate === key}
@@ -523,9 +614,57 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
                 </Stack>
               </>
             )}
+            <Typography className="history-calendar-note" variant="caption">
+              {timezone}
+              <br />
+              One calendar for journal entries and original activity. Sessions
+              appear once on each active day.
+            </Typography>
           </Box>
 
           <Box className="learnings-timeline">
+            {(originalDays.isError || originalSessions.isError) && (
+              <Alert
+                severity={
+                  historyUnsupported(originalDays.error) ||
+                  historyUnsupported(originalSessions.error)
+                    ? "info"
+                    : "warning"
+                }
+                sx={{ mb: 2 }}
+                action={
+                  <Button
+                    onClick={() => {
+                      void originalDays.refetch();
+                      void originalSessions.refetch();
+                    }}
+                  >
+                    Retry
+                  </Button>
+                }
+              >
+                Original activity is currently unavailable. Journal summaries
+                remain available.
+              </Alert>
+            )}
+
+            {dayQuery.isError &&
+              originalSessions.data?.pages.some(
+                (page) => page.sessions.length,
+              ) && (
+                <Alert
+                  severity="warning"
+                  sx={{ mb: 2 }}
+                  action={
+                    <Button onClick={() => void dayQuery.refetch()}>
+                      Retry
+                    </Button>
+                  }
+                >
+                  Journal summaries could not be loaded. Original activity is
+                  still available.
+                </Alert>
+              )}
             <Stack
               direction="row"
               alignItems="center"
@@ -537,14 +676,16 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
                 <Typography sx={{ fontSize: 18, fontWeight: 650 }}>
                   {activeDate ? dateLabel(activeDate) : "Choose a day"}
                 </Typography>
-                {activeDate && dayMap.get(activeDate) && (
+                {activeDate && (
                   <Typography sx={{ color: brand.muted, fontSize: 13 }}>
                     {dayQuery.data?.status === "ok"
                       ? entries.length
                       : dayMap.get(activeDate)?.approximate
                       ? `At least ${dayMap.get(activeDate)?.entry_count}`
                       : dayMap.get(activeDate)?.entry_count}{" "}
-                    entries · {sessions.length} sessions · {timezone}
+                    journal entries · {sessions.length}
+                    {originalSessions.hasNextPage ? "+" : ""} sessions ·{" "}
+                    {timezone}
                   </Typography>
                 )}
               </Box>
@@ -560,14 +701,17 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
             </Stack>
             {!activeDate ? (
               <Typography sx={{ color: brand.muted }}>
-                Select a marked day to read the agent journal.
+                Select a marked day to read the session history.
               </Typography>
             ) : dayQuery.isLoading ? (
               <Stack direction="row" gap={1} alignItems="center">
                 <CircularProgress size={18} />
                 Loading journal…
               </Stack>
-            ) : dayQuery.isError ? (
+            ) : dayQuery.isError &&
+              !originalSessions.data?.pages.some(
+                (page) => page.sessions.length,
+              ) ? (
               <Alert
                 severity="error"
                 action={
@@ -576,64 +720,148 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
               >
                 Could not load this journal.
               </Alert>
-            ) : dayQuery.data?.status !== "ok" ? (
-              <Typography sx={{ color: brand.muted }}>
-                No agent interactions recorded on this day.
-              </Typography>
-            ) : raw ? (
+            ) : raw && dayQuery.data?.status === "ok" ? (
               <Box component="pre" className="learnings-raw">
                 {dayQuery.data.markdown}
               </Box>
             ) : !activeSession ? (
               <div className="learnings-session-list">
-                {sessions.map((session) => (
-                  <button
-                    key={`${session.agent}:${session.session_id}`}
-                    type="button"
-                    className="learnings-session-card"
-                    onClick={() =>
-                      setSelectedSession({
-                        date: activeDate,
-                        key: `${session.agent}:${session.session_id}`,
-                      })
-                    }
-                  >
-                    <span className="learnings-session-card-meta">
-                      <Chip
-                        size="small"
-                        label={
-                          session.agent === "codex" ? "Codex" : "Claude Code"
-                        }
-                      />
-                      {SESSION_UUID.test(session.session_id) && (
-                        <span>Session {session.session_id.slice(0, 8)}</span>
+                {originalSessions.isLoading && (
+                  <Typography role="status">
+                    Loading original activity…
+                  </Typography>
+                )}
+                {!sessions.length && !originalSessions.isLoading && (
+                  <Typography sx={{ color: brand.muted }}>
+                    No history recorded on this day.
+                  </Typography>
+                )}
+                {sessions.map((session) =>
+                  session.hasJournal ? (
+                    <article
+                      key={historyIdentity(session.agent, session.session_id)}
+                      className="learnings-session-card"
+                    >
+                      <button
+                        type="button"
+                        className="history-session-select"
+                        onClick={() => {
+                          listScroll.current = currentScroll();
+                          setSelectedSession({
+                            date: activeDate,
+                            key: historyIdentity(
+                              session.agent,
+                              session.session_id,
+                            ),
+                          });
+                        }}
+                      >
+                        <span className="learnings-session-card-meta">
+                          <Chip
+                            size="small"
+                            label={
+                              session.agent === "codex"
+                                ? "Codex"
+                                : "Claude Code"
+                            }
+                          />
+                          {SESSION_UUID.test(session.session_id) && (
+                            <span>
+                              Session {session.session_id.slice(0, 8)}
+                            </span>
+                          )}
+                          {session.computer_name && (
+                            <span>{session.computer_name}</span>
+                          )}
+                          <span>
+                            {localTime(session.first_time)} ·{" "}
+                            {session.entry_count} entries
+                          </span>
+                        </span>
+                        <strong>{session.title}</strong>
+                        {session.originals && (
+                          <span className="history-availability">
+                            {session.originals.day_event_count} original events
+                            on this day
+                            {session.originals.active_day_count
+                              ? ` · ${session.originals.active_day_count} active days`
+                              : ""}
+                          </span>
+                        )}
+                      </button>
+                      {session.summary && (
+                        <div className="learnings-session-card-summary">
+                          <ReadableContent
+                            text={session.summary}
+                            kind="markdown"
+                          />
+                        </div>
                       )}
-                      {session.computer_name && (
-                        <span>{session.computer_name}</span>
-                      )}
-                      <span>
-                        {localTime(session.first_time)} · {session.entry_count}{" "}
-                        entries
+                    </article>
+                  ) : (
+                    <article
+                      key={historyIdentity(session.agent, session.session_id)}
+                      className="learnings-session-card history-original-only"
+                    >
+                      <span className="learnings-session-card-meta">
+                        <Chip
+                          size="small"
+                          label={
+                            session.agent === "codex" ? "Codex" : "Claude Code"
+                          }
+                        />
+                        <span title={session.session_id}>
+                          Session {session.session_id.slice(0, 8)}
+                        </span>
                       </span>
-                    </span>
-                    <strong>{session.title}</strong>
-                    {session.summary && (
-                      <div className="learnings-session-card-summary">
-                        <ReactMarkdown
-                          remarkPlugins={[remarkGfm, decorateJournalMarkdown]}
-                        >
-                          {session.summary}
-                        </ReactMarkdown>
-                      </div>
-                    )}
-                  </button>
-                ))}
+                      <strong>{session.title}</strong>
+                      <Typography variant="body2">
+                        {dayQuery.isError
+                          ? "Journal summary could not be loaded."
+                          : "No journal summary yet."}
+                      </Typography>
+                      <Typography variant="caption">
+                        {session.originals?.day_event_count} original events on
+                        this day
+                        {session.originals?.active_day_count
+                          ? ` · ${session.originals.active_day_count} active days`
+                          : ""}
+                      </Typography>
+                      <Button
+                        size="small"
+                        onClick={() =>
+                          openEvidence(
+                            historyEvidenceLocation(
+                              folderId,
+                              session.originals!,
+                              activeDate!,
+                              timezone,
+                            ),
+                          )
+                        }
+                      >
+                        View originals
+                      </Button>
+                    </article>
+                  ),
+                )}
+                {originalSessions.hasNextPage && (
+                  <Button
+                    disabled={originalSessions.isFetchingNextPage}
+                    onClick={() => void originalSessions.fetchNextPage()}
+                  >
+                    Load more sessions
+                  </Button>
+                )}
               </div>
             ) : (
               <>
                 <Button
                   size="small"
-                  onClick={() => setSelectedSession(null)}
+                  onClick={() => {
+                    setSelectedSession(null);
+                    restoreScroll(listScroll.current);
+                  }}
                   sx={{ mb: 2 }}
                 >
                   ← All sessions
@@ -653,11 +881,10 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
                       Session overview · updated as the session develops
                     </Typography>
                     <div className="learnings-session-card-summary">
-                      <ReactMarkdown
-                        remarkPlugins={[remarkGfm, decorateJournalMarkdown]}
-                      >
-                        {activeSession.summary}
-                      </ReactMarkdown>
+                      <ReadableContent
+                        text={activeSession.summary}
+                        kind="markdown"
+                      />
                     </div>
                   </section>
                 )}
@@ -702,18 +929,35 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
                         )}
                       </div>
                       <div className="learnings-markdown">
-                        <ReactMarkdown
-                          remarkPlugins={[remarkGfm, decorateJournalMarkdown]}
-                        >
-                          {entry.markdown}
-                        </ReactMarkdown>
+                        <ReadableContent
+                          text={entry.markdown}
+                          kind="markdown"
+                        />
                       </div>
-                      <JournalEvidenceLink
-                        folderId={folderId}
-                        entryId={entry.id}
-                        timezone={timezone}
-                        onOpen={openEvidence}
-                      />
+                      {activeSession.originals ? (
+                        <Button
+                          size="small"
+                          onClick={() =>
+                            openEvidence(
+                              historyEvidenceLocation(
+                                folderId,
+                                activeSession.originals!,
+                                activeDate!,
+                                timezone,
+                              ),
+                            )
+                          }
+                        >
+                          View evidence
+                        </Button>
+                      ) : (
+                        <JournalEvidenceLink
+                          folderId={folderId}
+                          entryId={entry.id}
+                          timezone={timezone}
+                          onOpen={openEvidence}
+                        />
+                      )}
                     </article>
                   ))}
                 </div>
@@ -721,13 +965,6 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
             )}
           </Box>
         </Box>
-      ) : view === "originals" ? (
-        <OriginalSessions
-          folderId={folderId}
-          timezone={timezone}
-          onOpen={openEvidence}
-          onBeforeNavigate={saveReturn}
-        />
       ) : (
         <Box className="learnings-current">
           <Typography sx={{ color: brand.muted, mb: 2, maxWidth: 680 }}>
