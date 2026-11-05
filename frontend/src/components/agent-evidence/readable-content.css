@@ -115,26 +115,26 @@
   color: #beb0d7;
   font-size: 12px;
 }
-.readable-content .token.comment,
-.readable-content .token.prolog {
+.readable-content .hljs-comment,
+.readable-content .hljs-meta {
   color: #a294b7;
 }
-.readable-content .token.keyword,
-.readable-content .token.boolean,
-.readable-content .token.tag {
+.readable-content .hljs-keyword,
+.readable-content .hljs-literal,
+.readable-content .hljs-tag {
   color: #e3a2ff;
 }
-.readable-content .token.string,
-.readable-content .token.char {
+.readable-content .hljs-string,
+.readable-content .hljs-title {
   color: #99dfbd;
 }
-.readable-content .token.number,
-.readable-content .token.property,
-.readable-content .token.attr-name {
+.readable-content .hljs-number,
+.readable-content .hljs-property,
+.readable-content .hljs-attr {
   color: #a9d9ff;
 }
-.readable-content .token.operator,
-.readable-content .token.punctuation {
+.readable-content .hljs-type,
+.readable-content .hljs-punctuation {
   color: #e0d5f3;
 }
 @media (max-width: 600px) {

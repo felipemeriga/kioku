@@ -25,7 +25,7 @@ describe("shared readable agent content", () => {
       rust
     );
     expect(
-      container.querySelector("code.language-rust .token.keyword")
+      container.querySelector("code.language-rust .hljs-keyword")
     ).not.toBeNull();
     expect(
       container.querySelector("code.language-json")?.textContent
@@ -65,6 +65,40 @@ describe("shared readable agent content", () => {
     ]);
   });
 
+  it("detects other mature grammars conservatively and preserves CRLF boundaries", () => {
+    const examples = [
+      [
+        "python",
+        "import pathlib\nfrom typing import Optional\n\ndef load_file(path: str) -> Optional[str]:\n    value = pathlib.Path(path).read_text()\n    return value\n",
+      ],
+      [
+        "javascript",
+        "const fs = require('node:fs');\nfunction loadFile(path) {\n  const value = fs.readFileSync(path);\n  return value;\n}\n",
+      ],
+    ];
+    for (const [language, source] of examples) {
+      const text = `command output:\n${source}abc1234 example commit\n`.replace(
+        /\n/g,
+        "\r\n"
+      );
+      const blocks = readableBlocks(text, "terminal");
+      expect(blocks.map((block) => block.text).join("")).toBe(text);
+      expect(
+        blocks.some(
+          (block) => block.kind === "code" && block.language === language
+        )
+      ).toBe(true);
+    }
+    expect(readableBlocks("unknown\n".repeat(20000), "terminal")).toHaveLength(
+      1
+    );
+    const noise =
+      "total 12\n-rw-r--r-- 1 user group 883 Nov 4 wrapper.h\nabc1234 update configuration\n";
+    expect(readableBlocks(noise, "terminal")).toEqual([
+      { kind: "terminal", text: noise },
+    ]);
+  });
+
   it("never treats clipped fragments as complete JSON or hides application fields", () => {
     const original = '{"output":"retained","other":3}';
     expect(readableBlocks(original, "json", false)).toEqual([
@@ -90,7 +124,7 @@ describe("shared readable agent content", () => {
     });
     expect(filePresentation("page.html", "text/html")).toEqual({
       kind: "code",
-      language: "markup",
+      language: "xml",
     });
     expect(previewableText("sample.rs", "application/octet-stream")).toBe(true);
     expect(previewableText("archive.zip", "application/zip")).toBe(false);
