@@ -8,6 +8,7 @@ import mimetypes
 import re
 from typing import Any, Literal
 
+from dateutil.parser import isoparse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 BUCKET = "agent-evidence"
@@ -105,9 +106,7 @@ class Lifecycle(BaseModel):
     @classmethod
     def valid_instant(cls, value):
         if value is not None:
-            from datetime import datetime
-
-            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            parsed = isoparse(value)
             if parsed.tzinfo is None:
                 raise ValueError("Lifecycle time must include timezone")
         return value

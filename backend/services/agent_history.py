@@ -2,9 +2,11 @@
 
 import base64
 import json
-from datetime import date, datetime
+from datetime import date
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from dateutil.parser import isoparse
 
 from services.agent_evidence import fail, rpc
 from services.agent_evidence_models import canonical
@@ -52,7 +54,7 @@ def sessions(store, day: date, timezone="UTC", cursor=None, limit=50, agent=None
             if not isinstance(value, list) or len(value) != 8 or value[:6] != scope:
                 raise ValueError("scope")
             before_at, before_id = value[6:]
-            if not datetime.fromisoformat(before_at.replace("Z", "+00:00")).tzinfo:
+            if not isoparse(before_at).tzinfo:
                 raise ValueError("timezone")
             UUID(before_id)
         except (ValueError, TypeError, IndexError, AttributeError):
