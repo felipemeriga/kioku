@@ -99,7 +99,9 @@ GUIDES = {
         "Extract at most four durable discoveries, decisions or corrections from "
         "new journal entries. Prefer zero updates to weak evidence. Never promote "
         "proposals, failed attempts or untested hypotheses. Agent implementation "
-        "claims are reported, not verified. Reuse existing topic keys, retire "
+        "claims are reported, not verified. Return at most one update per topic_key; "
+        "consolidate discoveries for the same topic into one update. "
+        "Reuse existing topic keys, retire "
         "only on explicit contradiction. Cite exact source IDs and a verbatim "
         "supporting quote of 12-250 characters copied as one contiguous substring "
         "from a cited entry, preserving Markdown backticks and punctuation. Never "
@@ -357,6 +359,9 @@ def validate_result(snapshot, raw):
     elif op == "learnings":
         if len(value["updates"]) > 4:
             raise ValueError("too many learning updates")
+        topic_keys = [update["topic_key"] for update in value["updates"]]
+        if len(topic_keys) != len(set(topic_keys)):
+            raise ValueError("duplicate learning topic; consolidate into one update per topic_key")
         sources = {e["id"]: e for e in snapshot["input"]["new_entries"]}
         existing = {e["topic_key"]: e for e in current or []}
         for update in value["updates"]:
