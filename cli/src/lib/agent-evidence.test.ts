@@ -1,9 +1,11 @@
+import { parseTurn } from "./agent-journal.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   mkdtempSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
   appendFileSync,
@@ -690,6 +692,123 @@ test("installation upload limiter permits at most four simultaneous processes", 
     assert.equal(active, 0);
     assert.ok(maximum > 1);
   } finally {
+    f.cleanup();
+  }
+});
+test("Codex Stop without transcript path is consumed when it arrives during upload", async () => {
+  const f = fixture(),
+    oldHome = process.env.CODEX_HOME,
+    oldConfig = process.env.XDG_CONFIG_HOME;
+  const home = join(f.root, "codex-home");
+  process.env.CODEX_HOME = home;
+  process.env.XDG_CONFIG_HOME = join(f.root, "config");
+  const native = join(home, "sessions", "native.jsonl");
+  mkdirSync(join(home, "sessions"), { recursive: true });
+  const source: Source = { ...f.source, agent: "codex", path: native };
+  let injected = false,
+    revision = 0;
+  const aliases: string[] = [];
+  const remote = await server(async (req, res, bytes) => {
+    res.setHeader("Content-Type", "application/json");
+    if (req.url!.endsWith("/capabilities")) {
+      if (!injected) {
+        injected = true;
+        assert.equal(
+          await dispatchEvidence(f.root, "codex", {
+            session_id: "parent",
+            hook_event_name: "Stop",
+          }),
+          f.root,
+        );
+      }
+      res.end(
+        JSON.stringify({
+          enabled: true,
+          schema: 1,
+          max_object_bytes: 67108864,
+          max_batch_objects: 256,
+        }),
+      );
+      return;
+    }
+    if (req.method === "PUT") {
+      res.end("{}");
+      return;
+    }
+    if (req.url!.endsWith("/batches")) {
+      const body = JSON.parse(bytes.toString());
+      aliases.push(
+        ...body.journal_links.map(
+          (l: { journal_entry_id: string }) => l.journal_entry_id,
+        ),
+      );
+      res.end(
+        JSON.stringify({
+          session_id: "race-id",
+          revision,
+          missing_objects: body.objects.map((o: { id: string }) => o.id),
+        }),
+      );
+      return;
+    }
+    res.end(
+      JSON.stringify({
+        status: "accepted",
+        session_id: "race-id",
+        revision: ++revision,
+        index_status: "pending",
+      }),
+    );
+  });
+  try {
+    config(f.root, remote.url);
+    writeFileSync(
+      native,
+      [
+        JSON.stringify({ type: "session_meta", payload: { id: "parent" } }),
+        "",
+        JSON.stringify({ type: "future" }),
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "Native user without an id",
+          },
+        }),
+        JSON.stringify({
+          type: "event_msg",
+          payload: { type: "agent_message", message: "Native assistant" },
+        }),
+        "",
+      ].join("\n"),
+    );
+    const turn = parseTurn("codex", {
+      session_id: "parent",
+      transcript_path: native,
+    })!;
+    assert.equal(turn.turnId, "3");
+    await dispatchEvidence(f.root, "codex", {
+      session_id: "parent",
+      transcript_path: native,
+      hook_event_name: "SessionStart",
+    });
+    await evidenceWorker(f.root, true);
+    assert.ok(injected);
+    assert.ok(aliases.includes(`codex:parent:${turn.turnId}`));
+    assert.equal(
+      readManifest(f.root, source)!.journal_links[0].journal_entry_id,
+      `codex:parent:${turn.turnId}`,
+    );
+    assert.equal(
+      readdirSync(join(f.root, ".kioku/memory/.evidence-state/pending")).length,
+      0,
+    );
+  } finally {
+    if (oldHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = oldHome;
+    if (oldConfig === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = oldConfig;
+    await remote.close();
     f.cleanup();
   }
 });
