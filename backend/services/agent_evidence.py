@@ -18,7 +18,8 @@ from services.agent_evidence_models import (
     safe_id,
     sha256,
 )
-from services.agent_evidence_presentation import present
+from services.agent_evidence_parser import bounded_text
+from services.agent_evidence_presentation import fragment_presentation, present
 
 
 def enabled():
@@ -362,10 +363,12 @@ class EvidenceStore:
             record = json.loads(raw)
             if not isinstance(record, dict):
                 raise ValueError("opaque record")
-            presentation = present(
-                record, self.session(session_id)["agent"], event, 64 * 1024 * 1024
-            )
-            content = "\n".join(block["text"] for block in presentation["blocks"])
+            agent = self.session(session_id)["agent"]
+            complete = present(record, agent, event, 64 * 1024 * 1024, max_blocks=None)
+            content = "\n".join(block["text"] for block in complete["blocks"])
+            presentation = present(record, agent, event, 65536)
+            if presentation["viewer_truncated"] and len(content.encode()) <= 65536:
+                presentation = fragment_presentation(content, complete["source_truncated"])
         except (ValueError, TypeError, RecursionError):
             content = raw.decode("utf-8", errors="replace")
             presentation = {
@@ -589,6 +592,28 @@ class EvidenceStore:
                             entry["child_session_id"] = child["id"]
                             break
             cost = len(canonical(entry))
+            if cost > budget and not body and not raw:
+                # Oversized native IDs/attachment lists must never hide the first event.
+                preview = bounded_text(entry.get("content_preview") or "", 1024)
+                entry = {
+                    key: entry.get(key)
+                    for key in (
+                        "event_id",
+                        "role",
+                        "event_type",
+                        "event_at",
+                        "raw_available",
+                        "source",
+                        "source_truncated",
+                    )
+                }
+                entry.update(
+                    content_preview=preview,
+                    viewer_truncated=True,
+                    attachments=[],
+                    presentation=fragment_presentation(preview, entry.get("source_truncated")),
+                )
+                cost = len(canonical(entry))
             if cost > budget:
                 break
             budget -= cost
