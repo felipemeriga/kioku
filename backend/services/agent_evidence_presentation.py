@@ -17,11 +17,20 @@ def _reject_nonfinite(_):
     raise ValueError("nonfinite JSON")
 
 
-def _json(value):
+def _json(value, duplicate_keys=None):
     if not isinstance(value, str):
         return value
+
+    def pairs(items):
+        result = {}
+        for key, item in items:
+            if key in result and duplicate_keys is not None:
+                duplicate_keys.append(key)
+            result[key] = item
+        return result
+
     try:
-        return json.loads(value, parse_constant=_reject_nonfinite)
+        return json.loads(value, parse_constant=_reject_nonfinite, object_pairs_hook=pairs)
     except (ValueError, TypeError, RecursionError):
         return None
 
@@ -85,9 +94,11 @@ def _metadata(source, tool):
 def _tool_output(value, tool, depth=0):
     if depth > 5:
         return [{"kind": "text", "text": content_text(value)}]
-    decoded = _json(value)
-    if isinstance(decoded, str):
-        return _tool_output(decoded, tool, depth + 1)
+    duplicate_keys = []
+    decoded = _json(value, duplicate_keys)
+    if isinstance(value, str) and (duplicate_keys or isinstance(decoded, str)):
+        # Ambiguous duplicate keys and literal JSON strings are data, not transport wrappers.
+        return [{"kind": "json", "text": value}]
     if isinstance(value, list):
         blocks = []
         maximum = tool.get("_max_blocks")
@@ -172,9 +183,28 @@ def _tool_output(value, tool, depth=0):
                     block for output in outputs for block in _tool_output(output, tool, depth + 1)
                 ]
         # Business JSON and unknown envelope fields are never dropped or guessed away.
-        return [{"kind": "json", "text": json.dumps(envelope, ensure_ascii=False, indent=2)}]
-    if isinstance(decoded, (list, int, float, bool)) or value is None:
-        return [{"kind": "json", "text": json.dumps(decoded, ensure_ascii=False, indent=2)}]
+        return [
+            {
+                "kind": "json",
+                "text": value
+                if isinstance(value, str)
+                else json.dumps(envelope, ensure_ascii=False, indent=2),
+            }
+        ]
+    if (
+        isinstance(decoded, (list, int, float, bool))
+        or value is None
+        or isinstance(value, str)
+        and value.strip() == "null"
+    ):
+        return [
+            {
+                "kind": "json",
+                "text": value
+                if isinstance(value, str)
+                else json.dumps(decoded, ensure_ascii=False, indent=2),
+            }
+        ]
     text = value if isinstance(value, str) else content_text(value)
     # Recognize only the native command-result header at the start, never arbitrary prose.
     match = re.match(
@@ -214,13 +244,18 @@ def present(record, agent, event=None, limit_bytes=4096, max_blocks=MAX_BLOCKS):
     if agent == "codex" and payload.get("type") in {"function_call", "custom_tool_call"}:
         tool["name"] = str(payload.get("name", "tool"))[:256]
         args = payload.get("arguments", payload.get("input", ""))
-        parsed = _json(args)
-        _metadata(parsed, tool)
+        duplicate_keys = []
+        parsed = _json(args, duplicate_keys)
+        valid_json = parsed is not None or isinstance(args, str) and args.strip() == "null"
+        if not duplicate_keys:
+            _metadata(parsed, tool)
         blocks = [
             {
-                "kind": "json" if parsed is not None else "text",
-                "text": json.dumps(parsed, ensure_ascii=False, indent=2)
-                if parsed is not None
+                "kind": "json" if valid_json else "text",
+                "text": args
+                if isinstance(args, str)
+                else json.dumps(parsed, ensure_ascii=False, indent=2)
+                if valid_json
                 else content_text(args),
             }
         ]

@@ -439,3 +439,32 @@ def test_preview_budget_allows_eight_kibibytes_of_native_presentation():
     assert not result["viewer_truncated"]
     assert result["blocks"][0]["text"] == native and not result["blocks"][0]["viewer_truncated"]
     assert json.loads(result["blocks"][1]["text"]) == {"additional_metadata": metadata}
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        ' { "decimal":0.12345678901234567890123456789,"large":9007199254740993123456789 } ',
+        '{"same":1,"same":2,"decimal":0.1234567890123456789}',
+        '{"output":"one","output":"two","exit_code":0}',
+        "[0.12345678901234567890123456789,9007199254740993123456789,-0,1e+99]",
+        "0.12345678901234567890123456789",
+        "9007199254740993123456789",
+        "-0",
+        "1e+9999",
+        " null ",
+        '"literal JSON string"',
+    ],
+)
+def test_json_output_lexemes_and_duplicate_keys_are_preserved_exactly(document):
+    result = present(codex("function_call_output", output=document), "codex")
+    assert result["blocks"][0]["kind"] == "json"
+    assert result["blocks"][0]["text"] == document
+    assert not result["blocks"][0]["viewer_truncated"]
+
+
+def test_argument_json_string_lexemes_are_preserved_without_inventing_ambiguous_command():
+    arguments = ' {"cmd":"one","cmd":"two","decimal":0.1234567890123456789} '
+    result = present(codex("function_call", name="shell", arguments=arguments), "codex")
+    assert result["blocks"][0]["text"] == arguments
+    assert "command_text" not in result["tool"]
