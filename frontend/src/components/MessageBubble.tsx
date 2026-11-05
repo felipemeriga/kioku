@@ -281,11 +281,17 @@ function CitationChip({
           </Typography>
           {c.excerpt &&
             (c.source_type === "code" ? (
-              <CodeExcerpt
-                code={codeCitationPreview(preview, claim)}
-                filename={citationDetails(c).path || citationDetails(c).title}
-                testId="citation-preview"
-              />
+              evidence.isFetching && !evidence.data ? (
+                <Typography variant="caption" role="status">
+                  Loading source excerpt…
+                </Typography>
+              ) : (
+                <CodeExcerpt
+                  code={codeCitationPreview(preview, claim)}
+                  filename={citationDetails(c).path || citationDetails(c).title}
+                  testId="citation-preview"
+                />
+              )
             ) : (
               <Typography
                 data-testid="citation-preview"
