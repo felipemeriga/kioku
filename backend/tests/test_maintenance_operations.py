@@ -262,3 +262,35 @@ def test_learning_without_quotable_evidence_can_only_return_zero_updates():
     validate({"updates": []}, schema)
     with pytest.raises(ValidationError):
         validate({"updates": [SHAPES["learnings"]["updates"][0]]}, schema)
+
+
+@pytest.mark.parametrize("same_statement", [True, False])
+def test_learning_duplicate_topics_are_rejected_before_publication(same_statement):
+    snap = snapshot("learnings", [])
+    snap["input"]["new_entries"] = [
+        {"id": "e1", "text": "Confirmed folder writes serialize on the folder row."}
+    ]
+    update = {
+        "topic_key": "folder-lock",
+        "statement": "Folder writes serialize on the folder row.",
+        "source_ids": ["e1"],
+        "evidence_quote": "folder writes serialize on the folder row",
+        "git_sha": None,
+        "retire": False,
+    }
+    second = {
+        **update,
+        "statement": update["statement"]
+        if same_statement
+        else "Folder updates are serialized through the same lock.",
+    }
+    with pytest.raises(ValueError, match="duplicate learning topic"):
+        validate_result(snap, {"updates": [update, second]})
+    assert (
+        len(
+            validate_result(snap, {"updates": [update, {**second, "topic_key": "another-lock"}]})[
+                "updates"
+            ]
+        )
+        == 2
+    )
