@@ -9,7 +9,7 @@ CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS $$ SELECT nullif(current
 CREATE TABLE folders(id uuid PRIMARY KEY,user_id uuid,kind text); CREATE SCHEMA storage;
 CREATE TABLE storage.buckets(id text PRIMARY KEY,name text,public boolean,file_size_limit bigint);
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon,authenticated;`);
-for(const file of ['20261105090000_agent_evidence.sql','20261105100000_agent_evidence_empty_attachments.sql','20261105103000_agent_evidence_rpc_privileges.sql','20261105120000_agent_history_calendar.sql'])
+for(const file of ['20261105090000_agent_evidence.sql','20261105100000_agent_evidence_empty_attachments.sql','20261105103000_agent_evidence_rpc_privileges.sql','20261105120000_agent_history_calendar.sql','20261105123000_agent_history_bounded_children.sql'])
  await db.exec(fs.readFileSync(new URL('../../../supabase/migrations/'+file,import.meta.url),'utf8'));
 const user='11111111-1111-4111-8111-111111111111',other='11111111-1111-4111-8111-111111111112',folder='22222222-2222-4222-8222-222222222222';
 const ids=Array.from({length:6},(_,n)=>'33333333-3333-4333-8333-'+String(n+1).padStart(12,'0'));
@@ -41,7 +41,11 @@ await event(1,'2026-03-08T08:00:00Z',{inherited:true});
 const call=async(name,args)=>(await db.query(`SELECT ${name}(${args.map((_,i)=>'$'+(i+1)).join(',')}) AS value`,args)).rows[0].value;
 const days=await call('agent_history_days',[user,folder,'2026-03-07','2026-03-09','America/New_York',null]);
 if(days.length!==3||days[1].event_count!==4||days[1].session_count!==3||days[1].agents.join(',')!=='claude_code,codex')throw Error('DST/root counts '+JSON.stringify(days));
+await db.query(`INSERT INTO agent_evidence_sessions(id,user_id,folder_id,agent,native_session_id,root_session_id,parent_session_id)
+ SELECT ('44444444-4444-4444-8444-'||lpad(n::text,12,'0'))::uuid,$1,$2,'codex','bounded-child-'||n,$3,$3
+ FROM generate_series(1,105) n`,[user,folder,ids[0]]);
 const page=await call('agent_history_sessions',[user,folder,'2026-03-08','America/New_York',10,null,null,null]);
+if(page.find(x=>x.id===ids[0]).children.length!==100)throw Error('unbounded child metadata');
 if(page.length!==3||page.find(x=>x.id===ids[0]).day_event_count!==2)throw Error('root dedupe');
 const child=page.find(x=>x.id===ids[2]);
 if(child.day_first_session_id!==ids[3]||child.day_first_event_id!==childAnchor||child.native_session_id!=='native-2')throw Error('child-only anchor');
