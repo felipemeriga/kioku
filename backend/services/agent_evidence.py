@@ -373,7 +373,7 @@ class EvidenceStore:
             content = raw.decode("utf-8", errors="replace")
             presentation = {
                 "version": 1,
-                "blocks": [{"kind": "text", "text": content}],
+                "blocks": [{"kind": "text", "text": content, "viewer_truncated": False}],
                 "viewer_truncated": False,
                 "source_truncated": bool(event.get("source_truncated")),
             }
@@ -581,7 +581,7 @@ class EvidenceStore:
                 try:
                     record = json.loads(data)
                     if isinstance(record, dict):
-                        entry["presentation"] = present(record, s["agent"], event)
+                        entry["presentation"] = present(record, s["agent"], event, 8192)
                         entry["viewer_truncated"] = entry["presentation"]["viewer_truncated"]
                         entry["source_truncated"] = entry["presentation"]["source_truncated"]
                 except (ValueError, TypeError, RecursionError):

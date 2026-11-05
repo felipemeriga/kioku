@@ -68,7 +68,7 @@ def test_native_command_header_extracts_timing_without_leaking_wrapper():
         "Process exited with code 0\nFinal output:\nhello\n"
     )
     result = present(codex("function_call_output", output=value), "codex")
-    assert result["blocks"] == [{"kind": "terminal", "text": "hello\n"}]
+    assert result["blocks"] == [{"kind": "terminal", "text": "hello\n", "viewer_truncated": False}]
     assert result["tool"]["exit_code"] == 0 and result["tool"]["orchestration_seconds"] == 0.25
     prose = "The result says Wall time: 2 seconds\nOutput:\nkeep all this"
     assert (
@@ -142,7 +142,7 @@ def test_complete_json_only_when_complete_and_preserve_source_warning():
     assert warning["source_truncated"] and not warning["viewer_truncated"]
     assert fragment_presentation('{"partial":', False) == {
         "version": 1,
-        "blocks": [{"kind": "text", "text": '{"partial":'}],
+        "blocks": [{"kind": "text", "text": '{"partial":', "viewer_truncated": True}],
         "viewer_truncated": True,
         "source_truncated": False,
     }
@@ -151,13 +151,15 @@ def test_complete_json_only_when_complete_and_preserve_source_warning():
 @pytest.mark.parametrize("value", ["{incomplete", "NaN", "<script>alert('sanitized')</script>", ""])
 def test_unrecognized_tool_text_is_not_rewritten(value):
     result = present(codex("function_call_output", output=value), "codex")
-    assert result["blocks"] == [{"kind": "terminal", "text": value}]
+    assert result["blocks"] == [{"kind": "terminal", "text": value, "viewer_truncated": False}]
 
 
 def test_codex_native_exec_source_is_code_without_unwrapping_or_execution():
     code = "text(await tools.exec_command({cmd: 'echo sanitized'}));"
     value = present(codex("custom_tool_call", name="exec", input=code), "codex")
-    assert value["blocks"] == [{"kind": "code", "language": "javascript", "text": code}]
+    assert value["blocks"] == [
+        {"kind": "code", "language": "javascript", "text": code, "viewer_truncated": False}
+    ]
     unknown = present(codex("custom_tool_call", name="unrecognized", input=code), "codex")
     assert unknown["blocks"][0]["kind"] == "text"
 
@@ -303,7 +305,9 @@ def test_expanded_content_fragment_is_text_and_complete_json_keeps_structure(mon
     assert complete["presentation"]["blocks"][0]["kind"] == "json" and not complete["has_more"]
     part = client.get(base + "?limit_bytes=8").json()
     assert part["has_more"] and part["next_offset"] == 8
-    assert part["presentation"]["blocks"] == [{"kind": "text", "text": full[:8]}]
+    assert part["presentation"]["blocks"] == [
+        {"kind": "text", "text": full[:8], "viewer_truncated": True}
+    ]
     assert part["presentation"]["viewer_truncated"]
 
 
@@ -413,3 +417,25 @@ def test_oversized_native_call_identifiers_remain_distinct_after_metadata_boundi
     second = present(codex("function_call_output", call_id=two, output="body"), "codex")
     assert first["tool"]["call_id"] != second["tool"]["call_id"]
     assert len(first["tool"]["call_id"].encode()) <= 512 and first["viewer_truncated"]
+
+
+def test_complete_first_block_remains_complete_when_later_native_fields_are_clipped():
+    first = 'fn sanitized() { println!("complete"); }\n' + "x" * 4010
+    record = codex("function_call_output", output=first, extra_native_metadata="m" * 10000)
+    result = present(record, "codex", limit_bytes=8192)
+    assert result["viewer_truncated"]
+    assert result["blocks"][0]["text"] == first
+    assert result["blocks"][0]["viewer_truncated"] is False
+    assert result["blocks"][1]["viewer_truncated"] is True
+    assert result["blocks"][1]["kind"] == "text"  # Clipped metadata is not complete JSON.
+
+
+def test_preview_budget_allows_eight_kibibytes_of_native_presentation():
+    # Direct adapter budget used by window: all4056 native bytes plus4KiBmetadata fit.
+    native = "x" * 4056
+    metadata = "m" * 4000
+    record = codex("function_call_output", output=native, additional_metadata=metadata)
+    result = present(record, "codex", limit_bytes=8192)
+    assert not result["viewer_truncated"]
+    assert result["blocks"][0]["text"] == native and not result["blocks"][0]["viewer_truncated"]
+    assert json.loads(result["blocks"][1]["text"]) == {"additional_metadata": metadata}
