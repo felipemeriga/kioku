@@ -24,6 +24,7 @@ services:
       - MIHARI_URL=${MIHARI_URL:-http://kioku-mihari:8787}
       - MIHARI_TRIGGER_TOKEN=${MIHARI_TRIGGER_TOKEN:-${WATCHER_TRIGGER_TOKEN:-}}
       - REDIS_URL=redis://kioku-redis:6379/0
+      - AGENT_EVIDENCE_ENABLED=${AGENT_EVIDENCE_ENABLED:-false}
       - MCP_PUBLIC_URL=https://kioku.mcp.${DOMAIN}/sse
       - FRONTEND_URL=https://kioku.${DOMAIN}
       - TSUKAI_URL=${TSUKAI_URL:-http://tsukai:8788}
