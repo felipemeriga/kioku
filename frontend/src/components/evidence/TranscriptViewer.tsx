@@ -176,7 +176,7 @@ export default function TranscriptViewer({
           onClick={() => navigateDay(day.date)}
         >
           <span>{day.date}</span>
-          <span>{day.turn_count} turns</span>
+          <span>{day.event_count} events</span>
         </Button>
       ))}
       <Typography variant="caption">
