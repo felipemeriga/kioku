@@ -22,6 +22,8 @@ describe("LearningsPanel", () => {
     vi.restoreAllMocks();
     vi.spyOn(api, "apiFetch").mockImplementation(async (path) => {
       const url = String(path);
+      if (url.includes("agent-history"))
+        throw new api.ApiError({ status: 404, userMessage: "Legacy server" });
       const body = url.endsWith("/learnings")
         ? {
             learnings: [
