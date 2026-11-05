@@ -296,3 +296,41 @@ def test_expanded_content_fragment_is_text_and_complete_json_keeps_structure(mon
     assert part["has_more"] and part["next_offset"] == 8
     assert part["presentation"]["blocks"] == [{"kind": "text", "text": full[:8]}]
     assert part["presentation"]["viewer_truncated"]
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        {"output": "retained", "other": 3},
+        {"content": "retained", "other": 3},
+        {"stdout": "retained", "exit_code": 0, "business_field": "keep"},
+        {"output": "retained", "metadata": {"unknown_business_key": 3}},
+        {"output": "retained"},
+    ],
+)
+def test_unknown_business_json_keeps_every_field(document):
+    result = present(codex("function_call_output", output=json.dumps(document)), "codex")
+    assert result["blocks"][0]["kind"] == "json"
+    assert json.loads(result["blocks"][0]["text"]) == document
+
+
+def test_outer_orchestration_timing_not_overwritten_by_inner_tool_runtime():
+    inner = {"output": "actual command body", "wall_time_seconds": 0.25, "exit_code": 0}
+    outer = {
+        "output": json.dumps(inner),
+        "chunk_id": "safe",
+        "wall_time_seconds": 2.1,
+        "exit_code": 0,
+        "original_token_count": 10,
+    }
+    result = present(codex("function_call_output", output=json.dumps(outer)), "codex")
+    assert result["tool"]["orchestration_seconds"] == 2.1
+    assert result["tool"]["duration_seconds"] == 0.25
+    assert result["blocks"][0]["text"] == "actual command body"
+
+
+def test_unknown_native_tool_payload_fields_are_preserved_as_json():
+    record = codex("function_call_output", output="native text", future_field={"preserved": 3})
+    result = present(record, "codex")
+    assert result["blocks"][0]["text"] == "native text"
+    assert json.loads(result["blocks"][1]["text"]) == {"future_field": {"preserved": 3}}
