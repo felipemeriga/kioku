@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button, Typography } from "@mui/material";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import { ApiError } from "../../lib/api";
 import {
   evidenceKeys,
@@ -27,6 +28,7 @@ export default function JournalEvidenceLink({
     <div className="evidence-entry-link">
       <Button
         size="small"
+        sx={{ px: 0, minWidth: 0 }}
         disabled={pending}
         onClick={async () => {
           setPending(true);
@@ -59,13 +61,13 @@ export default function JournalEvidenceLink({
                   ? "Original evidence is still syncing. The summary remains available."
                   : result.status === "deleted"
                   ? "Original evidence was deleted. This summary is retained."
-                  : "Original evidence is unavailable for this entry.",
+                  : "Original evidence is unavailable for this entry."
               );
           } catch (error) {
             setMessage(
               error instanceof ApiError && error.status === 404
                 ? "Original evidence is unavailable for this entry, or archival is not enabled yet."
-                : "Could not resolve original evidence. Try again.",
+                : "Could not resolve original evidence. Try again."
             );
           } finally {
             setPending(false);
@@ -74,9 +76,15 @@ export default function JournalEvidenceLink({
       >
         {pending ? "Finding evidence…" : "View evidence"}
       </Button>
-      <Typography role="status" variant="caption">
-        {message}
-      </Typography>
+      {message && (
+        <div className="evidence-entry-feedback" role="status">
+          <InfoOutlinedIcon
+            aria-hidden="true"
+            sx={{ fontSize: 16, mt: "2px" }}
+          />
+          <Typography variant="body2">{message}</Typography>
+        </div>
+      )}
     </div>
   );
 }
