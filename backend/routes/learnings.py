@@ -5,6 +5,7 @@ from datetime import date, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from postgrest.exceptions import APIError
 from storage3.exceptions import StorageApiError
 
 from auth import get_current_user
@@ -135,3 +136,68 @@ def learnings(folder_id: str, user_id: str = Depends(get_current_user)):
         or []
     )
     return {"learnings": rows}
+
+
+@router.get("/{folder_id}/history-search")
+def history_search(
+    folder_id: str,
+    q: str = Query(default="", max_length=160),
+    mode: str = "words",
+    fields: str = "all",
+    date_from: str | None = None,
+    date_to: str | None = None,
+    agent: str | None = None,
+    session_id: str | None = Query(default=None, max_length=256),
+    timezone: str = "UTC",
+    limit: int = Query(default=20, ge=1, le=50),
+    offset: int = Query(default=0, ge=0, le=10000),
+    user_id: str = Depends(get_current_user),
+):
+    from services.history_search import search_history
+
+    sb = get_supabase_thread_safe()
+    _repo(sb, folder_id, user_id)
+    try:
+        return search_history(
+            sb,
+            user_id,
+            folder_id,
+            q=q,
+            mode=mode,
+            fields=fields,
+            date_from=date_from,
+            date_to=date_to,
+            agent=agent,
+            session_id=session_id,
+            timezone=timezone,
+            limit=limit,
+            offset=offset,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except APIError as exc:
+        if exc.code in {"2201B", "2201C"}:
+            raise HTTPException(status_code=422, detail="Invalid regular expression") from exc
+        if exc.code == "57014":
+            raise HTTPException(
+                status_code=422, detail="Search exceeded its time limit; narrow the filters"
+            ) from exc
+        raise
+
+
+@router.post("/{folder_id}/history-search/backfill")
+def history_search_backfill(
+    folder_id: str,
+    limit: int = Query(default=10, ge=1, le=20),
+    user_id: str = Depends(get_current_user),
+):
+    from services.history_search import backfill_search
+
+    sb = get_supabase_thread_safe()
+    _repo(sb, folder_id, user_id)
+    try:
+        return backfill_search(sb, user_id, folder_id, limit)
+    except StorageApiError as exc:
+        raise HTTPException(
+            status_code=503, detail="Journal storage is temporarily unavailable"
+        ) from exc

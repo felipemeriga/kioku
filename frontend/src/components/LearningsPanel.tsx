@@ -18,6 +18,12 @@ import { ReadableContent } from "./agent-evidence/ReadableContent";
 import { apiFetch } from "../lib/api";
 import { brand, fonts } from "../theme";
 import "./LearningsPanel.css";
+import { HistorySearchToolbar, HistorySearchResults } from "./HistorySearch";
+import {
+  emptyHistoryFilters,
+  hasHistoryFilters,
+  type HistoryFilters,
+} from "../lib/historySearch";
 import { useAuth } from "../hooks/useAuth";
 import type { EvidenceLocation } from "../lib/agentEvidenceApi";
 import EvidenceDrawer from "./evidence/EvidenceDrawer";
@@ -45,11 +51,13 @@ type JournalReturnState = {
   listScroll?: number;
   scrollY: number;
   savedAt: number;
+  searchFilters?: HistoryFilters;
+  searchDetail?: boolean;
 };
 function readJournalReturn(key: string): JournalReturnState | null {
   try {
     const value = JSON.parse(
-      sessionStorage.getItem(key) || "null",
+      sessionStorage.getItem(key) || "null"
     ) as JournalReturnState | null;
     if (
       !value ||
@@ -99,7 +107,7 @@ const SESSION_UUID =
 function entriesFromMarkdown(markdown: string): Entry[] {
   const headings = [
     ...markdown.matchAll(
-      /^## (?:Codex|Claude Code) session [^\n]+\n|^#{2,3} (\d\d:\d\d|\d{13}) — ([^\n]+)\n/gm,
+      /^## (?:Codex|Claude Code) session [^\n]+\n|^#{2,3} (\d\d:\d\d|\d{13}) — ([^\n]+)\n/gm
     ),
   ];
   const entries: Entry[] = [];
@@ -108,7 +116,7 @@ function entriesFromMarkdown(markdown: string): Entry[] {
     if (!heading[1]) continue;
     const section = markdown.slice(
       heading.index! + heading[0].length,
-      i + 1 < headings.length ? headings[i + 1].index! : markdown.length,
+      i + 1 < headings.length ? headings[i + 1].index! : markdown.length
     );
     const marker = section.match(/^<!-- kioku-entry: (\{[^\n]+\}) -->\n/m);
     if (!marker) continue;
@@ -150,7 +158,7 @@ function localDay(epochMs: number) {
   const date = new Date(epochMs);
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(
     2,
-    "0",
+    "0"
   )}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
@@ -194,12 +202,20 @@ function HistoryPanel({ folderId }: { folderId: string }) {
     user?.id ?? "anonymous"
   }:${folderId}`;
   const [restored] = useState(() =>
-    user ? readJournalReturn(returnKey) : null,
+    user ? readJournalReturn(returnKey) : null
   );
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
   const [view, setView] = useState<"history" | "learnings">(
-    restored?.view === "learnings" ? "learnings" : "history",
+    restored?.view === "learnings" ? "learnings" : "history"
   );
+  const [searchFilters, setSearchFilters] = useState<HistoryFilters>(
+    restored?.searchFilters ?? { ...emptyHistoryFilters }
+  );
+  const [searchDetail, setSearchDetail] = useState(
+    restored?.searchDetail ?? false
+  );
+  const searching = hasHistoryFilters(searchFilters) && !searchDetail;
+  const [showSearchDates, setShowSearchDates] = useState(false);
   const panel = useRef<HTMLDivElement>(null);
   const scrollRestored = useRef(false);
   const listScroll = useRef(restored?.listScroll ?? 0);
@@ -212,19 +228,20 @@ function HistoryPanel({ folderId }: { folderId: string }) {
       else window.scrollTo({ top });
     });
   const [month, setMonth] = useState(
-    () => restored?.month ?? new Date().getMonth(),
+    () => restored?.month ?? new Date().getMonth()
   );
   const [year, setYear] = useState(
-    () => restored?.year ?? new Date().getFullYear(),
+    () => restored?.year ?? new Date().getFullYear()
   );
   const [selectedDate, setSelectedDate] = useState<string | null>(
-    restored?.selectedDate ?? null,
+    restored?.selectedDate ?? null
   );
   const [raw, setRaw] = useState(restored?.raw ?? false);
   const [selectedSession, setSelectedSession] = useState<{
     date: string;
     key: string;
   } | null>(restored?.selectedSession ?? null);
+  const [pendingEntry, setPendingEntry] = useState<string | null>(null);
   const [evidenceLocation, setEvidenceLocation] =
     useState<EvidenceLocation | null>(null);
   const saveReturn = () => {
@@ -245,7 +262,9 @@ function HistoryPanel({ folderId }: { folderId: string }) {
             ? "container"
             : "window",
           savedAt: Date.now(),
-        }),
+          searchFilters,
+          searchDetail,
+        })
       );
     } catch {
       /* Optional browser UI storage. */
@@ -276,7 +295,7 @@ function HistoryPanel({ folderId }: { folderId: string }) {
         await apiFetch(
           `/api/folders/${folderId}/learning-days?year=${year}&month=${
             month + 1
-          }&timezone=${encodeURIComponent(timezone)}`,
+          }&timezone=${encodeURIComponent(timezone)}`
         )
       ).json()) as { days: JournalDay[] },
     staleTime: 60_000,
@@ -289,14 +308,14 @@ function HistoryPanel({ folderId }: { folderId: string }) {
     year,
     month,
     timezone,
-    view === "history",
+    view === "history"
   );
   const dayMap = useMemo(() => {
     const map = new Map(
       (daysQuery.data?.days ?? []).map((day) => [
         day.journal_date,
         { ...day, event_count: 0, session_count: 0 },
-      ]),
+      ])
     );
     for (const day of originalDays.data?.days ?? []) {
       const journal = map.get(day.date);
@@ -319,7 +338,7 @@ function HistoryPanel({ folderId }: { folderId: string }) {
     user?.id,
     activeDate,
     timezone,
-    view === "history" && !historyUnsupported(originalDays.error),
+    view === "history" && !historyUnsupported(originalDays.error)
   );
   const dayQuery = useQuery({
     queryKey: ["learning-day", folderId, user?.id, activeDate, timezone],
@@ -327,8 +346,8 @@ function HistoryPanel({ folderId }: { folderId: string }) {
       (await (
         await apiFetch(
           `/api/folders/${folderId}/learning-days/${activeDate}?timezone=${encodeURIComponent(
-            timezone,
-          )}`,
+            timezone
+          )}`
         )
       ).json()) as {
         status: string;
@@ -389,7 +408,7 @@ function HistoryPanel({ folderId }: { folderId: string }) {
   const count = new Date(year, month + 1, 0).getDate();
   const calendarCells = Array.from(
     { length: firstWeekday + count },
-    (_, i) => i - firstWeekday + 1,
+    (_, i) => i - firstWeekday + 1
   );
   const monthLabel = new Intl.DateTimeFormat("en", {
     month: "long",
@@ -420,23 +439,32 @@ function HistoryPanel({ folderId }: { folderId: string }) {
             });
           return groups;
         }, new Map<string, JournalSession>())
-        .values(),
+        .values()
     );
   const sessions = unionHistorySessions(
     journalSessions,
-    originalSessions.data?.pages.flatMap((page) => page.sessions ?? []) ?? [],
+    originalSessions.data?.pages.flatMap((page) => page.sessions ?? []) ?? []
   );
   const activeSession =
     selectedSession?.date === activeDate
       ? sessions.find(
           (session) =>
             session.hasJournal &&
-            `${session.agent}:${session.session_id}` === selectedSession.key,
+            `${session.agent}:${session.session_id}` === selectedSession.key
         )
       : undefined;
   const visibleEntries = activeSession
     ? entries.filter((entry) => entry.sessionKey === selectedSession?.key)
     : [];
+
+  useEffect(() => {
+    if (!pendingEntry || !dayQuery.isSuccess) return;
+    const node = document.getElementById(`journal-entry-${pendingEntry}`);
+    if (node) {
+      node.scrollIntoView?.({ block: "center" });
+      setPendingEntry(null);
+    }
+  }, [pendingEntry, dayQuery.isSuccess, activeSession]);
 
   const changeMonth = (step: number) => {
     const next = new Date(year, month + step, 1);
@@ -450,11 +478,11 @@ function HistoryPanel({ folderId }: { folderId: string }) {
     let viewerDay = day;
     try {
       const response = await apiFetch(
-        `/api/folders/${folderId}/learning-days/${day}`,
+        `/api/folders/${folderId}/learning-days/${day}`
       );
       const source = (await response.json()) as { markdown?: string };
       const entry = entriesFromMarkdown(source.markdown ?? "").find(
-        (item) => item.id === entryId,
+        (item) => item.id === entryId
       );
       if (entry) viewerDay = localDay(entry.time);
     } catch {
@@ -504,464 +532,547 @@ function HistoryPanel({ folderId }: { folderId: string }) {
       </Stack>
 
       {view === "history" ? (
-        <Box className="learnings-journal-layout">
-          <Box className="learnings-calendar" aria-label="History calendar">
-            <Stack
-              direction="row"
-              alignItems="center"
-              justifyContent="space-between"
-              sx={{ mb: 1.5 }}
+        <>
+          <HistorySearchToolbar
+            filters={searchFilters}
+            onChange={(filters) => {
+              setSearchFilters(filters);
+              setSearchDetail(false);
+            }}
+          />
+          {searching && (
+            <Button
+              className="history-search-dates-toggle"
+              onClick={() => setShowSearchDates(!showSearchDates)}
+              aria-expanded={showSearchDates}
             >
-              <Typography sx={{ fontWeight: 650, fontSize: 15 }}>
-                {monthLabel}
-              </Typography>
-              <Stack direction="row">
-                <IconButton
-                  aria-label="Previous month"
-                  size="small"
-                  onClick={() => changeMonth(-1)}
-                >
-                  <ChevronLeftIcon fontSize="small" />
-                </IconButton>
-                <IconButton
-                  aria-label="Next month"
-                  size="small"
-                  onClick={() => changeMonth(1)}
-                >
-                  <ChevronRightIcon fontSize="small" />
-                </IconButton>
-              </Stack>
-            </Stack>
-            {daysQuery.isLoading && originalDays.isLoading ? (
-              <CircularProgress size={22} aria-label="Loading journal days" />
-            ) : daysQuery.isError && !originalDays.data?.days.length ? (
-              <Alert
-                severity="error"
-                action={
-                  <Button onClick={() => void daysQuery.refetch()}>
-                    Retry
-                  </Button>
-                }
+              Dates
+            </Button>
+          )}
+          <Box
+            className={`learnings-journal-layout ${
+              searching ? "history-search-layout" : ""
+            } ${showSearchDates ? "history-show-dates" : ""}`}
+          >
+            <Box className="learnings-calendar" aria-label="History calendar">
+              <Stack
+                direction="row"
+                alignItems="center"
+                justifyContent="space-between"
+                sx={{ mb: 1.5 }}
               >
-                Could not load journal dates.
-              </Alert>
-            ) : (
-              <>
-                <div
-                  className="learnings-calendar-grid"
-                  role="grid"
-                  aria-label={monthLabel}
-                >
-                  {["M", "T", "W", "T", "F", "S", "S"].map((label, index) => (
-                    <span key={index} className="learnings-weekday">
-                      {label}
-                    </span>
-                  ))}
-                  {calendarCells.map((date, index) => {
-                    if (date < 1) return <span key={`blank-${index}`} />;
-                    const key = `${year}-${String(month + 1).padStart(
-                      2,
-                      "0",
-                    )}-${String(date).padStart(2, "0")}`;
-                    const day = dayMap.get(key);
-                    return (
-                      <button
-                        key={key}
-                        type="button"
-                        className={`learnings-day ${
-                          activeDate === key ? "selected" : ""
-                        } ${day ? "has-entry" : ""}`}
-                        aria-label={`${dateLabel(key)}${
-                          day
-                            ? `, ${day.approximate ? "at least " : ""}${
-                                day.entry_count
-                              } journal entries, ${
-                                day.event_count
-                              } original events`
-                            : ", no entries"
-                        }`}
-                        aria-pressed={activeDate === key}
-                        onClick={() => {
-                          setSelectedDate(key);
-                          setSelectedSession(null);
-                          setRaw(false);
-                        }}
-                      >
-                        <span>{date}</span>
-                        <span className="learnings-day-dots">
-                          {day?.agents.includes("claude_code") && (
-                            <i className="claude" />
-                          )}
-                          {day?.agents.includes("codex") && (
-                            <i className="codex" />
-                          )}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-                <Stack
-                  direction="row"
-                  gap={2}
-                  sx={{ mt: 2, color: brand.muted, fontSize: 12 }}
-                >
-                  <span>
-                    <i className="learnings-legend-dot claude" /> Claude
-                  </span>
-                  <span>
-                    <i className="learnings-legend-dot codex" /> Codex
-                  </span>
-                </Stack>
-              </>
-            )}
-            <Typography className="history-calendar-note" variant="caption">
-              {timezone}
-            </Typography>
-          </Box>
-
-          <Box className="learnings-timeline">
-            {(originalDays.isError || originalSessions.isError) && (
-              <Alert
-                severity={
-                  historyUnsupported(originalDays.error) ||
-                  historyUnsupported(originalSessions.error)
-                    ? "info"
-                    : "warning"
-                }
-                sx={{ mb: 2 }}
-                action={
-                  <Button
-                    onClick={() => {
-                      void originalDays.refetch();
-                      void originalSessions.refetch();
-                    }}
+                <Typography sx={{ fontWeight: 650, fontSize: 15 }}>
+                  {monthLabel}
+                </Typography>
+                <Stack direction="row">
+                  <IconButton
+                    aria-label="Previous month"
+                    size="small"
+                    onClick={() => changeMonth(-1)}
                   >
-                    Retry
-                  </Button>
-                }
-              >
-                Original activity is currently unavailable. Journal summaries
-                remain available.
-              </Alert>
-            )}
-
-            {dayQuery.isError &&
-              originalSessions.data?.pages.some(
-                (page) => page.sessions.length,
-              ) && (
+                    <ChevronLeftIcon fontSize="small" />
+                  </IconButton>
+                  <IconButton
+                    aria-label="Next month"
+                    size="small"
+                    onClick={() => changeMonth(1)}
+                  >
+                    <ChevronRightIcon fontSize="small" />
+                  </IconButton>
+                </Stack>
+              </Stack>
+              {daysQuery.isLoading && originalDays.isLoading ? (
+                <CircularProgress size={22} aria-label="Loading journal days" />
+              ) : daysQuery.isError && !originalDays.data?.days.length ? (
                 <Alert
-                  severity="warning"
-                  sx={{ mb: 2 }}
+                  severity="error"
                   action={
-                    <Button onClick={() => void dayQuery.refetch()}>
+                    <Button onClick={() => void daysQuery.refetch()}>
                       Retry
                     </Button>
                   }
                 >
-                  Journal summaries could not be loaded. Original activity is
-                  still available.
+                  Could not load journal dates.
                 </Alert>
-              )}
-            <Stack
-              direction="row"
-              alignItems="center"
-              justifyContent="space-between"
-              gap={1}
-              sx={{ mb: 2 }}
-            >
-              <Box>
-                <Typography sx={{ fontSize: 18, fontWeight: 650 }}>
-                  {activeDate ? dateLabel(activeDate) : "Choose a day"}
-                </Typography>
-                {activeDate && (
-                  <Typography sx={{ color: brand.muted, fontSize: 13 }}>
-                    {dayQuery.data?.status === "ok"
-                      ? entries.length
-                      : dayMap.get(activeDate)?.approximate
-                      ? `At least ${dayMap.get(activeDate)?.entry_count}`
-                      : dayMap.get(activeDate)?.entry_count}{" "}
-                    journal entries · {sessions.length}
-                    {originalSessions.hasNextPage ? "+" : ""} sessions ·{" "}
-                    {timezone}
-                  </Typography>
-                )}
-              </Box>
-              {dayQuery.data?.status === "ok" && (
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={() => setRaw(!raw)}
-                >
-                  {raw ? "Timeline" : "Markdown"}
-                </Button>
-              )}
-            </Stack>
-            {!activeDate ? (
-              <Typography sx={{ color: brand.muted }}>
-                Select a marked day to read the session history.
-              </Typography>
-            ) : dayQuery.isLoading ? (
-              <Stack direction="row" gap={1} alignItems="center">
-                <CircularProgress size={18} />
-                Loading journal…
-              </Stack>
-            ) : dayQuery.isError &&
-              !originalSessions.data?.pages.some(
-                (page) => page.sessions.length,
-              ) ? (
-              <Alert
-                severity="error"
-                action={
-                  <Button onClick={() => void dayQuery.refetch()}>Retry</Button>
-                }
-              >
-                Could not load this journal.
-              </Alert>
-            ) : raw && dayQuery.data?.status === "ok" ? (
-              <Box component="pre" className="learnings-raw">
-                {dayQuery.data.markdown}
-              </Box>
-            ) : !activeSession ? (
-              <div className="learnings-session-list">
-                {originalSessions.isLoading && (
-                  <Typography role="status">
-                    Loading original activity…
-                  </Typography>
-                )}
-                {!sessions.length && !originalSessions.isLoading && (
-                  <Typography sx={{ color: brand.muted }}>
-                    No history recorded on this day.
-                  </Typography>
-                )}
-                {sessions.map((session) =>
-                  session.hasJournal ? (
-                    <article
-                      key={historyIdentity(session.agent, session.session_id)}
-                      className="learnings-session-card"
-                    >
-                      <button
-                        type="button"
-                        className="history-session-select"
-                        onClick={() => {
-                          listScroll.current = currentScroll();
-                          setSelectedSession({
-                            date: activeDate,
-                            key: historyIdentity(
-                              session.agent,
-                              session.session_id,
-                            ),
-                          });
-                        }}
-                      >
-                        <span className="learnings-session-card-meta">
-                          <Chip
-                            size="small"
-                            label={
-                              session.agent === "codex"
-                                ? "Codex"
-                                : "Claude Code"
-                            }
-                          />
-                          {SESSION_UUID.test(session.session_id) && (
-                            <span>
-                              Session {session.session_id.slice(0, 8)}
-                            </span>
-                          )}
-                          {session.computer_name && (
-                            <span>{session.computer_name}</span>
-                          )}
-                          <span>
-                            {localTime(session.first_time)} ·{" "}
-                            {session.entry_count} entries
-                          </span>
-                        </span>
-                        <strong>{session.title}</strong>
-                        {session.originals && (
-                          <span className="history-availability">
-                            {session.originals.day_event_count} original events
-                            on this day
-                            {session.originals.active_day_count
-                              ? ` · ${session.originals.active_day_count} active days`
-                              : ""}
-                          </span>
-                        )}
-                      </button>
-                      {session.summary && (
-                        <div className="learnings-session-card-summary">
-                          <ReadableContent
-                            text={session.summary}
-                            kind="markdown"
-                          />
-                        </div>
-                      )}
-                    </article>
-                  ) : (
-                    <article
-                      key={historyIdentity(session.agent, session.session_id)}
-                      className="learnings-session-card history-original-only"
-                    >
-                      <span className="learnings-session-card-meta">
-                        <Chip
-                          size="small"
-                          label={
-                            session.agent === "codex" ? "Codex" : "Claude Code"
-                          }
-                        />
-                        <span title={session.session_id}>
-                          Session {session.session_id.slice(0, 8)}
-                        </span>
+              ) : (
+                <>
+                  <div
+                    className="learnings-calendar-grid"
+                    role="grid"
+                    aria-label={monthLabel}
+                  >
+                    {["M", "T", "W", "T", "F", "S", "S"].map((label, index) => (
+                      <span key={index} className="learnings-weekday">
+                        {label}
                       </span>
-                      <strong>{session.title}</strong>
-                      <Typography variant="body2">
-                        {dayQuery.isError
-                          ? "Journal summary could not be loaded."
-                          : "No journal summary yet."}
-                      </Typography>
-                      <Typography variant="caption">
-                        {session.originals?.day_event_count} original events on
-                        this day
-                        {session.originals?.active_day_count
-                          ? ` · ${session.originals.active_day_count} active days`
-                          : ""}
-                      </Typography>
-                      <Button
-                        size="small"
-                        onClick={() =>
-                          openEvidence(
-                            historyEvidenceLocation(
-                              folderId,
-                              session.originals!,
-                              activeDate!,
-                              timezone,
-                            ),
-                          )
+                    ))}
+                    {calendarCells.map((date, index) => {
+                      if (date < 1) return <span key={`blank-${index}`} />;
+                      const key = `${year}-${String(month + 1).padStart(
+                        2,
+                        "0"
+                      )}-${String(date).padStart(2, "0")}`;
+                      const day = dayMap.get(key);
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          className={`learnings-day ${
+                            activeDate === key ? "selected" : ""
+                          } ${day ? "has-entry" : ""}`}
+                          aria-label={`${dateLabel(key)}${
+                            day
+                              ? `, ${day.approximate ? "at least " : ""}${
+                                  day.entry_count
+                                } journal entries, ${
+                                  day.event_count
+                                } original events`
+                              : ", no entries"
+                          }`}
+                          aria-pressed={activeDate === key}
+                          onClick={() => {
+                            setSelectedDate(key);
+                            if (hasHistoryFilters(searchFilters)) {
+                              setSearchFilters({
+                                ...searchFilters,
+                                date_from: key,
+                                date_to: key,
+                              });
+                              setSearchDetail(false);
+                            }
+                            setSelectedSession(null);
+                            setRaw(false);
+                          }}
+                        >
+                          <span>{date}</span>
+                          <span className="learnings-day-dots">
+                            {day?.agents.includes("claude_code") && (
+                              <i className="claude" />
+                            )}
+                            {day?.agents.includes("codex") && (
+                              <i className="codex" />
+                            )}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <Stack
+                    direction="row"
+                    gap={2}
+                    sx={{ mt: 2, color: brand.muted, fontSize: 12 }}
+                  >
+                    <span>
+                      <i className="learnings-legend-dot claude" /> Claude
+                    </span>
+                    <span>
+                      <i className="learnings-legend-dot codex" /> Codex
+                    </span>
+                  </Stack>
+                </>
+              )}
+              <Typography className="history-calendar-note" variant="caption">
+                {timezone}
+              </Typography>
+            </Box>
+
+            <Box className="learnings-timeline">
+              {searching ? (
+                <HistorySearchResults
+                  key={JSON.stringify(searchFilters)}
+                  folderId={folderId}
+                  userId={user?.id}
+                  timezone={timezone}
+                  filters={searchFilters}
+                  onOpen={(session, day, entryId) => {
+                    if (!day) return;
+                    const [y, m] = day.split("-").map(Number);
+                    setYear(y);
+                    setMonth(m - 1);
+                    setSelectedDate(day);
+                    setSelectedSession({
+                      date: day,
+                      key: historyIdentity(session.agent, session.session_id),
+                    });
+                    setRaw(false);
+                    setSearchDetail(true);
+                    if (entryId) setPendingEntry(entryId);
+                  }}
+                />
+              ) : (
+                <>
+                  {searchDetail && (
+                    <Button
+                      size="small"
+                      onClick={() => setSearchDetail(false)}
+                      sx={{ mb: 2 }}
+                    >
+                      ← Search results
+                    </Button>
+                  )}
+                  {(originalDays.isError || originalSessions.isError) && (
+                    <Alert
+                      severity={
+                        historyUnsupported(originalDays.error) ||
+                        historyUnsupported(originalSessions.error)
+                          ? "info"
+                          : "warning"
+                      }
+                      sx={{ mb: 2 }}
+                      action={
+                        <Button
+                          onClick={() => {
+                            void originalDays.refetch();
+                            void originalSessions.refetch();
+                          }}
+                        >
+                          Retry
+                        </Button>
+                      }
+                    >
+                      Original activity is currently unavailable. Journal
+                      summaries remain available.
+                    </Alert>
+                  )}
+
+                  {dayQuery.isError &&
+                    originalSessions.data?.pages.some(
+                      (page) => page.sessions.length
+                    ) && (
+                      <Alert
+                        severity="warning"
+                        sx={{ mb: 2 }}
+                        action={
+                          <Button onClick={() => void dayQuery.refetch()}>
+                            Retry
+                          </Button>
                         }
                       >
-                        View originals
-                      </Button>
-                    </article>
-                  ),
-                )}
-                {originalSessions.hasNextPage && (
-                  <Button
-                    disabled={originalSessions.isFetchingNextPage}
-                    onClick={() => void originalSessions.fetchNextPage()}
+                        Journal summaries could not be loaded. Original activity
+                        is still available.
+                      </Alert>
+                    )}
+                  <Stack
+                    direction="row"
+                    alignItems="center"
+                    justifyContent="space-between"
+                    gap={1}
+                    sx={{ mb: 2 }}
                   >
-                    Load more sessions
-                  </Button>
-                )}
-              </div>
-            ) : (
-              <>
-                <Button
-                  size="small"
-                  onClick={() => {
-                    setSelectedSession(null);
-                    restoreScroll(listScroll.current);
-                  }}
-                  sx={{ mb: 2 }}
-                >
-                  ← All sessions
-                </Button>
-                <Typography sx={{ fontWeight: 650, mb: 0.5 }}>
-                  {activeSession.title}
-                </Typography>
-                {activeSession.summary && (
-                  <section
-                    className="learnings-session-overview"
-                    aria-label="Session overview"
-                  >
-                    <Typography
-                      variant="caption"
-                      sx={{ color: "text.secondary" }}
-                    >
-                      Session overview · updated as the session develops
-                    </Typography>
-                    <div className="learnings-session-card-summary">
-                      <ReadableContent
-                        text={activeSession.summary}
-                        kind="markdown"
-                      />
-                    </div>
-                  </section>
-                )}
-                <div className="learnings-timeline-track">
-                  {visibleEntries.map((entry) => (
-                    <article key={entry.id} className="learnings-entry">
-                      <span
-                        className={`learnings-entry-dot ${
-                          entry.agent === "codex" ? "codex" : "claude"
-                        }`}
-                      />
-                      <div className="learnings-entry-heading">
-                        <time dateTime={new Date(entry.time).toISOString()}>
-                          {localTime(entry.time)}
-                        </time>
-                        <Chip
-                          size="small"
-                          label={
-                            entry.agent === "codex" ? "Codex" : "Claude Code"
-                          }
-                        />
-                        {entry.sessionId && (
-                          <span
-                            className="learnings-session-id"
-                            title={`Resume with: ${
-                              entry.agent === "codex"
-                                ? "codex resume"
-                                : "claude --resume"
-                            } ${entry.sessionId}`}
-                            aria-label={`Session ID: ${entry.sessionId}`}
-                          >
-                            Session {entry.sessionId.slice(0, 8)}
-                          </span>
-                        )}
-                        {entry.computerName && (
-                          <span
-                            className="learnings-session-id"
-                            title={`Computer: ${entry.computerName}`}
-                          >
-                            {entry.computerName}
-                          </span>
-                        )}
-                      </div>
-                      <div className="learnings-markdown">
-                        <ReadableContent
-                          text={entry.markdown}
-                          kind="markdown"
-                        />
-                      </div>
-                      {activeSession.originals ? (
-                        <Button
-                          size="small"
-                          onClick={() =>
-                            openEvidence(
-                              historyEvidenceLocation(
-                                folderId,
-                                activeSession.originals!,
-                                activeDate!,
-                                timezone,
-                              ),
-                            )
-                          }
-                        >
-                          View evidence
-                        </Button>
-                      ) : (
-                        <JournalEvidenceLink
-                          folderId={folderId}
-                          entryId={entry.id}
-                          timezone={timezone}
-                          onOpen={openEvidence}
-                        />
+                    <Box>
+                      <Typography sx={{ fontSize: 18, fontWeight: 650 }}>
+                        {activeDate ? dateLabel(activeDate) : "Choose a day"}
+                      </Typography>
+                      {activeDate && (
+                        <Typography sx={{ color: brand.muted, fontSize: 13 }}>
+                          {dayQuery.data?.status === "ok"
+                            ? entries.length
+                            : dayMap.get(activeDate)?.approximate
+                            ? `At least ${dayMap.get(activeDate)?.entry_count}`
+                            : dayMap.get(activeDate)?.entry_count}{" "}
+                          journal entries · {sessions.length}
+                          {originalSessions.hasNextPage ? "+" : ""} sessions ·{" "}
+                          {timezone}
+                        </Typography>
                       )}
-                    </article>
-                  ))}
-                </div>
-              </>
-            )}
+                    </Box>
+                    {dayQuery.data?.status === "ok" && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => setRaw(!raw)}
+                      >
+                        {raw ? "Timeline" : "Markdown"}
+                      </Button>
+                    )}
+                  </Stack>
+                  {!activeDate ? (
+                    <Typography sx={{ color: brand.muted }}>
+                      Select a marked day to read the session history.
+                    </Typography>
+                  ) : dayQuery.isLoading ? (
+                    <Stack direction="row" gap={1} alignItems="center">
+                      <CircularProgress size={18} />
+                      Loading journal…
+                    </Stack>
+                  ) : dayQuery.isError &&
+                    !originalSessions.data?.pages.some(
+                      (page) => page.sessions.length
+                    ) ? (
+                    <Alert
+                      severity="error"
+                      action={
+                        <Button onClick={() => void dayQuery.refetch()}>
+                          Retry
+                        </Button>
+                      }
+                    >
+                      Could not load this journal.
+                    </Alert>
+                  ) : raw && dayQuery.data?.status === "ok" ? (
+                    <Box component="pre" className="learnings-raw">
+                      {dayQuery.data.markdown}
+                    </Box>
+                  ) : !activeSession ? (
+                    <div className="learnings-session-list">
+                      {originalSessions.isLoading && (
+                        <Typography role="status">
+                          Loading original activity…
+                        </Typography>
+                      )}
+                      {!sessions.length && !originalSessions.isLoading && (
+                        <Typography sx={{ color: brand.muted }}>
+                          No history recorded on this day.
+                        </Typography>
+                      )}
+                      {sessions.map((session) =>
+                        session.hasJournal ? (
+                          <article
+                            key={historyIdentity(
+                              session.agent,
+                              session.session_id
+                            )}
+                            className="learnings-session-card"
+                          >
+                            <button
+                              type="button"
+                              className="history-session-select"
+                              onClick={() => {
+                                listScroll.current = currentScroll();
+                                setSelectedSession({
+                                  date: activeDate,
+                                  key: historyIdentity(
+                                    session.agent,
+                                    session.session_id
+                                  ),
+                                });
+                              }}
+                            >
+                              <span className="learnings-session-card-meta">
+                                <Chip
+                                  size="small"
+                                  label={
+                                    session.agent === "codex"
+                                      ? "Codex"
+                                      : "Claude Code"
+                                  }
+                                />
+                                {SESSION_UUID.test(session.session_id) && (
+                                  <span>
+                                    Session {session.session_id.slice(0, 8)}
+                                  </span>
+                                )}
+                                {session.computer_name && (
+                                  <span>{session.computer_name}</span>
+                                )}
+                                <span>
+                                  {localTime(session.first_time)} ·{" "}
+                                  {session.entry_count} entries
+                                </span>
+                              </span>
+                              <strong>{session.title}</strong>
+                              {session.originals && (
+                                <span className="history-availability">
+                                  {session.originals.day_event_count} original
+                                  events on this day
+                                  {session.originals.active_day_count
+                                    ? ` · ${session.originals.active_day_count} active days`
+                                    : ""}
+                                </span>
+                              )}
+                            </button>
+                            {session.summary && (
+                              <div className="learnings-session-card-summary">
+                                <ReadableContent
+                                  text={session.summary}
+                                  kind="markdown"
+                                />
+                              </div>
+                            )}
+                          </article>
+                        ) : (
+                          <article
+                            key={historyIdentity(
+                              session.agent,
+                              session.session_id
+                            )}
+                            className="learnings-session-card history-original-only"
+                          >
+                            <span className="learnings-session-card-meta">
+                              <Chip
+                                size="small"
+                                label={
+                                  session.agent === "codex"
+                                    ? "Codex"
+                                    : "Claude Code"
+                                }
+                              />
+                              <span title={session.session_id}>
+                                Session {session.session_id.slice(0, 8)}
+                              </span>
+                            </span>
+                            <strong>{session.title}</strong>
+                            <Typography variant="body2">
+                              {dayQuery.isError
+                                ? "Journal summary could not be loaded."
+                                : "No journal summary yet."}
+                            </Typography>
+                            <Typography variant="caption">
+                              {session.originals?.day_event_count} original
+                              events on this day
+                              {session.originals?.active_day_count
+                                ? ` · ${session.originals.active_day_count} active days`
+                                : ""}
+                            </Typography>
+                            <Button
+                              size="small"
+                              onClick={() =>
+                                openEvidence(
+                                  historyEvidenceLocation(
+                                    folderId,
+                                    session.originals!,
+                                    activeDate!,
+                                    timezone
+                                  )
+                                )
+                              }
+                            >
+                              View originals
+                            </Button>
+                          </article>
+                        )
+                      )}
+                      {originalSessions.hasNextPage && (
+                        <Button
+                          disabled={originalSessions.isFetchingNextPage}
+                          onClick={() => void originalSessions.fetchNextPage()}
+                        >
+                          Load more sessions
+                        </Button>
+                      )}
+                    </div>
+                  ) : (
+                    <>
+                      <Button
+                        size="small"
+                        onClick={() => {
+                          setSelectedSession(null);
+                          restoreScroll(listScroll.current);
+                        }}
+                        sx={{ mb: 2 }}
+                      >
+                        ← All sessions
+                      </Button>
+                      <Typography sx={{ fontWeight: 650, mb: 0.5 }}>
+                        {activeSession.title}
+                      </Typography>
+                      {activeSession.summary && (
+                        <section
+                          className="learnings-session-overview"
+                          aria-label="Session overview"
+                        >
+                          <Typography
+                            variant="caption"
+                            sx={{ color: "text.secondary" }}
+                          >
+                            Session overview · updated as the session develops
+                          </Typography>
+                          <div className="learnings-session-card-summary">
+                            <ReadableContent
+                              text={activeSession.summary}
+                              kind="markdown"
+                            />
+                          </div>
+                        </section>
+                      )}
+                      <div className="learnings-timeline-track">
+                        {visibleEntries.map((entry) => (
+                          <article
+                            key={entry.id}
+                            id={`journal-entry-${entry.id}`}
+                            className="learnings-entry"
+                          >
+                            <span
+                              className={`learnings-entry-dot ${
+                                entry.agent === "codex" ? "codex" : "claude"
+                              }`}
+                            />
+                            <div className="learnings-entry-heading">
+                              <time
+                                dateTime={new Date(entry.time).toISOString()}
+                              >
+                                {localTime(entry.time)}
+                              </time>
+                              <Chip
+                                size="small"
+                                label={
+                                  entry.agent === "codex"
+                                    ? "Codex"
+                                    : "Claude Code"
+                                }
+                              />
+                              {entry.sessionId && (
+                                <span
+                                  className="learnings-session-id"
+                                  title={`Resume with: ${
+                                    entry.agent === "codex"
+                                      ? "codex resume"
+                                      : "claude --resume"
+                                  } ${entry.sessionId}`}
+                                  aria-label={`Session ID: ${entry.sessionId}`}
+                                >
+                                  Session {entry.sessionId.slice(0, 8)}
+                                </span>
+                              )}
+                              {entry.computerName && (
+                                <span
+                                  className="learnings-session-id"
+                                  title={`Computer: ${entry.computerName}`}
+                                >
+                                  {entry.computerName}
+                                </span>
+                              )}
+                            </div>
+                            <div className="learnings-markdown">
+                              <ReadableContent
+                                text={entry.markdown}
+                                kind="markdown"
+                              />
+                            </div>
+                            {activeSession.originals ? (
+                              <Button
+                                size="small"
+                                onClick={() =>
+                                  openEvidence(
+                                    historyEvidenceLocation(
+                                      folderId,
+                                      activeSession.originals!,
+                                      activeDate!,
+                                      timezone
+                                    )
+                                  )
+                                }
+                              >
+                                View evidence
+                              </Button>
+                            ) : (
+                              <JournalEvidenceLink
+                                folderId={folderId}
+                                entryId={entry.id}
+                                timezone={timezone}
+                                onOpen={openEvidence}
+                              />
+                            )}
+                          </article>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+            </Box>
           </Box>
-        </Box>
+        </>
       ) : (
         <Box className="learnings-current">
           <Typography sx={{ color: brand.muted, mb: 2, maxWidth: 680 }}>

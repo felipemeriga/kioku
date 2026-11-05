@@ -351,6 +351,8 @@ def sync_journal(
     base_revision: int,
     content_sha256: str,
 ) -> dict:
+    from services.history_search import index_journal, search_entries
+
     metadata = inspect_journal(markdown, journal_date)
     if metadata["sha256"] != content_sha256:
         raise ValueError("Journal checksum mismatch")
@@ -368,6 +370,7 @@ def sync_journal(
         or []
     )
     if current_rows and current_rows[0]["content_sha256"] == content_sha256:
+        index_journal(sb, user_id, folder_id, journal_date, content_sha256, markdown)
         return {"status": "unchanged", "revision": current_rows[0]["revision"]}
     if (current_rows[0]["revision"] if current_rows else 0) != base_revision:
         return {"status": "conflict", "revision": current_rows[0]["revision"]}
@@ -382,7 +385,7 @@ def sync_journal(
         # Identical content-addressed object from a previous interrupted attempt.
     result = (
         sb.rpc(
-            "publish_agent_journal",
+            "publish_searchable_agent_journal",
             {
                 "p_user_id": user_id,
                 "p_folder_id": folder_id,
@@ -394,6 +397,7 @@ def sync_journal(
                 "p_agents": metadata["agents"],
                 "p_first_entry_at": metadata["first_entry_at"],
                 "p_last_entry_at": metadata["last_entry_at"],
+                "p_entries": search_entries(markdown),
             },
         )
         .execute()
