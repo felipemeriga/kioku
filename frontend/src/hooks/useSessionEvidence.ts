@@ -39,8 +39,9 @@ export function useSessionEvidence(location: EvidenceLocation) {
   const window = useInfiniteQuery({
     queryKey: evidenceKeys.window(location),
     initialPageParam: {
-      around: location.eventId,
-      date: location.date,
+      ...(location.eventId
+        ? { around: location.eventId }
+        : { date: location.date }),
       timezone: location.timezone,
       limit: 50,
     } as EvidenceWindowOptions,
