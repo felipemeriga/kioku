@@ -284,3 +284,53 @@ def test_budget_repair_is_once_only_for_confirmed_failures(
             _batches=1,
         )
     assert len(admitted) == expected
+
+
+@pytest.mark.parametrize("repair,expected_admissions", [(False, 1), (True, 2)])
+def test_failed_result_repair_preserves_validation_reason(monkeypatch, repair, expected_admissions):
+    for key in ("SUPABASE_URL", "KIOKU_MCP_URL", "KIOKU_API_URL"):
+        monkeypatch.setenv(key, "http://fixture")
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "fixture")
+    monkeypatch.setenv("MIHARI_TSUKAI_SERVICE_TOKEN", "fixture")
+    spec = importlib.util.spec_from_file_location(
+        "mihari_result_error", Path(__file__).parents[2] / "mihari/mihari.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    admissions = []
+
+    def response(body, status=200):
+        return SimpleNamespace(
+            json=lambda: body, status_code=status, ok=status < 400, raise_for_status=lambda: None
+        )
+
+    def post(url, **kwargs):
+        if url.endswith("/prepare"):
+            return response(
+                {
+                    "engine": "tsukai",
+                    "url": "http://runner",
+                    "capability": "cap",
+                    "request": {},
+                    "preparation_id": "prep",
+                }
+            )
+        if url.endswith("/v1/jobs"):
+            admissions.append(kwargs["json"])
+            return response({"job_id": "job"})
+        return response({"detail": "invalid_result:unsupported learning commit"}, 409)
+
+    monkeypatch.setattr(module.requests, "post", post)
+    monkeypatch.setattr(module.requests, "get", lambda *a, **kw: response({"status": "completed"}))
+    with pytest.raises(
+        RuntimeError, match="bounded repair: invalid_result:unsupported learning commit"
+    ):
+        module.maintenance_post(
+            "http://fixture/api/mihari/learnings",
+            headers={},
+            json={"folder_id": "folder"},
+            timeout=120,
+            _repair=repair,
+            _batches=1,
+        )
+    assert len(admissions) == expected_admissions

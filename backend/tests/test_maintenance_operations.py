@@ -294,3 +294,34 @@ def test_learning_duplicate_topics_are_rejected_before_publication(same_statemen
         )
         == 2
     )
+
+
+def test_learning_commit_schema_requires_verbatim_full_source_hash():
+    from jsonschema import ValidationError, validate
+
+    snap = snapshot("learnings", [])
+    full_sha = "a" * 40
+    main_only = "b" * 40
+    snap["input"].update(
+        new_entries=[
+            {
+                "id": "e1",
+                "text": f"Verified commit {full_sha}; abbreviated bbbbbbbb; checksum {'c' * 64}.",
+            }
+        ],
+        main_commits=[main_only],
+    )
+    request = build_request(snap)
+    field = request["schema"]["properties"]["updates"]["items"]["properties"]["git_sha"]
+    assert field["enum"] == [None, full_sha]
+    validate(None, field)
+    validate(full_sha, field)
+    with pytest.raises(ValidationError):
+        validate(main_only, field)
+    snap["input"]["new_entries"] = [
+        {"id": "e1", "text": "Verified abbreviated commit bbbbbbbb only."}
+    ]
+    field = build_request(snap)["schema"]["properties"]["updates"]["items"]["properties"]["git_sha"]
+    assert field["enum"] == [None]
+    validate(None, field)
+    assert "never expand" in request["prompt"]

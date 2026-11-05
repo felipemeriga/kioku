@@ -106,8 +106,9 @@ GUIDES = {
         "supporting quote of 12-250 characters copied as one contiguous substring "
         "from a cited entry, preserving Markdown backticks and punctuation. Never "
         "join excerpts with ellipses or paraphrase the quote. git_sha is nullable "
-        "and must occur verbatim in cited "
-        "text; only backend determines main membership."
+        "and must occur verbatim in cited text. If an entry only has an abbreviated "
+        "SHA, use null; never expand it using main_commits. Only backend determines "
+        "main membership."
     ),
 }
 
@@ -215,6 +216,14 @@ def build_request(snapshot):
             fields["evidence_quote"]["enum"] = quotes
         else:
             updates["maxItems"] = 0
+        # Attribution must come from journal evidence, not an inferred/expanded SHA.
+        fields["git_sha"]["enum"] = [None] + sorted(
+            {
+                match.group()
+                for entry in snapshot["input"]["new_entries"]
+                for match in re.finditer(r"(?<![0-9a-f])[0-9a-f]{40}(?![0-9a-f])", entry["text"])
+            }
+        )
         fields["statement"].update(minLength=10, maxLength=650)
         fields["topic_key"]["pattern"] = r"^[a-z0-9-]{3,80}$"
         fields["source_ids"]["minItems"] = 1

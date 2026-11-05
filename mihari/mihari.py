@@ -275,6 +275,13 @@ def maintenance_post(url, *, headers, json, timeout, _repair=True, _batches=3):
             url, headers=headers, json=json, timeout=timeout, _repair=False, _batches=_batches
         )
     if (
+        publication.status_code == 409
+        and isinstance(detail, str)
+        and detail.startswith("invalid_result:")
+    ):
+        reason = detail[:300].replace("\r", " ").replace("\n", " ")
+        raise RuntimeError("Maintenance result rejected after bounded repair: " + reason)
+    if (
         not publication.ok
         and isinstance(detail, str)
         and detail.startswith("maintenance execution:")
