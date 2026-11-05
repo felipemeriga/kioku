@@ -23,6 +23,9 @@ def process_session(sb, session):
         .not_.is_("committed_revision", "null")
         .eq("kind", "segment")
         .lt("indexed_parser_version", PARSER_VERSION)
+        .order("stream_id")
+        .order("generation")
+        .order("first_record")
         .limit(256)
         .execute()
         .data
