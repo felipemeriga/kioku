@@ -616,9 +616,6 @@ function HistoryPanel({ folderId }: { folderId: string }) {
             )}
             <Typography className="history-calendar-note" variant="caption">
               {timezone}
-              <br />
-              One calendar for journal entries and original activity. Sessions
-              appear once on each active day.
             </Typography>
           </Box>
 

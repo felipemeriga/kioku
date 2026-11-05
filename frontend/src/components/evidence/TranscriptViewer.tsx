@@ -5,13 +5,16 @@ import {
   Box,
   Button,
   CircularProgress,
+  IconButton,
   MenuItem,
   Select,
   Stack,
   ToggleButton,
   ToggleButtonGroup,
+  Tooltip,
   Typography,
 } from "@mui/material";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import { ApiError } from "../../lib/api";
 import {
   evidenceKeys,
@@ -159,7 +162,17 @@ export default function TranscriptViewer({
     });
   const dayNavigation = (
     <>
-      <Typography sx={{ fontSize: 13, mb: 1 }}>Active session days</Typography>
+      <Stack direction="row" alignItems="center" gap={0.5} sx={{ mb: 1 }}>
+        <Typography sx={{ fontSize: 13 }}>Active session days</Typography>
+        <Tooltip
+          title="Only active days are listed. Idle days are not evidence gaps."
+          describeChild
+        >
+          <IconButton size="small" aria-label="About active session days">
+            <InfoOutlinedIcon sx={{ fontSize: 16 }} />
+          </IconButton>
+        </Tooltip>
+      </Stack>
       {days.isLoading && (
         <CircularProgress size={16} aria-label="Loading session days" />
       )}
@@ -179,9 +192,6 @@ export default function TranscriptViewer({
           <span>{day.event_count} events</span>
         </Button>
       ))}
-      <Typography variant="caption">
-        Only active days are listed. Idle days are not evidence gaps.
-      </Typography>
     </>
   );
   let lastDay: string | undefined;
