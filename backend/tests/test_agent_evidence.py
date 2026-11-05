@@ -225,3 +225,44 @@ def test_authenticated_raw_range_and_attachment_metadata(monkeypatch):
         response.content == b"0123456789"
         and "attachment;" in response.headers["content-disposition"]
     )
+
+
+def test_upload_route_passes_supported_file_to_real_storage_sdk(monkeypatch):
+    """Exercise real SDK multipart encoding; BufferedRandom is not supported."""
+    import io
+
+    import httpx
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from storage3 import SyncStorageClient
+
+    import routes.agent_evidence as module
+
+    source = b'{"type":"user","message":{"content":"original"}}\n'
+    calls = []
+
+    def respond(request):
+        calls.append(request.read())
+        return httpx.Response(200, json={"Key": "agent-evidence/session/segment.jsonl"})
+
+    transport = httpx.MockTransport(respond)
+    with httpx.Client(transport=transport) as client:
+        storage = SyncStorageClient("https://storage.example/storage/v1", {}, http_client=client)
+
+        class Store:
+            def upload(self, batch_id, object_id, file, content_hash, length):
+                assert isinstance(file, io.FileIO)
+                assert length == len(source) and content_hash == sha256(source)
+                storage.from_("agent-evidence").upload(
+                    "session/segment.jsonl",
+                    file,
+                    {"content-type": "application/octet-stream", "upsert": "false"},
+                )
+                return {"status": "stored"}
+
+        monkeypatch.setattr(module, "_key_store", lambda *args: Store())
+        app = FastAPI()
+        app.include_router(module.router)
+        response = TestClient(app).put("/api/agent-evidence/batches/b/objects/o", content=source)
+        assert response.status_code == 200, response.text
+    assert len(calls) == 1 and source in calls[0]
