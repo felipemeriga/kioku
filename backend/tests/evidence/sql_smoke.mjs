@@ -5,6 +5,7 @@ const {PGlite}=require(process.env.PGLITE_MODULE || '@electric-sql/pglite');
 const db=new PGlite();
 await db.exec(`CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role; CREATE SCHEMA auth; CREATE TABLE auth.users(id uuid PRIMARY KEY); CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS $$ SELECT nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$; CREATE TABLE folders(id uuid PRIMARY KEY,user_id uuid,kind text); CREATE SCHEMA storage; CREATE TABLE storage.buckets(id text PRIMARY KEY,name text,public boolean,file_size_limit bigint);`);
 await db.exec(fs.readFileSync(new URL('../../../supabase/migrations/20261105090000_agent_evidence.sql',import.meta.url),'utf8'));
+await db.exec(fs.readFileSync(new URL('../../../supabase/migrations/20261105100000_agent_evidence_empty_attachments.sql',import.meta.url),'utf8'));
 const user='11111111-1111-4111-8111-111111111111', folder='22222222-2222-4222-8222-222222222222';
 await db.query('INSERT INTO auth.users VALUES($1)',[user]); await db.query("INSERT INTO folders VALUES($1,$2,'repo')",[folder,user]);
 const request={folder_id:folder,agent:'codex',native_session_id:'root',producer_id:'pc',batch_id:'first',base_revision:0,objects:[],gaps:[],lifecycle:{status:'observed'}};
@@ -15,6 +16,16 @@ if(accepted.revision!==1)throw Error(JSON.stringify(accepted));
 const replay=await call('commit_agent_evidence',[user,'first']); if(replay.status!=='unchanged')throw Error('replay');
 await call('prepare_agent_evidence',[user,{...request,batch_id:'stale'}]);
 const stale=await call('commit_agent_evidence',[user,'stale']); if(stale.status!=='conflict')throw Error(JSON.stringify(stale));
+// Empty attachments survive prepare, upload receipt and commit; zero segments fail SQL.
+const emptyDescriptor={id:'empty',kind:'attachment',stream_id:'native',generation:1,sha256:'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',byte_length:0,original_name:'empty.txt'};
+const emptySession=await call('prepare_agent_evidence',[user,{...request,native_session_id:'empty',batch_id:'empty',objects:[emptyDescriptor]}]);
+const emptyLease=await call('claim_agent_evidence_upload',[user,emptySession.session_id,'empty']);
+await call('finish_agent_evidence_upload',[user,emptySession.session_id,'empty',emptyLease.nonce,'empty/attachment']);
+if((await call('commit_agent_evidence',[user,'empty'])).status!=='accepted')throw Error('empty attachment rejected');
+let zeroSegmentRejected=false;
+try {await db.query("UPDATE agent_evidence_objects SET kind='segment' WHERE session_id=$1",[emptySession.session_id]);}
+catch {zeroSegmentRejected=true;}
+if(!zeroSegmentRejected)throw Error('empty segment accepted');
 // Independent producers serialize through CAS; gap snapshots replace, not append.
 await call('prepare_agent_evidence',[user,{...request,batch_id:'second',base_revision:1,gaps:[{code:'attachment_missing',name:'a'}]}]);
 await call('commit_agent_evidence',[user,'second']);

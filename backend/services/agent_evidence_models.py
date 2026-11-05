@@ -47,7 +47,7 @@ class ObjectDescriptor(BaseModel):
     stream_id: str
     generation: int = Field(ge=1)
     sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
-    byte_length: int = Field(ge=1, le=MAX_OBJECT_BYTES)
+    byte_length: int = Field(ge=0, le=MAX_OBJECT_BYTES)
     source_start: int | None = Field(default=None, ge=0)
     source_end: int | None = Field(default=None, ge=1)
     first_record: int | None = Field(default=None, ge=1)
@@ -65,6 +65,8 @@ class ObjectDescriptor(BaseModel):
     @model_validator(mode="after")
     def valid_range(self):
         if self.kind == "segment":
+            if self.byte_length == 0:
+                raise ValueError("Segments must be nonempty")
             values = [self.source_start, self.source_end, self.first_record, self.last_record]
             if any(value is None for value in values):
                 raise ValueError("Segments require source offsets and record range")
