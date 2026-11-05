@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "./api";
 import {
+  downloadEvidence,
   evidenceUrl,
   getAttachmentPreview,
   getEvidenceWindow,
@@ -25,12 +26,12 @@ describe("agent evidence API contract", () => {
     await getJournalEvidence("repo/one", "codex:session/turn", signal);
     expect(request).toHaveBeenCalledWith(
       "/api/folders/repo%2Fone/agent-sessions/evidence-for-entry/codex%3Asession%2Fturn",
-      { signal },
+      { signal }
     );
   });
   it("treats accepted-but-indexing responses as processing rather than absent", async () => {
     vi.spyOn(api, "apiFetch").mockResolvedValue(
-      new Response("{}", { status: 202 }),
+      new Response("{}", { status: 202 })
     );
     const value = await getEvidenceWindow(location, {
       timezone: "UTC",
@@ -45,7 +46,7 @@ describe("agent evidence API contract", () => {
       .mockResolvedValue(new Response(JSON.stringify({ records: [] })));
     await getEvidenceWindow(
       { ...location, mode: "raw" },
-      { timezone: "UTC", before: "cursor+opaque", snapshot_revision: 9 },
+      { timezone: "UTC", before: "cursor+opaque", snapshot_revision: 9 }
     );
     const url = String(request.mock.calls[0][0]);
     expect(url).toContain("/raw-records?");
@@ -58,12 +59,36 @@ describe("agent evidence API contract", () => {
       .spyOn(api, "apiFetch")
       .mockResolvedValue(new Response("source bytes"));
     expect(await getAttachmentPreview(location, "blob/id")).toBe(
-      "source bytes",
+      "source bytes"
     );
     expect(request).toHaveBeenCalledWith(
       "/api/folders/repo/agent-sessions/archive/attachments/blob%2Fid?content=true",
-      { signal: undefined, headers: { Range: "bytes=0-65535" } },
+      { signal: undefined, headers: { Range: "bytes=0-65535" } }
     );
+  });
+  it("downloads the complete native record rather than the bounded raw preview", async () => {
+    const original = "x".repeat(70000) + "\n";
+    const request = vi
+      .spyOn(api, "apiFetch")
+      .mockResolvedValue(new Response(original));
+    const objectUrl = vi
+      .fn<(blob: Blob) => string>()
+      .mockReturnValue("blob:original");
+    vi.stubGlobal(
+      "URL",
+      Object.assign(URL, {
+        createObjectURL: objectUrl,
+        revokeObjectURL: vi.fn(),
+      })
+    );
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    await downloadEvidence(location, "raw", "event/one");
+    expect(String(request.mock.calls[0][0])).toContain(
+      "/events/event%2Fone/raw?download=true"
+    );
+    const blob = objectUrl.mock.calls[0][0] as Blob;
+    expect(blob.size).toBe(original.length);
+    expect(await blob.text()).toBe(original);
   });
   it("preserves source/range/mode/timezone in the canonical full-reader URL", () => {
     const url = evidenceUrl({

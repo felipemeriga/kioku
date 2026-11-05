@@ -1,3 +1,5 @@
+import { detectedCodeSpans, syntax } from "./syntax";
+
 export type ReadableKind = "markdown" | "code" | "terminal" | "json" | "text";
 
 export interface ReadableBlock {
@@ -31,16 +33,18 @@ const languages: Record<string, string> = {
   cpp: "cpp",
   hpp: "cpp",
   cc: "cpp",
-  html: "markup",
-  xml: "markup",
-  svg: "markup",
-  markup: "markup",
+  html: "xml",
+  xml: "xml",
+  svg: "xml",
+  markup: "xml",
   css: "css",
   toml: "toml",
 };
 
 export function readableLanguage(value?: string): string | undefined {
-  return value ? languages[value.toLowerCase()] : undefined;
+  if (!value) return undefined;
+  const lower = value.toLowerCase();
+  return languages[lower] || (syntax.registered(lower) ? lower : undefined);
 }
 
 export function filePresentation(
@@ -88,8 +92,16 @@ export function readableBlocks(
   complete = true,
   language?: string
 ): ReadableBlock[] {
-  if (!complete) return [{ kind: "text", text }];
-  if (kind === "code" || (language && kind !== "json")) return [{ kind: "code", text, language }];
+  if (!complete)
+    return [
+      {
+        kind: kind === "code" ? "code" : "text",
+        text,
+        ...(kind === "code" ? { language } : {}),
+      },
+    ];
+  if (kind === "code" || (language && kind !== "json"))
+    return [{ kind: "code", text, language }];
   if (kind === "text") return [{ kind, text }];
   if (
     text.length <= 65536 &&
@@ -115,31 +127,20 @@ export function readableBlocks(
   if (kind === "markdown" && /(^|\n)\s*(?:```|~~~)/.test(text))
     return [{ kind, text }];
   if (text.length > 65536) return [{ kind, text }];
-  const lines = text.match(/[^\n]*(?:\n|$)/g)?.filter(Boolean) ?? [];
-  const start = lines.findIndex((line) =>
-    /^use\s+[\w:]+(?:::|\{|;)/.test(line)
-  );
-  if (start < 0) return [{ kind, text }];
-  const rustLine =
-    /^(?:\s|$|use\s|(?:pub\s+)?(?:async\s+)?fn\s|impl(?:<|\s)|(?:struct|enum|trait|type|const|static|mod)\s|#\[|\/\/|[{}])/;
-  let end = start + 1;
-  while (end < lines.length && rustLine.test(lines[end])) end++;
-  const code = lines.slice(start, end).join("");
-  if (!/\bfn\s+\w+\s*\(/.test(code)) return [{ kind, text }];
-  const structural = code.replace(
-    /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])'|\/\/[^\n]*/g,
-    ""
-  );
-  let depth = 0;
-  for (const character of structural) {
-    if (character === "{") depth++;
-    else if (character === "}" && --depth < 0) return [{ kind, text }];
-  }
-  if (depth !== 0 || !code.trimEnd().endsWith("}")) return [{ kind, text }];
+  const spans = detectedCodeSpans(text);
+  if (!spans.length) return [{ kind, text }];
   const result: ReadableBlock[] = [];
-  if (start) result.push({ kind, text: lines.slice(0, start).join("") });
-  result.push({ kind: "code", text: code, language: "rust" });
-  if (end < lines.length)
-    result.push({ kind, text: lines.slice(end).join("") });
+  let cursor = 0;
+  for (const span of spans) {
+    if (span.start > cursor)
+      result.push({ kind, text: text.slice(cursor, span.start) });
+    result.push({
+      kind: "code",
+      text: text.slice(span.start, span.end),
+      language: span.language,
+    });
+    cursor = span.end;
+  }
+  if (cursor < text.length) result.push({ kind, text: text.slice(cursor) });
   return result;
 }

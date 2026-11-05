@@ -1,23 +1,9 @@
-import { useState } from "react";
+import { createElement, useMemo, useState, type ReactNode } from "react";
+import { syntax } from "./syntax";
 import { IconButton, Tooltip } from "@mui/material";
 import WrapTextIcon from "@mui/icons-material/WrapText";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import SyntaxHighlighter from "react-syntax-highlighter/dist/esm/prism-light";
-import bash from "react-syntax-highlighter/dist/esm/languages/prism/bash";
-import rust from "react-syntax-highlighter/dist/esm/languages/prism/rust";
-import javascript from "react-syntax-highlighter/dist/esm/languages/prism/javascript";
-import typescript from "react-syntax-highlighter/dist/esm/languages/prism/typescript";
-import json from "react-syntax-highlighter/dist/esm/languages/prism/json";
-import python from "react-syntax-highlighter/dist/esm/languages/prism/python";
-import go from "react-syntax-highlighter/dist/esm/languages/prism/go";
-import yaml from "react-syntax-highlighter/dist/esm/languages/prism/yaml";
-import sql from "react-syntax-highlighter/dist/esm/languages/prism/sql";
-import c from "react-syntax-highlighter/dist/esm/languages/prism/c";
-import cpp from "react-syntax-highlighter/dist/esm/languages/prism/cpp";
-import markup from "react-syntax-highlighter/dist/esm/languages/prism/markup";
-import css from "react-syntax-highlighter/dist/esm/languages/prism/css";
-import toml from "react-syntax-highlighter/dist/esm/languages/prism/toml";
 import {
   readableBlocks,
   readableLanguage,
@@ -25,23 +11,19 @@ import {
 } from "./contentBlocks";
 import "./readable-content.css";
 
-for (const [name, grammar] of Object.entries({
-  bash,
-  rust,
-  javascript,
-  typescript,
-  json,
-  python,
-  go,
-  yaml,
-  sql,
-  c,
-  cpp,
-  markup,
-  css,
-  toml,
-}))
-  SyntaxHighlighter.registerLanguage(name, grammar);
+type SyntaxNode = ReturnType<typeof syntax.highlight>["children"][number];
+function syntaxNode(node: SyntaxNode, key: number): ReactNode {
+  if (node.type === "text") return node.value;
+  if (node.type !== "element" || node.tagName !== "span") return null;
+  const classes = Array.isArray(node.properties.className)
+    ? node.properties.className.map(String).join(" ")
+    : undefined;
+  return createElement(
+    "span",
+    { className: classes, key },
+    node.children.map((child, index) => syntaxNode(child as SyntaxNode, index))
+  );
+}
 
 function CodeBlock({
   text,
@@ -54,6 +36,15 @@ function CodeBlock({
 }) {
   const [wrap, setWrap] = useState(false);
   const registered = readableLanguage(language);
+  const highlighted = useMemo(() => {
+    if (!registered || !syntax.registered(registered) || text.length > 32000)
+      return text;
+    try {
+      return syntax.highlight(registered, text).children.map(syntaxNode);
+    } catch {
+      return text;
+    }
+  }, [registered, text]);
   return (
     <section className={`readable-code-block${wrap ? " readable-wrap" : ""}`}>
       <div className="readable-code-heading">
@@ -71,21 +62,11 @@ function CodeBlock({
           </IconButton>
         </Tooltip>
       </div>
-      {registered && text.length <= 32000 ? (
-        <SyntaxHighlighter
-          language={registered}
-          useInlineStyles={false}
-          wrapLongLines={wrap}
-          className="readable-code"
-          codeTagProps={{ className: `language-${registered}` }}
-        >
-          {text}
-        </SyntaxHighlighter>
-      ) : (
-        <pre className="readable-code">
-          <code>{text}</code>
-        </pre>
-      )}
+      <pre className="readable-code">
+        <code className={registered ? `language-${registered}` : undefined}>
+          {highlighted}
+        </code>
+      </pre>
     </section>
   );
 }
@@ -159,9 +140,13 @@ export function ReadableContent({
   complete?: boolean;
 }) {
   const large = text.length > 131072;
-  const blocks = large
-    ? [{ kind: "text" as const, text }]
-    : readableBlocks(text, kind, complete, language);
+  const blocks = useMemo(
+    () =>
+      large
+        ? [{ kind: "text" as const, text }]
+        : readableBlocks(text, kind, complete, language),
+    [large, text, kind, complete, language]
+  );
   return (
     <div className="readable-content">
       {blocks.map((block, index) =>
