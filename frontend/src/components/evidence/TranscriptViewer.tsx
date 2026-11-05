@@ -268,7 +268,7 @@ export default function TranscriptViewer({
               }
               aria-label="Original evidence presentation"
             >
-              <ToggleButton value="conversation">Conversation</ToggleButton>
+              <ToggleButton value="conversation">Reading</ToggleButton>
               <ToggleButton value="raw">Raw source</ToggleButton>
             </ToggleButtonGroup>
             <Select
@@ -377,7 +377,17 @@ export default function TranscriptViewer({
                             events.some(
                               (other) =>
                                 other.event_id !== event.event_id &&
-                                other.call_id === event.call_id,
+                                other.call_id === event.call_id &&
+                                /call/.test(other.event_type) !==
+                                  /call/.test(event.event_type) &&
+                                !!other.event_at &&
+                                !!event.event_at &&
+                                new Intl.DateTimeFormat("en-CA", {
+                                  timeZone: location.timezone,
+                                }).format(new Date(other.event_at)) ===
+                                  new Intl.DateTimeFormat("en-CA", {
+                                    timeZone: location.timezone,
+                                  }).format(new Date(event.event_at)),
                             )
                               ? event.call_id
                               : undefined

@@ -4,9 +4,17 @@ import {
   Alert,
   Button,
   CircularProgress,
+  IconButton,
+  Tooltip,
   Stack,
   Typography,
 } from "@mui/material";
+import DownloadOutlinedIcon from "@mui/icons-material/DownloadOutlined";
+import { ReadableContent } from "../agent-evidence/ReadableContent";
+import {
+  filePresentation,
+  previewableText,
+} from "../agent-evidence/contentBlocks";
 import {
   downloadEvidence,
   getAttachmentMetadata,
@@ -38,9 +46,11 @@ export default function TranscriptAttachment({
   });
   const value = metadata.data ?? attachment;
   const empty = value.byte_length === 0;
-  const text =
-    !value.content_type ||
-    /^(text\/|application\/(json|x-ndjson))/.test(value.content_type);
+  const text = previewableText(value.original_name, value.content_type);
+  const presentation = filePresentation(
+    value.original_name,
+    value.content_type,
+  );
   const preview = useQuery({
     queryKey: [
       "evidence-attachment-preview",
@@ -112,7 +122,15 @@ export default function TranscriptAttachment({
           )}
           {preview.data !== undefined && (
             <>
-              <pre className="evidence-pre">{preview.data}</pre>
+              <ReadableContent
+                text={preview.data}
+                {...presentation}
+                complete={
+                  value.byte_length <= 65536 &&
+                  new TextEncoder().encode(preview.data).byteLength ===
+                    value.byte_length
+                }
+              />
               <Typography variant="caption">
                 Preview limited to 64 KiB. Download retains the archived bytes.
               </Typography>
@@ -127,18 +145,21 @@ export default function TranscriptAttachment({
             </Typography>
           )}
           {value.available && (
-            <Button
-              size="small"
-              onClick={() =>
-                void downloadEvidence(
-                  location,
-                  "attachment",
-                  attachment.id
-                ).catch(() => setError("Could not download the attachment."))
-              }
-            >
-              Download attachment
-            </Button>
+            <Tooltip title="Download attachment">
+              <IconButton
+                size="small"
+                aria-label="Download attachment"
+                onClick={() =>
+                  void downloadEvidence(
+                    location,
+                    "attachment",
+                    attachment.id,
+                  ).catch(() => setError("Could not download the attachment."))
+                }
+              >
+                <DownloadOutlinedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
           )}
           {error && <Alert severity="error">{error}</Alert>}
         </>
