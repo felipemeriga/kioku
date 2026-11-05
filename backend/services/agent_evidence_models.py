@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import mimetypes
 import re
 from typing import Any, Literal
 
@@ -14,6 +15,11 @@ MAX_OBJECT_BYTES = 64 * 1024 * 1024
 MAX_BATCH_OBJECTS = 256
 PARSER_VERSION = 1
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,179}$")
+
+
+def attachment_content_type(original_name: str | None) -> str:
+    """Viewer metadata hint only; authenticated bytes stay octet-stream/nosniff."""
+    return mimetypes.guess_type(original_name or "")[0] or "application/octet-stream"
 
 
 def safe_id(value: str) -> str:

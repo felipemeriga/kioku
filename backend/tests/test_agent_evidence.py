@@ -220,6 +220,7 @@ def test_authenticated_raw_range_and_attachment_metadata(monkeypatch):
     assert client.get(base + "/events/e/raw", headers={"Range": "bytes=99-100"}).status_code == 416
     metadata = client.get(base + "/attachments/a").json()
     assert metadata["original_name"] == "test.png" and metadata["available"]
+    assert metadata["content_type"] == "image/png"
     response = client.get(base + "/attachments/a?download=true")
     assert (
         response.content == b"0123456789"
@@ -266,3 +267,18 @@ def test_upload_route_passes_supported_file_to_real_storage_sdk(monkeypatch):
         response = TestClient(app).put("/api/agent-evidence/batches/b/objects/o", content=source)
         assert response.status_code == 200, response.text
     assert len(calls) == 1 and source in calls[0]
+
+
+@pytest.mark.parametrize(
+    "name,expected",
+    [
+        ("tool-output.txt", "text/plain"),
+        ("payload.json", "application/json"),
+        ("opaque.kiokuraw", "application/octet-stream"),
+        (None, "application/octet-stream"),
+    ],
+)
+def test_attachment_metadata_mime_hint(name, expected):
+    from services.agent_evidence_models import attachment_content_type
+
+    assert attachment_content_type(name) == expected

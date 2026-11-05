@@ -16,7 +16,12 @@ from starlette.concurrency import run_in_threadpool
 from auth import get_current_user
 from db.client import get_supabase_thread_safe
 from services.agent_evidence import EvidenceStore, enabled, fail
-from services.agent_evidence_models import MAX_BATCH_OBJECTS, MAX_OBJECT_BYTES, BatchRequest
+from services.agent_evidence_models import (
+    MAX_BATCH_OBJECTS,
+    MAX_OBJECT_BYTES,
+    BatchRequest,
+    attachment_content_type,
+)
 
 router = APIRouter(tags=["agent-evidence"])
 UPLOAD = "/api/agent-evidence"
@@ -353,7 +358,7 @@ def attachment(
         "id": obj["object_id"],
         "original_name": obj["descriptor"].get("original_name", "attachment"),
         "byte_length": obj["byte_length"],
-        "content_type": "application/octet-stream",
+        "content_type": attachment_content_type(obj["descriptor"].get("original_name")),
         "source_event_id": obj["descriptor"].get("source_event_id"),
         "available": bool(obj.get("uploaded_at")),
         "sha256": obj["sha256"],
