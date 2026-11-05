@@ -7,6 +7,7 @@ import {
   Typography,
 } from "@mui/material";
 import { Link, useLocation } from "react-router-dom";
+import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined";
 import { ApiError } from "../../lib/api";
 import {
   evidenceUrl,
@@ -64,13 +65,26 @@ export default function OriginalSessions({
     sessions.data?.pages.flatMap((page) => page.sessions ?? []) ?? [];
   return (
     <section aria-label="Original sessions" className="evidence-session-list">
-      <Typography variant="body2">
-        Original conversations are retained independently of journal summaries.
-        Sessions without a summary appear here too.
-      </Typography>
-      {!rows.length && (
-        <Typography>
-          No original sessions have been captured for this repository.
+      {!rows.length ? (
+        <div className="evidence-empty-state">
+          <Inventory2OutlinedIcon
+            className="evidence-empty-icon"
+            aria-hidden="true"
+          />
+          <div className="evidence-empty-copy">
+            <Typography>
+              No original sessions have been captured for this repository.
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Original conversations are retained independently of journal
+              summaries. Sessions without a summary appear here too.
+            </Typography>
+          </div>
+        </div>
+      ) : (
+        <Typography variant="body2" color="text.secondary">
+          Original conversations are retained independently of journal
+          summaries. Sessions without a summary appear here too.
         </Typography>
       )}
       {rows.map((session) => {
