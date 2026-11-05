@@ -27,13 +27,18 @@ import {
   eventId,
   hash,
   readManifest,
+  readJson,
   sessionDir,
   sourceFromHook,
   writeJson,
   type Source,
   type EvidenceManifest,
 } from "./agent-evidence.js";
-import { evidenceApiBase, syncEvidence } from "./agent-evidence-sync.js";
+import {
+  evidenceApiBase,
+  evidenceRequestTimeout,
+  syncEvidence,
+} from "./agent-evidence-sync.js";
 import {
   dispatchEvidence,
   evidenceWorker,
@@ -610,10 +615,10 @@ test("worker drains a 130 MiB session across bounded checkpoints before acknowle
       transcript_path: source.path,
       hook_event_name: "Stop",
     });
-    await evidenceWorker(f.root, true);
+    await evidenceWorker(f.root, true, { scheduleRetry: () => {} });
     assert.equal(readManifest(f.root, source)!.coverage!.pending_bytes, 0);
     offline = false;
-    await evidenceWorker(f.root, true);
+    await evidenceWorker(f.root, true, { scheduleRetry: () => {} });
     const m = readManifest(f.root, source)!;
     assert.equal(m.coverage!.pending_bytes, 0);
     assert.equal(uploadedBytes, readFileSync(source.path).length);
@@ -792,7 +797,7 @@ test("Codex Stop without transcript path is consumed when it arrives during uplo
       transcript_path: native,
       hook_event_name: "SessionStart",
     });
-    await evidenceWorker(f.root, true);
+    await evidenceWorker(f.root, true, { scheduleRetry: () => {} });
     assert.ok(injected);
     assert.ok(aliases.includes(`codex:parent:${turn.turnId}`));
     assert.equal(
@@ -802,6 +807,269 @@ test("Codex Stop without transcript path is consumed when it arrives during uplo
     assert.equal(
       readdirSync(join(f.root, ".kioku/memory/.evidence-state/pending")).length,
       0,
+    );
+  } finally {
+    if (oldHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = oldHome;
+    if (oldConfig === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = oldConfig;
+    await remote.close();
+    f.cleanup();
+  }
+});
+test("storage PUT timeout exceeds control timeout while respecting worker deadline", () => {
+  assert.equal(evidenceRequestTimeout("POST", 180000), 30000);
+  assert.equal(evidenceRequestTimeout("PUT", 180000), 120000);
+  assert.equal(evidenceRequestTimeout("PUT", 45000), 45000);
+});
+test("detached worker retries a transient outage without another agent hook", async () => {
+  const f = fixture(),
+    oldHome = process.env.CODEX_HOME,
+    oldConfig = process.env.XDG_CONFIG_HOME;
+  const home = join(f.root, "codex-home");
+  process.env.CODEX_HOME = home;
+  process.env.XDG_CONFIG_HOME = join(f.root, "config");
+  mkdirSync(join(home, "sessions"), { recursive: true });
+  const source: Source = {
+    ...f.source,
+    agent: "codex",
+    path: join(home, "sessions", "retry.jsonl"),
+  };
+  let retryPid: number | undefined;
+  let capabilities = 0,
+    commits = 0;
+  const remote = await server((req, res, bytes) => {
+    res.setHeader("Content-Type", "application/json");
+    if (req.url!.endsWith("/capabilities")) {
+      if (++capabilities <= 3) {
+        res.statusCode = 503;
+        res.end("{}");
+      } else
+        res.end(
+          JSON.stringify({
+            enabled: true,
+            schema: 1,
+            max_object_bytes: 67108864,
+            max_batch_objects: 256,
+          }),
+        );
+      return;
+    }
+    if (req.method === "PUT") {
+      res.end("{}");
+      return;
+    }
+    if (req.url!.endsWith("/batches")) {
+      const b = JSON.parse(bytes.toString());
+      res.end(
+        JSON.stringify({
+          session_id: "automatic-retry",
+          revision: commits,
+          missing_objects: b.objects.map((o: { id: string }) => o.id),
+        }),
+      );
+      return;
+    }
+    res.end(
+      JSON.stringify({
+        status: "accepted",
+        session_id: "automatic-retry",
+        revision: ++commits,
+        index_status: "pending",
+      }),
+    );
+  });
+  try {
+    config(f.root, remote.url);
+    writeFileSync(
+      source.path,
+      JSON.stringify({
+        type: "event_msg",
+        payload: { type: "user_message", message: "No future hook" },
+      }) + "\n",
+    );
+    await dispatchEvidence(f.root, "codex", {
+      session_id: "parent",
+      transcript_path: source.path,
+      hook_event_name: "Stop",
+    });
+    const child = spawn(
+      process.execPath,
+      [
+        fileURLToPath(new URL("../index.js", import.meta.url)),
+        "evidence-worker",
+        "--root",
+        f.root,
+      ],
+      { env: process.env, stdio: "ignore" },
+    );
+    await new Promise<void>((resolve, reject) => {
+      child.on("error", reject);
+      child.on("exit", (n) =>
+        n === 0 ? resolve() : reject(new Error(`worker ${n}`)),
+      );
+    });
+    const deadline = Date.now() + 15000;
+    while (Date.now() < deadline) {
+      try {
+        retryPid = Number(
+          readFileSync(
+            join(
+              f.root,
+              ".kioku/memory/.evidence-state/scheduled-retry.lock/owner",
+            ),
+            "utf8",
+          ).split(":")[0],
+        );
+      } catch {
+        /* timer already finished */
+      }
+      const sync = readJson<{ manifest_hash?: string }>(
+        join(sessionDir(f.root, source), ".sync.json"),
+        {},
+      );
+      const m = readManifest(f.root, source);
+      if (m && sync.manifest_hash === hash(JSON.stringify(m))) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    assert.ok(capabilities >= 4);
+    assert.equal(commits, 1);
+    const m = readManifest(f.root, source)!;
+    assert.equal(
+      readJson<{ manifest_hash?: string }>(
+        join(sessionDir(f.root, source), ".sync.json"),
+        {},
+      ).manifest_hash,
+      hash(JSON.stringify(m)),
+    );
+    assert.equal(m.journal_links[0].journal_entry_id, "codex:parent:0");
+  } finally {
+    if (retryPid) {
+      try {
+        process.kill(retryPid, "SIGTERM");
+      } catch {
+        /* already exited */
+      }
+    }
+    if (oldHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = oldHome;
+    if (oldConfig === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = oldConfig;
+    await remote.close();
+    f.cleanup();
+  }
+});
+test("slow storage acknowledgement outlives the control timeout and still commits", async () => {
+  const f = fixture(),
+    originalTimeout = AbortSignal.timeout;
+  let commits = 0;
+  const timeouts: number[] = [];
+  // Scale real timers 1000x so this exercises timeout/abort behavior in milliseconds.
+  AbortSignal.timeout = (milliseconds: number) => {
+    timeouts.push(milliseconds);
+    return originalTimeout.call(
+      AbortSignal,
+      Math.max(1, Math.ceil(milliseconds / 1000)),
+    );
+  };
+  const remote = await server((req, res, bytes) => {
+    res.setHeader("Content-Type", "application/json");
+    if (req.url!.endsWith("/capabilities")) {
+      res.end(
+        JSON.stringify({
+          enabled: true,
+          schema: 1,
+          max_object_bytes: 67108864,
+          max_batch_objects: 256,
+        }),
+      );
+      return;
+    }
+    if (req.method === "PUT") {
+      setTimeout(() => res.end("{}"), 55);
+      return;
+    }
+    if (req.url!.endsWith("/batches")) {
+      const b = JSON.parse(bytes.toString());
+      res.end(
+        JSON.stringify({
+          session_id: "slow",
+          revision: 0,
+          missing_objects: b.objects.map((o: { id: string }) => o.id),
+        }),
+      );
+      return;
+    }
+    commits++;
+    res.end(
+      JSON.stringify({
+        status: "accepted",
+        session_id: "slow",
+        revision: 1,
+        index_status: "pending",
+      }),
+    );
+  });
+  try {
+    config(f.root, remote.url);
+    writeFileSync(f.source.path, line("slow"));
+    const m = await captureSource(f.root, "folder", f.source, {
+      producer: "test",
+    });
+    await syncEvidence(
+      f.root,
+      "folder",
+      f.source,
+      m,
+      true,
+      Date.now() + 120000,
+    );
+    assert.equal(commits, 1);
+    assert.ok(timeouts.some((ms) => ms > 30000));
+    assert.deepEqual(reconstruct(f.root, f.source, m), line("slow"));
+  } finally {
+    AbortSignal.timeout = originalTimeout;
+    await remote.close();
+    f.cleanup();
+  }
+});
+test("permanent authorization failures keep the outbox without autonomous retry", async () => {
+  const f = fixture(),
+    oldHome = process.env.CODEX_HOME,
+    oldConfig = process.env.XDG_CONFIG_HOME;
+  process.env.CODEX_HOME = join(f.root, "home");
+  process.env.XDG_CONFIG_HOME = join(f.root, "config");
+  mkdirSync(join(process.env.CODEX_HOME, "sessions"), { recursive: true });
+  const path = join(process.env.CODEX_HOME, "sessions", "denied.jsonl");
+  let requests = 0;
+  const scheduled: number[] = [];
+  const remote = await server((_req, res) => {
+    requests++;
+    res.statusCode = 403;
+    res.end("{}");
+  });
+  try {
+    config(f.root, remote.url);
+    writeFileSync(
+      path,
+      JSON.stringify({
+        type: "event_msg",
+        payload: { type: "user_message", message: "Denied" },
+      }) + "\n",
+    );
+    await dispatchEvidence(f.root, "codex", {
+      session_id: "denied",
+      transcript_path: path,
+      hook_event_name: "Stop",
+    });
+    await evidenceWorker(f.root, true, {
+      scheduleRetry: (_root, at) => scheduled.push(at),
+    });
+    assert.equal(requests, 1);
+    assert.deepEqual(scheduled, []);
+    assert.equal(
+      readdirSync(join(f.root, ".kioku/memory/.evidence-state/pending")).length,
+      1,
     );
   } finally {
     if (oldHome === undefined) delete process.env.CODEX_HOME;

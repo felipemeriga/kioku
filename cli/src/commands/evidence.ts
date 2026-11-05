@@ -121,14 +121,23 @@ export async function dispatchEvidence(
         process.env.CODEX_HOME || join(homedir(), ".codex"),
         "sessions",
       );
+      const directories = new Set<string>();
       for (const timestamp of [Date.now(), Date.now() - 86400000]) {
-        const date = new Date(timestamp),
-          dir = join(
-            base,
-            String(date.getFullYear()),
-            String(date.getMonth() + 1).padStart(2, "0"),
-            String(date.getDate()).padStart(2, "0"),
+        const date = new Date(timestamp);
+        for (const utc of [false, true])
+          directories.add(
+            join(
+              base,
+              String(utc ? date.getUTCFullYear() : date.getFullYear()),
+              String((utc ? date.getUTCMonth() : date.getMonth()) + 1).padStart(
+                2,
+                "0",
+              ),
+              String(utc ? date.getUTCDate() : date.getDate()).padStart(2, "0"),
+            ),
           );
+      }
+      for (const dir of directories) {
         if (!existsSync(dir)) continue;
         const file = readdirSync(dir).find((name) =>
           name.endsWith(`-${input.session_id}.jsonl`),
@@ -226,13 +235,17 @@ export async function evidenceCapture(agent: AgentName): Promise<void> {
   if (!root || !(await dispatchEvidence(root, agent, input))) return;
   spawnEvidenceWorker(root);
 }
-function spawnEvidenceWorker(root: string): void {
+function spawnEvidenceWorker(root: string, retryAt?: number): void {
   const invocation = cliProcessArgs(["evidence-worker", "--root", root]);
   const child = spawn(invocation.command, invocation.args, {
     cwd: root,
     detached: true,
     stdio: "ignore",
-    env: { ...process.env, KIOKU_EVIDENCE_CAPTURE_ACTIVE: "1" },
+    env: {
+      ...process.env,
+      KIOKU_EVIDENCE_CAPTURE_ACTIVE: "1",
+      ...(retryAt ? { KIOKU_EVIDENCE_RETRY_AT: String(retryAt) } : {}),
+    },
   });
   child.on("error", () => {});
   child.unref();
@@ -240,6 +253,7 @@ function spawnEvidenceWorker(root: string): void {
 export async function evidenceWorker(
   root = process.cwd(),
   force = false,
+  options: { scheduleRetry?: (root: string, at: number) => void } = {},
 ): Promise<void> {
   const folder = bound(root);
   if (!folder || !evidenceEnabled(root)) return;
@@ -248,6 +262,17 @@ export async function evidenceWorker(
   mkdirSync(pending, { recursive: true, mode: 0o700 });
   // One repository worker coalesces checkpoints; it can never fan out unlimited
   // network jobs. This is stricter than the per-repo concurrency ceiling.
+  const deferred = Number(process.env.KIOKU_EVIDENCE_RETRY_AT || 0);
+  delete process.env.KIOKU_EVIDENCE_RETRY_AT;
+  if (deferred)
+    await withEvidenceLock(
+      join(state, "scheduled-retry.lock"),
+      async () => {
+        const wait = Math.max(0, Math.min(300_000, deferred - Date.now()));
+        if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
+      },
+      0,
+    );
   const attempted = new Set<string>();
   await withEvidenceLock(
     join(state, "worker.lock"),
@@ -262,6 +287,9 @@ export async function evidenceWorker(
             job: readJson<Job>(join(pending, n), null as unknown as Job),
           }));
         const sources = sourcesInRepo(root);
+        for (const { job } of jobs)
+          if (!sources.some((source) => source.path === job.source.path))
+            attempted.add(job.token);
         if (
           !jobs.some(({ job }) => !attempted.has(job.token)) &&
           sources.every((source) => visited.has(source.path))
@@ -270,7 +298,11 @@ export async function evidenceWorker(
         for (const source of sources) {
           visited.add(source.path);
           if (Date.now() >= deadline) break;
-          if (!authorizedNativePath(source.agent, source.path)) continue;
+          if (!authorizedNativePath(source.agent, source.path)) {
+            for (const { job } of jobs)
+              if (job.source.path === source.path) attempted.add(job.token);
+            continue;
+          }
           const matchingJobs = jobs
             .filter(
               (j) =>
@@ -363,7 +395,27 @@ export async function evidenceWorker(
       const job = readJson<Job | null>(join(pending, name), null);
       return job && !attempted.has(job.token);
     });
-  if (unseen) spawnEvidenceWorker(root);
+  if (unseen) (options.scheduleRetry || spawnEvidenceWorker)(root, Date.now());
+  else if (readdirSync(pending).some((name) => name.endsWith(".json"))) {
+    const retryTimes = sourcesInRepo(root)
+      .map((source) =>
+        readJson<{ blocked?: string; retry_at?: number }>(
+          join(sessionDir(root, source), ".sync.json"),
+          {},
+        ),
+      )
+      .filter(
+        (sync) =>
+          sync.retry_at &&
+          ["retry_pending", "backend_unsupported"].includes(sync.blocked || ""),
+      )
+      .map((sync) => sync.retry_at!);
+    if (retryTimes.length)
+      (options.scheduleRetry || spawnEvidenceWorker)(
+        root,
+        Math.min(...retryTimes),
+      );
+  }
 }
 export async function evidenceSync(): Promise<void> {
   const root = repoRoot(process.cwd());
