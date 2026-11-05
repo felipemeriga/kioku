@@ -11,6 +11,21 @@ permissions:
   contents: read
 
 jobs:
+  evidence-sql:
+    name: Original Evidence PostgreSQL Contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: backend/tests/evidence/package-lock.json
+      - run: npm ci --prefix backend/tests/evidence
+      - run: npm test --prefix backend/tests/evidence
+
   backend-lint:
     name: Backend Lint & Format
     runs-on: ubuntu-latest

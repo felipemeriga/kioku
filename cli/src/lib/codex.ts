@@ -178,7 +178,7 @@ function isSubcommand(cmd: string | undefined, subcommand: string): boolean {
  *  Returns true if the config changed. */
 function ensureCodexHook(
   cfg: TomlTable,
-  event: "SessionStart" | "Stop" | "PostToolUse",
+  event: "SessionStart" | "Stop" | "PostToolUse" | "SubagentStart" | "SubagentStop" | "PreCompact" | "SessionEnd",
   subcommand: string,
   opts?: { extra?: Partial<CommandHandler>; matcher?: string },
 ): boolean {
@@ -260,6 +260,16 @@ export function installCodexMemoryCaptureHook(): {
   });
   writeConfig(path, cfg);
   return { path, addedHook: changed };
+}
+
+/** Install original-evidence checkpoints without changing journal or trust. */
+export function installCodexEvidenceHooks(): { addedHook: boolean } {
+  const path = codexConfigPath(), cfg = loadConfig(path);
+  let addedHook = false;
+  for (const event of ["SessionStart", "PostToolUse", "Stop", "SubagentStart", "SubagentStop", "PreCompact", "SessionEnd"] as const)
+    addedHook = ensureCodexHook(cfg, event, "evidence-capture --agent codex", { extra: { timeout: 3 } }) || addedHook;
+  writeConfig(path, cfg);
+  return { addedHook };
 }
 
 /** Remove the retired capture hook, preserving unrelated Stop handlers. */

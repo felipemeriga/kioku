@@ -1,0 +1,165 @@
+.evidence-viewer {
+  color: #faf7ff;
+  min-width: 0;
+}
+.evidence-heading {
+  padding: 20px 24px;
+  border-bottom: 1px solid #654b83;
+}
+.evidence-reader-layout {
+  display: flex;
+  gap: 20px;
+  min-width: 0;
+}
+.evidence-day-sidebar {
+  width: 190px;
+  flex-shrink: 0;
+  padding: 20px 0;
+}
+.evidence-day-button.MuiButton-root {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  text-transform: none;
+  font-size: 12px;
+}
+.evidence-day-button[aria-pressed="true"] {
+  background: #221035;
+}
+.evidence-reading-column {
+  flex: 1;
+  min-width: 0;
+}
+.evidence-toolbar {
+  padding: 14px 20px;
+  border-bottom: 1px solid #654b83;
+}
+.evidence-reader-events {
+  padding: 16px 20px;
+  max-height: 68vh;
+  overflow: auto;
+  overflow-anchor: none;
+  min-width: 0;
+}
+.evidence-event {
+  padding: 13px 15px;
+  margin: 10px 0;
+  border-left: 2px solid #654b83;
+  background: #12091f;
+  border-radius: 0 4px 4px 0;
+  overflow-wrap: anywhere;
+  scroll-margin-top: 12px;
+}
+.evidence-user {
+  border-left-color: #ff1493;
+}
+.evidence-selected {
+  outline: 1px solid #00f0ff;
+  background: #09202a;
+}
+.evidence-linked {
+  color: #00f0ff;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.evidence-content {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 1.65;
+  margin: 8px 0;
+}
+.evidence-source {
+  font-family: "IBM Plex Mono", Menlo, monospace;
+  font-size: 11px;
+  color: #beb0d7;
+  margin-top: 8px;
+  overflow-wrap: anywhere;
+}
+.evidence-pre {
+  font-family: "IBM Plex Mono", Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: #070510;
+  padding: 14px;
+  border-radius: 4px;
+  max-height: 360px;
+  overflow: auto;
+}
+.evidence-date-divider.MuiTypography-root {
+  font-size: 13px;
+  color: #beb0d7;
+  border-bottom: 1px solid #654b83;
+  padding-bottom: 8px;
+  margin: 20px 0 12px;
+}
+.evidence-attachment {
+  border-top: 1px solid #654b83;
+  padding-top: 10px;
+  margin-top: 12px;
+}
+.evidence-window-note {
+  display: block;
+  text-align: center;
+  padding: 12px;
+  color: #beb0d7;
+}
+.evidence-children {
+  border-top: 1px solid #654b83;
+  padding: 14px 20px;
+}
+.evidence-children summary {
+  cursor: pointer;
+}
+.evidence-drawer .evidence-reader-events {
+  max-height: calc(100dvh - 330px);
+}
+.evidence-page .evidence-heading {
+  padding-left: 0;
+}
+.evidence-page .evidence-reading-column {
+  border: 1px solid #654b83;
+  border-radius: 4px;
+  background: #0d0718;
+}
+.evidence-session-list {
+  display: grid;
+  gap: 12px;
+}
+.evidence-session-card {
+  padding: 16px;
+  border: 1px solid #654b83;
+  border-radius: 4px;
+  background: #12091f;
+}
+.evidence-entry-link {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding-top: 8px;
+}
+@media (max-width: 700px) {
+  .evidence-day-sidebar {
+    display: none;
+  }
+  .evidence-reader-layout {
+    display: block;
+  }
+  .evidence-heading {
+    padding: 16px;
+  }
+  .evidence-toolbar {
+    padding: 10px 14px;
+  }
+  .evidence-reader-events {
+    padding: 12px;
+    max-height: 65vh;
+  }
+  .evidence-drawer .evidence-reader-events {
+    max-height: calc(100dvh - 350px);
+  }
+}

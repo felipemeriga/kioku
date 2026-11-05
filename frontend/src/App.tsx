@@ -11,6 +11,7 @@ import CliAuthPage from "./pages/CliAuthPage";
 import ChatPage from "./pages/ChatPage";
 import DocumentsPage from "./pages/DocumentsPage";
 import SettingsPage from "./pages/SettingsPage";
+import SessionEvidencePage from "./pages/SessionEvidencePage";
 
 function App() {
   return (
@@ -38,6 +39,16 @@ function App() {
                     <ProtectedRoute>
                       <AppLayout>
                         <DocumentsPage />
+                      </AppLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/folders/:folderId/agent-sessions/:sessionId"
+                  element={
+                    <ProtectedRoute>
+                      <AppLayout>
+                        <SessionEvidencePage />
                       </AppLayout>
                     </ProtectedRoute>
                   }
