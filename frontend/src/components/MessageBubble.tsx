@@ -1,4 +1,4 @@
-import { Children, useMemo, useState } from "react";
+import { Children, isValidElement, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import {
   Box,
@@ -14,7 +14,14 @@ import {
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { Citation, DebugTrace } from "../lib/api";
+import {
+  fetchToolArtifact,
+  type Citation,
+  type DebugTrace,
+  type DebugRetrievalChunk,
+} from "../lib/api";
+import { useQuery } from "@tanstack/react-query";
+import { codeCitationPreview } from "./codeCitationPreview";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import { useToast } from "./ToastProvider";
 import InspectDialog from "./InspectDialog";
@@ -98,25 +105,16 @@ function citationPreview(value: string): string {
   return text.length > 220 ? `${text.slice(0, 219).trimEnd()}…` : text;
 }
 
-/** Remove only citation headers and outer fences, preserving source whitespace. */
-function codeCitationPreview(value: string): string {
-  const lines = value.replace(/\r\n/g, "\n").split("\n");
-  const header =
-    /^(?:\[(?:Code\s*:|(?:repo|file|lines?|symbol|source_type)(?:\s*[:=]\s*|\s+))[^\]]*\][ \t]*)+$/i;
-  while (lines.length && (!lines[0].trim() || header.test(lines[0].trim())))
-    lines.shift();
-  if (lines.length)
-    lines[0] = lines[0].replace(
-      /^(?:\[(?:Code\s*:|(?:repo|file|lines?|symbol|source_type)(?:\s*[:=]\s*|\s+))[^\]]*\][ \t]?)+/i,
-      "",
-    );
-  if (/^[ \t]*(?:`{3,}|~{3,})[\w+-]*[ \t]*$/.test(lines[0] ?? ""))
-    lines.shift();
-  if (/^[ \t]*(?:`{3,}|~{3,})[ \t]*$/.test(lines.at(-1) ?? "")) lines.pop();
-  const bounded = lines.slice(0, 10).join("\n");
-  return bounded.length > 1200 || lines.length > 10
-    ? bounded.slice(0, 1200) + "\n…"
-    : bounded;
+function claimText(children: ReactNode): string {
+  return Children.toArray(children)
+    .map((child) =>
+      typeof child === "string"
+        ? child
+        : isValidElement<{ children?: ReactNode }>(child)
+          ? claimText(child.props.children)
+          : "",
+    )
+    .join(" ");
 }
 
 /** Citation numbers that actually appear in the answer text, ignoring any that
@@ -132,11 +130,48 @@ function citedNumbers(content: string): Set<number> {
 function CitationChip({
   c,
   onClick,
+  claim,
+  debug,
 }: {
   c: Citation;
   onClick: (c: Citation) => void;
+  claim: string;
+  debug?: DebugTrace;
 }) {
   const [open, setOpen] = useState(false);
+  const chunk = debug?.retrieval?.find(
+    (source) =>
+      source.source === c.source &&
+      (!c.folder_id || source.folder_id === c.folder_id),
+  );
+  const tool = chunk?.query
+    ? debug?.tool_calls?.find(
+        (call) =>
+          call.artifact_id &&
+          (call.query ??
+            (call.input as { query?: string } | undefined)?.query) ===
+            chunk.query,
+      )
+    : undefined;
+  const job = debug?.execution?.job_id;
+  const artifact = tool?.artifact_id;
+  const evidence = useQuery({
+    queryKey: ["citation-artifact", job, artifact],
+    queryFn: () => fetchToolArtifact(job!, artifact!),
+    enabled: open && c.source_type === "code" && !!job && !!artifact,
+    staleTime: Infinity,
+    retry: false,
+  });
+  const trace = evidence.data?.trace as
+    { sources?: DebugRetrievalChunk[] } | undefined;
+  const full = Array.isArray(trace?.sources)
+    ? trace.sources.find(
+        (source) =>
+          source.source === c.source &&
+          (!c.folder_id || source.folder_id === c.folder_id),
+      )
+    : undefined;
+  const preview = full?.content || chunk?.content || c.excerpt;
   const activate = () => {
     setOpen(false);
     onClick(c);
@@ -246,11 +281,17 @@ function CitationChip({
           </Typography>
           {c.excerpt &&
             (c.source_type === "code" ? (
-              <CodeExcerpt
-                code={codeCitationPreview(c.excerpt)}
-                filename={citationDetails(c).path || citationDetails(c).title}
-                testId="citation-preview"
-              />
+              evidence.isFetching && !evidence.data ? (
+                <Typography variant="caption" role="status">
+                  Loading source excerpt…
+                </Typography>
+              ) : (
+                <CodeExcerpt
+                  code={codeCitationPreview(preview, claim)}
+                  filename={citationDetails(c).path || citationDetails(c).title}
+                  testId="citation-preview"
+                />
+              )
             ) : (
               <Typography
                 data-testid="citation-preview"
@@ -323,6 +364,8 @@ function splitCitations(
   text: string,
   cited: Map<number, Citation>,
   onClick: (c: Citation) => void,
+  claim: string,
+  debug?: DebugTrace,
 ): ReactNode {
   const parts: ReactNode[] = [];
   let last = 0;
@@ -332,7 +375,15 @@ function splitCitations(
     if (!c) continue; // leave unknown [N] as literal text
     const idx = m.index ?? 0;
     if (idx > last) parts.push(text.slice(last, idx));
-    parts.push(<CitationChip key={key++} c={c} onClick={onClick} />);
+    parts.push(
+      <CitationChip
+        key={key++}
+        c={c}
+        onClick={onClick}
+        claim={claim}
+        debug={debug}
+      />,
+    );
     last = idx + m[0].length;
   }
   if (last === 0) return text; // nothing replaced
@@ -347,9 +398,13 @@ function renderWithCitations(
   children: ReactNode,
   cited: Map<number, Citation>,
   onClick: (c: Citation) => void,
+  debug?: DebugTrace,
 ): ReactNode {
+  const claim = claimText(children);
   return Children.map(children, (child) =>
-    typeof child === "string" ? splitCitations(child, cited, onClick) : child,
+    typeof child === "string"
+      ? splitCitations(child, cited, onClick, claim, debug)
+      : child,
   );
 }
 
@@ -396,7 +451,7 @@ export default function MessageBubble({
     if (!citations || citations.length === 0) return base;
     const cited = new Map(citations.map((c) => [c.number, c] as const));
     const r = (children: ReactNode) =>
-      renderWithCitations(children, cited, handleCitationClick);
+      renderWithCitations(children, cited, handleCitationClick, debug);
     return {
       ...base,
       p: (props) => <p {...props}>{r(props.children)}</p>,
@@ -412,7 +467,7 @@ export default function MessageBubble({
       h5: (props) => <h5 {...props}>{r(props.children)}</h5>,
       h6: (props) => <h6 {...props}>{r(props.children)}</h6>,
     };
-  }, [citations, handleCitationClick]);
+  }, [citations, handleCitationClick, debug]);
 
   // Sources footer: only the sources whose [N] actually appears in the answer.
   const footerSources = useMemo(() => {
