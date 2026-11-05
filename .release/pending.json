@@ -1,8 +1,8 @@
 {
-  "source_sha": "66dba2cff6538f0c3397ea6586c92be39767985c",
+  "source_sha": "7e5e8d509b09edf070e21f5b1f57be245e9146d7",
   "release_branch": "main",
   "versions": {
-    "frontend": "0.5.29"
+    "frontend": "0.5.30"
   },
   "release_levels": {
     "frontend": "patch"
@@ -11,11 +11,11 @@
   "images": [
     {
       "package": "frontend",
-      "version": "0.5.29",
+      "version": "0.5.30",
       "image": "felipemeriga1/kioku-frontend",
       "context": "frontend",
       "dockerfile": "frontend/Dockerfile",
-      "tag": "0.5.29-66dba2cff653"
+      "tag": "0.5.30-7e5e8d509b09"
     }
   ],
   "cli": false,
