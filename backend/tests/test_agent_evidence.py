@@ -552,3 +552,67 @@ def test_python310_supabase_fractional_timestamp_defaults(monkeypatch, fraction)
     assert calls[0]["p_from"] == "2026-11-04" and calls[0]["p_to"] == "2026-11-04"
     assert Lifecycle(status="ended", ended_at=stamp).ended_at == stamp
     assert instant(stamp) is not None
+
+
+@pytest.mark.parametrize("raw", [b"", b'{"code":"SELECT * FROM users;"}\n', b"\x00\xff" * 1024])
+def test_lossless_storage_encoding_preserves_original_identity(raw):
+    import gzip
+
+    from services.agent_evidence import decode_stored_object
+
+    obj = {"byte_length": len(raw), "sha256": sha256(raw)}
+    assert decode_stored_object(raw, obj) == raw
+    assert decode_stored_object(gzip.compress(raw, mtime=0), obj) == raw
+    assert decode_stored_object(gzip.compress(raw + b"extra"), obj) is None
+    assert decode_stored_object(gzip.compress(raw)[:-3], obj) is None
+    assert decode_stored_object(b"not the original", obj) is None
+    # An actual gzip attachment is an original, not another encoding layer.
+    attachment = gzip.compress(raw)
+    assert (
+        decode_stored_object(
+            attachment, {"byte_length": len(attachment), "sha256": sha256(attachment)}
+        )
+        == attachment
+    )
+
+
+def test_upload_storage_roundtrip_and_duplicate_verify_original_bytes(monkeypatch):
+    import gzip
+    import tempfile
+    from types import SimpleNamespace
+
+    from storage3.exceptions import StorageApiError
+
+    import services.agent_evidence as module
+
+    raw = b'{"output":"original transcript SQL and code"}\n'
+    obj = {"sha256": sha256(raw), "byte_length": len(raw), "kind": "segment"}
+    stored = {}
+
+    class Bucket:
+        def upload(self, path, file, options):
+            assert file.readable()
+            encoded = file.read()
+            assert gzip.decompress(encoded) == raw
+            if path in stored:
+                raise StorageApiError("exists", "Duplicate", 409)
+            stored[path] = encoded
+
+        def download(self, path):
+            return stored[path]
+
+    bucket = Bucket()
+    store = EvidenceStore(SimpleNamespace(storage=SimpleNamespace(from_=lambda _: bucket)), "u")
+    monkeypatch.setattr(
+        store, "batch", lambda _: {"session_id": "s", "request_json": {"objects": [{"id": "o"}]}}
+    )
+    monkeypatch.setattr(store, "object", lambda *a, **kw: obj)
+    monkeypatch.setattr(store, "session", lambda _: {"id": "s"})
+    monkeypatch.setattr(store, "prefix", lambda _: "private/session")
+    monkeypatch.setattr(module, "rpc", lambda sb, name, args: {"nonce": "n", "uploaded": False})
+    for _ in range(2):
+        with tempfile.TemporaryFile(buffering=0) as file:
+            file.write(raw)
+            file.seek(0)
+            assert store.upload("b", "o", file, sha256(raw), len(raw))["status"] == "stored"
+    assert store.download({**obj, "storage_path": next(iter(stored))}) == raw

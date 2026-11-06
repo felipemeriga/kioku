@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import base64
+import gzip
+import io
 import json
 import os
+import shutil
+import tempfile
+import zlib
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -52,6 +57,27 @@ def rpc(sb, name, args):
             if "evidence_" + code in message:
                 fail(code, status)
         raise HTTPException(503, detail={"code": "evidence_database_unavailable"}) from None
+
+
+def decode_stored_object(data, obj):
+    """Accept legacy raw or gzip storage, always verifying original byte identity.
+
+    Verify raw first so an original gzip attachment is never decoded accidentally.
+    Bound expansion by the validated descriptor, including concatenated members.
+    """
+    length = obj["byte_length"]
+    if len(data) == length and sha256(data) == obj["sha256"]:
+        return data
+    if not data.startswith(b"\x1f\x8b"):
+        return None
+    try:
+        with gzip.GzipFile(fileobj=io.BytesIO(data)) as archive:
+            original = archive.read(length + 1)
+    except (OSError, EOFError, zlib.error):
+        return None
+    if len(original) == length and sha256(original) == obj["sha256"]:
+        return original
+    return None
 
 
 class EvidenceStore:
@@ -161,17 +187,28 @@ class EvidenceStore:
         bucket = self.sb.storage.from_(BUCKET)
         file.seek(0)
         try:
-            bucket.upload(
-                path, file, {"content-type": "application/octet-stream", "upsert": "false"}
-            )
+            # Native transcripts may contain source code rejected by the storage
+            # edge as an HTTP request body. Store a lossless gzip representation;
+            # descriptors and all client/download checksums remain original bytes.
+            with tempfile.TemporaryFile(buffering=0) as encoded:
+                with gzip.GzipFile(fileobj=encoded, mode="wb", mtime=0) as archive:
+                    shutil.copyfileobj(file, archive)
+                encoded.seek(0)
+                bucket.upload(
+                    path, encoded, {"content-type": "application/octet-stream", "upsert": "false"}
+                )
+        except json.JSONDecodeError:
+            # Storage SDK assumes JSON errors; edge HTML errors must not escape
+            # as an opaque application 500 or expose provider response bodies.
+            fail("storage_unavailable", 503)
         except StorageApiError as exc:
             if str(exc.status) not in {"400", "409"}:
                 fail("storage_unavailable", 503)
             try:
                 previous = bucket.download(path)
-            except StorageApiError:
+            except (StorageApiError, json.JSONDecodeError):
                 fail("storage_unavailable", 503)
-            if sha256(previous) != content_hash or len(previous) != length:
+            if decode_stored_object(previous, obj) is None:
                 fail("object_conflict")
         # Planned paths are persisted before upload, so crash/deletion cleanup survives.
         try:
@@ -212,11 +249,12 @@ class EvidenceStore:
             fail("object_pending", 409)
         try:
             data = self.sb.storage.from_(BUCKET).download(obj["storage_path"])
-        except StorageApiError:
+        except (StorageApiError, json.JSONDecodeError):
             fail("object_unavailable", 503)
-        if len(data) != obj["byte_length"] or sha256(data) != obj["sha256"]:
+        original = decode_stored_object(data, obj)
+        if original is None:
             fail("object_integrity_failure", 503)
-        return data
+        return original
 
     def inventory(self, session_id, cursor=None, limit=100):
         s = self.session(session_id)
