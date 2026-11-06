@@ -19,6 +19,7 @@ from storage3.exceptions import StorageApiError
 
 from services.agent_evidence_models import (
     BUCKET,
+    MAX_OBJECT_BYTES,
     attachment_content_type,
     canonical,
     safe_id,
@@ -193,9 +194,14 @@ class EvidenceStore:
             with tempfile.TemporaryFile(buffering=0) as encoded:
                 with gzip.GzipFile(fileobj=encoded, mode="wb", mtime=0) as archive:
                     shutil.copyfileobj(file, archive)
-                encoded.seek(0)
+                # Incompressible attachments at the object limit must remain
+                # uploadable even when gzip framing adds a few bytes.
+                upload_body = file if encoded.tell() > MAX_OBJECT_BYTES else encoded
+                upload_body.seek(0)
                 bucket.upload(
-                    path, encoded, {"content-type": "application/octet-stream", "upsert": "false"}
+                    path,
+                    upload_body,
+                    {"content-type": "application/octet-stream", "upsert": "false"},
                 )
         except json.JSONDecodeError:
             # Storage SDK assumes JSON errors; edge HTML errors must not escape

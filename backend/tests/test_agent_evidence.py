@@ -576,7 +576,8 @@ def test_lossless_storage_encoding_preserves_original_identity(raw):
     )
 
 
-def test_upload_storage_roundtrip_and_duplicate_verify_original_bytes(monkeypatch):
+@pytest.mark.parametrize("at_limit", [False, True])
+def test_upload_storage_roundtrip_and_duplicate_verify_original_bytes(monkeypatch, at_limit):
     import gzip
     import tempfile
     from types import SimpleNamespace
@@ -588,12 +589,14 @@ def test_upload_storage_roundtrip_and_duplicate_verify_original_bytes(monkeypatc
     raw = b'{"output":"original transcript SQL and code"}\n'
     obj = {"sha256": sha256(raw), "byte_length": len(raw), "kind": "segment"}
     stored = {}
+    if at_limit:
+        monkeypatch.setattr(module, "MAX_OBJECT_BYTES", len(raw))
 
     class Bucket:
         def upload(self, path, file, options):
             assert file.readable()
             encoded = file.read()
-            assert gzip.decompress(encoded) == raw
+            assert (encoded if at_limit else gzip.decompress(encoded)) == raw
             if path in stored:
                 raise StorageApiError("exists", "Duplicate", 409)
             stored[path] = encoded
