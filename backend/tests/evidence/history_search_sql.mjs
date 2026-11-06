@@ -7,7 +7,7 @@ await db.exec(`CREATE ROLE anon;CREATE ROLE authenticated;CREATE ROLE service_ro
 CREATE SCHEMA auth;CREATE TABLE auth.users(id uuid PRIMARY KEY);CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS $$SELECT nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
 CREATE TABLE folders(id uuid PRIMARY KEY,user_id uuid,kind text);CREATE SCHEMA storage;
 CREATE TABLE storage.buckets(id text PRIMARY KEY,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);`);
-for(const file of ['20261029090000_agent_journals.sql','20261105130000_agent_history_search.sql'])
+for(const file of ['20261029090000_agent_journals.sql','20261105130000_agent_history_search.sql','20261106233000_history_session_prefix.sql'])
  await db.exec(fs.readFileSync(new URL('../../../supabase/migrations/'+file,import.meta.url),'utf8'));
 const owner='11111111-1111-4111-8111-111111111111',other='11111111-1111-4111-8111-111111111112',folder='22222222-2222-4222-8222-222222222222';
 await db.query('INSERT INTO auth.users VALUES($1),($2)',[owner,other]);
@@ -25,6 +25,10 @@ result=await search('retention','title');assert.equal(result.total_entries,0);as
 assert.equal((await search('memory','all','2026-10-29','2026-10-29')).total_sessions,0);
 assert.equal((await search('','all',null,null,'claude_code')).total_sessions,0);
 assert.equal((await search('','all',null,null,null,'wrong')).total_sessions,0);
+assert.equal((await search('','all',null,null,null,'nat')).total_sessions,1);
+assert.equal((await search('','all',null,null,null,'ativ')).total_sessions,0);
+assert.equal((await search('','all',null,null,null,'n_t')).total_sessions,0);
+assert.equal((await search('','all',null,null,null,'nat',other)).total_sessions,0);
 assert.equal((await search('','all',null,null,null,null,other)).total_sessions,0);
 assert.equal((await search('(?=.*cache)(?=.*retention).*')).total_entries,1);
 assert.equal((await search('memory|decoder')).total_entries,3);

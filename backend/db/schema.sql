@@ -2263,7 +2263,7 @@ WITH latest AS MATERIALIZED (
  FROM public.agent_journal_search_entries e JOIN latest l USING(agent,session_id) JOIN candidates c USING(agent,session_id)
  WHERE user_id=p_user_id AND folder_id=p_folder_id
  AND EXISTS (SELECT 1 FROM public.agent_journal_days d WHERE d.user_id=e.user_id AND d.folder_id=e.folder_id AND d.journal_date=e.journal_date AND d.search_sha256=d.content_sha256)
- AND (p_agent IS NULL OR e.agent=p_agent) AND (p_session IS NULL OR e.session_id=p_session)
+ AND (p_agent IS NULL OR e.agent=p_agent) AND (p_session IS NULL OR starts_with(e.session_id,p_session))
  AND (p_first IS NULL OR e.captured_at >= p_first::timestamp AT TIME ZONE p_timezone)
  AND (p_last IS NULL OR e.captured_at < (p_last+1)::timestamp AT TIME ZONE p_timezone)
 ), ranked AS (
