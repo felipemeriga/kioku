@@ -10,7 +10,7 @@ import time
 from contextvars import ContextVar
 from datetime import datetime, timezone
 from functools import wraps
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import uuid4
 
 import jwt
@@ -303,10 +303,13 @@ def run_tool(name: str, arguments: dict) -> str:
         }
         try:
             if retrieval:
-                client.tool_event(
-                    grant["job_id"], grant["attempt_id"], "retrieval.completed", preview
+                client.tool_events(
+                    grant["job_id"],
+                    grant["attempt_id"],
+                    [("retrieval.completed", preview), ("tool.completed", preview)],
                 )
-            client.tool_event(grant["job_id"], grant["attempt_id"], "tool.completed", preview)
+            else:
+                client.tool_event(grant["job_id"], grant["attempt_id"], "tool.completed", preview)
         finally:
             client.close()
     return result
@@ -367,11 +370,13 @@ async def search_agent_history(
     limit: Annotated[int, Field(ge=1, le=10)] = 10,
     offset: int = 0,
     queries: list[str] | None = None,
+    projection: Literal["discovery", "overview"] = "discovery",
 ) -> str:
     """Recall reported work and original evidence across authorized repositories.
 
     Resolve this week/yesterday in the user timezone and pass explicit dates.
-    Empty query browses daily activity. Narrow folder when the user names a repo.
+    Empty query browses daily activity. Use projection="overview" for the
+    bounded inventory of all active days. Narrow folder when the user names a repo.
     Preserve code identifier spelling/case in queries; identifiers get priority.
     Unmatched identifiers are flagged when broader fallback results are returned.
     Pages contain at most 10 records so results stay readable inline. Follow
@@ -395,6 +400,7 @@ async def search_agent_history(
             "limit": limit,
             "offset": offset,
             "queries": queries,
+            "projection": projection,
         },
     )
 

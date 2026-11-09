@@ -832,16 +832,64 @@ class Store:
 
     async def scope_deleted(self, owner_id, conversation_id=None):
         async with self.engine.connect() as conn:
-            return (
+            return await self._scope_deleted(conn, owner_id, conversation_id)
+
+    async def _scope_deleted(self, conn, owner_id, conversation_id=None):
+        return (
+            await conn.execute(
+                select(tombstones.c.id).where(
+                    tombstones.c.owner_sha256 == self.hash_id(owner_id),
+                    tombstones.c.conversation_sha256.in_(
+                        ["*", self.hash_id(conversation_id or "")]
+                    ),
+                )
+            )
+        ).first() is not None
+
+    async def get_for_access(self, job_id, owner_id):
+        """Read live ownership and deletion state using one connection checkout.
+
+        This is not a cache or an authorization shortcut: callers must still
+        validate the capability against the returned request, and writes retain
+        their independent fenced transaction.
+        """
+        async with self.engine.connect() as conn:
+            return await self._get_for_access(conn, job_id, owner_id)
+
+    async def _get_for_access(self, conn, job_id, owner_id):
+        row = (
+            (
                 await conn.execute(
-                    select(tombstones.c.id).where(
-                        tombstones.c.owner_sha256 == self.hash_id(owner_id),
-                        tombstones.c.conversation_sha256.in_(
-                            ["*", self.hash_id(conversation_id or "")]
-                        ),
+                    select(jobs).where(jobs.c.id == job_id, jobs.c.owner_id == owner_id)
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if row is None:
+            return None, False
+        job = dict(row)
+        deleted = await self._scope_deleted(conn, owner_id, job["conversation_id"])
+        return job, deleted
+
+    async def get_attempt_for_access(self, job_id, owner_id, attempt_id):
+        """Keep the active-attempt read on the same live access-check connection."""
+        async with self.engine.connect() as conn:
+            job, deleted = await self._get_for_access(conn, job_id, owner_id)
+            if job is None or deleted:
+                return job, deleted, None
+            row = (
+                (
+                    await conn.execute(
+                        select(attempts).where(
+                            attempts.c.id == attempt_id, attempts.c.job_id == job_id
+                        )
                     )
                 )
-            ).first() is not None
+                .mappings()
+                .first()
+            )
+            return job, deleted, dict(row) if row else None
 
     async def begin_deletion(self, owner_id, conversation_id=None):
         owner_hash = self.hash_id(owner_id)
@@ -1088,6 +1136,9 @@ class Store:
             ]
 
     async def tool_event(self, job_id, attempt_id, kind, data):
+        await self.tool_events(job_id, attempt_id, [(kind, data)])
+
+    async def tool_events(self, job_id, attempt_id, items):
         async with self.transaction() as conn:
             attempt = (
                 (
@@ -1103,7 +1154,8 @@ class Store:
             if not attempt:
                 raise Fenced("unknown_attempt")
             await self._owned(conn, attempt)
-            await self._event(conn, job_id, kind, data, attempt_id)
+            for kind, data in items:
+                await self._event(conn, job_id, kind, data, attempt_id)
 
     async def prune(self):
         async with self.transaction() as conn:

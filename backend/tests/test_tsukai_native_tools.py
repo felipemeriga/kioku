@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -106,7 +107,9 @@ def test_tool_trace_keeps_exact_result_and_bounded_preview():
             result = native_tools.run_tool("knowledge_base_search", {"query": "retry"})
         assert result == exact
         assert saved.call_args.args[-1] == exact
-        preview = client.tool_event.call_args.args[-1]
+        completed = client.tool_events.call_args.args[-1]
+        assert [kind for kind, data in completed] == ["retrieval.completed", "tool.completed"]
+        preview = completed[-1][1]
         assert len(preview["sources"][0]["content"]) == 1200
         assert preview["result_ref"] == "artifact"
         assert preview["effective_scope"]["folder_ids"] == ["folder"]
@@ -213,3 +216,16 @@ def test_metadata_child_is_consumed_only_after_root_tool_artifact_commits():
         assert order == ["artifact", "consume"]
     finally:
         native_tools._authority.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_native_history_projection_schema_and_forwarding_match_the_memory_tool():
+    server = native_tools.create_native_mcp()
+    tools = await server.list_tools()
+    history = next(tool for tool in tools if tool.name == "search_agent_history")
+    projection = history.inputSchema["properties"]["projection"]
+    assert projection["enum"] == ["discovery", "overview"]
+    assert projection["default"] == "discovery"
+    with patch.object(native_tools, "run_tool", return_value="bounded overview") as run:
+        assert await native_tools.search_agent_history(projection="overview") == "bounded overview"
+    assert run.call_args.args[1]["projection"] == "overview"
