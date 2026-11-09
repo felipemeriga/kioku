@@ -2288,7 +2288,7 @@ def search_agent_history(
     timezone: str = "UTC",
     session: str | None = None,
     order: str = "chronological",
-    limit: int = 50,
+    limit: int = 10,
     offset: int = 0,
     queries: list[str] | None = None,
 ) -> str:

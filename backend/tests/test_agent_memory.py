@@ -368,6 +368,8 @@ def test_public_and_native_mcp_register_readonly_offloaded_memory_tools():
     from services.ai.native_tools import native_mcp
 
     native = {tool.name: tool for tool in asyncio.run(native_mcp.list_tools())}
+    assert native["search_agent_history"].inputSchema["properties"]["limit"]["maximum"] == 10
+    assert native["read_agent_evidence"].inputSchema["properties"]["char_limit"]["maximum"] == 2000
     for name in ["search_agent_history", "read_agent_evidence"]:
         tool = mcp_server.mcp._tool_manager.get_tool(name)
         assert inspect.iscoroutinefunction(tool.fn)
@@ -456,6 +458,7 @@ def test_fresh_mcp_transport_search_then_expand_preserves_time_scope(monkeypatch
         "event_id": "1" * 64,
         "char_start": 0,
         "char_length": len(full),
+        "record_sequence": 1,
         "native_session_id": "native",
         "agent": "codex",
         "event_at": "2026-11-05T23:00:00+00:00",
@@ -630,3 +633,82 @@ def test_postgres_timestamps_accept_variable_fraction_precision(fraction):
     assert bounds(as_of="2026-11-06T02:10:12" + fraction + "+00:00")[1].startswith(
         "2026-11-06T02:10:12."
     )
+
+
+def test_chat_memory_pages_keep_locators_and_sources_with_bounded_excerpts():
+    from services.agent_memory_tools import execute_memory_tool
+    from services.citations import CitationRegistry
+
+    response = {
+        "matches": [
+            {
+                "folder_id": FOLDER,
+                "session_id": SESSION,
+                "event_id": str(i) * 64,
+                "record_sequence": i,
+                "recorded_at": "2026-11-06T12:00:00Z",
+                "role": "tool",
+                "reference": "r" * 600,
+                "excerpt": "x" * 900 + " GOMEMLIMIT=4GiB " + "y" * 480,
+            }
+            for i in range(10)
+        ],
+        "scope": [{"id": FOLDER, "name": "repo"}],
+        "has_more": True,
+        "next_offset": 10,
+        "activity": {
+            "days": [
+                {
+                    "folder_id": FOLDER,
+                    "session_id": str(i),
+                    "date": "2026-11-06",
+                    "entry_id": str(i),
+                    "captured_at": "2026-11-06T12:00:00Z",
+                    "summary": "中" * 3000,
+                }
+                for i in range(10)
+            ],
+            "has_more": True,
+            "next_offset": 10,
+        },
+    }
+    trace = []
+    citations = CitationRegistry()
+    with patch("services.agent_memory_tools.search_memory", return_value=response) as search:
+        encoded = execute_memory_tool(
+            Database(),
+            "search_agent_history",
+            {"query": "GOMEMLIMIT"},
+            OWNER,
+            [FOLDER],
+            citations=citations,
+            debug_retrieval=trace,
+        )
+        assert search.call_args.kwargs["limit"] == 10
+    result = json.loads(encoded)
+    assert len(encoded.encode()) < 60000
+    assert len(trace) == len(citations.entries()) == 20
+    assert all(len(r["excerpt"]) <= 400 and "GOMEMLIMIT" in r["excerpt"] for r in result["matches"])
+    assert all(r["reference"] == "r" * 600 and r["excerpt_has_more"] for r in result["matches"])
+    assert all(
+        len(r["summary"]) == 800 and r["summary_truncated"] for r in result["activity"]["days"]
+    )
+    assert result["next_offset"] == 10 and result["has_more"]
+    assert "2026-11-06 tool" in citations.entries()[0]["source"]
+    assert citations.entries()[0]["url"].endswith("event=" + "0" * 64)
+
+
+@pytest.mark.parametrize(
+    "name,arguments",
+    [
+        ("search_agent_history", {"limit": 50}),
+        ("search_agent_history", {"limit": True}),
+        ("read_agent_evidence", {"reference": "x", "char_limit": 8000}),
+        ("read_agent_evidence", {"reference": "x", "before_records": 3}),
+    ],
+)
+def test_chat_rejects_pages_that_exceed_inline_transport_limits(name, arguments):
+    from services.agent_memory_tools import execute_memory_tool
+
+    result = json.loads(execute_memory_tool(Database(), name, arguments, OWNER, [FOLDER]))
+    assert result["status"] == "error"
