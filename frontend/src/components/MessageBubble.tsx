@@ -79,8 +79,8 @@ function citationDetails(c: Citation) {
     filename && !/^(unknown|\[unknown\])$/i.test(filename)
       ? filename
       : c.source_type === "code"
-        ? "Retrieved code source"
-        : "Retrieved source";
+      ? "Retrieved code source"
+      : "Retrieved source";
   return { title, path: path !== title ? path : "", repo, lineRange };
 }
 
@@ -111,8 +111,8 @@ function claimText(children: ReactNode): string {
       typeof child === "string"
         ? child
         : isValidElement<{ children?: ReactNode }>(child)
-          ? claimText(child.props.children)
-          : "",
+        ? claimText(child.props.children)
+        : "",
     )
     .join(" ");
 }
@@ -163,7 +163,8 @@ function CitationChip({
     retry: false,
   });
   const trace = evidence.data?.trace as
-    { sources?: DebugRetrievalChunk[] } | undefined;
+    | { sources?: DebugRetrievalChunk[] }
+    | undefined;
   const full = Array.isArray(trace?.sources)
     ? trace.sources.find(
         (source) =>
@@ -422,7 +423,18 @@ export default function MessageBubble({
 
   const handleCitationClick = useMemo(
     () => (c: Citation) => {
-      if (c.source_type === "document") {
+      // Archived evidence is an authenticated application route, not an
+      // uploaded filename. Keep its event anchor instead of resolving a doc.
+      if (
+        c.url &&
+        /^\/folders\/[0-9a-f-]{36}\/agent-sessions\/[0-9a-f-]{36}\?event=[0-9a-f]{64}$/.test(
+          c.url,
+        )
+      ) {
+        window.open(c.url, "_blank", "noopener,noreferrer");
+      } else if (c.source?.startsWith("Agent journal /")) {
+        setExcerptSource(c);
+      } else if (c.source_type === "document") {
         const filename = c.source?.trim() ?? "";
         if (!filename || /^(unknown|\[unknown\])$/i.test(filename)) {
           setExcerptSource(c);
@@ -796,7 +808,9 @@ export default function MessageBubble({
                   Completed in{" "}
                   {debug.timings.total_seconds < 60
                     ? `${debug.timings.total_seconds.toFixed(1)}s`
-                    : `${Math.floor(debug.timings.total_seconds / 60)}m ${Math.floor(debug.timings.total_seconds % 60)}s`}
+                    : `${Math.floor(
+                        debug.timings.total_seconds / 60,
+                      )}m ${Math.floor(debug.timings.total_seconds % 60)}s`}
                 </Typography>
               )}
             <Button
