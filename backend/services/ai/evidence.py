@@ -17,6 +17,35 @@ class DurableCitations:
         self.conversation_id = conversation_id
 
     def register(self, result: dict) -> int:
+        key, source = self._citation_source(result)
+        return self._register_source(key, source)
+
+    def register_many(self, results: list[dict]) -> list[int]:
+        citations = [dict(zip(("source_key", "source"), self._citation_source(r))) for r in results]
+        if not citations:
+            return []
+        numbers = (
+            get_supabase_thread_safe()
+            .rpc(
+                "tsukai_register_citations_batch",
+                {
+                    "p_job_id": self.job_id,
+                    "p_attempt_id": self.attempt_id,
+                    "p_citations": citations,
+                },
+            )
+            .execute()
+            .data
+        )
+        if (
+            not isinstance(numbers, list)
+            or len(numbers) != len(results)
+            or any(type(n) is not int or n < 1 for n in numbers)
+        ):
+            raise ValueError("Invalid citation batch result")
+        return numbers
+
+    def _citation_source(self, result: dict) -> tuple[str, dict]:
         metadata = result.get("metadata") or {}
         registry = CitationRegistry()
         registry.register(result)
@@ -37,7 +66,7 @@ class DurableCitations:
         source["conversation_id"] = self.conversation_id
         source["revision_id"] = metadata.get("revision_id")
         source["indexed_head"] = metadata.get("indexed_head") or metadata.get("head_sha")
-        return self._register_source(key, source)
+        return key, source
 
     def _register_source(self, key: str, source: dict) -> int:
         number = (
@@ -74,6 +103,9 @@ class BufferedBootstrapCitations(DurableCitations):
                     "source": source,
                 }
             return self._citations[key]["number"]
+
+    def register_many(self, results: list[dict]) -> list[int]:
+        return [self.register(result) for result in results]
 
     def flush(self) -> None:
         if not self._citations:

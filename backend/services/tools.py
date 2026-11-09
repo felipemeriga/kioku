@@ -383,7 +383,9 @@ def execute_tool(
         if not results:
             return "No relevant documents found in the knowledge base."
         chunks = []
-        for r in results:
+        batch = getattr(citations, "register_many", None) if citations is not None else None
+        numbers = batch(results) if callable(batch) else None
+        for index, r in enumerate(results):
             meta = r.get("metadata") or {}
             source = meta.get("source_filename", "unknown")
             if r.get("source_type") == "code":
@@ -405,7 +407,13 @@ def execute_tool(
                     body += f" — last updated {updated}"
             # Prefix with the stable citation number [N] so the model can cite it
             # inline; without a registry, keep the original bracketed header.
-            citation_number = citations.register(r) if citations is not None else None
+            citation_number = (
+                numbers[index]
+                if numbers is not None
+                else citations.register(r)
+                if citations is not None
+                else None
+            )
             if citations is not None:
                 header = f"[{citation_number}] {body}"
             else:

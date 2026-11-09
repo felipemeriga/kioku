@@ -198,7 +198,9 @@ jobs:
             -c COMMIT \
             -c "ALTER DEFAULT PRIVILEGES GRANT EXECUTE ON FUNCTIONS TO anon, authenticated" \
             -f supabase/migrations/20261109220000_tsukai_bootstrap_citation_batch.sql \
-            -f backend/tests/sql/tsukai_bootstrap_batch_acceptance.sql
+            -f backend/tests/sql/tsukai_bootstrap_batch_acceptance.sql \
+            -f supabase/migrations/20261110010000_tsukai_tool_citation_batch.sql \
+            -f backend/tests/sql/tsukai_tool_batch_acceptance.sql
       - name: Verify runtime grants can be applied twice after schema upgrade
         env:
           PGPASSWORD: fixture-admin-only

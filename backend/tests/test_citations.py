@@ -308,7 +308,7 @@ def test_full_debug_reuses_the_durable_header_citation_without_another_registrat
     query.execute.return_value.data = [
         {"id": "chunk", "folder_id": "folder", "file": "pkg/scores.py", "file_hash": "revision"}
     ]
-    registry = MagicMock()
+    registry = MagicMock(spec=["register"])
     registry.register.return_value = 7
     debug = []
     with (
