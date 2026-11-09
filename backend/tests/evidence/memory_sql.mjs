@@ -55,6 +55,15 @@ await db.exec(
     "utf8",
   ),
 );
+await db.exec(
+  fs.readFileSync(
+    new URL(
+      "../../../supabase/migrations/20261109120000_memory_latest_order.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  ),
+);
 const owner = "11111111-1111-4111-8111-111111111111",
   other = "11111111-1111-4111-8111-111111111112";
 const first = "22222222-2222-4222-8222-222222222222",
@@ -250,6 +259,12 @@ r = await search2(["gomemlimit", "memory", "upload", "budget"], {
 });
 if (r.matches[0].record_sequence !== 3)
   throw Error("explicit identifier buried by generic terms");
+r = await search2(["gomemlimit", "memory", "upload", "budget"], {
+  ids: ["gomemlimit"],
+  order: "latest",
+});
+if (r.total_matches !== 1 || r.matches[0].record_sequence !== 3)
+  throw Error("latest identifier focus lost");
 r = await search2(["sdk"], {
   before: "2026-11-06T03:00:00Z",
   session: "01prefix-f",

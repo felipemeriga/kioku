@@ -2377,8 +2377,9 @@ REVOKE ALL ON FUNCTION public.search_agent_memory(uuid,uuid[],text[],timestamptz
 GRANT EXECUTE ON FUNCTION public.publish_agent_memory_index(uuid,text,jsonb,boolean,boolean) TO service_role;
 GRANT EXECUTE ON FUNCTION public.search_agent_memory(uuid,uuid[],text[],timestamptz,timestamptz,text,text,integer,integer) TO service_role;
 
+-- Keep latest strictly temporal within the explicit-identifier candidate set.
 -- Additive RPC: old backends keep their existing search contract during rollout.
-CREATE FUNCTION public.search_agent_memory_v2(
+CREATE OR REPLACE FUNCTION public.search_agent_memory_v2(
  p_user_id uuid,p_folder_ids uuid[],p_terms text[],
  p_after timestamptz DEFAULT NULL,p_before timestamptz DEFAULT NULL,
  p_session text DEFAULT NULL,p_order text DEFAULT 'chronological',
@@ -2417,8 +2418,15 @@ WITH terms AS MATERIALIZED (
  AND o.committed_revision IS NOT NULL AND (query.q IS NULL OR c.lexemes@@query.q)
  AND (p_after IS NULL OR e.event_at>=p_after) AND (p_before IS NULL OR e.event_at<p_before)
  AND (p_session IS NULL OR starts_with(s.native_session_id,p_session) OR s.id::text=p_session)
+), focused AS MATERIALIZED (
+ SELECT * FROM matched m WHERE
+ NOT EXISTS (SELECT 1 FROM matched x WHERE EXISTS (
+  SELECT 1 FROM unnest(x.matched_terms) t
+  WHERE t=ANY(p_identifiers) AND (length(t)>=5 OR t~'[_0-9]')))
+ OR EXISTS (SELECT 1 FROM unnest(m.matched_terms) t
+  WHERE t=ANY(p_identifiers) AND (length(t)>=5 OR t~'[_0-9]'))
 ), events AS MATERIALIZED (
- SELECT DISTINCT ON(session_id,event_id) * FROM matched
+ SELECT DISTINCT ON(session_id,event_id) * FROM focused
  ORDER BY session_id,event_id,relevance DESC,char_start
 ), ranked AS (
  SELECT *,row_number() OVER(
@@ -2428,7 +2436,7 @@ WITH terms AS MATERIALIZED (
 ), page AS (
  SELECT * FROM ranked ORDER BY
  CASE WHEN p_order='chronological' AND cardinality(p_terms)>0 THEN temporal_rank END ASC,
- CASE WHEN cardinality(p_terms)>0 THEN relevance END DESC,
+ CASE WHEN p_order='relevance' OR (p_order='chronological' AND cardinality(p_terms)>0) THEN relevance END DESC,
  CASE WHEN p_order='latest' THEN event_at END DESC NULLS LAST,
  CASE WHEN p_order<>'latest' THEN event_at END ASC NULLS LAST,session_id,record_sequence
  LIMIT greatest(1,least(p_limit,50)) OFFSET greatest(0,least(p_offset,10000))
