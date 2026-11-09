@@ -404,7 +404,37 @@ def prepare_turn(
         raise
 
 
+class _AdmissionGate:
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.users = 0
+
+
+_admission_guard = threading.Lock()
+_admission_gates: dict[tuple[str, str], _AdmissionGate] = {}
+
+
 def submit_turn(turn: dict) -> dict:
+    # Subscriber and durable reconciler may race the same prepared turn. Keep
+    # database idempotency authoritative across processes, while avoiding a
+    # redundant remote admission within this process. Other turns stay parallel.
+    key = (turn["owner_id"], turn["id"])
+    with _admission_guard:
+        gate = _admission_gates.get(key)
+        if gate is None:
+            gate = _admission_gates[key] = _AdmissionGate()
+        gate.users += 1
+    try:
+        with gate.lock:
+            return _submit_turn(turn)
+    finally:
+        with _admission_guard:
+            gate.users -= 1
+            if gate.users == 0:
+                _admission_gates.pop(key, None)
+
+
+def _submit_turn(turn: dict) -> dict:
     turn = owned_turn(turn["owner_id"], turn_id=turn["id"])
     if turn.get("cancel_requested") and not turn.get("job_id"):
         get_supabase_thread_safe().table("tsukai_chat_turns").update({"state": "cancelled"}).eq(
