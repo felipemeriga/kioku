@@ -292,8 +292,16 @@ def create_app(settings=None, store=None, native=None):
 
     @app.get("/v1/jobs/{job_id}/usage")
     async def get_usage(job_id: str, request: Request):
-        await scoped_job(request, job_id)
-        return {"job_id": job_id, "attempts": await store.attempt_usage(job_id)}
+        from .usage_snapshot import usage_access_snapshot
+
+        cap = capability(request, settings)
+        job, deleted, usage = await usage_access_snapshot(store, job_id, cap.owner_id)
+        if job is None:
+            raise HTTPException(404, "job_not_found")
+        if deleted:
+            raise HTTPException(410, "execution_scope_deleted")
+        authorize(cap, JobRequest.model_validate(job["request"]))
+        return {"job_id": job_id, "attempts": usage}
 
     @app.post("/v1/jobs/{job_id}/ack")
     async def ack_result(job_id: str, body: Ack, request: Request):
