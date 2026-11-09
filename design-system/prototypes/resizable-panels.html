@@ -1,5 +1,101 @@
 <!doctype html>
 <html lang="en">
+  <!-- Embedded IBM Plex Sans font license:
+Copyright © 2017 IBM Corp. with Reserved Font Name "Plex"
+
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+
+This license is copied below, and is also available with a FAQ at: http://scripts.sil.org/OFL
+
+
+—————————————————————————————-
+SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007
+—————————————————————————————-
+
+PREAMBLE
+The goals of the Open Font License (OFL) are to stimulate worldwide
+development of collaborative font projects, to support the font creation
+efforts of academic and linguistic communities, and to provide a free and
+open framework in which fonts may be shared and improved in partnership
+with others.
+
+The OFL allows the licensed fonts to be used, studied, modified and
+redistributed freely as long as they are not sold by themselves. The
+fonts, including any derivative works, can be bundled, embedded,
+redistributed and/or sold with any software provided that any reserved
+names are not used by derivative works. The fonts and derivatives,
+however, cannot be released under any other type of license. The
+requirement for fonts to remain under this license does not apply
+to any document created using the fonts or their derivatives.
+
+DEFINITIONS
+"Font Software" refers to the set of files released by the Copyright
+Holder(s) under this license and clearly marked as such. This may
+include source files, build scripts and documentation.
+
+"Reserved Font Name" refers to any names specified as such after the
+copyright statement(s).
+
+"Original Version" refers to the collection of Font Software components as
+distributed by the Copyright Holder(s).
+
+"Modified Version" refers to any derivative made by adding to, deleting,
+or substituting — in part or in whole — any of the components of the
+Original Version, by changing formats or by porting the Font Software to a
+new environment.
+
+"Author" refers to any designer, engineer, programmer, technical
+writer or other person who contributed to the Font Software.
+
+PERMISSION & CONDITIONS
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of the Font Software, to use, study, copy, merge, embed, modify,
+redistribute, and sell modified and unmodified copies of the Font
+Software, subject to the following conditions:
+
+1) Neither the Font Software nor any of its individual components,
+in Original or Modified Versions, may be sold by itself.
+
+2) Original or Modified Versions of the Font Software may be bundled,
+redistributed and/or sold with any software, provided that each copy
+contains the above copyright notice and this license. These can be
+included either as stand-alone text files, human-readable headers or
+in the appropriate machine-readable metadata fields within text or
+binary files as long as those fields can be easily viewed by the user.
+
+3) No Modified Version of the Font Software may use the Reserved Font
+Name(s) unless explicit written permission is granted by the corresponding
+Copyright Holder. This restriction only applies to the primary font name as
+presented to the users.
+
+4) The name(s) of the Copyright Holder(s) or the Author(s) of the Font
+Software shall not be used to promote, endorse or advertise any
+Modified Version, except to acknowledge the contribution(s) of the
+Copyright Holder(s) and the Author(s) or with their explicit written
+permission.
+
+5) The Font Software, modified or unmodified, in part or in whole,
+must be distributed entirely under this license, and must not be
+distributed under any other license. The requirement for fonts to
+remain under this license does not apply to any document created
+using the Font Software.
+
+TERMINATION
+This license becomes null and void if any of the above conditions are
+not met.
+
+DISCLAIMER
+THE FONT SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO ANY WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT
+OF COPYRIGHT, PATENT, TRADEMARK, OR OTHER RIGHT. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+INCLUDING ANY GENERAL, SPECIAL, INDIRECT, INCIDENTAL, OR CONSEQUENTIAL
+DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
+OTHER DEALINGS IN THE FONT SOFTWARE.
+
+-->
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -2224,20 +2320,24 @@
                       </h3>
                       <div class="session-meta">
                         <span class="agent-tag">Codex</span
-                        ><span>Session 01a1ac55</span><span>workstation</span>
+                        ><span id="detail-session">Session 01a1ac55</span
+                        ><span>workstation</span>
                       </div>
-                      <p class="session-overview">
+                      <p class="session-overview" id="detail-overview">
                         Review the recorded work in the journal, then open the
                         original conversation for the complete context.
                       </p>
                       <div class="details-tools">
-                        <span class="quiet" style="font-size: 12px"
+                        <span
+                          id="detail-day"
+                          class="quiet"
+                          style="font-size: 12px"
                           >Monday, November 9</span
                         ><button class="button" id="open-originals">
                           <svg><use href="#i-eye" /></svg>View originals
                         </button>
                       </div>
-                      <div class="timeline">
+                      <div class="timeline" id="detail-timeline">
                         <div class="timeline-item">
                           <time>09:44 AM</time>
                           <p>
@@ -2417,16 +2517,18 @@
           <div class="session-meta">
             <span class="agent-tag">Codex</span
             ><svg style="width: 15px; height: 15px"><use href="#i-copy" /></svg
-            ><span>Session example-01a1ac55</span>
+            ><span id="evidence-session">Session 01a1ac55</span>
           </div>
-          <p>November 9, 2026 · America/Sao_Paulo</p>
+          <p id="evidence-day">November 9, 2026 · America/Sao_Paulo</p>
         </div>
         <div class="reader-tools">
           <div class="reader-tabs">
             <button id="reading-tab" aria-pressed="true">Reading</button
             ><button id="raw-tab" aria-pressed="false">Raw source</button>
           </div>
-          <span class="quiet" style="font-size: 11px">November 9</span>
+          <span class="quiet" id="reader-day" style="font-size: 11px"
+            >November 9</span
+          >
         </div>
         <div class="reader-events" id="reader-events">
           <div id="reading-content">
@@ -2645,6 +2747,8 @@
           $("#chat-show-navigation").title,
         );
         $("#folder-resizer").setAttribute("aria-label", `Resize ${key}`);
+        $("#folder-resizer").title =
+          `Drag to resize ${key}. Double-click to reset.`;
         updateHandle($("#folder-resizer"), key);
         updateHandle($("#calendar-resizer"), "calendar");
         updateHandle($("#evidence-resizer"), "evidence");
@@ -2883,31 +2987,127 @@
           title:
             "Remediate c360-lead vulnerabilities and validate player builds",
           id: "01a1ac55",
+          agent: "Codex",
           time: "09:44 AM",
+          replyTime: "09:45 AM",
           count: 14,
           entries: 1,
           summary:
             "Investigated dependency alerts, compared release builds, and recorded the checks that passed. Deployment and runtime validation remain separate from the proposed changes.",
+          detail: [
+            {
+              time: "09:44 AM",
+              text: "Reviewed dependency alerts and available release builds. Recorded the checks that passed and the runtime validation still needed.",
+            },
+          ],
+          request:
+            "Review the dependency alerts and compare the available player builds. What remains to validate?",
+          reply:
+            "I’ll separate dependency remediation, release checks, and deployment status.",
+          points: [
+            "Record dependency checks with the branch and build.",
+            "Keep source changes separate from the running service.",
+            "Capture the runtime validation still needed.",
+          ],
+          code: "# Example verification\ncargo audit\ncargo test --workspace",
+          note: "Passing a build check does not establish that a new binary is deployed.",
         },
         {
           title: "Validate player memory limits and playback readiness",
           id: "01a1a96e",
+          agent: "Codex",
           time: "10:12 AM",
+          replyTime: "10:13 AM",
           count: 35,
           entries: 8,
           summary:
             "Compared the memory-budget experiments with the proposed service configuration. Preserved host and workload differences alongside the playback measurements and remaining validation.",
+          detail: [
+            {
+              time: "10:12 AM",
+              text: "Compared the earlier Go memory-budget measurements with the proposed player-service configuration.",
+            },
+            {
+              time: "10:26 AM",
+              text: "Kept host, workload, playback results, and the configuration change separate from deployment status.",
+            },
+          ],
+          request:
+            "Have we already tried a smaller Go memory budget for the player?",
+          reply:
+            "I’ll compare the earlier measurements with the proposed runtime configuration.",
+          points: [
+            "Keep the host and workload next to each result.",
+            "Preserve the original output alongside the journal summary.",
+            "Separate the tested setting from the configuration proposed afterward.",
+          ],
+          code: '# Example configuration\n[Service]\nEnvironment="GOMEMLIMIT=4GiB"',
+          note: "This is a soft runtime budget. A changed unit file does not establish what is running.",
         },
         {
           title: "Trace tracking latency through the ingestion pipeline",
           id: "01a1ac27",
+          agent: "Codex",
           time: "11:08 AM",
+          replyTime: "11:09 AM",
           count: 18,
           entries: 5,
           summary:
             "Reviewed the timing from message receipt through database write acknowledgement, including clock-alignment limits and the distinction between recorded findings and deployment.",
+          detail: [
+            {
+              time: "11:08 AM",
+              text: "Traced message receipt, queueing, and database write acknowledgement through the ingestion pipeline.",
+            },
+            {
+              time: "11:31 AM",
+              text: "Flagged clock-alignment limits and kept source-age measurements separate from internal processing time.",
+            },
+          ],
+          request:
+            "Where did we measure latency before tracking data reaches the database?",
+          reply:
+            "I’ll separate the internal stage timings from absolute source age.",
+          points: [
+            "Keep the timing boundaries explicit.",
+            "Check clock alignment before interpreting absolute latency.",
+            "Distinguish a write acknowledgement from a downstream read.",
+          ],
+          code: "# Example timing stages\nsse_parsed → enqueue → db_batch → write_ack",
+          note: "A write acknowledgement does not establish when another service read the data.",
         },
       ];
+      let selectedSession = sessions[0],
+        selectedDay = 9;
+      const dayLabel = (day, options = {}) =>
+        new Intl.DateTimeFormat("en-US", {
+          month: "long",
+          day: "numeric",
+          ...options,
+          timeZone: "UTC",
+        }).format(new Date(Date.UTC(2026, 10, day)));
+      function renderSessionDetail(session) {
+        selectedSession = session;
+        $("#detail-title").textContent = session.title;
+        $("#detail-session").textContent = `Session ${session.id}`;
+        $("#session-details .agent-tag").textContent = session.agent;
+        $("#detail-overview").textContent = session.summary;
+        $("#detail-day").textContent = dayLabel(selectedDay, {
+          weekday: "long",
+        });
+        const timeline = $("#detail-timeline");
+        timeline.replaceChildren();
+        for (const entry of session.detail) {
+          const item = document.createElement("div");
+          item.className = "timeline-item";
+          const time = document.createElement("time");
+          time.textContent = entry.time;
+          const text = document.createElement("p");
+          text.textContent = entry.text;
+          item.append(time, text);
+          timeline.append(item);
+        }
+      }
       function renderSessions() {
         const query = $("#history-search").value.trim().toLocaleLowerCase();
         const list = $("#session-list");
@@ -2922,7 +3122,7 @@
           button.querySelector("h4").textContent = session.title;
           button.querySelector(".summary").textContent = session.summary;
           button.onclick = () => {
-            $("#detail-title").textContent = session.title;
+            renderSessionDetail(session);
             $("#day-view").hidden = true;
             $("#session-details").hidden = false;
             $("#back-to-day").focus({ preventScroll: true });
@@ -2974,6 +3174,7 @@
           button.append(dots);
         }
         button.onclick = () => {
+          selectedDay = date;
           $$(".day").forEach((b) => {
             b.classList.remove("selected");
             b.setAttribute("aria-pressed", "false");
@@ -2998,6 +3199,8 @@
         $("#calendar-grid").append(button);
       }
       function openEvidence() {
+        if (mode === "chat") selectedSession = sessions[1];
+        bindEvidence(mode === "chat" ? 9 : selectedDay);
         returnFocus = document.activeElement;
         $("#evidence-overlay").hidden = false;
         $("#shell").inert = true;
@@ -3029,16 +3232,44 @@
           : "Open full transcript";
         renderLayout();
       };
-      const sampleRecord = {
-        record: 18,
-        role: "user",
-        captured_at: "2026-11-09T12:44:00Z",
-        session_id: "example-01a1ac55",
-        content:
-          "Can we compare the earlier measurements with the proposed configuration, and keep track of what still needs validation?",
-        note: "Illustrative record for the layout preview",
-      };
-      $("#raw-content").textContent = JSON.stringify(sampleRecord, null, 2);
+      let sampleRecord = {};
+      function bindEvidence(day) {
+        const session = selectedSession;
+        $("#evidence-session").textContent = `Session ${session.id}`;
+        $(".evidence-heading .agent-tag").textContent = session.agent;
+        $("#evidence-day").textContent =
+          `${dayLabel(day, { year: "numeric" })} · America/Sao_Paulo`;
+        $("#reader-day").textContent = dayLabel(day);
+        const userEvent = $("#reading-content .user-event"),
+          agentEvent = $("#reading-content .reader-event:not(.user-event)");
+        userEvent.querySelector("time").textContent = session.time;
+        userEvent.querySelector("p").textContent = session.request;
+        agentEvent.querySelector("time").textContent = session.replyTime;
+        agentEvent.querySelector("p").textContent = session.reply;
+        const list = agentEvent.querySelector("ul");
+        list.replaceChildren();
+        for (const point of session.points) {
+          const item = document.createElement("li");
+          item.textContent = point;
+          list.append(item);
+        }
+        agentEvent.querySelector(".code-block").textContent = session.code;
+        agentEvent.querySelectorAll(":scope > p")[1].textContent = session.note;
+        const match = session.time.match(/^(\d+):(\d+) (AM|PM)$/);
+        let hour = Number(match[1]) % 12;
+        if (match[3] === "PM") hour += 12;
+        sampleRecord = {
+          record: 18,
+          role: "user",
+          captured_at: new Date(
+            Date.UTC(2026, 10, day, hour + 3, Number(match[2])),
+          ).toISOString(),
+          session_id: session.id,
+          content: session.request,
+          note: "Illustrative record for the layout preview",
+        };
+        $("#raw-content").textContent = JSON.stringify(sampleRecord, null, 2);
+      }
       $("#reading-tab").onclick = () => {
         $("#reading-content").hidden = false;
         $("#raw-content").hidden = true;
