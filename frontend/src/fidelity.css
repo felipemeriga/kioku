@@ -1,7 +1,7 @@
 /* Geometry from the approved screen prototype; colors remain Kioku's neon theme. */
 #root .documents-page {
   width: 100%;
-  max-width: 1280px;
+  max-width: none;
   margin: 0 auto;
   flex: 1;
   min-height: 0;
@@ -591,4 +591,20 @@
   #root .remote-agent-tags {
     justify-content: flex-start;
   }
+}
+
+/* Resizing navigation returns space to the active page and chat composer. */
+#root .chat-workspace,
+#root .thread-content,
+#root .chat-composer {
+  max-width: none;
+  min-width: 0;
+}
+#root .thread-content {
+  box-sizing: border-box;
+}
+#root [data-testid="assistant-message-surface"] p,
+#root [data-testid="assistant-message-surface"] > div > ul,
+#root [data-testid="assistant-message-surface"] > div > ol {
+  max-width: 105ch;
 }

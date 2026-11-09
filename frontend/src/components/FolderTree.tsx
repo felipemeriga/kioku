@@ -92,6 +92,7 @@ function FolderTreeNode({
     <>
       <ListItemButton
         data-folder-navigation
+        title={folder.name}
         onMouseEnter={() => prefetchFolder(client, folder.id)}
         onFocus={() => prefetchFolder(client, folder.id)}
         selected={isSelected}
@@ -123,6 +124,7 @@ function FolderTreeNode({
             onOsFilesDropped(folder.id, files);
         }}
         sx={{
+          position: "relative",
           pl: 1.25 + depth * 1.75,
           py: 0.4,
           minHeight: 34,

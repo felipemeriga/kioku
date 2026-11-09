@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   Box,
   Button,
@@ -10,6 +10,7 @@ import {
   Drawer,
   IconButton,
   Typography,
+  Tooltip,
   useMediaQuery,
   useTheme,
 } from "@mui/material";
@@ -20,6 +21,12 @@ import { brand } from "../theme";
 import NeoAtmosphere from "./neo/NeoAtmosphere";
 import IconRail, { type AppPage } from "./IconRail";
 import ContextPanel from "./ContextPanel";
+import PanelResizeHandle from "./PanelResizeHandle";
+import {
+  usePanelSize,
+  readNavigationCollapsed,
+  savePanelPreference,
+} from "../hooks/usePanelSize";
 import { useAuth } from "../hooks/useAuth";
 import { useConversationsContext } from "../hooks/useConversationsContext";
 import { deleteFolder } from "../lib/api";
@@ -47,10 +54,30 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   } | null>(null);
   const mobile = useMediaQuery(useTheme().breakpoints.down("md"));
   const [panelOpen, setPanelOpen] = useState(false);
+  const [navigationCollapsed, setNavigationCollapsed] = useState(
+    readNavigationCollapsed,
+  );
+  const navigationButton = useRef<HTMLButtonElement>(null);
+  const folders = usePanelSize("folders", 264, 140, 440, 684);
+  const conversationsPanel = usePanelSize("conversations", 288, 160, 440, 684);
+  const collapseNavigation = () => {
+    setNavigationCollapsed(true);
+    savePanelPreference("navigationCollapsed", true);
+    setPanelOpen(false);
+    requestAnimationFrame(() => navigationButton.current?.focus());
+  };
+  const toggleNavigation = () => {
+    if (navigationCollapsed) {
+      setNavigationCollapsed(false);
+      savePanelPreference("navigationCollapsed", false);
+      if (mobile) setPanelOpen(true);
+    } else if (mobile && showPanel) setPanelOpen((value) => !value);
+    else collapseNavigation();
+  };
   const [busy, setBusy] = useState(false);
 
   const evidenceReader = /^\/folders\/[^/]+\/agent-sessions\/[^/]+$/.test(
-    location.pathname
+    location.pathname,
   );
   const activePage = evidenceReader
     ? "/documents"
@@ -59,6 +86,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // Show panel on pages that have contextual content
   const showPanel =
     !evidenceReader && (activePage === "/" || activePage === "/documents");
+
+  const navigationSize = activePage === "/" ? conversationsPanel : folders;
 
   const handleNewFolder = useCallback(() => {
     window.dispatchEvent(new CustomEvent("new-folder"));
@@ -74,7 +103,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     (folderId: string, folderName: string) => {
       setDeleteTarget({ id: folderId, name: folderName });
     },
-    []
+    [],
   );
 
   const doDelete = async (deleteDocs: boolean) => {
@@ -93,7 +122,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       toast.showSuccess(
         deleteDocs
           ? `Deleted “${deleteTarget.name}” and its documents.`
-          : `Deleted “${deleteTarget.name}”. Documents kept.`
+          : `Deleted “${deleteTarget.name}”. Documents kept.`,
       );
       setDeleteTarget(null);
     } catch (err) {
@@ -112,36 +141,54 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         "@media(max-width:480px)": { flexDirection: "column" },
       }}
     >
-      <IconRail
-        activePage={activePage}
-        onNavigate={(page) => navigate(page)}
-        onTogglePanel={() => setPanelOpen((value) => !value)}
-        userEmail={user?.email}
-        onSignOut={signOut}
-      />
-      {!mobile && (
-        <ContextPanel
+      {!navigationCollapsed && (
+        <IconRail
           activePage={activePage}
-          open={showPanel}
-          conversations={conversations}
-          conversationsLoading={conversationsLoading}
-          conversationsError={conversationsError}
-          onRetryConversations={() => void loadConversations?.()}
-          selectedConversationId={selectedId}
-          onSelectConversation={selectConversation}
-          onNewConversation={() =>
-            void createConversation().catch((err) =>
-              toast.showError(err, "Couldn’t create conversation.")
-            )
-          }
-          onDeleteConversation={removeConversation}
-          onNewFolder={handleNewFolder}
-          onRequestDeleteFolder={handleRequestDeleteFolder}
+          onNavigate={(page) => navigate(page)}
+          onTogglePanel={() => {
+            if (mobile) setPanelOpen((value) => !value);
+          }}
+          onCollapse={collapseNavigation}
+          userEmail={user?.email}
+          onSignOut={signOut}
         />
       )}
+      {!mobile && !navigationCollapsed && showPanel && (
+        <>
+          <ContextPanel
+            width={navigationSize.size}
+            panelId="workspace-navigation"
+            activePage={activePage}
+            open={showPanel}
+            conversations={conversations}
+            conversationsLoading={conversationsLoading}
+            conversationsError={conversationsError}
+            onRetryConversations={() => void loadConversations?.()}
+            selectedConversationId={selectedId}
+            onSelectConversation={selectConversation}
+            onNewConversation={() =>
+              void createConversation().catch((err) =>
+                toast.showError(err, "Couldn’t create conversation."),
+              )
+            }
+            onDeleteConversation={removeConversation}
+            onNewFolder={handleNewFolder}
+            onRequestDeleteFolder={handleRequestDeleteFolder}
+          />
+          <PanelResizeHandle
+            label={`Resize ${activePage === "/" ? "conversations" : "folders"}`}
+            controls="workspace-navigation"
+            {...navigationSize}
+            onChange={navigationSize.setSize}
+          />
+        </>
+      )}
       <Drawer
-        open={mobile && panelOpen && showPanel}
-        onClose={() => setPanelOpen(false)}
+        open={mobile && !navigationCollapsed && panelOpen && showPanel}
+        onClose={() => {
+          setPanelOpen(false);
+          navigationButton.current?.focus();
+        }}
       >
         <Box
           sx={{ width: 280 }}
@@ -153,6 +200,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           }}
         >
           <ContextPanel
+            width={280}
+            onCollapse={collapseNavigation}
             activePage={activePage}
             open={showPanel}
             conversations={conversations}
@@ -163,7 +212,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             onSelectConversation={selectConversation}
             onNewConversation={() =>
               void createConversation().catch((err) =>
-                toast.showError(err, "Couldn’t create conversation.")
+                toast.showError(err, "Couldn’t create conversation."),
               )
             }
             onDeleteConversation={removeConversation}
@@ -187,6 +236,43 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         }}
       >
         <NeoAtmosphere />
+        {activePage === "/" && (
+          <Box
+            sx={{
+              flexShrink: 0,
+              height: 44,
+              px: 2,
+              display: "flex",
+              alignItems: "center",
+            }}
+          >
+            <Tooltip
+              title={
+                navigationCollapsed
+                  ? "Show navigation"
+                  : mobile
+                    ? "Open conversations"
+                    : "Collapse navigation"
+              }
+              describeChild
+            >
+              <IconButton
+                ref={navigationButton}
+                aria-label={
+                  navigationCollapsed
+                    ? "Show navigation"
+                    : mobile
+                      ? "Open conversations"
+                      : "Collapse navigation"
+                }
+                onClick={toggleNavigation}
+                size="small"
+              >
+                <MenuOpenIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Box>
+        )}
         {activePage !== "/" && (
           <Box
             component="header"
@@ -208,19 +294,31 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               },
             }}
           >
-            {mobile && showPanel && (
-              <IconButton
-                aria-label={
-                  activePage === "/documents"
+            <Tooltip
+              title={
+                navigationCollapsed
+                  ? "Show navigation"
+                  : mobile && showPanel
                     ? "Open folder navigator"
-                    : "Open conversations"
+                    : "Collapse navigation"
+              }
+              describeChild
+            >
+              <IconButton
+                ref={navigationButton}
+                aria-label={
+                  navigationCollapsed
+                    ? "Show navigation"
+                    : mobile && showPanel
+                      ? "Open folder navigator"
+                      : "Collapse navigation"
                 }
-                onClick={() => setPanelOpen(true)}
+                onClick={toggleNavigation}
                 size="small"
               >
                 <MenuOpenIcon fontSize="small" />
               </IconButton>
-            )}
+            </Tooltip>
             <Typography sx={{ color: brand.muted, fontSize: 13 }}>
               Kioku{" "}
               <Box component="span" sx={{ px: 1, color: brand.dim }}>
@@ -230,8 +328,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 {activePage === "/documents"
                   ? "Documents"
                   : activePage === "/remotes"
-                  ? "Remotes"
-                  : "Settings"}
+                    ? "Remotes"
+                    : "Settings"}
               </Box>
             </Typography>
           </Box>

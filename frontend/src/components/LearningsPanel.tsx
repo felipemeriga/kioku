@@ -27,6 +27,8 @@ import {
 import { useAuth } from "../hooks/useAuth";
 import type { EvidenceLocation } from "../lib/agentEvidenceApi";
 import EvidenceDrawer from "./evidence/EvidenceDrawer";
+import PanelResizeHandle from "./PanelResizeHandle";
+import { usePanelSize } from "../hooks/usePanelSize";
 import JournalEvidenceLink from "./evidence/JournalEvidenceLink";
 import {
   historyEvidenceLocation,
@@ -57,7 +59,7 @@ type JournalReturnState = {
 function readJournalReturn(key: string): JournalReturnState | null {
   try {
     const value = JSON.parse(
-      sessionStorage.getItem(key) || "null"
+      sessionStorage.getItem(key) || "null",
     ) as JournalReturnState | null;
     if (
       !value ||
@@ -107,7 +109,7 @@ const SESSION_UUID =
 function entriesFromMarkdown(markdown: string): Entry[] {
   const headings = [
     ...markdown.matchAll(
-      /^## (?:Codex|Claude Code) session [^\n]+\n|^#{2,3} (\d\d:\d\d|\d{13}) — ([^\n]+)\n/gm
+      /^## (?:Codex|Claude Code) session [^\n]+\n|^#{2,3} (\d\d:\d\d|\d{13}) — ([^\n]+)\n/gm,
     ),
   ];
   const entries: Entry[] = [];
@@ -116,7 +118,7 @@ function entriesFromMarkdown(markdown: string): Entry[] {
     if (!heading[1]) continue;
     const section = markdown.slice(
       heading.index! + heading[0].length,
-      i + 1 < headings.length ? headings[i + 1].index! : markdown.length
+      i + 1 < headings.length ? headings[i + 1].index! : markdown.length,
     );
     const marker = section.match(/^<!-- kioku-entry: (\{[^\n]+\}) -->\n/m);
     if (!marker) continue;
@@ -158,7 +160,7 @@ function localDay(epochMs: number) {
   const date = new Date(epochMs);
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(
     2,
-    "0"
+    "0",
   )}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
@@ -197,22 +199,23 @@ export default function LearningsPanel({ folderId }: { folderId: string }) {
   );
 }
 function HistoryPanel({ folderId }: { folderId: string }) {
+  const calendarSize = usePanelSize("calendar", 276, 220, 380, 600);
   const { user } = useAuth();
   const returnKey = `kioku.evidence-journal-return:${
     user?.id ?? "anonymous"
   }:${folderId}`;
   const [restored] = useState(() =>
-    user ? readJournalReturn(returnKey) : null
+    user ? readJournalReturn(returnKey) : null,
   );
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
   const [view, setView] = useState<"history" | "learnings">(
-    restored?.view === "learnings" ? "learnings" : "history"
+    restored?.view === "learnings" ? "learnings" : "history",
   );
   const [searchFilters, setSearchFilters] = useState<HistoryFilters>(
-    restored?.searchFilters ?? { ...emptyHistoryFilters }
+    restored?.searchFilters ?? { ...emptyHistoryFilters },
   );
   const [searchDetail, setSearchDetail] = useState(
-    restored?.searchDetail ?? false
+    restored?.searchDetail ?? false,
   );
   const searching = hasHistoryFilters(searchFilters) && !searchDetail;
   const [showSearchDates, setShowSearchDates] = useState(false);
@@ -228,13 +231,13 @@ function HistoryPanel({ folderId }: { folderId: string }) {
       else window.scrollTo({ top });
     });
   const [month, setMonth] = useState(
-    () => restored?.month ?? new Date().getMonth()
+    () => restored?.month ?? new Date().getMonth(),
   );
   const [year, setYear] = useState(
-    () => restored?.year ?? new Date().getFullYear()
+    () => restored?.year ?? new Date().getFullYear(),
   );
   const [selectedDate, setSelectedDate] = useState<string | null>(
-    restored?.selectedDate ?? null
+    restored?.selectedDate ?? null,
   );
   const [raw, setRaw] = useState(restored?.raw ?? false);
   const [selectedSession, setSelectedSession] = useState<{
@@ -264,7 +267,7 @@ function HistoryPanel({ folderId }: { folderId: string }) {
           savedAt: Date.now(),
           searchFilters,
           searchDetail,
-        })
+        }),
       );
     } catch {
       /* Optional browser UI storage. */
@@ -295,7 +298,7 @@ function HistoryPanel({ folderId }: { folderId: string }) {
         await apiFetch(
           `/api/folders/${folderId}/learning-days?year=${year}&month=${
             month + 1
-          }&timezone=${encodeURIComponent(timezone)}`
+          }&timezone=${encodeURIComponent(timezone)}`,
         )
       ).json()) as { days: JournalDay[] },
     staleTime: 60_000,
@@ -308,14 +311,14 @@ function HistoryPanel({ folderId }: { folderId: string }) {
     year,
     month,
     timezone,
-    view === "history"
+    view === "history",
   );
   const dayMap = useMemo(() => {
     const map = new Map(
       (daysQuery.data?.days ?? []).map((day) => [
         day.journal_date,
         { ...day, event_count: 0, session_count: 0 },
-      ])
+      ]),
     );
     for (const day of originalDays.data?.days ?? []) {
       const journal = map.get(day.date);
@@ -338,7 +341,7 @@ function HistoryPanel({ folderId }: { folderId: string }) {
     user?.id,
     activeDate,
     timezone,
-    view === "history" && !historyUnsupported(originalDays.error)
+    view === "history" && !historyUnsupported(originalDays.error),
   );
   const dayQuery = useQuery({
     queryKey: ["learning-day", folderId, user?.id, activeDate, timezone],
@@ -346,8 +349,8 @@ function HistoryPanel({ folderId }: { folderId: string }) {
       (await (
         await apiFetch(
           `/api/folders/${folderId}/learning-days/${activeDate}?timezone=${encodeURIComponent(
-            timezone
-          )}`
+            timezone,
+          )}`,
         )
       ).json()) as {
         status: string;
@@ -408,7 +411,7 @@ function HistoryPanel({ folderId }: { folderId: string }) {
   const count = new Date(year, month + 1, 0).getDate();
   const calendarCells = Array.from(
     { length: firstWeekday + count },
-    (_, i) => i - firstWeekday + 1
+    (_, i) => i - firstWeekday + 1,
   );
   const monthLabel = new Intl.DateTimeFormat("en", {
     month: "long",
@@ -439,18 +442,18 @@ function HistoryPanel({ folderId }: { folderId: string }) {
             });
           return groups;
         }, new Map<string, JournalSession>())
-        .values()
+        .values(),
     );
   const sessions = unionHistorySessions(
     journalSessions,
-    originalSessions.data?.pages.flatMap((page) => page.sessions ?? []) ?? []
+    originalSessions.data?.pages.flatMap((page) => page.sessions ?? []) ?? [],
   );
   const activeSession =
     selectedSession?.date === activeDate
       ? sessions.find(
           (session) =>
             session.hasJournal &&
-            `${session.agent}:${session.session_id}` === selectedSession.key
+            `${session.agent}:${session.session_id}` === selectedSession.key,
         )
       : undefined;
   const visibleEntries = activeSession
@@ -478,11 +481,11 @@ function HistoryPanel({ folderId }: { folderId: string }) {
     let viewerDay = day;
     try {
       const response = await apiFetch(
-        `/api/folders/${folderId}/learning-days/${day}`
+        `/api/folders/${folderId}/learning-days/${day}`,
       );
       const source = (await response.json()) as { markdown?: string };
       const entry = entriesFromMarkdown(source.markdown ?? "").find(
-        (item) => item.id === entryId
+        (item) => item.id === entryId,
       );
       if (entry) viewerDay = localDay(entry.time);
     } catch {
@@ -550,11 +553,16 @@ function HistoryPanel({ folderId }: { folderId: string }) {
             </Button>
           )}
           <Box
+            sx={{ "--history-calendar-width": `${calendarSize.size}px` }}
             className={`learnings-journal-layout ${
               searching ? "history-search-layout" : ""
             } ${showSearchDates ? "history-show-dates" : ""}`}
           >
-            <Box className="learnings-calendar" aria-label="History calendar">
+            <Box
+              id="history-calendar"
+              className="learnings-calendar"
+              aria-label="History calendar"
+            >
               <Stack
                 direction="row"
                 alignItems="center"
@@ -610,7 +618,7 @@ function HistoryPanel({ folderId }: { folderId: string }) {
                       if (date < 1) return <span key={`blank-${index}`} />;
                       const key = `${year}-${String(month + 1).padStart(
                         2,
-                        "0"
+                        "0",
                       )}-${String(date).padStart(2, "0")}`;
                       const day = dayMap.get(key);
                       return (
@@ -676,6 +684,14 @@ function HistoryPanel({ folderId }: { folderId: string }) {
               </Typography>
             </Box>
 
+            <Box className="history-calendar-resizer">
+              <PanelResizeHandle
+                label="Resize history calendar"
+                controls="history-calendar"
+                {...calendarSize}
+                onChange={calendarSize.setSize}
+              />
+            </Box>
             <Box className="learnings-timeline">
               {searching ? (
                 <HistorySearchResults
@@ -737,7 +753,7 @@ function HistoryPanel({ folderId }: { folderId: string }) {
 
                   {dayQuery.isError &&
                     originalSessions.data?.pages.some(
-                      (page) => page.sessions.length
+                      (page) => page.sessions.length,
                     ) && (
                       <Alert
                         severity="warning"
@@ -768,8 +784,8 @@ function HistoryPanel({ folderId }: { folderId: string }) {
                           {dayQuery.data?.status === "ok"
                             ? entries.length
                             : dayMap.get(activeDate)?.approximate
-                            ? `At least ${dayMap.get(activeDate)?.entry_count}`
-                            : dayMap.get(activeDate)?.entry_count}{" "}
+                              ? `At least ${dayMap.get(activeDate)?.entry_count}`
+                              : dayMap.get(activeDate)?.entry_count}{" "}
                           journal entries · {sessions.length}
                           {originalSessions.hasNextPage ? "+" : ""} sessions ·{" "}
                           {timezone}
@@ -797,7 +813,7 @@ function HistoryPanel({ folderId }: { folderId: string }) {
                     </Stack>
                   ) : dayQuery.isError &&
                     !originalSessions.data?.pages.some(
-                      (page) => page.sessions.length
+                      (page) => page.sessions.length,
                     ) ? (
                     <Alert
                       severity="error"
@@ -830,7 +846,7 @@ function HistoryPanel({ folderId }: { folderId: string }) {
                           <article
                             key={historyIdentity(
                               session.agent,
-                              session.session_id
+                              session.session_id,
                             )}
                             className="learnings-session-card"
                             onClick={(event) => {
@@ -839,7 +855,7 @@ function HistoryPanel({ folderId }: { folderId: string }) {
                                 event.defaultPrevented ||
                                 !(event.target instanceof Element) ||
                                 event.target.closest(
-                                  "a, button, input, select, textarea, [role='button']"
+                                  "a, button, input, select, textarea, [role='button']",
                                 )
                               )
                                 return;
@@ -848,10 +864,10 @@ function HistoryPanel({ folderId }: { folderId: string }) {
                                 selection &&
                                 !selection.isCollapsed &&
                                 event.currentTarget.contains(
-                                  selection.anchorNode
+                                  selection.anchorNode,
                                 ) &&
                                 event.currentTarget.contains(
-                                  selection.focusNode
+                                  selection.focusNode,
                                 )
                               )
                                 return;
@@ -860,7 +876,7 @@ function HistoryPanel({ folderId }: { folderId: string }) {
                                 date: activeDate,
                                 key: historyIdentity(
                                   session.agent,
-                                  session.session_id
+                                  session.session_id,
                                 ),
                               });
                             }}
@@ -874,7 +890,7 @@ function HistoryPanel({ folderId }: { folderId: string }) {
                                   date: activeDate,
                                   key: historyIdentity(
                                     session.agent,
-                                    session.session_id
+                                    session.session_id,
                                   ),
                                 });
                               }}
@@ -925,7 +941,7 @@ function HistoryPanel({ folderId }: { folderId: string }) {
                           <article
                             key={historyIdentity(
                               session.agent,
-                              session.session_id
+                              session.session_id,
                             )}
                             className="learnings-session-card history-original-only"
                           >
@@ -963,15 +979,15 @@ function HistoryPanel({ folderId }: { folderId: string }) {
                                     folderId,
                                     session.originals!,
                                     activeDate!,
-                                    timezone
-                                  )
+                                    timezone,
+                                  ),
                                 )
                               }
                             >
                               View originals
                             </Button>
                           </article>
-                        )
+                        ),
                       )}
                       {originalSessions.hasNextPage && (
                         <Button
@@ -1079,8 +1095,8 @@ function HistoryPanel({ folderId }: { folderId: string }) {
                                       folderId,
                                       activeSession.originals!,
                                       activeDate!,
-                                      timezone
-                                    )
+                                      timezone,
+                                    ),
                                   )
                                 }
                               >
