@@ -19,8 +19,8 @@ class ChatRequest(BaseModel):
     content: str
     turn_id: str | None = None
     rebuild_from_committed_history: bool = False
-    # Two independent knobs: which model, and the mode.
-    # mode: plain (classic one-shot RAG) | agentic (tool loop) | deep (+ thinking)
+    # Model, retrieval mode and reasoning effort are independent.
+    # Legacy clients that explicitly send Deep without an effort retain Deep behavior.
     model: str = Field(default="haiku", min_length=1, max_length=160)
     mode: Literal["plain", "agentic", "deep"] = "agentic"
     reasoning_effort: Literal["low", "medium", "high"] = "low"
@@ -48,6 +48,10 @@ def chat(request: ChatRequest, user_id: str = Depends(get_current_user)):
         ZoneInfo(request.timezone)
     except (ValueError, ZoneInfoNotFoundError):
         raise HTTPException(422, "Invalid timezone") from None
+    explicit_effort = "reasoning_effort" in request.model_fields_set
+    native_effort = request.reasoning_effort
+    if not explicit_effort and request.mode == "deep":
+        native_effort = "high"
     # Validate before opening the stream: a malformed conversation_id reaches
     # the uuid column in stream_rag_response and raises 22P02, which crashes the
     # generator (client gets a silent empty stream + a server-side traceback).
@@ -93,10 +97,10 @@ def chat(request: ChatRequest, user_id: str = Depends(get_current_user)):
             folder_id=request.scope_folder_id,
             filename=request.scope_filename,
             user_timezone=request.timezone,
-            reasoning_effort=request.reasoning_effort,
+            reasoning_effort=native_effort,
             legacy_effort_retry="reasoning_effort" not in request.model_fields_set,
             model_resolver=lambda model: resolve_native_model(
-                model, user_id, reasoning_effort=request.reasoning_effort
+                model, user_id, reasoning_effort=native_effort
             ),
             operation=operation,
         )
@@ -114,7 +118,7 @@ def chat(request: ChatRequest, user_id: str = Depends(get_current_user)):
             scope_folder_id=request.scope_folder_id,
             scope_filename=request.scope_filename,
             user_timezone=request.timezone,
-            reasoning_effort=request.reasoning_effort,
+            reasoning_effort=request.reasoning_effort if explicit_effort else None,
         )
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
