@@ -94,6 +94,11 @@ class NativeRunner:
         }
         env = {k: v for k, v in os.environ.items() if k in allowed}
         env.update(
+            # Documented headless controls: the service pins its native CLI version.
+            # https://code.claude.com/docs/en/data-usage#telemetry-services
+            # https://code.claude.com/docs/en/setup#disable-auto-updates
+            CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1",
+            DISABLE_AUTOUPDATER="1",
             CLAUDE_CODE_DISABLE_BACKGROUND_TASKS="1",
             CLAUDE_CODE_DISABLE_AUTO_MEMORY="1",
             CLAUDE_CODE_MAX_OUTPUT_TOKENS=str(req.max_tokens),
