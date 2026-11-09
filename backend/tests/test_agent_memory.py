@@ -336,6 +336,46 @@ def test_topical_journal_navigation_uses_dated_bodies_and_readable_revision(monk
     assert journal_activity(sb, OWNER, [FOLDER], None, None, "UTC", terms=["sdk"])["days"] == []
 
 
+def test_short_later_identifier_update_is_not_hidden_by_verbose_earlier_report(monkeypatch):
+    from services.agent_memory import journal_activity
+
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "test-journal-reference")
+    sb = Database()
+    common = {
+        "user_id": OWNER,
+        "folder_id": FOLDER,
+        "session_id": "native",
+        "agent": "codex",
+        "title": "Memory investigation",
+    }
+    sb.rows["agent_journal_search_entries"] = [
+        {
+            **common,
+            "entry_id": "trial",
+            "captured_at": "2026-11-06T12:00:00Z",
+            "body": "Garbage collector memory budget experiment chose GOMEMLIMIT=3GiB.",
+        },
+        {
+            **common,
+            "entry_id": "final",
+            "captured_at": "2026-11-06T17:00:00Z",
+            "body": "Updated PR to GOMEMLIMIT=4GiB; running services unchanged.",
+        },
+        {
+            **common,
+            "entry_id": "unrelated",
+            "captured_at": "2026-11-06T20:00:00Z",
+            "body": "Memory capture upload budget retry still pending.",
+        },
+    ]
+    activity = journal_activity(
+        sb, OWNER, [FOLDER], None, None, "UTC", terms=["garbage", "collector", "memory", "budget"]
+    )
+    assert activity["days"][0]["summary"].startswith("2026-11-06T17:00:00Z")
+    assert "4GiB" in activity["days"][0]["summary"]
+    assert "upload" not in activity["days"][0]["summary"]
+
+
 def test_references_are_reauthorized_and_tampering_is_rejected(monkeypatch):
     monkeypatch.setenv("SUPABASE_SERVICE_KEY", "test-only-reference-key")
     ref = reference()

@@ -225,7 +225,7 @@ def journal_activity(
     for (_, _, day), entries in unique.items():
         entries.sort(key=lambda r: (r["captured_at"], r["entry_id"]))
         body = journal_body(entries)
-        start, score = 0, 0
+        start, score, end = 0, 0, 6000
         if terms:
             wanted = set(terms)
             scored = [
@@ -235,9 +235,26 @@ def journal_activity(
             score, selected = max(scored)
             if not score:
                 continue
+            # Follow a concrete identifier found in the relevant report to a
+            # later report in this same session/day. A shorter final update
+            # can contain fewer query words than an earlier experiment.
+            anchors = {
+                t
+                for t in technical_terms(entries[selected].get("body") or "")
+                if "_" in t or (len(t) >= 5 and t.isalpha())
+            }
+            if anchors:
+                related = [
+                    i
+                    for i, e in enumerate(entries)
+                    if i >= selected
+                    and anchors & set(re.findall(r"[a-z0-9_]+", (e.get("body") or "").lower()))
+                ]
+                selected = related[-1]
             chosen = entries[selected]
             start = body.index(f"{chosen['captured_at']}\n{chosen.get('body') or ''}")
-        summary = body[start : start + 6000]
+            end = start + min(6000, len(f"{chosen['captured_at']}\n{chosen.get('body') or ''}"))
+        summary = body[start:end]
         revision = hashlib.sha256(body.encode()).hexdigest()
         days.append(
             {
@@ -265,7 +282,8 @@ def journal_activity(
                 "interpretation": (
                     "Dated journal entry bodies reporting work on this day, not the "
                     "cumulative session overview. The title labels the session, not "
-                    "a day-specific claim. Reports do not prove execution/deployment."
+                    "a day-specific claim. Topical excerpts are selected reports, "
+                    "not complete days. Reports do not prove execution/deployment."
                 ),
             }
         )
