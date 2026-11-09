@@ -13,7 +13,8 @@ from services.ai.evidence import materialize_bootstrap
 from services.ai.scope import ExecutionScope
 
 
-def test_materialization_remint_shares_allocator_and_has_one_truthful_artifact():
+@pytest.mark.parametrize("source_count", [1, 30])
+def test_materialization_remint_shares_allocator_and_has_one_truthful_artifact(source_count):
     turn = {
         "id": "turn",
         "job_id": "job",
@@ -35,6 +36,13 @@ def test_materialization_remint_shares_allocator_and_has_one_truthful_artifact()
     query.eq.return_value.eq.return_value.eq.return_value.execute.return_value.data = [trace]
 
     def rpc(name, body):
+        if name == "tsukai_register_bootstrap_citations":
+            numbers = []
+            for citation in body["p_citations"]:
+                key = citation["source_key"]
+                sources.setdefault(key, len(sources) + 1)
+                numbers.append(sources[key])
+            return SimpleNamespace(execute=lambda: SimpleNamespace(data=numbers))
         assert name == "tsukai_register_citation"
         key = body["p_source_key"]
         sources.setdefault(key, len(sources) + 1)
@@ -52,18 +60,28 @@ def test_materialization_remint_shares_allocator_and_has_one_truthful_artifact()
         patch(
             "services.ai.evidence.sources_for",
             return_value=[
-                {"source_id": "fresh", "owner_id": "owner", "folder_id": "folder", "number": 1}
+                {
+                    "source_id": f"fresh-{number}",
+                    "owner_id": "owner",
+                    "folder_id": "folder",
+                    "number": number,
+                }
+                for number in range(1, source_count + 1)
             ],
         ),
     ):
         materialize_bootstrap(turn, "attempt")
         materialize_bootstrap(turn, "attempt")
-    assert sources == {"fresh": 1}
+    assert sources == {f"fresh-{number}": number for number in range(1, source_count + 1)}
+    assert db.rpc.call_count == 2  # one batch per remint, independent of source count
     assert len(artifacts) == 1
     assert next(iter(artifacts.values()))["trace"]["origin"] == "backend_bootstrap"
     assert next(iter(artifacts.values()))["trace"]["native_call_id"] is None
     # Later MCP evidence uses the exact same allocator and cannot overwrite [1].
-    assert rpc("tsukai_register_citation", {"p_source_key": "later"}).execute().data == 2
+    assert (
+        rpc("tsukai_register_citation", {"p_source_key": "later"}).execute().data
+        == source_count + 1
+    )
 
 
 @pytest.mark.parametrize(
@@ -361,7 +379,7 @@ def test_concurrent_candidates_are_isolated_and_only_accepted_namespace_material
     db2 = MagicMock()
     q = db2.table.return_value.select.return_value.eq.return_value.eq.return_value.eq.return_value
     q.execute.return_value.data = [staged[namespace]]
-    db2.rpc.return_value.execute.return_value.data = 1
+    db2.rpc.return_value.execute.return_value.data = [1]
     source = {
         "source_id": namespace,
         "number": 1,
@@ -374,7 +392,7 @@ def test_concurrent_candidates_are_isolated_and_only_accepted_namespace_material
     ):
         materialize_bootstrap(winner, "attempt")
     sources.assert_called_once_with(namespace, "bootstrap")
-    assert db2.rpc.call_args.args[1]["p_source_key"] == namespace
+    assert db2.rpc.call_args.args[1]["p_citations"][0]["source_key"] == namespace
     assert db2.table.return_value.upsert.call_args.args[0]["result"] == staged[namespace]["result"]
 
 
@@ -435,3 +453,45 @@ def test_admission_conflicts_do_not_recover_another_intent_or_owner(case):
         else:
             assert error.value.status_code == 409
             lookup.assert_called_once_with("owner", turn_id="turn")
+
+
+def test_buffered_bootstrap_shared_across_retrievals_and_expansions():
+    from services.ai.evidence import BufferedBootstrapCitations
+
+    citations = BufferedBootstrapCitations(
+        "private-candidate", "bootstrap", "owner", "conversation"
+    )
+    first = {
+        "content": "first excerpt",
+        "metadata": {"folder_id": "folder", "source_id": "first", "source_filename": "first.md"},
+    }
+    second = {
+        "content": "second excerpt",
+        "metadata": {"folder_id": "folder", "source_id": "second", "source_filename": "second.md"},
+    }
+    db = MagicMock()
+    db.rpc.return_value.execute.return_value.data = [1, 2]
+    with patch("services.ai.evidence.get_supabase_thread_safe", return_value=db):
+        assert citations.register(first) == 1
+        assert citations.register(second) == 2
+        assert citations.register({**first, "content": "expanded original context"}) == 1
+        db.rpc.assert_not_called()
+        citations.flush()
+    db.rpc.assert_called_once()
+    name, body = db.rpc.call_args.args
+    assert name == "tsukai_register_bootstrap_citations"
+    assert body["p_job_id"] == "private-candidate"
+    assert [item["number"] for item in body["p_citations"]] == [1, 2]
+    assert all(item["source"]["owner_id"] == "owner" for item in body["p_citations"])
+
+
+def test_buffered_bootstrap_flush_refuses_namespace_conflict():
+    from services.ai.evidence import BufferedBootstrapCitations
+
+    citations = BufferedBootstrapCitations("candidate", "bootstrap", "owner")
+    citations.register({"metadata": {"source_id": "first", "source_filename": "first.md"}})
+    db = MagicMock()
+    db.rpc.return_value.execute.return_value.data = [2]
+    with patch("services.ai.evidence.get_supabase_thread_safe", return_value=db):
+        with pytest.raises(ValueError, match="namespace mismatch"):
+            citations.flush()

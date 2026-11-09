@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import threading
+import time
 from collections.abc import Callable
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -15,7 +16,12 @@ from fastapi import HTTPException
 from db.client import get_supabase_thread_safe
 from services.ai.accounting import record_job_usage
 from services.ai.client import ExecutionError
-from services.ai.evidence import DurableCitations, save_trace, sources_for
+from services.ai.evidence import (
+    BufferedBootstrapCitations,
+    DurableCitations,
+    save_trace,
+    sources_for,
+)
 from services.ai.facade import client_for
 from services.ai.scope import ExecutionScope
 from services.llm import MODEL_FOR_TASK, Task
@@ -307,6 +313,7 @@ def prepare_turn(
 
         retrieval = []
         timings = []
+        citations = BufferedBootstrapCitations(candidate_id, "bootstrap", owner_id, conversation_id)
 
         def retrieve(name, arguments):
             began = datetime.now(timezone.utc).isoformat()
@@ -318,7 +325,7 @@ def prepare_turn(
                 scope_folder_ids=folders,
                 scope_filename=filename,
                 debug_retrieval=retrieval,
-                citations=DurableCitations(candidate_id, "bootstrap", owner_id, conversation_id),
+                citations=citations,
                 full_debug=True,
             )
             timings.append(
@@ -334,6 +341,11 @@ def prepare_turn(
         evidence, calls = prefetch(
             content, user_timezone, retrieve, filename=filename, folders=source_folders
         )
+        # Persist the entire private candidate before its trace or accepted turn.
+        # All retrievals and evidence expansions share this allocator instance.
+        began = time.monotonic()
+        citations.flush()
+        bootstrap_citations_seconds = time.monotonic() - began
         if not calls:
             # Explicit no-tool requests need no MCP connection or capability exchange.
             request["tool_allowlist"] = []
@@ -352,6 +364,7 @@ def prepare_turn(
                 "conversation_id": conversation_id,
                 "query": content,
                 "retrieval_calls": timings,
+                "preparation_timings": {"bootstrap_citations_seconds": bootstrap_citations_seconds},
                 "effective_scope": {
                     "user_id": owner_id,
                     "folder_ids": folders,
@@ -461,7 +474,10 @@ def submit_turn(turn: dict) -> dict:
 
 
 def publish_turn(turn: dict, result, *, attempt_id: str | None = None) -> str:
+    publication = {"started_at": datetime.now(timezone.utc).isoformat()}
+    began = time.monotonic()
     scope = turn_scope(turn)
+    publication["scope_check_seconds"] = time.monotonic() - began
     request = turn["request"]
     attempt_id = result.attempt_id or attempt_id
     if request["profile"] == "chat" and not attempt_id:
@@ -476,13 +492,19 @@ def publish_turn(turn: dict, result, *, attempt_id: str | None = None) -> str:
     )
     if attempt_id and request["profile"] != "completion":
         traces = traces.eq("attempt_id", attempt_id)
+    began = time.monotonic()
     rows = traces.order("created_at").execute().data or []
+    publication["trace_read_seconds"] = time.monotonic() - began
+    began = time.monotonic()
     citations = sources_for(
         evidence_job, "plain" if request["profile"] == "completion" else attempt_id
     )
+    publication["citations_read_seconds"] = time.monotonic() - began
     from services.citations import enrich_source_urls
 
+    began = time.monotonic()
     enrich_source_urls(get_supabase_thread_safe(), turn["owner_id"], citations)
+    publication["citation_urls_seconds"] = time.monotonic() - began
     import re
 
     cited = {int(n) for n in re.findall(r"\[(\d+)\]", result.text)}
@@ -492,6 +514,7 @@ def publish_turn(turn: dict, result, *, attempt_id: str | None = None) -> str:
             "unverified_citation", "answer cites a source absent from accepted evidence"
         )
     usage_client = client_for(scope, request["operation"], request["profile"])
+    began = time.monotonic()
     try:
         timing_attempts = (
             record_job_usage(
@@ -506,13 +529,15 @@ def publish_turn(turn: dict, result, *, attempt_id: str | None = None) -> str:
         )
     finally:
         usage_client.close()
+    publication["usage_accounting_seconds"] = time.monotonic() - began
+    publication["commit_prepared_at"] = datetime.now(timezone.utc).isoformat()
     started_at = request.get("metadata", {}).get("response_started_at") or turn.get("created_at")
     total_seconds = None
     if started_at:
         started = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
         total_seconds = round(max(0, (datetime.now(timezone.utc) - started).total_seconds()), 3)
     debug = {
-        "timings": {"total_seconds": total_seconds},
+        "timings": {"total_seconds": total_seconds, "publication": publication},
         "reasoning": [],
         "tool_calls": [
             {

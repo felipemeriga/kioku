@@ -75,6 +75,15 @@ async def test_only_transient_prelaunch_grants_retry_then_launch_once(
         assert len(calls) == 2 and calls[0] == calls[1]
         native.run.assert_awaited_once()
         assert state["status"] == "completed"
+        timings = state["result"]["usage"]["runtime_timings"]
+        for name in (
+            "tool_capability_seconds",
+            "native_run_seconds",
+            "publisher_drain_seconds",
+            "finalize_heartbeat_seconds",
+        ):
+            assert isinstance(timings[name], float) and timings[name] >= 0
+        assert "never leak this prompt" not in str(timings)
 
 
 @pytest.mark.parametrize("resumed", [False, True])

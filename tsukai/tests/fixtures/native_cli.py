@@ -53,6 +53,10 @@ if "NO_INIT" not in prompt:
             "subtype": "init",
             "session_id": str(uuid.uuid4()) if "FOREIGN_INIT" in prompt else session,
             "private": "private-diagnostic",
+            "mcp_servers": [
+                {"name": "private-diagnostic-server", "status": "connected"},
+                {"name": "private-diagnostic-failure", "status": "failed"},
+            ],
         }
     )
 emit(
