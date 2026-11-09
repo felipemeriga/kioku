@@ -1,53 +1,63 @@
 {
-  "source_sha": "eb98adb3bca52635f7d72c8deb4d2828fdf0dcc0",
+  "source_sha": "1137d2a5b8fdb3f61602a1691b819db32db04370",
   "release_branch": "main",
   "versions": {
-    "backend": "0.3.48",
-    "cli": "0.8.20",
-    "frontend": "0.5.37",
-    "mcp": "0.3.48",
-    "mihari": "0.3.29"
+    "backend": "0.3.49",
+    "cli": "0.8.21",
+    "frontend": "0.5.38",
+    "mcp": "0.3.49",
+    "mihari": "0.3.30",
+    "tsukai": "0.1.10"
   },
   "release_levels": {
     "backend": "patch",
     "cli": "patch",
     "frontend": "patch",
     "mcp": "patch",
-    "mihari": "patch"
+    "mihari": "patch",
+    "tsukai": "patch"
   },
   "major": false,
   "images": [
     {
       "package": "backend",
-      "version": "0.3.48",
+      "version": "0.3.49",
       "image": "felipemeriga1/kioku-backend",
       "context": "backend",
       "dockerfile": "backend/Dockerfile",
-      "tag": "0.3.48-eb98adb3bca5"
+      "tag": "0.3.49-1137d2a5b8fd"
     },
     {
       "package": "frontend",
-      "version": "0.5.37",
+      "version": "0.5.38",
       "image": "felipemeriga1/kioku-frontend",
       "context": "frontend",
       "dockerfile": "frontend/Dockerfile",
-      "tag": "0.5.37-eb98adb3bca5"
+      "tag": "0.5.38-1137d2a5b8fd"
     },
     {
       "package": "mcp",
-      "version": "0.3.48",
+      "version": "0.3.49",
       "image": "felipemeriga1/kioku-mcp",
       "context": "backend",
       "dockerfile": "backend/Dockerfile.mcp",
-      "tag": "0.3.48-eb98adb3bca5"
+      "tag": "0.3.49-1137d2a5b8fd"
     },
     {
       "package": "mihari",
-      "version": "0.3.29",
+      "version": "0.3.30",
       "image": "felipemeriga1/kioku-mihari",
       "context": ".",
       "dockerfile": "mihari/Dockerfile",
-      "tag": "0.3.29-eb98adb3bca5"
+      "tag": "0.3.30-1137d2a5b8fd"
+    },
+    {
+      "package": "tsukai",
+      "version": "0.1.10",
+      "image": "felipemeriga1/kioku-tsukai",
+      "context": "tsukai",
+      "dockerfile": "tsukai/Dockerfile",
+      "tag": "0.1.10-1137d2a5b8fd"
     }
   ],
   "cli": true,
