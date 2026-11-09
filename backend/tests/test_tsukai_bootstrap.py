@@ -13,7 +13,8 @@ from services.ai.evidence import materialize_bootstrap
 from services.ai.scope import ExecutionScope
 
 
-def test_materialization_remint_shares_allocator_and_has_one_truthful_artifact():
+@pytest.mark.parametrize("source_count", [1, 30])
+def test_materialization_remint_shares_allocator_and_has_one_truthful_artifact(source_count):
     turn = {
         "id": "turn",
         "job_id": "job",
@@ -35,6 +36,13 @@ def test_materialization_remint_shares_allocator_and_has_one_truthful_artifact()
     query.eq.return_value.eq.return_value.eq.return_value.execute.return_value.data = [trace]
 
     def rpc(name, body):
+        if name == "tsukai_register_bootstrap_citations":
+            numbers = []
+            for citation in body["p_citations"]:
+                key = citation["source_key"]
+                sources.setdefault(key, len(sources) + 1)
+                numbers.append(sources[key])
+            return SimpleNamespace(execute=lambda: SimpleNamespace(data=numbers))
         assert name == "tsukai_register_citation"
         key = body["p_source_key"]
         sources.setdefault(key, len(sources) + 1)
@@ -52,18 +60,28 @@ def test_materialization_remint_shares_allocator_and_has_one_truthful_artifact()
         patch(
             "services.ai.evidence.sources_for",
             return_value=[
-                {"source_id": "fresh", "owner_id": "owner", "folder_id": "folder", "number": 1}
+                {
+                    "source_id": f"fresh-{number}",
+                    "owner_id": "owner",
+                    "folder_id": "folder",
+                    "number": number,
+                }
+                for number in range(1, source_count + 1)
             ],
         ),
     ):
         materialize_bootstrap(turn, "attempt")
         materialize_bootstrap(turn, "attempt")
-    assert sources == {"fresh": 1}
+    assert sources == {f"fresh-{number}": number for number in range(1, source_count + 1)}
+    assert db.rpc.call_count == 2  # one batch per remint, independent of source count
     assert len(artifacts) == 1
     assert next(iter(artifacts.values()))["trace"]["origin"] == "backend_bootstrap"
     assert next(iter(artifacts.values()))["trace"]["native_call_id"] is None
     # Later MCP evidence uses the exact same allocator and cannot overwrite [1].
-    assert rpc("tsukai_register_citation", {"p_source_key": "later"}).execute().data == 2
+    assert (
+        rpc("tsukai_register_citation", {"p_source_key": "later"}).execute().data
+        == source_count + 1
+    )
 
 
 @pytest.mark.parametrize(
@@ -361,7 +379,7 @@ def test_concurrent_candidates_are_isolated_and_only_accepted_namespace_material
     db2 = MagicMock()
     q = db2.table.return_value.select.return_value.eq.return_value.eq.return_value.eq.return_value
     q.execute.return_value.data = [staged[namespace]]
-    db2.rpc.return_value.execute.return_value.data = 1
+    db2.rpc.return_value.execute.return_value.data = [1]
     source = {
         "source_id": namespace,
         "number": 1,
@@ -374,7 +392,7 @@ def test_concurrent_candidates_are_isolated_and_only_accepted_namespace_material
     ):
         materialize_bootstrap(winner, "attempt")
     sources.assert_called_once_with(namespace, "bootstrap")
-    assert db2.rpc.call_args.args[1]["p_source_key"] == namespace
+    assert db2.rpc.call_args.args[1]["p_citations"][0]["source_key"] == namespace
     assert db2.table.return_value.upsert.call_args.args[0]["result"] == staged[namespace]["result"]
 
 

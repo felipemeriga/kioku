@@ -131,21 +131,31 @@ def materialize_bootstrap(turn: dict, attempt_id: str) -> None:
             or source.get("folder_id") not in request["folder_ids"]
         ):
             raise ValueError("Bootstrap source scope mismatch")
-    for source in sources:
-        number = (
+    if sources:
+        # One atomic RPC preserves the existing allocator and exact citation numbers.
+        # Large history overviews must not pay one remote database RTT per citation.
+        numbers = (
             sb.rpc(
-                "tsukai_register_citation",
+                "tsukai_register_bootstrap_citations",
                 {
                     "p_job_id": turn["job_id"],
                     "p_attempt_id": attempt_id,
-                    "p_source_key": source["source_id"],
-                    "p_source": {key: value for key, value in source.items() if key != "number"},
+                    "p_citations": [
+                        {
+                            "source_key": source["source_id"],
+                            "number": source["number"],
+                            "source": {
+                                key: value for key, value in source.items() if key != "number"
+                            },
+                        }
+                        for source in sources
+                    ],
                 },
             )
             .execute()
             .data
         )
-        if int(number) != source["number"]:
+        if numbers != [source["number"] for source in sources]:
             raise ValueError("Bootstrap citation namespace mismatch")
     trace = traces[0]
     sb.table("tsukai_tool_traces").upsert(
