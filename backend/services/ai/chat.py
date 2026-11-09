@@ -15,7 +15,12 @@ from fastapi import HTTPException
 from db.client import get_supabase_thread_safe
 from services.ai.accounting import record_job_usage
 from services.ai.client import ExecutionError
-from services.ai.evidence import DurableCitations, save_trace, sources_for
+from services.ai.evidence import (
+    BufferedBootstrapCitations,
+    DurableCitations,
+    save_trace,
+    sources_for,
+)
 from services.ai.facade import client_for
 from services.ai.scope import ExecutionScope
 from services.llm import MODEL_FOR_TASK, Task
@@ -307,6 +312,7 @@ def prepare_turn(
 
         retrieval = []
         timings = []
+        citations = BufferedBootstrapCitations(candidate_id, "bootstrap", owner_id, conversation_id)
 
         def retrieve(name, arguments):
             began = datetime.now(timezone.utc).isoformat()
@@ -318,7 +324,7 @@ def prepare_turn(
                 scope_folder_ids=folders,
                 scope_filename=filename,
                 debug_retrieval=retrieval,
-                citations=DurableCitations(candidate_id, "bootstrap", owner_id, conversation_id),
+                citations=citations,
                 full_debug=True,
             )
             timings.append(
@@ -334,6 +340,9 @@ def prepare_turn(
         evidence, calls = prefetch(
             content, user_timezone, retrieve, filename=filename, folders=source_folders
         )
+        # Persist the entire private candidate before its trace or accepted turn.
+        # All retrievals and evidence expansions share this allocator instance.
+        citations.flush()
         if not calls:
             # Explicit no-tool requests need no MCP connection or capability exchange.
             request["tool_allowlist"] = []

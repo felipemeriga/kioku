@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import threading
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from db.client import get_supabase_thread_safe
@@ -36,6 +37,9 @@ class DurableCitations:
         source["conversation_id"] = self.conversation_id
         source["revision_id"] = metadata.get("revision_id")
         source["indexed_head"] = metadata.get("indexed_head") or metadata.get("head_sha")
+        return self._register_source(key, source)
+
+    def _register_source(self, key: str, source: dict) -> int:
         number = (
             get_supabase_thread_safe()
             .rpc(
@@ -51,6 +55,45 @@ class DurableCitations:
             .data
         )
         return int(number)
+
+
+class BufferedBootstrapCitations(DurableCitations):
+    """Allocate only within a unique, private preparation candidate, then persist."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._citations: dict[str, dict] = {}
+        self._lock = threading.Lock()
+
+    def _register_source(self, key: str, source: dict) -> int:
+        with self._lock:
+            if key not in self._citations:
+                self._citations[key] = {
+                    "source_key": key,
+                    "number": len(self._citations) + 1,
+                    "source": source,
+                }
+            return self._citations[key]["number"]
+
+    def flush(self) -> None:
+        if not self._citations:
+            return
+        citations = list(self._citations.values())
+        numbers = (
+            get_supabase_thread_safe()
+            .rpc(
+                "tsukai_register_bootstrap_citations",
+                {
+                    "p_job_id": self.job_id,
+                    "p_attempt_id": self.attempt_id,
+                    "p_citations": citations,
+                },
+            )
+            .execute()
+            .data
+        )
+        if numbers != [citation["number"] for citation in citations]:
+            raise ValueError("Bootstrap citation namespace mismatch")
 
 
 def sources_for(job_id: str, attempt_id: str | None = None) -> list[dict]:

@@ -453,3 +453,45 @@ def test_admission_conflicts_do_not_recover_another_intent_or_owner(case):
         else:
             assert error.value.status_code == 409
             lookup.assert_called_once_with("owner", turn_id="turn")
+
+
+def test_buffered_bootstrap_shared_across_retrievals_and_expansions():
+    from services.ai.evidence import BufferedBootstrapCitations
+
+    citations = BufferedBootstrapCitations(
+        "private-candidate", "bootstrap", "owner", "conversation"
+    )
+    first = {
+        "content": "first excerpt",
+        "metadata": {"folder_id": "folder", "source_id": "first", "source_filename": "first.md"},
+    }
+    second = {
+        "content": "second excerpt",
+        "metadata": {"folder_id": "folder", "source_id": "second", "source_filename": "second.md"},
+    }
+    db = MagicMock()
+    db.rpc.return_value.execute.return_value.data = [1, 2]
+    with patch("services.ai.evidence.get_supabase_thread_safe", return_value=db):
+        assert citations.register(first) == 1
+        assert citations.register(second) == 2
+        assert citations.register({**first, "content": "expanded original context"}) == 1
+        db.rpc.assert_not_called()
+        citations.flush()
+    db.rpc.assert_called_once()
+    name, body = db.rpc.call_args.args
+    assert name == "tsukai_register_bootstrap_citations"
+    assert body["p_job_id"] == "private-candidate"
+    assert [item["number"] for item in body["p_citations"]] == [1, 2]
+    assert all(item["source"]["owner_id"] == "owner" for item in body["p_citations"])
+
+
+def test_buffered_bootstrap_flush_refuses_namespace_conflict():
+    from services.ai.evidence import BufferedBootstrapCitations
+
+    citations = BufferedBootstrapCitations("candidate", "bootstrap", "owner")
+    citations.register({"metadata": {"source_id": "first", "source_filename": "first.md"}})
+    db = MagicMock()
+    db.rpc.return_value.execute.return_value.data = [2]
+    with patch("services.ai.evidence.get_supabase_thread_safe", return_value=db):
+        with pytest.raises(ValueError, match="namespace mismatch"):
+            citations.flush()
