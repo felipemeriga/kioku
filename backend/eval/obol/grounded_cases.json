@@ -1,0 +1,483 @@
+[
+  {
+    "id": "D01",
+    "domain": "documents",
+    "question": "For the documented sample \u20ac120 Obol charge, what is the seller net and each deduction? Cite the relevant sources and keep it concise.",
+    "required": [
+      "Seller114.47EUR; platform3.48; processor2.05; sample processor fee not a universal fixed rate."
+    ],
+    "source_files": [
+      "backend/eval/obol/docs/06-money-movement-and-fees.md"
+    ],
+    "split": "development"
+  },
+  {
+    "id": "D02",
+    "domain": "documents",
+    "question": "What does the Obol documentation give as the default platform fee, in basis points and percent? Cite the relevant sources and keep it concise.",
+    "required": [
+      "290basis points,2.9percent; do not confuse processor fee with platform fee."
+    ],
+    "source_files": [
+      "backend/eval/obol/docs/01-product-overview.md"
+    ],
+    "split": "heldout"
+  },
+  {
+    "id": "D03",
+    "domain": "documents",
+    "question": "According to the Obol fee document, which rounding rule applies? Give its 90 and110 minor-unit examples at500bps. Cite the relevant sources and keep it concise.",
+    "required": [
+      "Round half to even;90*0.05=4.5 rounds4;110*0.05=5.5 rounds6."
+    ],
+    "source_files": [
+      "backend/eval/obol/docs/06-money-movement-and-fees.md"
+    ],
+    "split": "heldout"
+  },
+  {
+    "id": "D04",
+    "domain": "documents",
+    "question": "Does Obol document the processor fee as a universal2.9percent fee? Cite the relevant sources and keep it concise.",
+    "required": [
+      "No;2.9percent is the sample/default platform rate; processor fee is quoted per charge; sample205minor units."
+    ],
+    "source_files": [
+      "backend/eval/obol/docs/06-money-movement-and-fees.md"
+    ],
+    "split": "heldout"
+  },
+  {
+    "id": "D05",
+    "domain": "documents",
+    "question": "What equality must hold for every documented Obol settlement split? Cite the relevant sources and keep it concise.",
+    "required": [
+      "Gross charge equals platform fee plus processor fee plus seller net; no money lost to rounding."
+    ],
+    "source_files": [
+      "backend/eval/obol/docs/06-money-movement-and-fees.md"
+    ],
+    "split": "development"
+  },
+  {
+    "id": "D06",
+    "domain": "documents",
+    "question": "In the Obol money-movement document, does a full refund modify the original settlement entry? Cite the relevant sources and keep it concise.",
+    "required": [
+      "No;append a reversal referencing original; documented reversal returns all original components; do not assert code parity without checking implementation."
+    ],
+    "source_files": [
+      "backend/eval/obol/docs/06-money-movement-and-fees.md"
+    ],
+    "split": "development"
+  },
+  {
+    "id": "D07",
+    "domain": "documents",
+    "question": "For the documented \u20ac40 partial refund of sample chg_0001, give the platform giveback, processor giveback and seller clawback. Cite the relevant sources and keep it concise.",
+    "required": [
+      "116minor platform,68minor processor,3816minor seller; proportion is one third of12000."
+    ],
+    "source_files": [
+      "backend/eval/obol/docs/06-money-movement-and-fees.md"
+    ],
+    "split": "heldout"
+  },
+  {
+    "id": "D08",
+    "domain": "documents",
+    "question": "What does one basis point mean in Obol, and what denominator does its fee formula use? Cite the relevant sources and keep it concise.",
+    "required": [
+      "0.01percent;divide minor-unit amount timesbps by10000 thenhalf-even rounding."
+    ],
+    "source_files": [
+      "backend/eval/obol/docs/06-money-movement-and-fees.md"
+    ],
+    "split": "heldout"
+  },
+  {
+    "id": "D09",
+    "domain": "documents",
+    "question": "How does Obol represent monetary amounts on the wire? Are floating-point major units allowed? Cite the relevant sources and keep it concise.",
+    "required": [
+      "Integer minor units plus ISO4217 currency; no floats for accounting amounts."
+    ],
+    "source_files": [
+      "backend/eval/obol/docs/03-domain-glossary.md"
+    ],
+    "split": "development"
+  },
+  {
+    "id": "D10",
+    "domain": "documents",
+    "question": "In the Obol API reference, what happens when the same Idempotency-Key is reused with a different body, and how long are keys honored? Cite the relevant sources and keep it concise.",
+    "required": [
+      "HTTP409 Conflict with error code idempotency_key_reuse for a different body; keys honored at least24hours; same-body retry returns original response."
+    ],
+    "source_files": [
+      "backend/eval/obol/docs/04-gateway-api-reference.md"
+    ],
+    "split": "development"
+  },
+  {
+    "id": "D11",
+    "domain": "documents",
+    "question": "What delivery and deduplication contract does the Obol event catalog require of consumers? Cite the relevant sources and keep it concise.",
+    "required": [
+      "At-least-once delivery;idempotent on event.id;redelivery posts nothingnew."
+    ],
+    "source_files": [
+      "backend/eval/obol/docs/07-event-catalog.md"
+    ],
+    "split": "heldout"
+  },
+  {
+    "id": "D12",
+    "domain": "documents",
+    "question": "List the documented lifecycle statuses of an Obol payout batch and when the payable debit is posted. Cite the relevant sources and keep it concise.",
+    "required": [
+      "scheduled,processing,paid,failed;scheduled no money moved/nojournalentry;paid posts seller_payable debit."
+    ],
+    "source_files": [
+      "backend/eval/obol/docs/08-payouts-and-reconciliation.md"
+    ],
+    "split": "development"
+  },
+  {
+    "id": "D13",
+    "domain": "documents",
+    "question": "What does the Obol operations guide say happens to seller_payable when a payout fails? Cite the relevant sources and keep it concise.",
+    "required": [
+      "Failed payout leaves no seller_payable debit;safe to retry nextschedule; do not claim prior settlement journal is edited."
+    ],
+    "source_files": [
+      "backend/eval/obol/docs/12-sla-and-operations.md"
+    ],
+    "split": "development"
+  },
+  {
+    "id": "D14",
+    "domain": "documents",
+    "question": "What are the documented Obol gateway monthly availability and p95 charge latency targets with and without the processor? Cite the relevant sources and keep it concise.",
+    "required": [
+      "99.95percent monthly;120ms exclprocessor;800ms inclprocessor."
+    ],
+    "source_files": [
+      "backend/eval/obol/docs/12-sla-and-operations.md"
+    ],
+    "split": "development"
+  },
+  {
+    "id": "D15",
+    "domain": "documents",
+    "question": "What are the Obol ledger monthly availability and event emit-to-post p50,p95,p99 targets? Cite the relevant sources and keep it concise.",
+    "required": [
+      "99.9percent;500ms,2seconds,5seconds;eventualconsistency is expected."
+    ],
+    "source_files": [
+      "backend/eval/obol/docs/12-sla-and-operations.md"
+    ],
+    "split": "heldout"
+  },
+  {
+    "id": "D16",
+    "domain": "documents",
+    "question": "What monthly availability and SPA initial-load p95 targets are documented for obol-console? Cite the relevant sources and keep it concise.",
+    "required": [
+      "99.5percent monthly;TTIp95 under3seconds."
+    ],
+    "source_files": [
+      "backend/eval/obol/docs/12-sla-and-operations.md"
+    ],
+    "split": "development"
+  },
+  {
+    "id": "D17",
+    "domain": "documents",
+    "question": "What internal retry policy is documented for Obol, including attempts, timing, jitter and which errors retry? Cite the relevant sources and keep it concise.",
+    "required": [
+      "200ms base,factor2,max5attempts,jitter,10secondcap;5xx/timeouts retry;4xxbusinesserrorsnotretry."
+    ],
+    "source_files": [
+      "backend/eval/obol/docs/12-sla-and-operations.md"
+    ],
+    "split": "heldout"
+  },
+  {
+    "id": "D18",
+    "domain": "documents",
+    "question": "What are the Obol gateway liveness and readiness paths, and what does readiness check? Cite the relevant sources and keep it concise.",
+    "required": [
+      "GET/healthz,GET/readyz;idempotencystore,processoradapter,eventbuswritability."
+    ],
+    "source_files": [
+      "backend/eval/obol/docs/12-sla-and-operations.md"
+    ],
+    "split": "heldout"
+  },
+  {
+    "id": "D19",
+    "domain": "documents",
+    "question": "Does Obol security documentation specify that every financial record is purged after365days? Cite the relevant sources and keep it concise.",
+    "required": [
+      "No;financialjournal immutable multi-year regulatoryretention;PII/paymenttokens differentpolicies;do not invent exactretentionperiod."
+    ],
+    "source_files": [
+      "backend/eval/obol/docs/09-security-and-compliance.md"
+    ],
+    "split": "development"
+  },
+  {
+    "id": "D20",
+    "domain": "documents",
+    "question": "How many Kubernetes nodes does Obol run in production, and what exact cloud region code do the supplied documents establish? Cite the relevant sources and keep it concise.",
+    "required": [
+      "Not established;do not fabricate nodecount or cloudregioncode;EUresidency requirement is not exact cloudregion."
+    ],
+    "source_files": [
+      "backend/eval/obol/docs/09-security-and-compliance.md",
+      "backend/eval/obol/docs/12-sla-and-operations.md"
+    ],
+    "split": "heldout"
+  },
+  {
+    "id": "C01",
+    "domain": "code",
+    "question": "In Obol source, where is the canonical platform fee function and how is it calculated? Cite the relevant sources and keep it concise.",
+    "required": [
+      "internal/pricing/pricing.go PlatformFee calls amount.ApplyBps;basispoints half-even/10000;citecode."
+    ],
+    "source_files": [
+      "backend/eval/obol/repos/obol-gateway/internal/pricing/pricing.go"
+    ],
+    "split": "heldout"
+  },
+  {
+    "id": "C02",
+    "domain": "code",
+    "question": "In obol-gateway Pricer.PlatformFeeBps, what happens for nil,negative and zero per-charge overrides? Cite the relevant sources and keep it concise.",
+    "required": [
+      "nil ornegative usesdefault;zero is nonnegative andoverrideswith0."
+    ],
+    "source_files": [
+      "backend/eval/obol/repos/obol-gateway/internal/pricing/pricing.go"
+    ],
+    "split": "heldout"
+  },
+  {
+    "id": "C03",
+    "domain": "code",
+    "question": "How does obol-gateway Pricer.ProcessorFee combine the percentage and fixed components, and which currency is used? Cite the relevant sources and keep it concise.",
+    "required": [
+      "ApplyBps(processor.Bps)plusFixedMinor;bothsamecurrencyascharge."
+    ],
+    "source_files": [
+      "backend/eval/obol/repos/obol-gateway/internal/pricing/pricing.go"
+    ],
+    "split": "heldout"
+  },
+  {
+    "id": "C04",
+    "domain": "code",
+    "question": "Which invalid constructor inputs are rejected by NewPricer in obol-gateway? Cite the relevant sources and keep it concise.",
+    "required": [
+      "Negative platformbps or negative processorBps/FixedMinor;zeroallowed;errorsreturned."
+    ],
+    "source_files": [
+      "backend/eval/obol/repos/obol-gateway/internal/pricing/pricing.go"
+    ],
+    "split": "development"
+  },
+  {
+    "id": "C05",
+    "domain": "code",
+    "question": "In the Obol refund service, which charge statuses allow Service.Create to proceed? Cite the relevant sources and keep it concise.",
+    "required": [
+      "settled andpartially_refunded only;otherwise ErrChargeNotSettled."
+    ],
+    "source_files": [
+      "backend/eval/obol/repos/obol-gateway/internal/refunds/service.go"
+    ],
+    "split": "development"
+  },
+  {
+    "id": "C06",
+    "domain": "code",
+    "question": "How does the gateway refund service prevent currency mismatches and over-refunds before calling the processor? Cite the relevant sources and keep it concise.",
+    "required": [
+      "Compare in.Amount.Currency againstcharge.Amount.Currency;RemainingRefundable and GreaterThan;ErrCurrencyMismatch/ErrExceedsRefundable beforeprocessor."
+    ],
+    "source_files": [
+      "backend/eval/obol/repos/obol-gateway/internal/refunds/service.go"
+    ],
+    "split": "heldout"
+  },
+  {
+    "id": "C07",
+    "domain": "code",
+    "question": "What does the Obol gateway refund service persist and return if processor.Refund fails? Cite the relevant sources and keep it concise.",
+    "required": [
+      "Persist failedrefund withstatusfailed;returnwrappedErrProcessorFailed;noadvancecharge orpublishcompletion inthisbranch."
+    ],
+    "source_files": [
+      "backend/eval/obol/repos/obol-gateway/internal/refunds/service.go"
+    ],
+    "split": "heldout"
+  },
+  {
+    "id": "C08",
+    "domain": "code",
+    "question": "In refunds.Service.Create, can event publishing fail after refund side effects have already succeeded? Cite the relevant sources and keep it concise.",
+    "required": [
+      "Yes;processorrefund andpersistrefund andadvancecharge precede publish;returns publisherror;no provenrollback/exactlyonce guarantee."
+    ],
+    "source_files": [
+      "backend/eval/obol/repos/obol-gateway/internal/refunds/service.go"
+    ],
+    "split": "development"
+  },
+  {
+    "id": "C09",
+    "domain": "code",
+    "question": "How does refunds.Service.advanceCharge choose refunded versus partially_refunded? Cite the relevant sources and keep it concise.",
+    "required": [
+      "AddpriorAmountRefunded andnewrefund;total>=chargeAmount setsrefunded;otherwise partially_refunded;repoUpdatepersists."
+    ],
+    "source_files": [
+      "backend/eval/obol/repos/obol-gateway/internal/refunds/service.go"
+    ],
+    "split": "development"
+  },
+  {
+    "id": "C10",
+    "domain": "code",
+    "question": "What does the ledger EventDispatcher.dispatch return for a previously processed event ID? Cite the relevant sources and keep it concise.",
+    "required": [
+      "duplicate status;previousresultidifavailable;no repeatedposting."
+    ],
+    "source_files": [
+      "backend/eval/obol/repos/obol-ledger/obol_ledger/events/dispatcher.py"
+    ],
+    "split": "heldout"
+  },
+  {
+    "id": "C11",
+    "domain": "code",
+    "question": "What does EventDispatcher.dispatch do with event types outside CONSUMED? Cite the relevant sources and keep it concise.",
+    "required": [
+      "recordprocessed eventtypewithNone result;returnignored;doesnotrouteposting."
+    ],
+    "source_files": [
+      "backend/eval/obol/repos/obol-ledger/obol_ledger/events/dispatcher.py"
+    ],
+    "split": "development"
+  },
+  {
+    "id": "C12",
+    "domain": "code",
+    "question": "In the Obol ledger, how does _handle_refund behave when no settlement exists for the charge? Cite the relevant sources and keep it concise.",
+    "required": [
+      "Lookupsettlement_for_charge;raisePostingError withchargeid/refundid;no reversalappend."
+    ],
+    "source_files": [
+      "backend/eval/obol/repos/obol-ledger/obol_ledger/events/dispatcher.py"
+    ],
+    "split": "development"
+  },
+  {
+    "id": "C13",
+    "domain": "code",
+    "question": "Trace refund.completed through the Obol ledger dispatcher to the journal append, naming the functions. Cite the relevant sources and keep it concise.",
+    "required": [
+      "dispatch->_handle->_handle_refund;parse_refund;settlement_for_charge;build_refund_reversal_entry;_journal.append;processedrecordafter_handle."
+    ],
+    "source_files": [
+      "backend/eval/obol/repos/obol-ledger/obol_ledger/events/dispatcher.py"
+    ],
+    "split": "development"
+  },
+  {
+    "id": "C14",
+    "domain": "code",
+    "question": "How does the Obol Python Money model normalize and validate currency codes? Cite the relevant sources and keep it concise.",
+    "required": [
+      "Strip anduppercase;exact3alphabetic;InvalidMoneyError/modeledvalidation forinvalidcodes."
+    ],
+    "source_files": [
+      "backend/eval/obol/repos/obol-ledger/obol_ledger/money.py"
+    ],
+    "split": "heldout"
+  },
+  {
+    "id": "C15",
+    "domain": "code",
+    "question": "What happens when arithmetic combines different currencies in the Obol Python Money type? Cite the relevant sources and keep it concise.",
+    "required": [
+      "_assert_same_currency raisesCurrencyMismatchError;__add__/__sub__ callguard."
+    ],
+    "source_files": [
+      "backend/eval/obol/repos/obol-ledger/obol_ledger/money.py"
+    ],
+    "split": "development"
+  },
+  {
+    "id": "C16",
+    "domain": "code",
+    "question": "What immutability and balancing rules does the Obol JournalEntry implementation enforce? Cite the relevant sources and keep it concise.",
+    "required": [
+      "ConfigDict(frozen=True) prevents field reassignment; at least2lines; explicit assert_balanced compares total debits and credits and raises if unequal; do not claim construction automatically balances entries or that frozen implies deep immutable lists."
+    ],
+    "source_files": [
+      "backend/eval/obol/repos/obol-ledger/obol_ledger/models/journal_entry.py"
+    ],
+    "split": "heldout"
+  },
+  {
+    "id": "C17",
+    "domain": "code",
+    "question": "Which diagnostic fields does JournalEntry.assert_balanced include when raising UnbalancedEntryError? Cite the relevant sources and keep it concise.",
+    "required": [
+      "event_id,kind,total_debits,total_credits,currency."
+    ],
+    "source_files": [
+      "backend/eval/obol/repos/obol-ledger/obol_ledger/models/journal_entry.py"
+    ],
+    "split": "heldout"
+  },
+  {
+    "id": "C18",
+    "domain": "code",
+    "question": "In Obol balance derivation, how do normal account sides affect signed balances, especially seller_payable? Cite the relevant sources and keep it concise.",
+    "required": [
+      "Asset/expense increaseondebit;liability/revenue/equity oncredit;seller_payable liabilitygrowscredit/shrinksdebit;derivefromjournal."
+    ],
+    "source_files": [
+      "backend/eval/obol/repos/obol-ledger/obol_ledger/balances/derive.py"
+    ],
+    "split": "development"
+  },
+  {
+    "id": "C19",
+    "domain": "code",
+    "question": "What refund reasons and amount validation does the console BFF refundsRouter implement? Cite the relevant sources and keep it concise.",
+    "required": [
+      "requested_by_customer,duplicate,fraudulent,product_not_received,other;optionalamountpositiveintegeramountMinor andcurrencystring;invalidbadRequest."
+    ],
+    "source_files": [
+      "backend/eval/obol/repos/obol-console/bff/src/routes/refunds.ts"
+    ],
+    "split": "heldout"
+  },
+  {
+    "id": "C20",
+    "domain": "code",
+    "question": "Does the console BFF guarantee the same idempotency key on separate retry requests that omit the header? Distinguish its comment from executable behavior. Cite the relevant sources and keep it concise.",
+    "required": [
+      "No automaticstablekeyguarantee;clientsuppliedheaderreused;absentheaderfreshik_randomUUID perrequest;commentalonecannotprove doubleclicksafe."
+    ],
+    "source_files": [
+      "backend/eval/obol/repos/obol-console/bff/src/routes/refunds.ts"
+    ],
+    "split": "development"
+  }
+]

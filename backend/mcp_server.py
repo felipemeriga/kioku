@@ -2330,6 +2330,9 @@ def read_agent_evidence(
     """Expand a search_agent_history reference into originals, neighbors and paired tools.
 
     References retain the search's temporal cutoff and are reauthorized against
+    the current scope. Activity-day references return dated journal reports;
+    follow next_reference to read the remaining text. These are not originals.
+    Original-record references are reauthorized against
     the current user's scope. Read the actual observations before drawing a
     conclusion. Record time is not necessarily described-event time. Reports,
     commands, experiments, merged code and deployment are different evidence.

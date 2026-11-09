@@ -166,7 +166,7 @@ def test_invalid_inputs_fail_before_provider_search(kwargs):
         search_memory(Database(), OWNER, [FOLDER], **kwargs)
 
 
-def archive():
+def archive(arguments="GOMEMLIMIT=3GiB"):
     sb = Database()
     records = [
         {
@@ -176,7 +176,7 @@ def archive():
                 "type": "function_call",
                 "call_id": "pair",
                 "name": "exec",
-                "arguments": "GOMEMLIMIT=3GiB",
+                "arguments": arguments,
             },
         },
         {
@@ -268,6 +268,114 @@ def test_evidence_reference_keeps_cutoff_for_neighbors_and_paired_results(monkey
     assert result["time_scope"]["before_exclusive"] == "2026-11-06T03:00:00+00:00"
 
 
+def test_long_original_continuation_is_exact_and_retains_temporal_authority(monkeypatch):
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "test-only-reference-key")
+    arguments = "memory measurement. " * 200
+    sb = archive(arguments)
+    locator = reference()
+    parts = []
+    while locator:
+        result = read_memory(sb, OWNER, [FOLDER], locator, before=0, after=0, char_limit=1000)
+        assert len(result["evidence"]) == 1
+        assert result["time_scope"]["before_exclusive"] == "2026-11-06T03:00:00+00:00"
+        row = result["evidence"][0]
+        assert row["event_id"] == "1" * 64
+        assert row["char_start"] == sum(map(len, parts))
+        assert row["recorded_local"] == "2026-11-05T20:00:00-03:00"
+        parts.append(row["excerpt"])
+        locator = row["next_reference"]
+        assert bool(locator) is row["has_more"]
+    assert "".join(parts) == "exec\n" + arguments
+
+
+def test_recorded_local_disambiguates_the_calendar_day():
+    from services.agent_memory import recorded_local
+
+    assert recorded_local("2026-11-05T02:02:00Z", "America/Sao_Paulo") == (
+        "2026-11-04T23:02:00-03:00"
+    )
+    assert recorded_local(None, "UTC") is None
+
+
+def test_topical_journal_navigation_uses_dated_bodies_and_readable_revision(monkeypatch):
+    from services.agent_memory import journal_activity
+
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "test-journal-reference")
+    sb = Database()
+    common = {
+        "user_id": OWNER,
+        "folder_id": FOLDER,
+        "session_id": "native",
+        "agent": "codex",
+        "title": "Future SDK deployment",
+        "summary": "SDK merged next week",
+    }
+    sb.rows["agent_journal_search_entries"] = [
+        {
+            **common,
+            "entry_id": "early",
+            "captured_at": "2026-11-06T12:00:00+00:00",
+            "body": "Memory budget initially 3GiB. " * 300,
+        },
+        {
+            **common,
+            "entry_id": "later",
+            "captured_at": "2026-11-06T19:00:00+00:00",
+            "body": "Memory budget raised to 4GiB; package change merged, deployment unverified.",
+        },
+    ]
+    result = journal_activity(sb, OWNER, [FOLDER], None, None, "UTC", terms=["memory", "budget"])
+    day = result["days"][0]
+    assert "4GiB" in day["summary"] and "3GiB" not in day["summary"]
+    assert day["summary_char_start"] > 6000
+    assert day["summary_truncated"]
+    assert "next week" not in day["summary"]
+    expanded = read_memory(sb, OWNER, [FOLDER], day["reference"])
+    assert expanded["evidence"][0]["excerpt"].startswith("2026-11-06T19:00:00")
+    assert "4GiB" in expanded["evidence"][0]["excerpt"]
+    assert journal_activity(sb, OWNER, [FOLDER], None, None, "UTC", terms=["sdk"])["days"] == []
+
+
+def test_short_later_identifier_update_is_not_hidden_by_verbose_earlier_report(monkeypatch):
+    from services.agent_memory import journal_activity
+
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "test-journal-reference")
+    sb = Database()
+    common = {
+        "user_id": OWNER,
+        "folder_id": FOLDER,
+        "session_id": "native",
+        "agent": "codex",
+        "title": "Memory investigation",
+    }
+    sb.rows["agent_journal_search_entries"] = [
+        {
+            **common,
+            "entry_id": "trial",
+            "captured_at": "2026-11-06T12:00:00Z",
+            "body": "Garbage collector memory budget experiment chose GOMEMLIMIT=3GiB.",
+        },
+        {
+            **common,
+            "entry_id": "final",
+            "captured_at": "2026-11-06T17:00:00Z",
+            "body": "Updated PR to GOMEMLIMIT=4GiB; running services unchanged.",
+        },
+        {
+            **common,
+            "entry_id": "unrelated",
+            "captured_at": "2026-11-06T20:00:00Z",
+            "body": "Memory capture upload budget retry still pending.",
+        },
+    ]
+    activity = journal_activity(
+        sb, OWNER, [FOLDER], None, None, "UTC", terms=["garbage", "collector", "memory", "budget"]
+    )
+    assert activity["days"][0]["summary"].startswith("2026-11-06T17:00:00Z")
+    assert "4GiB" in activity["days"][0]["summary"]
+    assert "upload" not in activity["days"][0]["summary"]
+
+
 def test_references_are_reauthorized_and_tampering_is_rejected(monkeypatch):
     monkeypatch.setenv("SUPABASE_SERVICE_KEY", "test-only-reference-key")
     ref = reference()
@@ -317,7 +425,8 @@ def test_api_and_native_tools_share_authorized_dispatch():
         search.assert_not_called()
 
 
-def test_weekly_root_activity_is_scoped_and_asof_omits_revised_summaries():
+def test_weekly_root_activity_is_scoped_and_asof_omits_revised_summaries(monkeypatch):
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "test-journal-reference")
     sb = Database()
     sb.rows["agent_journal_search_entries"] = [
         {
@@ -326,7 +435,8 @@ def test_weekly_root_activity_is_scoped_and_asof_omits_revised_summaries():
             "session_id": fid,
             "agent": "codex",
             "title": "Reported work",
-            "summary": "Reported investigation, not deployed proof",
+            "summary": "Future session overview: deployed next week",
+            "body": "Reported investigation on this day, not deployed proof",
             "captured_at": "2026-11-06T20:00:00+00:00",
             "entry_id": fid,
         }
@@ -346,7 +456,11 @@ def test_weekly_root_activity_is_scoped_and_asof_omits_revised_summaries():
         tz="America/Sao_Paulo",
     )
     assert len(result["activity"]["days"]) == 2
-    assert all(r["source_kind"] == "journal_summary" for r in result["activity"]["days"])
+    assert all(r["source_kind"] == "journal_entries" for r in result["activity"]["days"])
+    assert all("next week" not in r["summary"] for r in result["activity"]["days"])
+    assert all("this day" in r["summary"] for r in result["activity"]["days"])
+    selected = search_memory(sb, OWNER, [FOLDER, SIBLING], session=FOLDER)
+    assert len(selected["activity"]["days"]) == 1
     narrowed = search_memory(
         sb,
         OWNER,
@@ -369,13 +483,64 @@ def test_public_and_native_mcp_register_readonly_offloaded_memory_tools():
 
     native = {tool.name: tool for tool in asyncio.run(native_mcp.list_tools())}
     assert native["search_agent_history"].inputSchema["properties"]["limit"]["maximum"] == 10
-    assert native["read_agent_evidence"].inputSchema["properties"]["char_limit"]["maximum"] == 2000
+    assert native["read_agent_evidence"].inputSchema["properties"]["char_limit"]["maximum"] == 8000
     for name in ["search_agent_history", "read_agent_evidence"]:
         tool = mcp_server.mcp._tool_manager.get_tool(name)
         assert inspect.iscoroutinefunction(tool.fn)
         assert tool.annotations.readOnlyHint is True
         assert native[name].annotations.readOnlyHint is True
         assert native[name].annotations.destructiveHint is False
+
+
+def test_journal_day_continuation_preserves_scope_revision_and_local_day(monkeypatch):
+    from services.agent_memory import journal_activity, journal_body
+
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "test-journal-reference")
+    sb = Database()
+    common = {
+        "user_id": OWNER,
+        "folder_id": FOLDER,
+        "session_id": "native-session",
+        "agent": "codex",
+        "title": "Work",
+        "body": "Repeated evidence. " * 400,
+    }
+    inside = [
+        {**common, "entry_id": "a", "captured_at": "2026-11-06T04:00:00+00:00"},
+        {**common, "entry_id": "b", "captured_at": "2026-11-07T02:00:00+00:00"},
+    ]
+    sb.rows["agent_journal_search_entries"] = inside + [
+        {**common, "entry_id": "prior", "captured_at": "2026-11-06T02:59:00+00:00"},
+        {**inside[0], "session_id": "other-session", "entry_id": "other"},
+        {**inside[0], "user_id": "foreign", "entry_id": "foreign"},
+    ]
+    begin, end = bounds("2026-11-06", "2026-11-06", tz="America/Sao_Paulo")
+    activity = journal_activity(
+        sb, OWNER, [FOLDER], begin, end, "America/Sao_Paulo", session="native-session"
+    )
+    reference = activity["days"][0]["reference"]
+    original_reference = reference
+    parts = []
+    while reference:
+        result = read_memory(sb, OWNER, [FOLDER], reference, char_limit=1000)
+        row = result["evidence"][0]
+        assert row["provenance"] == "journal_report"
+        assert row["char_start"] == sum(map(len, parts))
+        assert "raw_record" not in row
+        parts.append(row["excerpt"])
+        reference = result["next_reference"]
+    assert "".join(parts) == journal_body(inside)
+    with pytest.raises(HTTPException) as denied:
+        read_memory(sb, OWNER, [SIBLING], original_reference)
+    assert denied.value.status_code == 404
+    with pytest.raises(HTTPException) as denied:
+        read_memory(sb, "another-owner", [FOLDER], original_reference)
+    assert denied.value.status_code == 404
+    inside[0]["body"] = "Revised after discovery"
+    with pytest.raises(HTTPException) as changed:
+        read_memory(sb, OWNER, [FOLDER], original_reference)
+    assert changed.value.status_code == 409
+    assert changed.value.detail == {"code": "journal_revision_changed_search_again"}
 
 
 def test_public_mcp_uses_key_authority_and_narrowing_not_model_owner_ids():
@@ -423,6 +588,13 @@ def test_native_chat_receives_browser_timezone_and_memory_tool_contract():
         patch("services.ai.chat.descendant_folder_ids", return_value=[FOLDER]),
         patch("services.ai.chat.execute_tool", return_value="No document evidence"),
         patch("services.ai.chat.save_trace"),
+        patch(
+            "services.agent_memory_tools.memory_time_context",
+            side_effect=[
+                "Current local timestamp: first; user timezone: America/Sao_Paulo. Monday",
+                "Current local timestamp: second; user timezone: America/Sao_Paulo. Monday",
+            ],
+        ),
     ):
         result = prepare_turn(
             owner_id=OWNER,
@@ -435,10 +607,25 @@ def test_native_chat_receives_browser_timezone_and_memory_tool_contract():
             filename=None,
             user_timezone="America/Sao_Paulo",
         )
+        next_turn = prepare_turn(
+            owner_id=OWNER,
+            conversation_id="conversation",
+            content="And yesterday?",
+            turn_id="next-turn",
+            model="sonnet",
+            mode="deep",
+            folder_id=FOLDER,
+            filename=None,
+            user_timezone="America/Sao_Paulo",
+        )
     request = result["request"]
     assert request["metadata"]["user_timezone"] == "America/Sao_Paulo"
-    assert "user timezone: America/Sao_Paulo" in request["system_prompt"]
-    assert "Monday" in request["system_prompt"]
+    context = json.loads(request["prompt"])["time_context"]
+    assert "user timezone: America/Sao_Paulo" in context
+    assert "Monday" in context
+    assert "Current local timestamp:" not in request["system_prompt"]
+    assert next_turn["request"]["system_prompt"] == request["system_prompt"]
+    assert json.loads(next_turn["request"]["prompt"])["time_context"] != context
     assert {"search_agent_history", "read_agent_evidence"} <= set(request["tool_allowlist"])
     # Timezone is frozen in the prepared body, not added to user-intent equality;
     # resuming an existing turn from another computer doesn't reinterpret it.
@@ -612,7 +799,8 @@ def test_memory_backfill_publishes_complete_only_after_all_batches():
 
 
 @pytest.mark.parametrize("fraction", ["", ".3", ".33", ".333", ".3333", ".33333", ".333333"])
-def test_postgres_timestamps_accept_variable_fraction_precision(fraction):
+def test_postgres_timestamps_accept_variable_fraction_precision(fraction, monkeypatch):
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "test-journal-reference")
     from services.agent_memory import journal_activity
 
     sb = Database()
@@ -688,10 +876,13 @@ def test_chat_memory_pages_keep_locators_and_sources_with_bounded_excerpts():
     result = json.loads(encoded)
     assert len(encoded.encode()) < 60000
     assert len(trace) == len(citations.entries()) == 20
-    assert all(len(r["excerpt"]) <= 400 and "GOMEMLIMIT" in r["excerpt"] for r in result["matches"])
+    assert all(
+        len(r["excerpt"]) <= 1200 and "GOMEMLIMIT" in r["excerpt"] for r in result["matches"]
+    )
     assert all(r["reference"] == "r" * 600 and r["excerpt_has_more"] for r in result["matches"])
     assert all(
-        len(r["summary"]) == 800 and r["summary_truncated"] for r in result["activity"]["days"]
+        len(r["summary"].encode()) <= 2000 and r["summary_truncated"]
+        for r in result["activity"]["days"]
     )
     assert result["next_offset"] == 10 and result["has_more"]
     assert "2026-11-06 tool" in citations.entries()[0]["source"]
@@ -703,7 +894,7 @@ def test_chat_memory_pages_keep_locators_and_sources_with_bounded_excerpts():
     [
         ("search_agent_history", {"limit": 50}),
         ("search_agent_history", {"limit": True}),
-        ("read_agent_evidence", {"reference": "x", "char_limit": 8000}),
+        ("read_agent_evidence", {"reference": "x", "char_limit": 16001}),
         ("read_agent_evidence", {"reference": "x", "before_records": 3}),
     ],
 )
@@ -712,6 +903,45 @@ def test_chat_rejects_pages_that_exceed_inline_transport_limits(name, arguments)
 
     result = json.loads(execute_memory_tool(Database(), name, arguments, OWNER, [FOLDER]))
     assert result["status"] == "error"
+
+
+def test_journal_continuation_citations_identify_the_page_without_original_links():
+    from services.agent_memory_tools import execute_memory_tool
+    from services.citations import CitationRegistry
+
+    citations = CitationRegistry()
+    for start in [0, 1000]:
+        result = {
+            "source_kind": "journal_day",
+            "date": "2026-11-06",
+            "folder_id": FOLDER,
+            "session_id": "native-session",
+            "repository": "repo",
+            "evidence": [
+                {
+                    "event_id": "a" * 64,
+                    "source_kind": "journal_day",
+                    "char_start": start,
+                    "recorded_at": "2026-11-07T02:00:00+00:00",
+                    "role": "journal",
+                    "excerpt": "Relevant report " + str(start),
+                }
+            ],
+        }
+        with patch("services.agent_memory_tools.read_memory", return_value=result):
+            encoded = execute_memory_tool(
+                Database(),
+                "read_agent_evidence",
+                {"reference": "signed"},
+                OWNER,
+                [FOLDER],
+                citations=citations,
+            )
+        assert json.loads(encoded)["evidence"][0]["citation"]
+    entries = citations.entries()
+    assert len(entries) == 2
+    assert all("2026-11-06 dated entries" in entry["source"] for entry in entries)
+    assert all(entry["url"] is None for entry in entries)
 
 
 def test_explicit_identifiers_prevent_generic_latest_records_from_burying_outcomes():
@@ -729,13 +959,11 @@ def test_explicit_identifiers_prevent_generic_latest_records_from_burying_outcom
 
     def lookup(name, arguments):
         calls.append(arguments)
-        # Broad OR terms match hook maintenance; the explicit identifier does not.
-        count = 1 if arguments["p_terms"] == ["gomemlimit"] else 20
         return SimpleNamespace(
             execute=lambda: SimpleNamespace(
                 data={
                     "matches": [],
-                    "total_matches": count,
+                    "total_matches": 20,
                     "has_more": False,
                 }
             )
@@ -754,14 +982,15 @@ def test_explicit_identifiers_prevent_generic_latest_records_from_burying_outcom
         offset=10,
     )
     assert len(calls) == 1  # Empty page does not trigger a broader fallback.
-    assert calls[0]["p_terms"] == ["gomemlimit"]
+    assert calls[0]["p_terms"] == ["gomemlimit", "memory", "player", "usage"]
+    assert calls[0]["p_identifiers"] == ["gomemlimit"]
     assert calls[0]["p_order"] == "latest"
     assert calls[0]["p_before"] == "2026-11-07T03:00:00+00:00"
-    assert result["search_terms"] == ["gomemlimit"]
-    assert result["matching_mode"] == "identifier_first"
+    assert result["search_terms"] == calls[0]["p_terms"]
+    assert result["matching_mode"] == "identifier_boosted"
 
 
-def test_identifier_fallback_preserves_authority_and_dates_and_is_explicit():
+def test_unmatched_identifier_preserves_authority_and_dates_and_is_explicit():
     sb = Database()
     calls = []
 
@@ -771,7 +1000,8 @@ def test_identifier_fallback_preserves_authority_and_dates_and_is_explicit():
             execute=lambda: SimpleNamespace(
                 data={
                     "matches": [],
-                    "total_matches": 0 if len(calls) == 1 else 2,
+                    "total_matches": 2,
+                    "unmatched_identifiers": ["unseen_symbol"],
                     "has_more": False,
                 }
             )
@@ -788,13 +1018,43 @@ def test_identifier_fallback_preserves_authority_and_dates_and_is_explicit():
         tz="America/Sao_Paulo",
         order="latest",
     )
-    assert len(calls) == 2
-    assert {k: v for k, v in calls[0].items() if k != "p_terms"} == {
-        k: v for k, v in calls[1].items() if k != "p_terms"
-    }
-    assert result["matching_mode"] == "lexical_fallback"
+    assert len(calls) == 1
+    assert calls[0]["p_folder_ids"] == [FOLDER]
+    assert calls[0]["p_before"] == "2026-11-06T15:00:00.000001+00:00"
+    assert result["matching_mode"] == "identifier_boosted"
     assert result["unmatched_identifiers"] == ["unseen_symbol"]
     assert set(result["search_terms"]) == {"unseen_symbol", "player", "memory"}
+
+
+def test_acronym_keeps_distinguishing_words_and_expansions():
+    from services.agent_memory import lexical_terms
+
+    sb = Database()
+    calls = []
+
+    def lookup(name, args):
+        calls.append((name, args))
+        return SimpleNamespace(
+            execute=lambda: SimpleNamespace(
+                data={"matches": [], "total_matches": 0, "has_more": False}
+            )
+        )
+
+    sb.rpc = lookup
+    result = search_memory(
+        sb, OWNER, [FOLDER], query="newer SDK package link", queries=["missing archive symbols"]
+    )
+    assert result["search_terms"] == [
+        "archive",
+        "link",
+        "missing",
+        "newer",
+        "package",
+        "sdk",
+        "symbols",
+    ]
+    assert calls[0][0] == "search_agent_memory_v2"
+    assert {"garbage", "collector", "gc"} <= set(lexical_terms(["garbage collector"]))
 
 
 def test_short_explicit_issue_number_is_search_not_an_activity_overview():
@@ -810,5 +1070,5 @@ def test_short_explicit_issue_number_is_search_not_an_activity_overview():
     )
     result = search_memory(sb, OWNER, [FOLDER], query="#1")
     assert result["search_terms"] == ["1"]
-    assert result["activity"] is None
+    assert result["activity"]["matching_mode"] == "topical"
     assert result["selection"] == "time_diverse_relevance"

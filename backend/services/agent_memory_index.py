@@ -4,7 +4,7 @@ from services.agent_evidence import rpc
 from services.agent_evidence_models import PARSER_VERSION
 from services.agent_evidence_parser import iter_segment
 
-MEMORY_VERSION = 1
+MEMORY_VERSION = 2
 
 
 def chunks_for_event(event):

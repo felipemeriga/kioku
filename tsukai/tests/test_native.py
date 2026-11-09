@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from tsukai.config import Settings
-from tsukai.native import NativeRunner
+from tsukai.native import NativeRunner, native_prompt
 from tsukai.protocol import CompletionEnvelope, JobRequest
 from tsukai.validation import NativeError, validate_result
 
@@ -42,6 +42,39 @@ def request(prompt="answer", **kw):
         prompt=prompt,
         **kw,
     )
+
+
+@pytest.mark.parametrize("resume", [False, True])
+@pytest.mark.parametrize("new_contract", [False, True])
+def test_history_is_sent_on_rebuild_but_not_duplicated_on_verified_resume(resume, new_contract):
+    original = {
+        "canonical_history": [{"role": "user", "content": "earlier user decision"}],
+        "user_message": "new question",
+        "current_turn_evidence": "fresh evidence [1]",
+        "time_context": "today in the user timezone",
+    }
+    req = request(
+        json.dumps(original),
+        profile="chat",
+        conversation_id="conversation",
+        metadata={"history_transport": "resume-delta-v1"} if new_contract else {},
+    )
+    result = json.loads(native_prompt(req, resume))
+    assert ("canonical_history" in result) == (not resume or not new_contract)
+    assert {k: v for k, v in result.items() if k != "canonical_history"} == {
+        k: v for k, v in original.items() if k != "canonical_history"
+    }
+
+
+def test_invalid_versioned_resume_does_not_silently_drop_context():
+    req = request(
+        "not a context envelope",
+        profile="chat",
+        conversation_id="conversation",
+        metadata={"history_transport": "resume-delta-v1"},
+    )
+    with pytest.raises(NativeError, match="invalid_chat_context"):
+        native_prompt(req, True)
 
 
 async def test_real_subprocess_normalization_and_no_private_events(tmp_path):
