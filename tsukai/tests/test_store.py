@@ -502,7 +502,7 @@ async def test_dispatch_without_capacity_still_expires_queue(store):
     assert (await store.get(expired["id"]))["status"] == "failed"
 
 
-async def test_dispatch_uses_one_transaction_for_reaping_and_empty_claim(store):
+async def test_idle_dispatch_only_reads_and_never_takes_the_global_write_lock(store):
     from sqlalchemy import event
 
     transactions, statements = [], []
@@ -521,8 +521,8 @@ async def test_dispatch_uses_one_transaction_for_reaping_and_empty_claim(store):
         event.remove(store.engine.sync_engine, "begin", record_begin)
         event.remove(store.engine.sync_engine, "before_cursor_execute", record_statement)
     assert len(transactions) == 1
-    if store.engine.dialect.name == "postgresql":
-        assert len(statements) == 4  # one shared lock, expiry, recovery, queued jobs
+    assert len(statements) == 1
+    assert "pg_advisory" not in statements[0]
 
 
 async def test_event_sequence_reservation_rolls_back_without_replay_gap(store):
@@ -540,3 +540,49 @@ async def test_event_sequence_reservation_rolls_back_without_replay_gap(store):
     replay = await store.replay(job["id"])
     assert [item["seq"] for item in replay] == list(range(1, len(replay) + 1))
     assert replay[-1]["data"] == {"text": "durable"}
+
+
+async def test_dispatch_negative_snapshot_cannot_lose_a_racing_admission(store, monkeypatch):
+    original = store.dispatch_needed
+    admitted = []
+
+    async def admission_after_snapshot():
+        needed = await original()
+        assert needed is False
+        admitted.append(await store.admit(request()))
+        return needed
+
+    monkeypatch.setattr(store, "dispatch_needed", admission_after_snapshot)
+    assert await store.dispatch("worker") == []
+    assert (await store.get(admitted[0]["id"]))["status"] == "queued"
+    monkeypatch.setattr(store, "dispatch_needed", original)
+    assert [claim["job"]["id"] for claim in await store.dispatch("worker")] == [admitted[0]["id"]]
+
+
+async def test_dispatch_positive_snapshot_rechecks_cancelled_work_under_lock(store, monkeypatch):
+    job = await store.admit(request())
+    original = store.dispatch_needed
+
+    async def cancellation_after_snapshot():
+        assert await original() is True
+        await store.cancel(job["id"])
+        return True
+
+    monkeypatch.setattr(store, "dispatch_needed", cancellation_after_snapshot)
+    assert await store.dispatch("worker") == []
+    assert (await store.get(job["id"]))["status"] == "cancelled"
+
+
+async def test_dispatch_read_preflight_detects_expired_leases_without_queued_jobs(store):
+    job = await store.admit(request())
+    attempt = (await store.claim("lost-worker"))["attempt"]
+    assert await store.dispatch_needed() is False
+    async with store.transaction() as conn:
+        await conn.execute(
+            update(attempts).where(attempts.c.id == attempt["id"]).values(lease_until=0)
+        )
+    assert await store.dispatch_needed() is True
+    assert await store.dispatch("worker", capacity=0) == []
+    assert (await store.get(job["id"]))["status"] == "uncertain"
+    with pytest.raises(Fenced):
+        await store.append(attempt, "text.delta", {"text": "stale"})

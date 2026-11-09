@@ -10,7 +10,7 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from sqlalchemy import and_, delete, func, insert, select, text, update
+from sqlalchemy import and_, delete, func, insert, or_, select, text, update
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -326,6 +326,8 @@ class Store:
 
     async def dispatch(self, worker_id, capacity=3):
         """Reap and claim atomically with one shared-lock transaction per tick."""
+        if not await self.dispatch_needed():
+            return []
         async with self.transaction() as conn:
             await self._expire_queued(conn)
             await self._recover(conn)
@@ -336,6 +338,31 @@ class Store:
                     break
                 claimed.append(claim)
             return claimed
+
+    async def dispatch_needed(self):
+        """Only a negative live snapshot skips locking; positive results are rechecked.
+
+        Admission and lease updates remain authoritative SQL. Work arriving just
+        after this read is still durable and wakes the next bounded polling tick.
+        """
+        async with self.engine.connect() as conn:
+            return bool(
+                (
+                    await conn.execute(
+                        select(
+                            or_(
+                                select(jobs.c.id).where(jobs.c.status == "queued").exists(),
+                                select(attempts.c.id)
+                                .where(
+                                    attempts.c.status == "running",
+                                    attempts.c.lease_until < time.time(),
+                                )
+                                .exists(),
+                            )
+                        )
+                    )
+                ).scalar_one()
+            )
 
     async def claim(self, worker_id, only_job_id=None):
         async with self.transaction() as conn:
