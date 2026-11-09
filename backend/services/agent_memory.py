@@ -278,7 +278,7 @@ def search_memory(
     mode = "identifier_first" if identifiers else "lexical_terms"
     # An identifier absent from this exact scope/time window may be a typo or
     # an alias. Broader matches are orientation only, not evidence for that ID.
-    if identifiers and result["total_matches"] == 0 and identifiers != terms:
+    if identifiers and terms and result["total_matches"] == 0 and identifiers != terms:
         matching_terms = terms
         arguments = {**arguments, "p_terms": matching_terms}
         result = rpc(sb, "search_agent_memory", arguments)
