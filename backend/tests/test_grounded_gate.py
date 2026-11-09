@@ -75,3 +75,13 @@ def test_duplicate_or_unlisted_trials_are_rejected():
         module.summarize(cases, results + [results[0]], audits, "model")
     with pytest.raises(ValueError):
         module.summarize(cases, results + [{"id": "unlisted"}], audits, "model")
+
+
+def test_formal_source_locked_cases_cannot_credit_unverified_snapshot_answers():
+    cases, results, audits = cohort()
+    for case in cases:
+        case["source_lock_required"] = True
+    assert not module.summarize(cases, results, audits, "model")["gate_passed"]
+    for result in results:
+        result["source_verified"] = True
+    assert module.summarize(cases, results, audits, "model")["gate_passed"]

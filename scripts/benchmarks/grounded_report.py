@@ -52,6 +52,10 @@ def summarize(cases, results, audits, model, target=0.95):
             and valid
             and label_verified
             and audit.get("verdict") == "pass"
+            and (
+                not case.get("source_lock_required")
+                or result.get("source_verified") is True
+            )
         )
         stage = "oracle" if "oracle_evidence" in case else "retrieval"
         groups[

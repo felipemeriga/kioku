@@ -5,9 +5,9 @@ id, question, folder_ids, optional model/effort and oracle_evidence. Expected
 answers are never sent to the model. Results include every failure and the
 exact retrieved evidence; grading is separate. No production domain writes.
 
-Each batch requires subscription_usage: five_hour/seven_day percentages,
+Each batch requires a renewable usage_lease: five_hour/seven_day percentages,
 observed_at epoch seconds, and account_verified=true from the operator's live
-meter check. Run at most two sequential cases. Stop admissions at75percent to
+meter check. One coordinator runs at most four concurrent cases. Stop admissions at75percent to
 leave headroom below the user's80percent ceiling; missing/stale data fails closed.
 """
 
@@ -16,8 +16,8 @@ import asyncio
 import hashlib
 import inspect
 import json
-import math
 import re
+import sys
 import tempfile
 import time
 from datetime import datetime
@@ -32,30 +32,30 @@ from tsukai.validation import NativeError
 
 from tsukai.protocol import JobRequest
 
-
-def budget_error(payload):
-    """Require fresh operator-observed quota; leave headroom below the user's80% cap."""
-    snapshot = payload.get("subscription_usage") or {}
-    values = [snapshot.get(k) for k in ("five_hour", "seven_day", "observed_at")]
-    if any(type(v) not in (float, int) or not math.isfinite(v) for v in values):
-        return "usage_snapshot_required"
-    five_hour, seven_day, observed_at = values
-    if not 0 <= five_hour <= 100 or not 0 <= seven_day <= 100:
-        return "usage_snapshot_invalid"
-    if snapshot.get("account_verified") is not True:
-        return "usage_account_unverified"
-    if not -5 <= time.time() - observed_at <= 90:
-        return "usage_snapshot_stale"
-    if max(five_hour, seven_day) >= 75:
-        return "usage_reserve_reached"
-    return None
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from benchmark_guard import (
+    budget_error,
+    coordinator_lock,
+    usage_snapshot,
+    verify_sources,
+)
 
 
 async def run(payload, workers):
-    if workers != 1 or not 1 <= len(payload["cases"]) <= 2:
+    # A process-wide semaphore alone cannot coordinate two independently launched
+    # batches. Hold one cross-process owner lock for the entire bounded queue.
+    with coordinator_lock():
+        await _run(payload, workers)
+
+
+async def _run(payload, workers):
+    if workers not in range(1, 5) or not 1 <= len(payload["cases"]) <= 128:
         raise ValueError(
-            "Usage-guarded benchmarks allow at most two sequential cases per batch"
+            "Benchmarks require 1-128 cases and at most four concurrent workers"
         )
+    ids = [case["id"] for case in payload["cases"]]
+    if len(ids) != len(set(ids)):
+        raise ValueError("Benchmark case IDs must be unique")
     config = payload["config"]
     runner_file = Path(inspect.getfile(NativeRunner)).resolve()
     if config.get("remote") and not runner_file.is_relative_to(
@@ -64,6 +64,9 @@ async def run(payload, workers):
         raise ValueError(
             "Native runner did not load from the expected candidate source"
         )
+    if config.get("remote") and not config.get("usage_lease"):
+        raise ValueError("A shared renewable subscription usage lease is required")
+    source_lock = verify_sources(config, [runner_file])
     runner_hash = hashlib.sha256(runner_file.read_bytes()).hexdigest()
     base = f"http://kioku-backend:{config['port']}"
     headers = {"Authorization": "Bearer " + config["token"]}
@@ -96,7 +99,7 @@ async def run(payload, workers):
                 result.update(error_code=error, total_seconds=0.0)
                 print(json.dumps(result, ensure_ascii=False), flush=True)
                 return
-            result["subscription_usage_before"] = payload["subscription_usage"]
+            result["subscription_usage_before"] = usage_snapshot(payload)
             async with httpx.AsyncClient(timeout=180) as client:
                 try:
                     oracle = case.get("oracle_evidence")
@@ -113,6 +116,11 @@ async def run(payload, workers):
                             },
                         )
                         response.raise_for_status()
+                        if (
+                            source_lock
+                            and response.json().get("source_lock") != source_lock
+                        ):
+                            raise NativeError("backend_source_lock_mismatch")
                         evidence = response.json()["evidence"]
                         contract = response.json().get("chat_contract")
                         if not isinstance(contract, dict):
@@ -134,6 +142,16 @@ async def run(payload, workers):
                         "history": "fresh-conversation",
                     }
                     if contract:
+                        if (
+                            source_lock
+                            and hashlib.sha256(
+                                contract["system_prompt"].encode()
+                            ).hexdigest()
+                            != source_lock["system_prompt_sha256"]
+                        ):
+                            raise NativeError("production_system_prompt_mismatch")
+                        result["source_verified"] = bool(source_lock)
+                        result["source_lock"] = source_lock
                         result["chat_contract_sha256"] = hashlib.sha256(
                             json.dumps(contract, sort_keys=True).encode()
                         ).hexdigest()
@@ -213,6 +231,9 @@ async def run(payload, workers):
                     ) as workspace:
                         if error := budget_error(payload):
                             raise NativeError(error)
+                        result["subscription_usage_at_generation"] = usage_snapshot(
+                            payload
+                        )
                         response = await native.run(
                             {"attempt": attempt, "workspace": workspace},
                             req,
@@ -253,11 +274,11 @@ async def run(payload, workers):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", type=Path, default=Path("/dev/stdin"))
-    parser.add_argument("--workers", type=int, choices=[1], default=1)
+    parser.add_argument("--workers", type=int, choices=range(1, 5), default=4)
     args = parser.parse_args()
     payload = json.loads(args.input.read_text())
-    if not 1 <= len(payload["cases"]) <= 2:
+    if not 1 <= len(payload["cases"]) <= 128:
         raise ValueError(
-            "Provide one or two cases with a fresh verified subscription usage snapshot"
+            "Provide 1-128 cases with a fresh verified subscription usage lease"
         )
     asyncio.run(run(payload, args.workers))
