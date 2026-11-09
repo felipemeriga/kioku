@@ -1,7 +1,7 @@
 """Storage and setup delays must leave unrelated requests responsive."""
 
 import asyncio
-import time
+import threading
 
 import httpx
 import pytest
@@ -34,8 +34,19 @@ async def test_slow_upload_and_notion_io_does_not_stop_health(monkeypatch, opera
     async def health():
         return {"status": "ok"}
 
+    entered = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+    loop_thread = threading.get_ident()
+    io_threads = []
+
     def slow(*_args, **_kwargs):
-        time.sleep(0.4)
+        io_threads.append(threading.get_ident())
+        entered.set()
+        # A watchdog prevents a broken route from hanging the test. Correct
+        # routes stay blocked until the health requests explicitly release I/O.
+        release.wait(timeout=5)
+        finished.set()
         raise HTTPException(status_code=503, detail="simulated upstream delay")
 
     monkeypatch.setattr(documents, "get_supabase", lambda: None)
@@ -53,19 +64,11 @@ async def test_slow_upload_and_notion_io_does_not_stop_health(monkeypatch, opera
     }
     module, name = targets[operation]
     monkeypatch.setattr(module, name, slow)
-    ticks = []
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
 
-        async def probes():
-            for _ in range(14):
-                ticks.append(time.monotonic())
-                assert (await client.get("/api/health")).status_code == 200
-                await asyncio.sleep(0.04)
-
         async def upload():
-            await asyncio.sleep(0.02)
             if operation.startswith("document"):
                 response = await client.post(
                     "/api/documents/upload", files={"file": ("test.md", b"hello")}
@@ -92,5 +95,16 @@ async def test_slow_upload_and_notion_io_does_not_stop_health(monkeypatch, opera
                 )
             assert response.status_code == 503
 
-        await asyncio.gather(probes(), upload())
-    assert max(b - a for a, b in zip(ticks, ticks[1:])) < 0.2
+        request = asyncio.create_task(upload())
+        try:
+            assert await asyncio.to_thread(entered.wait, 5), "Slow I/O was never reached"
+            assert len(io_threads) == 1
+            assert io_threads[0] != loop_thread, "Blocking I/O ran on the event-loop thread"
+            for _ in range(3):
+                response = await asyncio.wait_for(client.get("/api/health"), timeout=5)
+                assert response.status_code == 200
+                assert not finished.is_set(), "Health only completed after slow I/O finished"
+                assert not request.done()
+        finally:
+            release.set()
+            await asyncio.wait_for(request, timeout=5)
