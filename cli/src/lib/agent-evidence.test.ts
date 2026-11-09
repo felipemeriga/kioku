@@ -1102,7 +1102,18 @@ test("queued sessions run before background scans and rotate after an exhausted 
   );
   let requests = 0;
   const remote = await server((_req, res) => {
-    if (++requests === 1) now += 91_000;
+    if (++requests === 1) {
+      const preserved = readManifest(f.root, sources[2]);
+      assert.ok(
+        preserved,
+        "native bytes must be durable before the first upload",
+      );
+      assert.deepEqual(
+        reconstruct(f.root, sources[2], preserved),
+        readFileSync(sources[2].path),
+      );
+      now += 91_000;
+    }
     res.statusCode = 403;
     res.end("{}");
   });
@@ -1137,13 +1148,101 @@ test("queued sessions run before background scans and rotate after an exhausted 
     await evidenceWorker(f.root, true, { scheduleRetry: () => {} });
     assert.equal(readManifest(f.root, sources[0]), null);
     assert.ok(readManifest(f.root, sources[1]));
-    assert.equal(readManifest(f.root, sources[2]), null);
+    assert.ok(readManifest(f.root, sources[2]));
+    assert.equal(
+      readJson(join(sessionDir(f.root, sources[2]), ".sync.json"), null),
+      null,
+    );
     await evidenceWorker(f.root, true, { scheduleRetry: () => {} });
+    assert.equal(
+      readJson<{ blocked?: string }>(
+        join(sessionDir(f.root, sources[2]), ".sync.json"),
+        {},
+      ).blocked,
+      "http_403",
+    );
     const recovered = readManifest(f.root, sources[2]);
     assert.ok(recovered);
     assert.deepEqual(
       reconstruct(f.root, sources[2], recovered),
       readFileSync(sources[2].path),
+    );
+  } finally {
+    Date.now = originalNow;
+    if (oldHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = oldHome;
+    if (oldConfig === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = oldConfig;
+    await remote.close();
+    f.cleanup();
+  }
+});
+
+test("an unreadable source without coverage does not spin through the capture budget", async () => {
+  const f = fixture(),
+    oldHome = process.env.CODEX_HOME,
+    oldConfig = process.env.XDG_CONFIG_HOME;
+  const originalNow = Date.now;
+  let now = originalNow();
+  process.env.CODEX_HOME = join(f.root, "home");
+  process.env.XDG_CONFIG_HOME = join(f.root, "config");
+  const native = join(process.env.CODEX_HOME, "sessions");
+  mkdirSync(native, { recursive: true });
+  const sources: Source[] = ["unreadable", "fresh"].map((session) => ({
+    agent: "codex",
+    session,
+    root: session,
+    path: join(native, session + ".jsonl"),
+  }));
+  const remote = await server((_req, res) => {
+    res.statusCode = 403;
+    res.end("{}");
+  });
+  try {
+    config(f.root, remote.url);
+    writeFileSync(
+      sources[1].path,
+      JSON.stringify({
+        type: "event_msg",
+        payload: { type: "user_message", message: "fresh evidence" },
+      }) + "\n",
+    );
+    for (const source of sources) {
+      await registerSource(f.root, source);
+      writeJson(
+        join(
+          f.root,
+          ".kioku/memory/.evidence-state/pending",
+          source.session + ".json",
+        ),
+        {
+          token: source.session,
+          source,
+          event: "Stop",
+          enqueued_at: new Date().toISOString(),
+          observed_size:
+            source.session === "fresh" ? readFileSync(source.path).length : 100,
+        },
+      );
+    }
+    // Advance virtual time in local loops so a former 90-second spin fails quickly.
+    Date.now = () => (now += 1000);
+    await evidenceWorker(f.root, true, { scheduleRetry: () => {} });
+    assert.ok(
+      readManifest(f.root, sources[0])!.gaps.some(
+        (g) => g.code === "source_unreadable",
+      ),
+    );
+    assert.equal(
+      readJson<{ blocked?: string }>(
+        join(sessionDir(f.root, sources[1]), ".sync.json"),
+        {},
+      ).blocked,
+      "http_403",
+    );
+    assert.deepEqual(
+      reconstruct(f.root, sources[1], readManifest(f.root, sources[1])!),
+      readFileSync(sources[1].path),
     );
   } finally {
     Date.now = originalNow;

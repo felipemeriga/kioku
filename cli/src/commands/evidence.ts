@@ -279,6 +279,7 @@ export async function evidenceWorker(
     async () => {
       const deadline = Date.now() + 90_000;
       const visited = new Set<string>();
+      const locallyPreserved = new Set<string>();
       while (Date.now() < deadline) {
         const jobs = readdirSync(pending)
           .filter((n) => n.endsWith(".json"))
@@ -310,6 +311,29 @@ export async function evidenceWorker(
           sources.every((source) => visited.has(source.path))
         )
           break;
+        // Preserve a bounded native checkpoint for every queued source before
+        // any network operation can consume this invocation's upload budget.
+        // Use the earliest checkpoint so Stop aliases retain their exact range.
+        for (const source of sources) {
+          const checkpoint = jobs
+            .filter(({ job }) => job.source.path === source.path)
+            .sort((a, b) => a.job.observed_size - b.job.observed_size)[0]?.job;
+          if (!checkpoint || locallyPreserved.has(source.path)) continue;
+          locallyPreserved.add(source.path);
+          if (!authorizedNativePath(source.agent, source.path)) continue;
+          try {
+            await captureSource(root, folder, source, {
+              maxBytes: 4 * 1024 * 1024,
+              lockWaitMs: 50,
+              endOffset: checkpoint.observed_size || undefined,
+              progress: checkpoint.event === "PostToolUse",
+              finalizeJournal: checkpoint.event === "Stop",
+              end: ["SessionEnd", "SubagentStop"].includes(checkpoint.event),
+            });
+          } catch {
+            // The durable job remains; the normal capture pass records errors.
+          }
+        }
         for (const source of sources) {
           visited.add(source.path);
           if (Date.now() >= deadline) break;
@@ -355,7 +379,8 @@ export async function evidenceWorker(
                   !m.gaps.some((g) => g.code === "source_unreadable");
                 if (
                   complete ||
-                  m.coverage?.captured_through === priorOffset ||
+                  (m.coverage?.captured_through ?? -1) === priorOffset ||
+                  m.gaps.some((g) => g.code === "source_unreadable") ||
                   matching?.job.event === "PostToolUse"
                 )
                   break;
