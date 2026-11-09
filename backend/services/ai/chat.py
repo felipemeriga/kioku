@@ -460,7 +460,9 @@ def submit_turn(turn: dict) -> dict:
     return current
 
 
-def publish_turn(turn: dict, result, *, attempt_id: str | None = None) -> str:
+def publish_turn(
+    turn: dict, result, *, attempt_id: str | None = None, defer_ack: bool = False
+) -> str:
     scope = turn_scope(turn)
     request = turn["request"]
     attempt_id = result.attempt_id or attempt_id
@@ -571,6 +573,18 @@ def publish_turn(turn: dict, result, *, attempt_id: str | None = None) -> str:
         .execute()
         .data
     )
+    if defer_ack:
+        # The message, citations and usage are committed before subscriber delivery.
+        # The durable committed outbox retries acknowledgement after a crash.
+        wake_reconciliation()
+    else:
+        acknowledge_committed_turn(turn, str(message_id), scope=scope)
+    return str(message_id)
+
+
+def acknowledge_committed_turn(turn: dict, message_id: str, *, scope=None):
+    scope = scope or turn_scope(turn)
+    request = turn["request"]
     client = client_for(scope, request["operation"], request["profile"])
     try:
         get_supabase_thread_safe().table("tsukai_native_usage").update(
@@ -592,10 +606,18 @@ def publish_turn(turn: dict, result, *, attempt_id: str | None = None) -> str:
         )
     finally:
         client.close()
-    return str(message_id)
 
 
 def reconcile_turn(turn: dict):
+    if turn.get("state") == "committed" and turn.get("assistant_message_id"):
+        current = owned_turn(turn["owner_id"], turn_id=turn["id"])
+        if current.get("state") == "committed" and current.get("assistant_message_id"):
+            # Domain output is already durable; do not reread/rebuild it to ACK.
+            acknowledge_committed_turn(current, current["assistant_message_id"])
+            return
+        if current.get("state") == "acknowledged":
+            return
+        turn = current
     turn = submit_turn(turn)
     scope, request = turn_scope(turn), turn["request"]
     client = client_for(scope, request["operation"], request["profile"])
@@ -717,7 +739,9 @@ def stream_turn(turn: dict, *, cursor: int = 0):
                 frame["stage"] = "generating"
             elif kind in {"job.completed", "replay.expired"}:
                 result = client.result(turn["job_id"])
-                message_id = publish_turn(turn, result, attempt_id=event.get("attempt_id"))
+                message_id = publish_turn(
+                    turn, result, attempt_id=event.get("attempt_id"), defer_ack=True
+                )
                 saved = (
                     get_supabase_thread_safe()
                     .table("messages")
