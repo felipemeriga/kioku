@@ -2291,6 +2291,7 @@ def search_agent_history(
     limit: int = 10,
     offset: int = 0,
     queries: list[str] | None = None,
+    projection: str = "discovery",
 ) -> str:
     """Recall previous agent work from originals within this key's authorized subtree.
 
@@ -2320,6 +2321,7 @@ def search_agent_history(
         limit=limit,
         offset=offset,
         queries=queries,
+        projection=projection,
     )
 
 

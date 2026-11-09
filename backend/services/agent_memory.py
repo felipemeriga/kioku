@@ -200,19 +200,20 @@ def journal_body(entries):
 
 
 def journal_activity(
-    sb, user_id, folders, after, before, tz, limit=50, offset=0, session=None, terms=()
+    sb, user_id, folders, after, before, tz, limit=50, offset=0, session=None, terms=(), rows=None
 ):
-    q = (
-        sb.table("agent_journal_search_entries")
-        .select("folder_id,session_id,agent,title,body,captured_at,entry_id")
-        .eq("user_id", user_id)
-        .in_("folder_id", folders)
-    )
-    if after:
-        q = q.gte("captured_at", after)
-    if before:
-        q = q.lt("captured_at", before)
-    rows = q.order("captured_at", desc=True).limit(2001).execute().data or []
+    if rows is None:
+        q = (
+            sb.table("agent_journal_search_entries")
+            .select("folder_id,session_id,agent,title,body,captured_at,entry_id")
+            .eq("user_id", user_id)
+            .in_("folder_id", folders)
+        )
+        if after:
+            q = q.gte("captured_at", after)
+        if before:
+            q = q.lt("captured_at", before)
+        rows = q.order("captured_at", desc=True).limit(2001).execute().data or []
     unique = {}
     zone = ZoneInfo(tz)
     for r in rows[:2000]:
@@ -365,6 +366,7 @@ def search_memory(
     limit=10,
     offset=0,
     queries=None,
+    projection="discovery",
 ):
     query = text(query, 2000, "query")
     if (
@@ -400,6 +402,14 @@ def search_memory(
             "scope": [],
             "coverage": "No accessible folders in this scope.",
         }
+    if projection not in {"discovery", "overview"}:
+        invalid("invalid_memory_projection")
+    if projection == "overview":
+        if query or expanded or as_of or offset or order != "chronological":
+            invalid("invalid_overview_arguments")
+        from services.agent_memory_overview import overview
+
+        return overview(sb, user_id, folders, after, before, tz, session)
     identifiers = technical_terms(query)
     # An acronym such as SDK must not erase "newer", "archive" or "link".
     # Identifiers boost ranking, but all complementary terms remain searchable.
