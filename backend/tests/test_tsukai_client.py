@@ -118,3 +118,88 @@ def test_nonpublishable_structured_outcomes_fail(outcome):
     with pytest.raises(ExecutionError, match=outcome):
         client.result("job")
     client.close()
+
+
+def test_completion_event_pair_uses_one_authenticated_http_request():
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, json={"accepted": True})
+
+    client = TsukaiClient(
+        "http://tsukai", "service", "grant", transport=httpx.MockTransport(handler)
+    )
+    try:
+        client.tool_events(
+            "job",
+            "attempt",
+            [
+                ("retrieval.completed", {"result_ref": "artifact"}),
+                ("tool.completed", {"result_ref": "artifact"}),
+            ],
+        )
+    finally:
+        client.close()
+    assert len(requests) == 1
+    assert requests[0].url.path == "/v1/jobs/job/tool-events/batch"
+    assert requests[0].headers["Authorization"] == "Bearer service"
+    assert requests[0].headers["X-Tsukai-Capability"] == "grant"
+    value = json.loads(requests[0].content)
+    assert value["attempt_id"] == "attempt"
+    assert [item["type"] for item in value["events"]] == ["retrieval.completed", "tool.completed"]
+
+
+def test_batch_unknown_route_only_uses_the_existing_durable_event_protocol():
+    paths = []
+    kinds = []
+
+    def handler(request):
+        paths.append(request.url.path)
+        if request.url.path.endswith("/batch"):
+            return httpx.Response(404, json={"detail": "Not Found"})
+        kinds.append(json.loads(request.content)["type"])
+        return httpx.Response(200, json={"accepted": True})
+
+    client = TsukaiClient(
+        "http://tsukai", "service", "grant", transport=httpx.MockTransport(handler)
+    )
+    try:
+        client.tool_events("job", "attempt", [("retrieval.completed", {}), ("tool.completed", {})])
+    finally:
+        client.close()
+    assert paths == [
+        "/v1/jobs/job/tool-events/batch",
+        "/v1/jobs/job/tool-events",
+        "/v1/jobs/job/tool-events",
+    ]
+    assert kinds == ["retrieval.completed", "tool.completed"]
+
+
+@pytest.mark.parametrize("failure", ["timeout", "transport", "domain404", "non_json404", 403, 503])
+def test_batch_never_replays_after_uncertainty_or_domain_rejection(failure):
+    paths = []
+
+    def handler(request):
+        paths.append(request.url.path)
+        if failure == "timeout":
+            raise httpx.ReadTimeout("fixture timeout", request=request)
+        if failure == "transport":
+            raise httpx.ConnectError("fixture transport failure", request=request)
+        if failure == "domain404":
+            return httpx.Response(404, json={"detail": "job_not_found"})
+        if failure == "non_json404":
+            return httpx.Response(404, text="Not Found")
+        return httpx.Response(failure, json={"detail": "rejected"})
+
+    client = TsukaiClient(
+        "http://tsukai", "service", "grant", transport=httpx.MockTransport(handler)
+    )
+    try:
+        with pytest.raises((httpx.HTTPStatusError, httpx.TransportError)):
+            client.tool_events(
+                "job", "attempt", [("retrieval.completed", {}), ("tool.completed", {})]
+            )
+    finally:
+        client.close()
+    assert paths == ["/v1/jobs/job/tool-events/batch"]

@@ -97,6 +97,30 @@ class TsukaiClient:
         )
         response.raise_for_status()
 
+    def tool_events(self, job_id: str, attempt_id: str, events: list[tuple[str, dict]]):
+        """Persist the bounded completion pair atomically before returning evidence."""
+        self._authorize()
+        response = self._http.post(
+            f"/v1/jobs/{job_id}/tool-events/batch",
+            json={
+                "attempt_id": attempt_id,
+                "events": [{"type": kind, "data": data} for kind, data in events],
+            },
+        )
+        if response.status_code == 404:
+            try:
+                missing_route = response.json() == {"detail": "Not Found"}
+            except ValueError:
+                missing_route = False
+            if missing_route:
+                # Rolling upgrades can reach the old server before its additive
+                # route exists. This exact response proves no batch was accepted.
+                # Never replay after a timeout, server failure or domain rejection.
+                for kind, data in events:
+                    self.tool_event(job_id, attempt_id, kind, data)
+                return
+        response.raise_for_status()
+
     def events(self, job_id: str, *, cursor: int = 0, reconnects: int = 3) -> Iterator[dict]:
         """Replay contiguous events. EOF without terminal is never a success."""
         terminal = {"job.completed", "job.failed", "job.cancelled", "job.uncertain"}

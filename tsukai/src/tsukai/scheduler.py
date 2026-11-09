@@ -18,6 +18,7 @@ from .store import Fenced
 from .validation import NativeError
 
 QUOTA_PROBE_COOLDOWN_SECONDS = 15 * 60
+FINALIZE_SECONDS = 20
 
 
 class Scheduler:
@@ -136,8 +137,6 @@ class Scheduler:
         last_prune = 0
         while not self.draining:
             try:
-                await self.store.expire_queued()
-                await self.store.recover()
                 from .lifecycle import cleanup_deletions
 
                 await cleanup_deletions(self.store, self)
@@ -153,16 +152,19 @@ class Scheduler:
                         if spool.stat().st_mtime < time.time() - 30 * 86400:
                             spool.unlink(missing_ok=True)
                     last_prune = time.monotonic()
-                if self.auth_state == "ready" and time.monotonic() >= self.quota_until:
-                    while len(self.tasks) < 3:
-                        claim = await self.store.claim(self.worker_id)
-                        if claim is None:
-                            break
-                        task = asyncio.create_task(self.execute(claim))
-                        self.tasks[claim["attempt"]["id"]] = task
-                        task.add_done_callback(
-                            lambda t, key=claim["attempt"]["id"]: self.tasks.pop(key, None)
-                        )
+                capacity = (
+                    max(0, 3 - len(self.tasks))
+                    if self.auth_state == "ready" and time.monotonic() >= self.quota_until
+                    else 0
+                )
+                # Cleanup above observes durable deletion requests before any claim.
+                # Expiry and lease recovery still run on every dispatcher tick.
+                for claim in await self.store.dispatch(self.worker_id, capacity):
+                    task = asyncio.create_task(self.execute(claim))
+                    self.tasks[claim["attempt"]["id"]] = task
+                    task.add_done_callback(
+                        lambda t, key=claim["attempt"]["id"]: self.tasks.pop(key, None)
+                    )
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -236,6 +238,14 @@ class Scheduler:
             or not data["capability"]
         ):
             raise NativeError("invalid_tool_backend")
+        # Only the explicitly numeric timing fields are retained, never grant contents.
+        backend_timings = data.get("timings")
+        if not isinstance(backend_timings, dict):
+            backend_timings = {}
+        for name in ("owned_turn_seconds", "verify_attempt_seconds", "bootstrap_seconds"):
+            value = backend_timings.get(name)
+            if type(value) in (int, float) and 0 <= value < 3600:
+                claim["attempt"].setdefault("runtime_timings", {})["capability_" + name] = value
         return {
             "mcpServers": {
                 "kioku": {
@@ -267,17 +277,30 @@ class Scheduler:
         self.finishing.add(attempt["id"])
 
         async def finalize():
-            with contextlib.suppress(Exception):
-                await self.store.heartbeat(attempt)
+            began = time.monotonic()
+            renewed = False
+            if attempt.get("lease_until", 0) - time.time() <= FINALIZE_SECONDS:
+                try:
+                    await self.store.heartbeat(attempt)
+                except Exception:
+                    pass  # finish still rejects expired/lost authority under its fencing lock.
+                else:
+                    renewed = True
+            timings = attempt.setdefault("runtime_timings", {})
+            timings["finalize_heartbeat_seconds"] = time.monotonic() - began
+            timings["finalize_heartbeat_renewed"] = renewed
             if stop_native:
                 await self.native.stop(attempt["id"])
             if retry:
                 await asyncio.sleep(random.uniform(0.1, 0.5))
+            if result is not None:
+                result["usage"] = {**(result.get("usage") or {}), "runtime_timings": timings}
+            timings["durable_finish_started_at"] = time.time()
             await self.store.finish(
                 attempt, status, result=result, error=error, diagnostic=diagnostic, retry=retry
             )
 
-        return await complete_cleanup(finalize(), 20)
+        return await complete_cleanup(finalize(), FINALIZE_SECONDS)
 
     async def execute(self, claim):
         attempt = claim["attempt"]
@@ -346,7 +369,6 @@ class Scheduler:
                 await asyncio.sleep(self.settings.heartbeat_seconds)
                 try:
                     cancelled = await self.store.heartbeat(attempt)
-                    attempt["lease_until"] = time.time() + 30
                     if cancelled:
                         self.signal_cancel(attempt["id"], current)
                         return
@@ -361,16 +383,23 @@ class Scheduler:
         result = None
         native_started = False
         try:
+            timings = attempt.setdefault("runtime_timings", {})
+            began = time.monotonic()
             config = await self.tool_config(claim, req)
+            timings["tool_capability_seconds"] = time.monotonic() - began
             remaining = attempt["deadline"] - time.time()
             if remaining <= 0:
                 raise NativeError("wall_timeout")
             async with asyncio.timeout(remaining):
                 native_started = True
+                began = time.monotonic()
                 result = await self.native.run(claim, req, emit, config)
+                timings["native_run_seconds"] = time.monotonic() - began
             self.finishing.add(attempt["id"])
             events.put_nowait(None)
+            began = time.monotonic()
             await publisher
+            timings["publisher_drain_seconds"] = time.monotonic() - began
             await self.finalize_attempt(attempt, "completed", result=result)
         except asyncio.CancelledError:
             self.cancelling.add(attempt["id"])

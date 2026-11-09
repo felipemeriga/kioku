@@ -423,3 +423,166 @@ async def test_effort_can_change_per_turn_without_losing_resume_but_cannot_chang
     second = (await store.claim("worker"))["attempt"]
     assert second["resume"]
     assert second["native_session_id"] == first["native_session_id"]
+
+
+async def test_idle_claim_does_not_scan_active_jobs_or_owner_history(store):
+    """Idle dispatcher ticks must release the shared admission lock promptly."""
+    from sqlalchemy import event
+
+    statements = []
+
+    def record_statement(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    event.listen(store.engine.sync_engine, "before_cursor_execute", record_statement)
+    try:
+        assert await store.claim("idle-worker") is None
+    finally:
+        event.remove(store.engine.sync_engine, "before_cursor_execute", record_statement)
+    reads = [statement for statement in statements if "FROM tsukai_jobs" in statement]
+    assert len(reads) == 1
+    assert "tsukai_attempts" not in reads[0]
+
+
+async def test_dispatch_recovers_expired_lease_before_claim_and_fences_old_writer(store):
+    from tsukai.tables import jobs
+
+    roots = []
+    for _ in range(2):
+        await store.admit(request())
+        roots.append((await store.claim("lost-worker"))["attempt"])
+    waiting = await store.admit(request())
+    async with store.transaction() as conn:
+        await conn.execute(
+            update(attempts).where(attempts.c.id == roots[0]["id"]).values(lease_until=0)
+        )
+        await conn.execute(
+            update(jobs).where(jobs.c.id == waiting["id"]).values(queue_deadline=time.time() + 30)
+        )
+    claims = await store.dispatch("new-worker")
+    assert [claim["job"]["id"] for claim in claims] == [waiting["id"]]
+    assert (await store.get(roots[0]["job_id"]))["status"] == "uncertain"
+    with pytest.raises(Fenced):
+        await store.append(roots[0], "text.delta", {"text": "stale"})
+
+
+async def test_dispatch_rollback_keeps_expiry_recovery_and_claim_atomic(store, monkeypatch):
+    from tsukai.tables import jobs
+
+    running = await store.admit(request())
+    attempt = (await store.claim("lost-worker"))["attempt"]
+    expired = await store.admit(request())
+    async with store.transaction() as conn:
+        await conn.execute(
+            update(attempts).where(attempts.c.id == attempt["id"]).values(lease_until=0)
+        )
+        await conn.execute(update(jobs).where(jobs.c.id == expired["id"]).values(queue_deadline=0))
+
+    async def fail_claim(*args):
+        raise RuntimeError("injected dispatch failure")
+
+    monkeypatch.setattr(store, "_claim", fail_claim)
+    with pytest.raises(RuntimeError, match="injected"):
+        await store.dispatch("worker")
+    assert (await store.get(running["id"]))["status"] == "running"
+    assert (await store.get(expired["id"]))["status"] == "queued"
+    assert [event["type"] for event in await store.replay(running["id"])] == [
+        "job.queued",
+        "attempt.started",
+    ]
+
+
+async def test_dispatch_without_capacity_still_expires_queue(store):
+    from tsukai.tables import jobs
+
+    expired = await store.admit(request())
+    async with store.transaction() as conn:
+        await conn.execute(update(jobs).where(jobs.c.id == expired["id"]).values(queue_deadline=0))
+    assert await store.dispatch("worker", capacity=0) == []
+    assert (await store.get(expired["id"]))["status"] == "failed"
+
+
+async def test_idle_dispatch_only_reads_and_never_takes_the_global_write_lock(store):
+    from sqlalchemy import event
+
+    transactions, statements = [], []
+
+    def record_begin(conn):
+        transactions.append(True)
+
+    def record_statement(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    event.listen(store.engine.sync_engine, "begin", record_begin)
+    event.listen(store.engine.sync_engine, "before_cursor_execute", record_statement)
+    try:
+        assert await store.dispatch("idle-worker") == []
+    finally:
+        event.remove(store.engine.sync_engine, "begin", record_begin)
+        event.remove(store.engine.sync_engine, "before_cursor_execute", record_statement)
+    assert len(transactions) == 1
+    assert len(statements) == 1
+    assert "pg_advisory" not in statements[0]
+
+
+async def test_event_sequence_reservation_rolls_back_without_replay_gap(store):
+    job = await store.admit(request())
+    attempt = (await store.claim("worker"))["attempt"]
+    before = await store.replay(job["id"])
+    with pytest.raises(RuntimeError, match="interrupted"):
+        async with store.transaction() as conn:
+            await store._event(
+                conn, job["id"], "text.delta", {"text": "not committed"}, attempt["id"]
+            )
+            raise RuntimeError("interrupted")
+    assert await store.replay(job["id"]) == before
+    await store.append(attempt, "text.delta", {"text": "durable"})
+    replay = await store.replay(job["id"])
+    assert [item["seq"] for item in replay] == list(range(1, len(replay) + 1))
+    assert replay[-1]["data"] == {"text": "durable"}
+
+
+async def test_dispatch_negative_snapshot_cannot_lose_a_racing_admission(store, monkeypatch):
+    original = store.dispatch_needed
+    admitted = []
+
+    async def admission_after_snapshot():
+        needed = await original()
+        assert needed is False
+        admitted.append(await store.admit(request()))
+        return needed
+
+    monkeypatch.setattr(store, "dispatch_needed", admission_after_snapshot)
+    assert await store.dispatch("worker") == []
+    assert (await store.get(admitted[0]["id"]))["status"] == "queued"
+    monkeypatch.setattr(store, "dispatch_needed", original)
+    assert [claim["job"]["id"] for claim in await store.dispatch("worker")] == [admitted[0]["id"]]
+
+
+async def test_dispatch_positive_snapshot_rechecks_cancelled_work_under_lock(store, monkeypatch):
+    job = await store.admit(request())
+    original = store.dispatch_needed
+
+    async def cancellation_after_snapshot():
+        assert await original() is True
+        await store.cancel(job["id"])
+        return True
+
+    monkeypatch.setattr(store, "dispatch_needed", cancellation_after_snapshot)
+    assert await store.dispatch("worker") == []
+    assert (await store.get(job["id"]))["status"] == "cancelled"
+
+
+async def test_dispatch_read_preflight_detects_expired_leases_without_queued_jobs(store):
+    job = await store.admit(request())
+    attempt = (await store.claim("lost-worker"))["attempt"]
+    assert await store.dispatch_needed() is False
+    async with store.transaction() as conn:
+        await conn.execute(
+            update(attempts).where(attempts.c.id == attempt["id"]).values(lease_until=0)
+        )
+    assert await store.dispatch_needed() is True
+    assert await store.dispatch("worker", capacity=0) == []
+    assert (await store.get(job["id"]))["status"] == "uncertain"
+    with pytest.raises(Fenced):
+        await store.append(attempt, "text.delta", {"text": "stale"})

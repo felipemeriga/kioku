@@ -111,3 +111,63 @@ def test_wrong_native_source_is_rejected_before_launch():
                 workers=1,
             )
         )
+
+
+def test_parallel_queue_uses_four_workers_and_checks_renewed_lease(monkeypatch, capsys, tmp_path):
+    path = Path(__file__).resolve().parents[2] / "scripts/benchmarks/shadow_eval.py"
+    spec = importlib.util.spec_from_file_location("shadow_parallel_queue", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    lease = tmp_path / "usage.json"
+    snapshot = {
+        "five_hour": 0,
+        "seven_day": 0,
+        "observed_at": time.time(),
+        "account_verified": True,
+    }
+    lease.write_text(json.dumps(snapshot))
+    active, peak, attempts = 0, 0, []
+
+    class Runner:
+        async def verify_version(self):
+            pass
+
+        async def run(self, claim, request, emit, **kwargs):
+            nonlocal active, peak
+            active += 1
+            peak = max(active, peak)
+            attempts.append(request.idempotency_key)
+            if len(attempts) == 4:
+                lease.write_text(json.dumps({**snapshot, "five_hour": 75}))
+            await asyncio.sleep(0.01)
+            active -= 1
+            return {"text": "Supported answer [1]", "usage": {}}
+
+    monkeypatch.setattr(module, "Settings", lambda: object())
+    monkeypatch.setattr(module, "NativeRunner", lambda _: Runner())
+    payload = {
+        "config": {
+            "owner_id": "11111111-1111-4111-8111-111111111111",
+            "port": 9512,
+            "token": "test-only",
+            "usage_lease": str(lease),
+        },
+        "system_prompt": "Test only",
+        "cases": [
+            {
+                "id": f"case-{i}",
+                "domain": "memory",
+                "question": "Question",
+                "oracle_evidence": "Source [1]",
+            }
+            for i in range(8)
+        ],
+    }
+    asyncio.run(module.run(payload, workers=4))
+    rows = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert peak == 4 and len(attempts) == 4
+    assert len(rows) == 8
+    assert sum(row["success"] for row in rows) == 4
+    assert [row.get("error_code") for row in rows if not row["success"]] == [
+        "usage_reserve_reached"
+    ] * 4

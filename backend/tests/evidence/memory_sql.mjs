@@ -382,6 +382,15 @@ await db.exec(
     "utf8"
   )
 );
+await db.exec(
+  fs.readFileSync(
+    new URL(
+      "../../../supabase/migrations/20261109221000_memory_overview_index_coverage.sql",
+      import.meta.url
+    ),
+    "utf8"
+  )
+);
 await db.query(
   `INSERT INTO agent_journal_search_entries VALUES
  ($1,$2,'journal-only','codex','title','early report','2026-11-06T02:00:00Z','early'),
@@ -422,6 +431,24 @@ if (
   overview.original_day_count !== 0
 )
   throw Error("overview session/time boundary");
+await db.query(
+  "UPDATE agent_evidence_objects SET indexed_parser_version=0 WHERE session_id=$1",
+  [a]
+);
+const pendingOverview = await call("agent_memory_overview", [
+  owner,
+  [first],
+  null,
+  null,
+  null,
+  "UTC",
+]);
+if (pendingOverview.index_pending_objects !== 1)
+  throw Error("unparsed captured originals reported complete");
+await db.query(
+  "UPDATE agent_evidence_objects SET indexed_parser_version=1 WHERE session_id=$1",
+  [a]
+);
 overview = await call("agent_memory_overview", [
   other,
   [first],

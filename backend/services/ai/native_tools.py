@@ -10,7 +10,7 @@ import time
 from contextvars import ContextVar
 from datetime import datetime, timezone
 from functools import wraps
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import uuid4
 
 import jwt
@@ -63,11 +63,13 @@ def verify_attempt(turn: dict, attempt_id: str) -> dict:
 
 @router.post("/internal/tsukai/tool-capability")
 def mint_tool_capability(body: ToolCapabilityRequest, request: Request):
+    began = time.monotonic()
     supplied = request.headers.get("Authorization", "")
     expected = "Bearer " + os.environ.get("TSUKAI_SERVICE_TOKEN", "")
     if not os.environ.get("TSUKAI_SERVICE_TOKEN") or not hmac.compare_digest(supplied, expected):
         raise HTTPException(401, "Invalid execution service identity")
     turn = owned_turn(body.owner_id, turn_id=body.tool_capability_ref)
+    timings = {"owned_turn_seconds": time.monotonic() - began}
     if turn.get("job_id") not in (None, body.job_id):
         raise HTTPException(403, "Execution mapping mismatch")
     if not turn.get("job_id"):
@@ -98,7 +100,9 @@ def mint_tool_capability(body: ToolCapabilityRequest, request: Request):
         or set(body.tool_allowlist) != set(prepared["tool_allowlist"])
     ):
         raise HTTPException(403, "Tool grant does not match accepted execution")
+    began = time.monotonic()
     attempt = verify_attempt(turn, body.attempt_id)
+    timings["verify_attempt_seconds"] = time.monotonic() - began
     deadline = attempt["deadline"]
     if isinstance(deadline, str):
         deadline = datetime.fromisoformat(deadline.replace("Z", "+00:00")).timestamp()
@@ -106,7 +110,9 @@ def mint_tool_capability(body: ToolCapabilityRequest, request: Request):
     expires = min(int(deadline) + 30, now + 360)
     if expires <= now:
         raise HTTPException(403, "Attempt deadline expired")
+    began = time.monotonic()
     materialize_bootstrap(turn, body.attempt_id)
+    timings["bootstrap_seconds"] = time.monotonic() - began
     grant = jwt.encode(
         {
             "iss": "kioku-backend",
@@ -124,7 +130,11 @@ def mint_tool_capability(body: ToolCapabilityRequest, request: Request):
         algorithm="HS256",
     )
     # Deployment config is a server registry, never an incoming URL.
-    return {"mcp_url": os.environ["TSUKAI_NATIVE_MCP_URL"].rstrip("/") + "/", "capability": grant}
+    return {
+        "mcp_url": os.environ["TSUKAI_NATIVE_MCP_URL"].rstrip("/") + "/",
+        "capability": grant,
+        "timings": timings,
+    }
 
 
 def authenticate_tool(token: str) -> dict:
@@ -293,10 +303,13 @@ def run_tool(name: str, arguments: dict) -> str:
         }
         try:
             if retrieval:
-                client.tool_event(
-                    grant["job_id"], grant["attempt_id"], "retrieval.completed", preview
+                client.tool_events(
+                    grant["job_id"],
+                    grant["attempt_id"],
+                    [("retrieval.completed", preview), ("tool.completed", preview)],
                 )
-            client.tool_event(grant["job_id"], grant["attempt_id"], "tool.completed", preview)
+            else:
+                client.tool_event(grant["job_id"], grant["attempt_id"], "tool.completed", preview)
         finally:
             client.close()
     return result
@@ -357,11 +370,13 @@ async def search_agent_history(
     limit: Annotated[int, Field(ge=1, le=10)] = 10,
     offset: int = 0,
     queries: list[str] | None = None,
+    projection: Literal["discovery", "overview"] = "discovery",
 ) -> str:
     """Recall reported work and original evidence across authorized repositories.
 
     Resolve this week/yesterday in the user timezone and pass explicit dates.
-    Empty query browses daily activity. Narrow folder when the user names a repo.
+    Empty query browses daily activity. Use projection="overview" for the
+    bounded inventory of all active days. Narrow folder when the user names a repo.
     Preserve code identifier spelling/case in queries; identifiers get priority.
     Unmatched identifiers are flagged when broader fallback results are returned.
     Pages contain at most 10 records so results stay readable inline. Follow
@@ -385,6 +400,7 @@ async def search_agent_history(
             "limit": limit,
             "offset": offset,
             "queries": queries,
+            "projection": projection,
         },
     )
 

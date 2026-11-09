@@ -53,7 +53,9 @@ def overview(sb, user_id, folders, after, before, tz, session):
     original = snapshot["original_days"][:2000]
     for day in original:
         day["repository"] = scope[day["folder_id"]]
-    complete = snapshot["entry_count"] <= 2000 and snapshot["original_day_count"] <= 2000
+    pending = snapshot["index_pending_objects"]
+    within_limit = snapshot["entry_count"] <= 2000 and snapshot["original_day_count"] <= 2000
+    complete = within_limit and pending == 0
     return {
         "status": "ok",
         "projection": "overview",
@@ -64,12 +66,17 @@ def overview(sb, user_id, folders, after, before, tz, session):
         "activity": {"days": days, "has_more": False, "entry_count": snapshot["entry_count"]},
         "original_activity": original,
         "inventory_complete": complete,
+        "index_pending_objects": pending,
         "content_truncated": any(d["summary_truncated"] for d in days),
-        "coverage": "complete_activity_inventory"
-        if complete
-        else "inventory_limit_reached_narrow_dates",
+        "coverage": (
+            "complete_activity_inventory"
+            if complete
+            else "original_index_pending"
+            if within_limit
+            else "inventory_limit_reached_narrow_dates"
+        ),
         "interpretation": (
-            "Every returned dated journal entry has a compact exact prefix, "
+            "Every returned dated journal entry has a compact report prefix, "
             "in chronological order, "
             "including later updates. These are reported work, not proof of deployment. Titles can "
             "describe cumulative sessions. Original activity includes sessions without journals, "

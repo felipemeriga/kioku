@@ -7,8 +7,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import ValidationError
-from sqlalchemy import select
+from pydantic import Field, ValidationError
 
 from .auth import authorize, capability, service_auth
 from .config import Settings
@@ -16,13 +15,20 @@ from .models import CatalogUnavailable, ModelCatalog
 from .protocol import TERMINAL, Ack, JobRequest, StrictModel
 from .scheduler import Scheduler
 from .store import Conflict, Store
-from .tables import attempts
 
 
-class ToolEvent(StrictModel):
-    attempt_id: str
+class ToolEventData(StrictModel):
     type: str
     data: dict
+
+
+class ToolEvent(ToolEventData):
+    attempt_id: str
+
+
+class ToolEventBatch(StrictModel):
+    attempt_id: str
+    events: list[ToolEventData] = Field(min_length=2, max_length=2)
 
 
 def create_app(settings=None, store=None, native=None):
@@ -59,14 +65,24 @@ def create_app(settings=None, store=None, native=None):
         status = 410 if code == "replay_expired" else 503 if code == "queue_full" else 409
         return JSONResponse({"error": {"code": code}}, status_code=status)
 
-    async def scoped_job(request, job_id):
+    async def scoped_state(request, job_id, attempt_id=None):
         cap = capability(request, settings)
-        job = await store.get(job_id)
-        if job is None or job["owner_id"] != cap.owner_id:
+        attempt = None
+        if attempt_id is None:
+            job, deleted = await store.get_for_access(job_id, cap.owner_id)
+        else:
+            job, deleted, attempt = await store.get_attempt_for_access(
+                job_id, cap.owner_id, attempt_id
+            )
+        if job is None:
             raise HTTPException(404, "job_not_found")
-        if await store.scope_deleted(job["owner_id"], job["conversation_id"]):
+        if deleted:
             raise HTTPException(410, "execution_scope_deleted")
         authorize(cap, JobRequest.model_validate(job["request"]))
+        return cap, job, attempt
+
+    async def scoped_job(request, job_id):
+        cap, job, _ = await scoped_state(request, job_id)
         return cap, job
 
     @app.get("/health/live")
@@ -344,21 +360,9 @@ def create_app(settings=None, store=None, native=None):
 
     @app.get("/v1/jobs/{job_id}/attempts/{attempt_id}")
     async def active_attempt(job_id: str, attempt_id: str, request: Request):
-        cap, job = await scoped_job(request, job_id)
+        cap, job, attempt = await scoped_state(request, job_id, attempt_id)
         if cap.sub != "backend":
             raise HTTPException(403, "backend_only")
-        async with store.engine.connect() as conn:
-            attempt = (
-                (
-                    await conn.execute(
-                        select(attempts).where(
-                            attempts.c.id == attempt_id, attempts.c.job_id == job_id
-                        )
-                    )
-                )
-                .mappings()
-                .first()
-            )
         active = bool(
             attempt
             and attempt["status"] == "running"
@@ -390,6 +394,21 @@ def create_app(settings=None, store=None, native=None):
             raise HTTPException(413, "tool_event_too_large")
         # Domain middleware sanitizes evidence and persists private full artifacts.
         await store.tool_event(job_id, body.attempt_id, body.type, body.data)
+        return {"accepted": True}
+
+    @app.post("/v1/jobs/{job_id}/tool-events/batch")
+    async def tool_events_batch(job_id: str, body: ToolEventBatch, request: Request):
+        cap, _ = await scoped_job(request, job_id)
+        if cap.sub != "backend" or [item.type for item in body.events] != [
+            "retrieval.completed",
+            "tool.completed",
+        ]:
+            raise HTTPException(403, "unsupported_tool_event")
+        if any(len(json.dumps(item.data)) > 65536 for item in body.events):
+            raise HTTPException(413, "tool_event_too_large")
+        await store.tool_events(
+            job_id, body.attempt_id, [(item.type, item.data) for item in body.events]
+        )
         return {"accepted": True}
 
     async def admit_deletion(request, conversation_id=None):

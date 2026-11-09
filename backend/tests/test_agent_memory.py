@@ -1104,6 +1104,7 @@ def test_overview_keeps_all_dated_updates_and_original_only_activity(monkeypatch
         "entry_count": 30,
         "original_days": [original],
         "original_day_count": 1,
+        "index_pending_objects": 0,
         "snapshot_at": "2026-11-09T20:00:00Z",
     }
     with patch("services.agent_memory_overview.rpc", return_value=snapshot) as call:
@@ -1126,6 +1127,13 @@ def test_overview_keeps_all_dated_updates_and_original_only_activity(monkeypatch
     assert "Final correction: deployment remains unverified." in day["summary"]
     assert value["original_activity"][0]["native_session_id"] == "other-native"
     assert day["reference"] and day["summary_truncated"]
+    snapshot["index_pending_objects"] = 1
+    with patch("services.agent_memory_overview.rpc", return_value=snapshot):
+        value = search_memory(Database(), OWNER, [FOLDER, SIBLING], projection="overview")
+    assert value["inventory_complete"] is False
+    assert value["coverage"] == "original_index_pending"
+    assert value["index_pending_objects"] == 1
+    snapshot["index_pending_objects"] = 0
     snapshot["entry_count"] = 2001
     with patch("services.agent_memory_overview.rpc", return_value=snapshot):
         value = search_memory(Database(), OWNER, [FOLDER, SIBLING], projection="overview")

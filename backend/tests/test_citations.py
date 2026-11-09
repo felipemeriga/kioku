@@ -290,3 +290,42 @@ def test_url_enrichment_preserves_legacy_partial_citations():
     enrich_source_urls(sb, "owner", entries)
     assert entries == [{"number": 1, "source": "legacy"}]
     assert not sb.calls
+
+
+def test_full_debug_reuses_the_durable_header_citation_without_another_registration():
+    from unittest.mock import MagicMock
+
+    from services.tools import execute_tool
+
+    result = {
+        "id": "chunk",
+        "source_type": "code",
+        "content": "def score(): pass",
+        "metadata": {"source_filename": "pkg/scores.py:10-20", "folder_id": "folder"},
+    }
+    db = MagicMock()
+    query = db.table.return_value.select.return_value.eq.return_value.in_.return_value
+    query.execute.return_value.data = [
+        {"id": "chunk", "folder_id": "folder", "file": "pkg/scores.py", "file_hash": "revision"}
+    ]
+    registry = MagicMock()
+    registry.register.return_value = 7
+    debug = []
+    with (
+        patch("services.tools.embed_query", return_value=[0.0]),
+        patch("services.tools.search_documents", return_value=[result]),
+        patch("services.tools.get_supabase", return_value=db),
+    ):
+        text = execute_tool(
+            "knowledge_base_search",
+            {"query": "scores"},
+            "owner",
+            scope_folder_ids=["folder"],
+            citations=registry,
+            debug_retrieval=debug,
+            full_debug=True,
+        )
+    registry.register.assert_called_once_with(result)
+    assert text.startswith("[7] Code:")
+    assert debug[0]["citation_number"] == 7
+    assert debug[0]["metadata"]["revision_id"] == "revision"
