@@ -606,3 +606,27 @@ def test_memory_backfill_publishes_complete_only_after_all_batches():
     assert len(batches[0]["p_chunks"]) == 250
     assert batches[1]["p_reset"] is False and batches[1]["p_complete"] is True
     assert len(batches[1]["p_chunks"]) == 1
+
+
+@pytest.mark.parametrize("fraction", ["", ".3", ".33", ".333", ".3333", ".33333", ".333333"])
+def test_postgres_timestamps_accept_variable_fraction_precision(fraction):
+    from services.agent_memory import journal_activity
+
+    sb = Database()
+    sb.rows["agent_journal_search_entries"] = [
+        {
+            "user_id": OWNER,
+            "folder_id": FOLDER,
+            "session_id": "native",
+            "agent": "codex",
+            "title": "Reported work",
+            "summary": "Reported work",
+            "captured_at": "2026-11-06T02:10:12" + fraction + "+00:00",
+            "entry_id": "entry",
+        }
+    ]
+    result = journal_activity(sb, OWNER, [FOLDER], None, None, "America/Sao_Paulo")
+    assert result["days"][0]["date"] == "2026-11-05"
+    assert bounds(as_of="2026-11-06T02:10:12" + fraction + "+00:00")[1].startswith(
+        "2026-11-06T02:10:12."
+    )
