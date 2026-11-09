@@ -97,6 +97,18 @@ class TsukaiClient:
         )
         response.raise_for_status()
 
+    def tool_events(self, job_id: str, attempt_id: str, events: list[tuple[str, dict]]):
+        """Persist the bounded completion pair atomically before returning evidence."""
+        self._authorize()
+        response = self._http.post(
+            f"/v1/jobs/{job_id}/tool-events/batch",
+            json={
+                "attempt_id": attempt_id,
+                "events": [{"type": kind, "data": data} for kind, data in events],
+            },
+        )
+        response.raise_for_status()
+
     def events(self, job_id: str, *, cursor: int = 0, reconnects: int = 3) -> Iterator[dict]:
         """Replay contiguous events. EOF without terminal is never a success."""
         terminal = {"job.completed", "job.failed", "job.cancelled", "job.uncertain"}

@@ -293,10 +293,13 @@ def run_tool(name: str, arguments: dict) -> str:
         }
         try:
             if retrieval:
-                client.tool_event(
-                    grant["job_id"], grant["attempt_id"], "retrieval.completed", preview
+                client.tool_events(
+                    grant["job_id"],
+                    grant["attempt_id"],
+                    [("retrieval.completed", preview), ("tool.completed", preview)],
                 )
-            client.tool_event(grant["job_id"], grant["attempt_id"], "tool.completed", preview)
+            else:
+                client.tool_event(grant["job_id"], grant["attempt_id"], "tool.completed", preview)
         finally:
             client.close()
     return result

@@ -1066,6 +1066,9 @@ class Store:
             ]
 
     async def tool_event(self, job_id, attempt_id, kind, data):
+        await self.tool_events(job_id, attempt_id, [(kind, data)])
+
+    async def tool_events(self, job_id, attempt_id, items):
         async with self.transaction() as conn:
             attempt = (
                 (
@@ -1081,7 +1084,8 @@ class Store:
             if not attempt:
                 raise Fenced("unknown_attempt")
             await self._owned(conn, attempt)
-            await self._event(conn, job_id, kind, data, attempt_id)
+            for kind, data in items:
+                await self._event(conn, job_id, kind, data, attempt_id)
 
     async def prune(self):
         async with self.transaction() as conn:

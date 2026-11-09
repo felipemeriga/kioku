@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import ValidationError
+from pydantic import Field, ValidationError
 from sqlalchemy import select
 
 from .auth import authorize, capability, service_auth
@@ -19,10 +19,18 @@ from .store import Conflict, Store
 from .tables import attempts
 
 
-class ToolEvent(StrictModel):
-    attempt_id: str
+class ToolEventData(StrictModel):
     type: str
     data: dict
+
+
+class ToolEvent(ToolEventData):
+    attempt_id: str
+
+
+class ToolEventBatch(StrictModel):
+    attempt_id: str
+    events: list[ToolEventData] = Field(min_length=2, max_length=2)
 
 
 def create_app(settings=None, store=None, native=None):
@@ -390,6 +398,21 @@ def create_app(settings=None, store=None, native=None):
             raise HTTPException(413, "tool_event_too_large")
         # Domain middleware sanitizes evidence and persists private full artifacts.
         await store.tool_event(job_id, body.attempt_id, body.type, body.data)
+        return {"accepted": True}
+
+    @app.post("/v1/jobs/{job_id}/tool-events/batch")
+    async def tool_events_batch(job_id: str, body: ToolEventBatch, request: Request):
+        cap, _ = await scoped_job(request, job_id)
+        if cap.sub != "backend" or [item.type for item in body.events] != [
+            "retrieval.completed",
+            "tool.completed",
+        ]:
+            raise HTTPException(403, "unsupported_tool_event")
+        if any(len(json.dumps(item.data)) > 65536 for item in body.events):
+            raise HTTPException(413, "tool_event_too_large")
+        await store.tool_events(
+            job_id, body.attempt_id, [(item.type, item.data) for item in body.events]
+        )
         return {"accepted": True}
 
     async def admit_deletion(request, conversation_id=None):

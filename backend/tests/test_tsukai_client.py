@@ -118,3 +118,33 @@ def test_nonpublishable_structured_outcomes_fail(outcome):
     with pytest.raises(ExecutionError, match=outcome):
         client.result("job")
     client.close()
+
+
+def test_completion_event_pair_uses_one_authenticated_http_request():
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, json={"accepted": True})
+
+    client = TsukaiClient(
+        "http://tsukai", "service", "grant", transport=httpx.MockTransport(handler)
+    )
+    try:
+        client.tool_events(
+            "job",
+            "attempt",
+            [
+                ("retrieval.completed", {"result_ref": "artifact"}),
+                ("tool.completed", {"result_ref": "artifact"}),
+            ],
+        )
+    finally:
+        client.close()
+    assert len(requests) == 1
+    assert requests[0].url.path == "/v1/jobs/job/tool-events/batch"
+    assert requests[0].headers["Authorization"] == "Bearer service"
+    assert requests[0].headers["X-Tsukai-Capability"] == "grant"
+    value = json.loads(requests[0].content)
+    assert value["attempt_id"] == "attempt"
+    assert [item["type"] for item in value["events"]] == ["retrieval.completed", "tool.completed"]
