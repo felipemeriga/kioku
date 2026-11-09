@@ -420,3 +420,44 @@ it("preserves Rust code indentation and literals in citation previews", async ()
   expect(preview.querySelector("pre code")?.textContent).toBe(code);
   expect(preview.textContent).not.toContain("```rust");
 });
+
+describe("archived memory citations", () => {
+  it("opens an original event without trying to resolve an uploaded document", () => {
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    const onOpenDocument = vi.fn();
+    const url =
+      "/folders/22222222-2222-4222-8222-222222222222/agent-sessions/33333333-3333-4333-8333-333333333333?event=" +
+      "a".repeat(64);
+    renderWithProviders(
+      <MessageBubble
+        role="assistant"
+        content="Prior experiment [1]"
+        citations={[
+          { ...docCite, source: "Agent history / repo / session / event", url },
+        ]}
+        onOpenDocument={onOpenDocument}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("citation-chip"));
+    expect(open).toHaveBeenCalledWith(url, "_blank", "noopener,noreferrer");
+    expect(onOpenDocument).not.toHaveBeenCalled();
+    open.mockRestore();
+  });
+
+  it("shows the reported journal excerpt without a missing-document lookup", () => {
+    const onOpenDocument = vi.fn();
+    renderWithProviders(
+      <MessageBubble
+        role="assistant"
+        content="Weekly work [1]"
+        citations={[
+          { ...docCite, source: "Agent journal / repo / 2026-11-06 / entry" },
+        ]}
+        onOpenDocument={onOpenDocument}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("citation-chip"));
+    expect(onOpenDocument).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog")).toHaveTextContent("a document excerpt");
+  });
+});
