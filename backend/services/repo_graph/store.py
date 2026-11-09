@@ -255,6 +255,26 @@ def outline(sb, *, folder_id: str, path: str, limit: int = 500) -> list[dict]:
     ) or []
 
 
+def outline_scope(
+    sb, *, owner_id: str, folder_ids: list[str], path: str, limit: int = 500
+) -> list[dict]:
+    """One scoped read, retaining per-folder limits and requested folder order."""
+    return (
+        sb.rpc(
+            "repo_graph_outline_scope",
+            {
+                "p_owner": owner_id,
+                "p_folders": list(dict.fromkeys(folder_ids)),
+                "p_path": path,
+                "p_limit": limit,
+            },
+        )
+        .execute()
+        .data
+        or []
+    )
+
+
 def impact_of(
     sb, *, folder_id: str, symbol: str, depth: int = 2, max_nodes: int = 200
 ) -> list[dict]:

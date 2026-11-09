@@ -12,6 +12,7 @@ from services.tools import execute_tool
 def test_graph_results_cannot_leave_selected_file(operation, key):
     rows = [
         {
+            "folder_id": "folder",
             key: "selected.py",
             "file": "selected.py",
             "symbol": "Selected",
@@ -22,6 +23,7 @@ def test_graph_results_cannot_leave_selected_file(operation, key):
             "depth": 1,
         },
         {
+            "folder_id": "folder",
             key: "private.py",
             "file": "private.py",
             "symbol": "Private",
@@ -36,7 +38,7 @@ def test_graph_results_cannot_leave_selected_file(operation, key):
         "definition": "find_definition",
         "references": "find_references",
         "impact": "impact_of",
-        "outline": "outline",
+        "outline": "outline_scope",
     }
     with (
         patch("services.tools.get_supabase"),

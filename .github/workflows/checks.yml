@@ -205,6 +205,15 @@ jobs:
             -c "GRANT EXECUTE ON FUNCTION public.tsukai_begin_chat_turn(uuid,uuid,uuid,jsonb,text), public.tsukai_commit_chat_turn(uuid,uuid,text,text,jsonb,jsonb), public.tsukai_scoped_metadata(uuid,uuid[],text,text,text,timestamptz,timestamptz) TO anon, authenticated" \
             -f supabase/migrations/20261110012000_tsukai_internal_rpc_permissions.sql \
             -f backend/tests/sql/tsukai_tool_batch_acceptance.sql
+      - name: Verify scoped graph outline equivalence and restricted execution
+        env:
+          PGPASSWORD: fixture-admin-only
+        run: |
+          createdb -h localhost -U postgres tsukai_graph_fixture
+          psql -h localhost -U postgres -d tsukai_graph_fixture -v ON_ERROR_STOP=1 \
+            -f backend/tests/sql/repo_graph_outline_fixture.sql \
+            -f supabase/migrations/20261110020000_repo_graph_scoped_outline.sql \
+            -f backend/tests/sql/repo_graph_outline_acceptance.sql
       - name: Verify runtime grants can be applied twice after schema upgrade
         env:
           PGPASSWORD: fixture-admin-only
