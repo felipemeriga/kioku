@@ -72,6 +72,13 @@ Server attempt timings and progress frames retain queue/startup/tool durations;
 do not infer a precise publication or prefetch span from their residual. Confirm
 browser rendering separately and grade answer correctness independently.
 
+After both runs finish, `compare_chat_latency.py --before /private/before --after
+/private/after` compares them offline. It refuses changed manifests, concurrency,
+endpoint, request/context parameters, resolved model versions, incomplete cohorts,
+or unverified publication. Bootstrap audit rows are counted separately from native
+tool calls. A changed local date is flagged because relative time questions can
+resolve differently. Queue and attempt times remain separate from end-to-end time.
+
 `source_snapshot.py` and `shadow_eval.py` support isolated diagnostic quality runs.
 They verify a complete production archive and loaded system-prompt hashes before
 inference. Their direct native timings bypass web preparation, queueing, and
