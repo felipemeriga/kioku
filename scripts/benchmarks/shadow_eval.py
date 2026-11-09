@@ -38,6 +38,7 @@ async def run(payload, workers):
     base = f"http://kioku-backend:{config['port']}"
     headers = {"Authorization": "Bearer " + config["token"]}
     semaphore = asyncio.Semaphore(workers)
+    quota_exhausted = asyncio.Event()
     native = NativeRunner(Settings())
     await native.verify_version()
 
@@ -55,6 +56,10 @@ async def run(payload, workers):
                 "success": False,
                 "question": case["question"],
             }
+            if quota_exhausted.is_set():
+                result.update(error_code="not_run_after_quota_limit", total_seconds=0.0)
+                print(json.dumps(result, ensure_ascii=False), flush=True)
+                return
             async with httpx.AsyncClient(timeout=180) as client:
                 try:
                     oracle = case.get("oracle_evidence")
@@ -164,6 +169,8 @@ async def run(payload, workers):
                         result["retrieval"] = {"evidence": oracle}
                 except (NativeError, httpx.HTTPError, ValueError) as exc:
                     result["error_code"] = getattr(exc, "code", type(exc).__name__)
+                    if result["error_code"] == "quota_limited":
+                        quota_exhausted.set()
                     if isinstance(exc, httpx.HTTPStatusError):
                         result["http_status"] = exc.response.status_code
                 result["total_seconds"] = time.monotonic() - began
