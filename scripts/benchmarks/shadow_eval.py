@@ -122,9 +122,13 @@ async def run(payload, workers):
                         )
                         response.raise_for_status()
                         evidence = response.json()["evidence"]
+                        answer_instruction = response.json().get("answer_instruction")
+                        if not isinstance(answer_instruction, str) or not answer_instruction:
+                            raise NativeError("missing_answer_contract")
                     else:
                         result["stage"] = "oracle"
                         evidence = oracle
+                        answer_instruction = "Answer from the supplied evidence; cite supporting sources."
                     result["prefetch_seconds"] = time.monotonic() - began
                     conversation, session = str(uuid4()), str(uuid4())
                     zone = case.get("timezone", "America/Sao_Paulo")
@@ -151,9 +155,7 @@ async def run(payload, workers):
                                 "user_message": case["question"],
                                 "time_context": time_context,
                                 "current_turn_evidence": evidence,
-                                "citation_instruction": "Answer directly if this evidence is sufficient; "
-                                "retrieve only for a specific gap. Cite only current-turn sources. "
-                                "Provide a complete standalone answer, not a continuation.",
+                                "citation_instruction": answer_instruction,
                             }
                         ),
                         tool_allowlist=TOOLS if oracle is None else [],

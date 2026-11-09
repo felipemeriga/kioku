@@ -26,7 +26,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import BaseModel, Field
 from services.ai import native_tools
 from services.citations import CitationRegistry
-from services.evidence_prefetch import prefetch
+from services.evidence_prefetch import ANSWER_INSTRUCTION, prefetch
 from services.tools import execute_tool
 from starlette.responses import JSONResponse
 
@@ -196,7 +196,11 @@ def application(config):
                 folders=owned,
             )
         state["evidence"] = evidence
-        return {"evidence": evidence, "citations": state["citations"].entries()}
+        return {
+            "evidence": evidence,
+            "citations": state["citations"].entries(),
+            "answer_instruction": ANSWER_INSTRUCTION,
+        }
 
     @app.get("/result/{case}")
     async def result(case: str):

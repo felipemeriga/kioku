@@ -272,7 +272,7 @@ def prepare_turn(
         # A concurrent candidate for the same logical turn must never share evidence.
         candidate_id = str(uuid4())
         request["metadata"]["bootstrap_namespace"] = candidate_id
-        from services.evidence_prefetch import history_question, prefetch
+        from services.evidence_prefetch import ANSWER_INSTRUCTION, history_question, prefetch
 
         source_folders = []
         if not filename and history_question(content):
@@ -350,11 +350,7 @@ def prepare_turn(
                 "time_context": time_context,
                 "evidence_namespace": turn_id,
                 "current_turn_evidence": evidence,
-                "citation_instruction": (
-                    "This evidence was already retrieved for the current turn. Answer directly "
-                    "when it supports the request; use tools only for a specific remaining gap. "
-                    "Cite only current evidence or new tool results, never prior citation numbers."
-                ),
+                "citation_instruction": ANSWER_INSTRUCTION,
             },
             ensure_ascii=False,
         )

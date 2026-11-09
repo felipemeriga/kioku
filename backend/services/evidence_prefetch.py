@@ -8,6 +8,13 @@ from zoneinfo import ZoneInfo
 
 MONTHS = {name.lower(): i for i, name in enumerate(calendar.month_name) if name}
 MONTH_PATTERN = "|".join(MONTHS)
+ANSWER_INSTRUCTION = """Answer the user's current question from the supplied current-turn evidence.
+Use tools only for a specific missing fact. Cite only current evidence or new tool results.
+For a focused factual question, give one short paragraph or up to three short bullets,
+normally within 120 words. Stop once the requested facts are answered. Include a timeline
+or a longer overview when the user requested that scope. Do not add unsolicited technical
+tutorials or assertions about deployment, missing records, or tests. Partial retrieval does
+not establish absence across the whole period. Return a complete standalone answer."""
 
 
 def history_question(question):
