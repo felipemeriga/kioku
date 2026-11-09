@@ -7,6 +7,7 @@ import type {
   Message,
   ChatFilters,
   ChatMode,
+  ReasoningEffort,
   ChatModel,
   ChatScope,
   Citation,
@@ -92,6 +93,7 @@ export default function ChatPage() {
     model?: ChatModel;
     mode?: ChatMode;
     debug?: boolean;
+    effort?: ReasoningEffort;
   } | null>(null);
 
   const [scopes, setScopes] = useState<Record<string, ChatScope>>(() =>
@@ -152,6 +154,7 @@ export default function ChatPage() {
     model?: ChatModel,
     mode?: ChatMode,
     debug?: boolean,
+    effort?: ReasoningEffort,
     rebuild = false,
   ) => {
     if (displayingStream) return;
@@ -296,6 +299,7 @@ export default function ChatPage() {
         rebuildContext,
         undefined,
         controller.signal,
+        effort,
       );
     try {
       try {
@@ -335,6 +339,7 @@ export default function ChatPage() {
           model,
           mode,
           debug,
+          effort,
         });
       const partial = streamingRef.current;
       if (
@@ -446,6 +451,7 @@ export default function ChatPage() {
           false,
           execution,
           controller.signal,
+          execution.reasoning_effort,
         );
       } catch (error) {
         if (current()) {
@@ -508,6 +514,7 @@ export default function ChatPage() {
       },
       model: execution.model,
       mode: execution.mode,
+      effort: execution.reasoning_effort,
       debug: true,
     });
     setPendingRecovery(null);
@@ -561,6 +568,7 @@ export default function ChatPage() {
                   recovery.model,
                   recovery.mode,
                   recovery.debug,
+                  recovery.effort,
                   true,
                 )
               }

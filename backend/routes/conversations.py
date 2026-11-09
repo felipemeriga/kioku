@@ -116,6 +116,8 @@ def get_conversation(conversation_id: str, user_id: str = Depends(get_current_us
                     "conversation_id": conversation_id,
                     "model": intent["model"],
                     "mode": intent["mode"],
+                    "reasoning_effort": intent.get("reasoning_effort")
+                    or ("high" if intent["mode"] == "deep" else "low"),
                 }
     visible_messages = messages.data
     duplicate_candidates = {

@@ -208,6 +208,14 @@ def create_app(settings=None, store=None, native=None):
                 row["resolvedModel"] for row in catalog["models"] if row["selectable"]
             }:
                 raise HTTPException(422, "unsupported_model")
+            if req.reasoning_effort is not None:
+                levels = next(
+                    row.get("supportedEffortLevels")
+                    for row in catalog["models"]
+                    if row["resolvedModel"] == req.model and row["selectable"]
+                )
+                if isinstance(levels, list) and req.reasoning_effort not in levels:
+                    raise HTTPException(422, "unsupported_reasoning_effort")
         if "repair_error" in req.metadata:
             raise HTTPException(422, "reserved_metadata_key")
         job = await store.admit(req, request_sha256=digest)

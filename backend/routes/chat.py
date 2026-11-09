@@ -22,7 +22,8 @@ class ChatRequest(BaseModel):
     # Two independent knobs: which model, and the mode.
     # mode: plain (classic one-shot RAG) | agentic (tool loop) | deep (+ thinking)
     model: str = Field(default="haiku", min_length=1, max_length=160)
-    mode: Literal["plain", "agentic", "deep"] = "deep"
+    mode: Literal["plain", "agentic", "deep"] = "agentic"
+    reasoning_effort: Literal["low", "medium", "high"] = "low"
     # When true, the stream ends with a debug frame (reasoning, tool calls,
     # retrieved chunks + rerank scores) for the UI's Inspect card.
     debug: bool = False
@@ -92,7 +93,11 @@ def chat(request: ChatRequest, user_id: str = Depends(get_current_user)):
             folder_id=request.scope_folder_id,
             filename=request.scope_filename,
             user_timezone=request.timezone,
-            model_resolver=lambda model: resolve_native_model(model, user_id),
+            reasoning_effort=request.reasoning_effort,
+            legacy_effort_retry="reasoning_effort" not in request.model_fields_set,
+            model_resolver=lambda model: resolve_native_model(
+                model, user_id, reasoning_effort=request.reasoning_effort
+            ),
             operation=operation,
         )
         wake_reconciliation()
@@ -109,6 +114,7 @@ def chat(request: ChatRequest, user_id: str = Depends(get_current_user)):
             scope_folder_id=request.scope_folder_id,
             scope_filename=request.scope_filename,
             user_timezone=request.timezone,
+            reasoning_effort=request.reasoning_effort,
         )
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

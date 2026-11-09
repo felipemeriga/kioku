@@ -14,7 +14,13 @@ import AttachFileIcon from "@mui/icons-material/AttachFile";
 import CenterFocusStrongIcon from "@mui/icons-material/CenterFocusStrong";
 import { uploadDocument, fetchChatModels } from "../lib/api";
 import { useQuery } from "@tanstack/react-query";
-import type { ChatFilters, ChatMode, ChatModel, ChatScope } from "../lib/api";
+import type {
+  ChatFilters,
+  ReasoningEffort,
+  ChatMode,
+  ChatModel,
+  ChatScope,
+} from "../lib/api";
 import { useToast } from "./ToastProvider";
 import { brand, fonts } from "../theme";
 
@@ -26,13 +32,18 @@ const MODE_LABEL: Record<ChatMode, string> = {
 
 interface ChatInputProps {
   conversationId?: string | null;
-  restoredSettings?: { model: ChatModel; mode: ChatMode };
+  restoredSettings?: {
+    model: ChatModel;
+    mode: ChatMode;
+    reasoning_effort?: ReasoningEffort;
+  };
   onSend: (
     message: string,
     filters?: ChatFilters,
     model?: ChatModel,
     mode?: ChatMode,
     debug?: boolean,
+    effort?: ReasoningEffort,
   ) => void;
   disabled: boolean;
   /** Active RAG scope for this conversation (chip + picker managed above). */
@@ -94,14 +105,23 @@ export default function ChatInput({
   const [input, setInput] = useState("");
   const [uploading, setUploading] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<string | null>(null);
-  // Two independent knobs (default: Haiku + Deep).
-  const [mode, setMode] = useState<ChatMode>("deep");
+  // New turns default to the lowest reasoning effort.
+  const [mode, setMode] = useState<ChatMode>("agentic");
+  const [effort, setEffort] = useState<ReasoningEffort>("low");
+  const [effortAnchor, setEffortAnchor] = useState<HTMLElement | null>(null);
   const [modeAnchor, setModeAnchor] = useState<null | HTMLElement>(null);
   const [model, setModel] = useState<ChatModel>("haiku");
   const selectedModel = native
     ? (rows.find((row) => row.value === model)?.resolvedModel ?? model)
     : model;
   const selectedChoice = choices.find((choice) => choice.id === selectedModel);
+  const modelEfforts = native
+    ? rows.find((row) => row.resolvedModel === selectedModel)
+        ?.supportedEffortLevels
+    : undefined;
+  const allowedEfforts = (["low", "medium", "high"] as const).filter(
+    (value) => !modelEfforts || modelEfforts.includes(value),
+  );
   const previousConversationId = useRef(conversationId);
   useEffect(() => {
     if (previousConversationId.current !== conversationId) {
@@ -109,18 +129,22 @@ export default function ChatInput({
       // Reset when switching conversations or starting a blank one.
       if (previousConversationId.current !== null || conversationId === null) {
         setModel("haiku");
+        setMode("agentic");
+        setEffort("low");
       }
       previousConversationId.current = conversationId;
     }
   }, [conversationId]);
   const restoredModel = restoredSettings?.model;
   const restoredMode = restoredSettings?.mode;
+  const restoredEffort = restoredSettings?.reasoning_effort;
   useEffect(() => {
     if (restoredModel && restoredMode) {
       setModel(restoredModel);
-      setMode(restoredMode);
+      setMode(restoredMode === "deep" ? "agentic" : restoredMode);
+      setEffort(restoredEffort ?? (restoredMode === "deep" ? "high" : "low"));
     }
-  }, [restoredModel, restoredMode]);
+  }, [restoredModel, restoredMode, restoredEffort]);
   const [modelAnchor, setModelAnchor] = useState<null | HTMLElement>(null);
   // On by default so every response gets a persisted Inspect card.
   const [debug, setDebug] = useState(true);
@@ -133,7 +157,14 @@ export default function ChatInput({
       toast.show("Choose an available model.", "error");
       return;
     }
-    onSend(trimmed, undefined, selectedModel, mode, debug);
+    if (!allowedEfforts.includes(effort)) {
+      toast.show(
+        "Choose a supported reasoning effort for this model.",
+        "error",
+      );
+      return;
+    }
+    onSend(trimmed, undefined, selectedModel, mode, debug, effort);
     setInput("");
     setUploadedFile(null);
   };
@@ -284,7 +315,7 @@ export default function ChatInput({
         )}
 
         {/* Mode chip */}
-        <Tooltip title="Mode — Plain (one-shot RAG) · Agentic (tools + loop) · Deep (+ reasoning)">
+        <Tooltip title="Mode — Plain (one-shot RAG) · Agentic (tools + iteration)">
           <Chip
             label={MODE_LABEL[mode]}
             size="small"
@@ -327,15 +358,45 @@ export default function ChatInput({
           >
             Agentic — tools + iteration
           </MenuItem>
-          <MenuItem
-            selected={mode === "deep"}
-            onClick={() => {
-              setMode("deep");
-              setModeAnchor(null);
+        </Menu>
+
+        <Tooltip title="Reasoning effort — Low is fastest; higher effort may help complex questions">
+          <Chip
+            label={`Effort: ${effort[0].toUpperCase()}${effort.slice(1)}`}
+            aria-label={`Reasoning effort: ${effort}`}
+            size="small"
+            variant="outlined"
+            disabled={disabled}
+            onClick={(event) => setEffortAnchor(event.currentTarget)}
+            sx={{
+              fontFamily: fonts.mono,
+              color: brand.purple,
+              borderColor: `${brand.purple}66`,
             }}
-          >
-            Deep — agentic + reasoning
-          </MenuItem>
+          />
+        </Tooltip>
+        <Menu
+          anchorEl={effortAnchor}
+          open={Boolean(effortAnchor)}
+          onClose={() => setEffortAnchor(null)}
+        >
+          {(["low", "medium", "high"] as const).map((value) => (
+            <MenuItem
+              key={value}
+              disabled={!allowedEfforts.includes(value)}
+              selected={effort === value}
+              onClick={() => {
+                setEffort(value);
+                setEffortAnchor(null);
+              }}
+            >
+              {value === "low"
+                ? "Low — fastest (default)"
+                : value === "medium"
+                  ? "Medium — balanced"
+                  : "High — more reasoning"}
+            </MenuItem>
+          ))}
         </Menu>
 
         {/* Model chip */}

@@ -37,10 +37,18 @@ def thinking_control(req):
             or (family == "opus" and (major, minor) >= (4, 7))
             or (family == "haiku" and (major, minor) >= (5, 5))
         )
+    explicit_effort = getattr(req, "reasoning_effort", None)
+    effort = explicit_effort or ("high" if adaptive_only and req.thinking_tokens > 0 else "low")
+    budget = req.thinking_tokens
+    if explicit_effort is not None and not adaptive_only:
+        budget = {"low": 0, "medium": 2048, "high": 4096}[effort]
+        budget = min(budget, max(0, req.max_tokens - 1))
+        if 0 < budget < 1024:
+            raise NativeError("reasoning_output_budget_too_small")
     return {
         "mode": "adaptive_effort" if adaptive_only else "fixed_budget_request",
-        "effort": "high" if adaptive_only and req.thinking_tokens > 0 else "low",
-        "requested_thinking_tokens": req.thinking_tokens,
+        "effort": effort,
+        "requested_thinking_tokens": budget,
         "fixed_thinking_budget_supported": not adaptive_only,
     }
 
@@ -70,7 +78,7 @@ class NativeRunner:
         )
         if thinking_control(req)["fixed_thinking_budget_supported"]:
             env.update(
-                MAX_THINKING_TOKENS=str(req.thinking_tokens),
+                MAX_THINKING_TOKENS=str(thinking_control(req)["requested_thinking_tokens"]),
                 CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING="1",
             )
         return env

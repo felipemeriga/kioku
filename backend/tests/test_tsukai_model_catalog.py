@@ -199,3 +199,21 @@ def test_actual_selected_id_reaches_native_completion_and_agent_policy(mode):
     assert request["profile"] == ("completion" if mode == "plain" else "chat")
     assert request["thinking_tokens"] == (2048 if mode == "deep" else 0)
     resolver.assert_called_once_with("claude-opus-current")
+
+
+def test_effort_capabilities_survive_catalog_and_unsupported_level_is_rejected():
+    value = catalog()
+    value["models"][0].update(supportsEffort=True, supportedEffortLevels=["low", "high"])
+    client = MagicMock()
+    client.models.return_value = value
+    with (
+        patch("services.ai.models.native_enabled", return_value=True),
+        patch("services.ai.models.client_for", return_value=client),
+    ):
+        exposed = chat_models("owner")
+    assert exposed["models"][0]["supportedEffortLevels"] == ["low", "high"]
+    with patch("services.ai.models.chat_models", return_value=exposed):
+        assert resolve_native_model("sonnet", "owner", "low") == "claude-sonnet-current"
+        with pytest.raises(HTTPException) as error:
+            resolve_native_model("sonnet", "owner", "medium")
+        assert error.value.status_code == 422

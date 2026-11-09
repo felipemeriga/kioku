@@ -316,3 +316,34 @@ async def test_heavy_maintenance_uses_its_separate_wall_budget(tmp_path, monkeyp
     system = argv[argv.index("--system-prompt") + 1]
     assert "Call StructuredOutput directly" in system
     assert "duplicate the document" in system
+
+
+@pytest.mark.parametrize("effort", ["low", "medium", "high"])
+async def test_explicit_effort_overrides_legacy_budget_for_adaptive_models(tmp_path, effort):
+    async def emit(*args):
+        pass
+
+    result = await NativeRunner(settings(tmp_path)).run(
+        claim(tmp_path),
+        request("INSPECT", model="claude-haiku-5-5", reasoning_effort=effort, thinking_tokens=2048),
+        emit,
+    )
+    inspected = json.loads(result["text"])
+    assert inspected["args"][inspected["args"].index("--effort") + 1] == effort
+    assert "MAX_THINKING_TOKENS" not in inspected["environment_names"]
+    assert result["usage"]["thinking_control"]["effort"] == effort
+
+
+@pytest.mark.parametrize("effort,budget", [("low", "0"), ("medium", "2048"), ("high", "4096")])
+def test_explicit_fixed_model_effort_maps_to_bounded_budget(tmp_path, effort, budget):
+    req = request(model="claude-sonnet-4-6", max_tokens=6000, reasoning_effort=effort)
+    assert NativeRunner(settings(tmp_path)).environment(req)["MAX_THINKING_TOKENS"] == budget
+
+
+def test_legacy_serialization_omits_new_field_but_explicit_effort_is_bound():
+    old = request().model_dump(mode="json")
+    assert "reasoning_effort" not in old
+    assert JobRequest.model_validate(old).model_dump(mode="json") == old
+    assert request(reasoning_effort="low").model_dump(mode="json")["reasoning_effort"] == "low"
+    with pytest.raises(ValueError):
+        request(reasoning_effort="max")

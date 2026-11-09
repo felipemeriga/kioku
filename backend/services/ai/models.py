@@ -58,6 +58,8 @@ def chat_models(owner_id: str) -> dict:
                         "description",
                         "requires_usage_credits",
                         "selectable",
+                        "supportedEffortLevels",
+                        "supportsEffort",
                     )
                 }
             )
@@ -74,7 +76,7 @@ def chat_models(owner_id: str) -> dict:
         client.close()
 
 
-def resolve_native_model(model: str, owner_id: str) -> str:
+def resolve_native_model(model: str, owner_id: str, reasoning_effort: str | None = None) -> str:
     try:
         catalog = chat_models(owner_id)
     except HTTPException:
@@ -97,5 +99,12 @@ def resolve_native_model(model: str, owner_id: str) -> str:
                 )
             if row["selectable"] is not True:
                 raise HTTPException(422, "This subscription model is currently unavailable")
+            levels = row.get("supportedEffortLevels")
+            if (
+                reasoning_effort is not None
+                and isinstance(levels, list)
+                and reasoning_effort not in levels
+            ):
+                raise HTTPException(422, "Choose a supported reasoning effort for this model")
             return row["resolvedModel"]
     raise HTTPException(422, "Choose an available subscription model from the model picker")

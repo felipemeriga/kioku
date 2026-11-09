@@ -77,8 +77,9 @@ it("offers actual subscription models, deduplicates aliases, and disables paid c
     "question",
     undefined,
     "opus-current",
-    "deep",
+    "agentic",
     true,
+    "low",
   );
 });
 
@@ -129,6 +130,7 @@ it("restores a catalog model ID from a saved execution without replacing it with
     "opus-current",
     "plain",
     true,
+    "low",
   );
 });
 
@@ -195,13 +197,14 @@ describe("ChatInput", () => {
       "Ask a question about your documents...",
     );
     await user.type(input, "test message{Enter}");
-    // defaults: Haiku + Deep + Debug on
+    // defaults: Haiku + Agentic + Low effort + Debug on
     expect(onSend).toHaveBeenCalledWith(
       "test message",
       undefined,
       "haiku",
-      "deep",
+      "agentic",
       true,
+      "low",
     );
   });
 
@@ -245,5 +248,55 @@ it("restores accepted execution model and mode for the next follow-up", async ()
     "sonnet",
     "plain",
     true,
+    "low",
   );
+});
+
+it("sends independently selected effort and resets it for another conversation", async () => {
+  const user = userEvent.setup();
+  const onSend = vi.fn();
+  const view = renderWithProviders(
+    <ChatInput conversationId="first" onSend={onSend} disabled={false} />,
+  );
+  await user.click(
+    screen.getByRole("button", { name: "Reasoning effort: low" }),
+  );
+  await user.click(
+    screen.getByRole("menuitem", { name: "High — more reasoning" }),
+  );
+  await user.type(
+    screen.getByPlaceholderText("Ask a question about your documents..."),
+    "recall{Enter}",
+  );
+  expect(onSend).toHaveBeenCalledWith(
+    "recall",
+    undefined,
+    "haiku",
+    "agentic",
+    true,
+    "high",
+  );
+  view.rerender(
+    <ChatInput conversationId="second" onSend={onSend} disabled={false} />,
+  );
+  expect(
+    screen.getByRole("button", { name: "Reasoning effort: low" }),
+  ).toBeInTheDocument();
+});
+
+it("restores medium effort and disables the selector during execution", async () => {
+  renderWithProviders(
+    <ChatInput
+      onSend={vi.fn()}
+      disabled={true}
+      restoredSettings={{
+        model: "haiku",
+        mode: "agentic",
+        reasoning_effort: "medium",
+      }}
+    />,
+  );
+  expect(
+    screen.getByRole("button", { name: "Reasoning effort: medium" }),
+  ).toHaveAttribute("aria-disabled", "true");
 });

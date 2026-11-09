@@ -89,6 +89,8 @@ def prepare_turn(
     model_resolver: Callable[[str], str] | None = None,
     operation: str | None = None,
     user_timezone: str = "UTC",
+    reasoning_effort: str | None = None,
+    legacy_effort_retry: bool = False,
 ) -> dict:
     response_started_at = datetime.now(timezone.utc).isoformat()
     sb = get_supabase_thread_safe()
@@ -111,8 +113,12 @@ def prepare_turn(
         "scope_filename": filename,
         "rebuild": rebuild,
     }
+    if reasoning_effort is not None:
+        intent["reasoning_effort"] = reasoning_effort
     if existing:
         turn = existing[0]
+        if legacy_effort_retry and "reasoning_effort" not in turn["request"]["metadata"]["intent"]:
+            intent.pop("reasoning_effort", None)
         if (
             turn["conversation_id"] != conversation_id
             or turn["request"]["metadata"]["intent"] != intent
@@ -207,6 +213,10 @@ def prepare_turn(
             "response_started_at": response_started_at,
         },
     }
+    if reasoning_effort is not None:
+        request["reasoning_effort"] = reasoning_effort
+        # Effort is a per-turn control; it must not change the tool policy.
+        request["thinking_tokens"] = 0
     if mode != "plain":
         request["conversation_id"] = conversation_id
         request["rebuild_from_committed_history"] = rebuild

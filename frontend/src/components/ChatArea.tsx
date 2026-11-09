@@ -15,6 +15,7 @@ import type {
   Message,
   ChatFilters,
   ChatMode,
+  ReasoningEffort,
   ChatModel,
   ChatScope,
   StageEvent,
@@ -23,7 +24,11 @@ import { brand, fonts } from "../theme";
 
 interface ChatAreaProps {
   conversationId?: string | null;
-  restoredSettings?: { model: ChatModel; mode: ChatMode };
+  restoredSettings?: {
+    model: ChatModel;
+    mode: ChatMode;
+    reasoning_effort?: ReasoningEffort;
+  };
   messagesLoading?: boolean;
   messagesError?: string | null;
   onRetryMessages?: () => void;
@@ -37,6 +42,7 @@ interface ChatAreaProps {
     model?: ChatModel,
     mode?: ChatMode,
     debug?: boolean,
+    effort?: ReasoningEffort,
   ) => void;
   scope?: ChatScope | null;
   onPickScope?: () => void;
