@@ -48,6 +48,11 @@ def chat_models(owner_id: str) -> dict:
                 isinstance(row.get(key), bool) for key in ("requires_usage_credits", "selectable")
             ):
                 raise ValueError("Invalid model eligibility")
+            levels = row.get("supportedEffortLevels")
+            if levels is not None and (
+                not isinstance(levels, list) or any(not isinstance(level, str) for level in levels)
+            ):
+                raise ValueError("Invalid effort capabilities")
             rows.append(
                 {
                     key: row.get(key)
@@ -65,6 +70,7 @@ def chat_models(owner_id: str) -> dict:
             )
         return {
             "engine": "tsukai",
+            "request_controls": catalog.get("request_controls", {}),
             "models": rows,
             "cli_version": catalog.get("cli_version"),
             "fetched_at": catalog.get("fetched_at"),
@@ -82,11 +88,16 @@ def resolve_native_model(model: str, owner_id: str, reasoning_effort: str | None
     except HTTPException:
         # Retain the previously supported fixed legacy routes only. New model
         # IDs require a successful authenticated catalog lookup, never guessing.
-        if model in {"haiku", "sonnet"}:
+        if reasoning_effort is None and model in {"haiku", "sonnet"}:
             return MODEL_FOR_TASK[Task.RAG_AGENT_SONNET if model == "sonnet" else Task.RAG_AGENT]
         raise
+    controls = catalog.get("request_controls") or {}
+    if reasoning_effort is not None and reasoning_effort not in controls.get(
+        "reasoning_effort", []
+    ):
+        raise HTTPException(503, "Reasoning controls are updating. Please try again shortly.")
     if catalog.get("stale"):
-        if model in {"haiku", "sonnet"}:
+        if reasoning_effort is None and model in {"haiku", "sonnet"}:
             return MODEL_FOR_TASK[Task.RAG_AGENT_SONNET if model == "sonnet" else Task.RAG_AGENT]
         raise HTTPException(503, "Refresh the native model catalog before choosing this model")
     for row in catalog["models"]:

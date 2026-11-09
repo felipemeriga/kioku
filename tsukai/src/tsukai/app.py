@@ -170,7 +170,10 @@ def create_app(settings=None, store=None, native=None):
         ):
             raise HTTPException(403, "model_catalog_capability_required")
         try:
-            return await model_catalog.get()
+            return {
+                **await model_catalog.get(),
+                "request_controls": {"reasoning_effort": ["low", "medium", "high"]},
+            }
         except CatalogUnavailable:
             raise HTTPException(503, "model_catalog_unavailable") from None
 

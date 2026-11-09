@@ -765,6 +765,7 @@ async def test_model_catalog_requires_exact_owner_capability_and_never_admits_a_
     response = await client.get("/v1/models", headers=auth)
     assert response.status_code == 200
     assert response.json()["models"][1]["selectable"] is False
+    assert response.json()["request_controls"] == {"reasoning_effort": ["low", "medium", "high"]}
     assert "private@example.com" not in response.text
     assert app.state.model_catalog.discover.await_count == 1
     await client.get("/v1/models", headers=auth)
@@ -788,6 +789,7 @@ async def test_catalog_admits_resolved_subscription_ids_but_never_usage_credit_m
                     "resolvedModel": "claude-opus-5-5",
                     "displayName": "Opus",
                     "description": "Opus 5.5",
+                    "supportedEffortLevels": ["low", "high"],
                 },
                 {
                     "value": "fable",
@@ -807,6 +809,12 @@ async def test_catalog_admits_resolved_subscription_ids_but_never_usage_credit_m
     accepted = await client.post("/v1/jobs", json=payload, headers=headers(settings, payload))
     assert accepted.status_code == 202
     await terminal(client, accepted.json()["result_url"], headers(settings, payload))
+    unsupported_effort = body(model="claude-opus-5-5", reasoning_effort="medium")
+    denied_effort = await client.post(
+        "/v1/jobs", json=unsupported_effort, headers=headers(settings, unsupported_effort)
+    )
+    assert denied_effort.status_code == 422
+    assert denied_effort.json()["detail"] == "unsupported_reasoning_effort"
     for model in ("claude-fable-5-1", "unrecognized", "opus"):
         denied = body(
             profile=profile, model=model, conversation_id="denied" if profile == "chat" else None

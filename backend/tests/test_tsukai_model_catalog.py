@@ -9,6 +9,7 @@ from services.ai.models import chat_models, chat_operation, resolve_native_model
 def catalog():
     return {
         "schema_version": 1,
+        "request_controls": {"reasoning_effort": ["low", "medium", "high"]},
         "models": [
             {
                 "value": alias,
@@ -217,3 +218,16 @@ def test_effort_capabilities_survive_catalog_and_unsupported_level_is_rejected()
         with pytest.raises(HTTPException) as error:
             resolve_native_model("sonnet", "owner", "medium")
         assert error.value.status_code == 422
+
+
+def test_mixed_version_runner_is_rejected_before_new_effort_request_can_be_prepared():
+    value = catalog()
+    value.pop("request_controls")
+    with patch("services.ai.models.chat_models", return_value=value):
+        with pytest.raises(HTTPException) as error:
+            resolve_native_model("haiku", "owner", "low")
+        assert error.value.status_code == 503
+        assert resolve_native_model("haiku", "owner").startswith("claude-haiku-")
+    with patch("services.ai.models.chat_models", side_effect=HTTPException(503, "unavailable")):
+        with pytest.raises(HTTPException):
+            resolve_native_model("haiku", "owner", "high")
