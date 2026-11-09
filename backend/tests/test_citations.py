@@ -1,6 +1,8 @@
 import unittest
 from unittest.mock import patch
 
+import pytest
+
 
 class TestCitationRegistry(unittest.TestCase):
     def _doc(self, source, content="body", **meta):
@@ -292,7 +294,8 @@ def test_url_enrichment_preserves_legacy_partial_citations():
     assert not sb.calls
 
 
-def test_full_debug_reuses_the_durable_header_citation_without_another_registration():
+@pytest.mark.parametrize("batch", [False, True])
+def test_full_debug_reuses_the_durable_header_citation_without_another_registration(batch):
     from unittest.mock import MagicMock
 
     from services.tools import execute_tool
@@ -308,8 +311,10 @@ def test_full_debug_reuses_the_durable_header_citation_without_another_registrat
     query.execute.return_value.data = [
         {"id": "chunk", "folder_id": "folder", "file": "pkg/scores.py", "file_hash": "revision"}
     ]
-    registry = MagicMock(spec=["register"])
+    registry = MagicMock(spec=["register", "register_many"] if batch else ["register"])
     registry.register.return_value = 7
+    if batch:
+        registry.register_many.return_value = [7]
     debug = []
     with (
         patch("services.tools.embed_query", return_value=[0.0]),
@@ -325,7 +330,11 @@ def test_full_debug_reuses_the_durable_header_citation_without_another_registrat
             debug_retrieval=debug,
             full_debug=True,
         )
-    registry.register.assert_called_once_with(result)
+    if batch:
+        registry.register_many.assert_called_once_with([result])
+        registry.register.assert_not_called()
+    else:
+        registry.register.assert_called_once_with(result)
     assert text.startswith("[7] Code:")
     assert debug[0]["citation_number"] == 7
     assert debug[0]["metadata"]["revision_id"] == "revision"
