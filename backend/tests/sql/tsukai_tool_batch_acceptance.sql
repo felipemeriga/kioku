@@ -1,6 +1,12 @@
 DO $$
 DECLARE batch jsonb := '[{"source_key":"a","source":{}},{"source_key":"b","source":{}},{"source_key":"a","source":{}}]';
 BEGIN
+ IF EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+   WHERE n.nspname='public' AND p.proname LIKE 'tsukai_%' AND p.prosecdef
+   AND (has_function_privilege('anon',p.oid,'EXECUTE')
+     OR has_function_privilege('authenticated',p.oid,'EXECUTE'))) THEN
+  RAISE EXCEPTION 'internal definer function exposed to clients';
+ END IF;
  IF has_function_privilege('anon','public.tsukai_register_citation(text,text,text,jsonb)','EXECUTE')
  OR has_function_privilege('authenticated','public.tsukai_register_citation(text,text,text,jsonb)','EXECUTE') THEN
   RAISE EXCEPTION 'legacy allocator exposed to clients';
