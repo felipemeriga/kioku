@@ -3,7 +3,9 @@
 import asyncio
 import json
 import time
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
+from threading import Barrier
 from unittest.mock import patch
 
 import jwt
@@ -147,6 +149,89 @@ def test_tools_only_capabilities_keep_all_seven_tools_and_auth(monkeypatch):
         assert client.post("/mcp/", json={}).status_code == 401
         verify.side_effect = HTTPException(403, "Inactive native tool attempt")
         assert rpc(client, headers, "initialize").status_code == 403
+    assert native_tools._authority.get() is None
+
+
+def test_domain_reads_advertise_parallel_safe_annotations_on_wire(monkeypatch):
+    server = native_tools.create_native_mcp(runner=lambda _name, _arguments: "fixture")
+    app, headers, turn, grant = client_fixture(server, monkeypatch)
+    with (
+        patch.object(native_tools, "owned_turn", return_value=turn),
+        patch.object(native_tools, "verify_attempt", return_value=grant),
+        TestClient(app) as client,
+    ):
+        tools = frame(rpc(client, headers, "tools/list"))["result"]["tools"]
+    reads = {
+        "knowledge_base_search",
+        "code_graph_lookup",
+        "recent_changes",
+        "search_agent_history",
+        "read_agent_evidence",
+    }
+    assert {tool["name"] for tool in tools} == reads | {
+        "query_documents_metadata",
+        "web_search",
+    }
+    for tool in tools:
+        if tool["name"] in reads:
+            assert tool["annotations"]["readOnlyHint"] is True
+            assert tool["annotations"]["destructiveHint"] is False
+            assert tool["annotations"]["openWorldHint"] is False
+        else:
+            assert tool.get("annotations") is None
+
+
+def test_authenticated_independent_read_calls_can_overlap(monkeypatch):
+    entered = Barrier(2)
+
+    def runner(_name, arguments):
+        authority = native_tools._authority.get()
+        owner = authority["owner_id"]
+        folders = ",".join(authority["folder_ids"])
+        entered.wait(timeout=5)
+        return owner + ":" + folders + ":" + arguments["query"]
+
+    server = native_tools.create_native_mcp(runner=runner)
+    app, headers, turn, grant = client_fixture(server, monkeypatch)
+    other_grant = {**grant, "owner_id": "other-owner", "folder_ids": ["other-folder"]}
+    other_headers = {
+        **headers,
+        "Authorization": "Bearer "
+        + jwt.encode(
+            other_grant, "isolated-fixture-key-with-at-least-thirty-two-bytes", algorithm="HS256"
+        ),
+    }
+
+    def owned(owner, *, job_id):
+        return {**turn, "owner": owner}
+
+    def verified(owned_turn, _attempt):
+        return other_grant if owned_turn["owner"] == "other-owner" else grant
+
+    with (
+        patch.object(native_tools, "owned_turn", side_effect=owned),
+        patch.object(native_tools, "verify_attempt", side_effect=verified) as verify,
+        TestClient(app) as client,
+        ThreadPoolExecutor(max_workers=2) as pool,
+    ):
+
+        def invoke(item):
+            query, request_headers = item
+            return frame(
+                rpc(
+                    client,
+                    request_headers,
+                    "tools/call",
+                    {"name": "knowledge_base_search", "arguments": {"query": query}},
+                )
+            )["result"]
+
+        results = list(pool.map(invoke, [("first", headers), ("second", other_headers)]))
+        assert [result["content"][0]["text"] for result in results] == [
+            "owner:folder:first",
+            "other-owner:other-folder:second",
+        ]
+        assert verify.call_count == 2
     assert native_tools._authority.get() is None
 
 

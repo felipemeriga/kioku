@@ -494,7 +494,17 @@ def create_native_mcp(*, server=None, runner=None) -> FastMCP | ToolsOnlyMCP:
     ):
         annotations = (
             ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False)
-            if tool.__name__ in {"search_agent_history", "read_agent_evidence"}
+            # Claude Code otherwise serializes even independent calls. These tools
+            # read domain data; citation and trace writes are internal bookkeeping.
+            # https://code.claude.com/docs/en/mcp#mark-tools-that-are-safe-to-call-twice
+            if tool.__name__
+            in {
+                "knowledge_base_search",
+                "code_graph_lookup",
+                "recent_changes",
+                "search_agent_history",
+                "read_agent_evidence",
+            }
             else None
         )
         server.add_tool(_redirect_tool(tool, runner) if runner else tool, annotations=annotations)

@@ -4,7 +4,8 @@ import json
 
 from langsmith import traceable
 
-from db.client import get_supabase, get_supabase_thread_safe
+from db.client import get_supabase_thread_safe
+from db.client import get_supabase_thread_safe as get_supabase
 from services.agent_memory_tools import DEFINITIONS as MEMORY_TOOL_DEFINITIONS
 from services.citations import CitationRegistry
 from services.embeddings import embed_query
