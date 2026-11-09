@@ -255,6 +255,7 @@ async def run(args, *, transport=None):
         output / "run.json",
         {
             "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
+            "harness_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
             "api_base": api_base,
             "workers": args.workers,
             "deployment_proof": proof,
@@ -273,6 +274,7 @@ async def run(args, *, transport=None):
         preflight = await client.get("/api/chat/models")
         if preflight.status_code != 200:
             raise ValueError(f"Auth/catalog preflight HTTP {preflight.status_code}")
+        private_json(output / "model-catalog.json", preflight.json())
         semaphore = asyncio.Semaphore(args.workers)
         results = []
 
