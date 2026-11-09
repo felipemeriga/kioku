@@ -271,46 +271,67 @@ def prepare_turn(
         # A concurrent candidate for the same logical turn must never share evidence.
         candidate_id = str(uuid4())
         request["metadata"]["bootstrap_namespace"] = candidate_id
+        from services.evidence_prefetch import history_question, prefetch
+
+        source_folders = []
+        if not filename and history_question(content):
+            source_folders = (
+                sb.table("folders")
+                .select("id,name")
+                .eq("user_id", owner_id)
+                .in_("id", folders)
+                .execute()
+                .data
+                or []
+            )
+
         retrieval = []
-        evidence = execute_tool(
-            "knowledge_base_search",
-            {"query": content},
-            owner_id,
-            fast_mode=True,
-            scope_folder_ids=folders,
-            scope_filename=filename,
-            debug_retrieval=retrieval,
-            citations=DurableCitations(candidate_id, "bootstrap", owner_id, conversation_id),
-            full_debug=True,
+        timings = []
+
+        def retrieve(name, arguments):
+            began = datetime.now(timezone.utc).isoformat()
+            value = execute_tool(
+                name,
+                arguments,
+                owner_id,
+                fast_mode=True,
+                scope_folder_ids=folders,
+                scope_filename=filename,
+                debug_retrieval=retrieval,
+                citations=DurableCitations(candidate_id, "bootstrap", owner_id, conversation_id),
+                full_debug=True,
+            )
+            timings.append(
+                {
+                    "name": name,
+                    "input": arguments,
+                    "started_at": began,
+                    "finished_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            return value
+
+        evidence, calls = prefetch(
+            content, user_timezone, retrieve, filename=filename, folders=source_folders
         )
-        request["prompt"] = json.dumps(
-            {
-                "canonical_history": history[-60:],
-                "user_message": content,
-                "time_context": time_context,
-                "evidence_namespace": turn_id,
-                "current_turn_evidence": evidence,
-                "citation_instruction": (
-                    "Use only this turn's evidence or new Kioku tool results for citations. "
-                    "Previous session citation numbers are not evidence for this turn. "
-                    "Search again when this initial evidence does not answer the question."
-                ),
-            },
-            ensure_ascii=False,
-        )
+        if not calls:
+            # Explicit no-tool requests need no MCP connection or capability exchange.
+            request["tool_allowlist"] = []
+            request.pop("tool_capability_ref", None)
         save_trace(
             owner_id,
             candidate_id,
             "bootstrap",
             folders,
             {
-                "name": "knowledge_base_search",
+                "name": calls[0]["name"] if len(calls) == 1 else "evidence_prefetch",
                 "origin": "backend_bootstrap",
                 "input": {"query": content},
                 "native_call_id": None,
-                "native_call_id_unavailable_reason": "Backend initial retrieval before CLI launch",
+                "native_call_id_unavailable_reason": "Backend retrieval before CLI launch",
                 "conversation_id": conversation_id,
                 "query": content,
+                "retrieval_calls": timings,
                 "effective_scope": {
                     "user_id": owner_id,
                     "folder_ids": folders,
@@ -320,6 +341,21 @@ def prepare_turn(
                 "sources": retrieval,
             },
             evidence,
+        )
+        request["prompt"] = json.dumps(
+            {
+                "canonical_history": history[-60:],
+                "user_message": content,
+                "time_context": time_context,
+                "evidence_namespace": turn_id,
+                "current_turn_evidence": evidence,
+                "citation_instruction": (
+                    "This evidence was already retrieved for the current turn. Answer directly "
+                    "when it supports the request; use tools only for a specific remaining gap. "
+                    "Cite only current evidence or new tool results, never prior citation numbers."
+                ),
+            },
+            ensure_ascii=False,
         )
     try:
         return (

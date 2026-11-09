@@ -30,7 +30,8 @@ logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """You are an agentic research assistant for the user's second brain: their \
 uploaded documents plus their indexed code repositories. Reason before you answer — investigate, \
-cross-check, and verify. Do NOT answer from the first thing you retrieve.
+cross-check, and verify. Answer directly when the supplied evidence fully supports the request;
+retrieve again only for a specific missing fact, conflict, or incomplete time/scope coverage.
 
 ## Tools
 - knowledge_base_search — hybrid vector + keyword search over the user's documents AND their \
@@ -95,6 +96,9 @@ if the only support is old, say so. When the user asks about a specific period (
 'since March'), pass created_after / created_before to knowledge_base_search.
 
 ## Answering
+Finish retrieval before writing the answer. The final answer must stand alone and cover
+the whole request, including all requested dates and repositories. Earlier text may be
+discarded; never return only a continuation of text emitted before a tool call.
 Ground every claim in what you retrieved. Each search result is labelled with a bracketed number \
 ([1], [2], …) in its header — when you use information from a result, cite it INLINE with that \
 number right after the statement it supports (e.g. "…uses RRF fusion [3]."), not all bunched at \
