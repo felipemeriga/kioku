@@ -106,6 +106,9 @@ def metrics(state, question, gold, audit):
         "effort_verified": (state.get("verified_control") or {}).get("effort")
         == state["effort"],
         "server_seconds": (debug.get("timings") or {}).get("total_seconds"),
+        "http_response_seconds": (state.get("transport") or {}).get("http_seconds")
+        if not state.get("transport_resumed")
+        else None,
         "runner_seconds": sum(a.get("elapsed_seconds", 0) for a in attempts)
         if attempts
         else None,
@@ -176,6 +179,7 @@ def quality_by_kind(rows):
 def aggregate(rows):
     measured = [
         "server_seconds",
+        "http_response_seconds",
         "runner_seconds",
         "first_text_seconds",
         "queue_seconds",
@@ -265,9 +269,13 @@ def comparison_table(summary):
             "Completed trials",
             lambda e: f"{summary[e]['completed']} / {summary[e]['trials']}",
         ),
+        (
+            "Response median (uninterrupted HTTP)",
+            lambda e: timing(e, "http_response_seconds"),
+        ),
         ("Runner median", lambda e: timing(e, "runner_seconds")),
         ("Runner p95", lambda e: timing(e, "runner_seconds", "p95")),
-        ("First text median", lambda e: timing(e, "first_text_seconds")),
+        ("First native text median", lambda e: timing(e, "first_text_seconds")),
         ("Observed tool time median", lambda e: timing(e, "tool_union_seconds")),
         (
             "Manual quality score",
@@ -332,12 +340,13 @@ def main():
     data = json.dumps(rows).replace("<", "\\u003c")
     totals = html.escape(json.dumps(summary, indent=2))
     comparison = comparison_table(summary)
+    progress = f"{len(rows)} of {len(json.loads((args.run / 'plan.json').read_text()))} trials exported; {sum(row['audit'] is not None for row in rows)} manually audited."
     page = (
         """<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Recall effort benchmark</title>
 <style>body{margin:0;background:#0b0812;color:#eee8f5;font:15px system-ui}main{max-width:1400px;margin:auto;padding:36px}h1{font-size:30px}p,small{color:#b8adc6}button,select{background:#21172f;color:inherit;border:1px solid #68507e;border-radius:6px;padding:10px}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px ui-monospace;line-height:1.6}table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:12px;border-bottom:1px solid #49345f}th:nth-child(2){color:#29cedb}th:nth-child(3){color:#ee269d}section{background:#140e20;border:1px solid #49345f;border-radius:10px;margin:20px 0;padding:20px}.pair{display:grid;grid-template-columns:1fr 1fr;gap:18px}.answer{border-top:3px solid #29cedb;padding:16px;background:#191123;min-width:0}.answer.high{border-color:#ee269d}.answer pre{font:14px system-ui;line-height:1.7}.meta{color:#8de1d6}summary{cursor:pointer}label{display:inline-block;margin-right:18px}@media(max-width:700px){main{padding:18px}.pair{grid-template-columns:1fr}}</style>
-<main><small>KIOKU / RECALL EVALUATION</small><h1>Reasoning effort: speed and evidence</h1>
+<main><small>KIOKU / RECALL EVALUATION</small><h1>Reasoning effort: speed and evidence</h1><p>RUN_PROGRESS</p>
 <p>Actual native subscription runs. Low and High use the same model, scope, tool limits and output budget. Failed trials remain in the results. Queue time, model runtime and overlapping tool intervals are reported separately.</p>
-<p>Anchor hits and topic-probe recall@50/MRR@50/nDCG@10 measure discovery of known original records in first-appearance tool-trace order; they do not establish factual accuracy or form a complete relevance judgment for the live archive. Citation-number resolution does not prove that a source supports a claim. Manual audits are reported separately. Missing timing values are never replaced with zero.</p>
+<p>Anchor hits and topic-probe recall@50/MRR@50/nDCG@10 measure discovery of known original records in first-appearance tool-trace order; they do not establish factual accuracy or form a complete relevance judgment for the live archive. Citation-number resolution does not prove that a source supports a claim. Manual audits are reported separately. Missing timing values are never replaced with zero. HTTP timing excludes buffered/reconnected pilot streams; durable runner timing includes the recovered timeout. First native text can be a progress preamble rather than the useful answer.</p>
 COMPARISON<label>Question <select id="question"><option value="">All questions</option></select></label><label>Show <select id="status"><option value="">All trials</option><option value="failure">Execution failures</option><option value="audited">Manually audited</option></select></label>
 <div id="cases"></div><section><details><summary>Aggregate metrics and sample sizes</summary><pre>SUMMARY</pre></details></section></main>
 <script id="data" type="application/json">DATA</script><script>
@@ -347,6 +356,7 @@ const fmt=v=>Number.isFinite(v)?v.toFixed(1):'unavailable';
 const esc=v=>String(v??'unavailable').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function render(){const groups=new Map();for(const r of rows){if(select.value&&r.case!==select.value)continue;if(status.value==='failure'&&r.success)continue;if(status.value==='audited'&&!r.audit)continue;const g=groups.get(r.pair)||[];g.push(r);groups.set(r.pair,g)}document.getElementById('cases').innerHTML=[...groups].map(([n,rs])=>`<section><h2>${esc(rs[0].case)} <small>Pair ${n+1}</small></h2><p>${esc(rs[0].question)}</p><div class="pair">${rs.sort((a,b)=>a.effort==='low'?-1:b.effort==='low'?1:0).map(r=>`<article class="answer ${r.effort}"><h3>${esc(r.effort.toUpperCase())} · ${r.success?'Completed':'Failed'}</h3><div class="meta">Runner ${fmt(r.runner_seconds)}s · Tools ${fmt(r.tool_union_seconds)}s · ${r.search_calls} searches / ${r.read_calls} reads</div><p>${r.audit?esc(r.audit.verdict+': '+r.audit.note):'Factual audit pending'}</p><pre>${esc(r.answer || (r.error_code ? "No answer: " + r.error_code : "No durable answer"))}</pre><details><summary>Cited evidence (${r.citations.length})</summary>${r.citations.map(c=>`<p>[${c.number}] ${esc(c.source)}</p><pre>${esc(c.excerpt)}</pre>`).join('')}</details><details><summary>Search strategy</summary><pre>${esc(JSON.stringify(r.queries,null,2))}</pre></details></article>`).join('')}</div></section>`).join('')}
 select.onchange=status.onchange=render;render();</script>""".replace("SUMMARY", totals)
+        .replace("RUN_PROGRESS", progress)
         .replace("COMPARISON", comparison)
         .replace("DATA", data)
     )
