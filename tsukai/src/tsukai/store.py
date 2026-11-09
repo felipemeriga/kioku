@@ -784,16 +784,42 @@ class Store:
 
     async def scope_deleted(self, owner_id, conversation_id=None):
         async with self.engine.connect() as conn:
-            return (
-                await conn.execute(
-                    select(tombstones.c.id).where(
-                        tombstones.c.owner_sha256 == self.hash_id(owner_id),
-                        tombstones.c.conversation_sha256.in_(
-                            ["*", self.hash_id(conversation_id or "")]
-                        ),
+            return await self._scope_deleted(conn, owner_id, conversation_id)
+
+    async def _scope_deleted(self, conn, owner_id, conversation_id=None):
+        return (
+            await conn.execute(
+                select(tombstones.c.id).where(
+                    tombstones.c.owner_sha256 == self.hash_id(owner_id),
+                    tombstones.c.conversation_sha256.in_(
+                        ["*", self.hash_id(conversation_id or "")]
+                    ),
+                )
+            )
+        ).first() is not None
+
+    async def get_for_access(self, job_id, owner_id):
+        """Read live ownership and deletion state using one connection checkout.
+
+        This is not a cache or an authorization shortcut: callers must still
+        validate the capability against the returned request, and writes retain
+        their independent fenced transaction.
+        """
+        async with self.engine.connect() as conn:
+            row = (
+                (
+                    await conn.execute(
+                        select(jobs).where(jobs.c.id == job_id, jobs.c.owner_id == owner_id)
                     )
                 )
-            ).first() is not None
+                .mappings()
+                .first()
+            )
+            if row is None:
+                return None, False
+            job = dict(row)
+            deleted = await self._scope_deleted(conn, owner_id, job["conversation_id"])
+            return job, deleted
 
     async def begin_deletion(self, owner_id, conversation_id=None):
         owner_hash = self.hash_id(owner_id)

@@ -61,10 +61,10 @@ def create_app(settings=None, store=None, native=None):
 
     async def scoped_job(request, job_id):
         cap = capability(request, settings)
-        job = await store.get(job_id)
-        if job is None or job["owner_id"] != cap.owner_id:
+        job, deleted = await store.get_for_access(job_id, cap.owner_id)
+        if job is None:
             raise HTTPException(404, "job_not_found")
-        if await store.scope_deleted(job["owner_id"], job["conversation_id"]):
+        if deleted:
             raise HTTPException(410, "execution_scope_deleted")
         authorize(cap, JobRequest.model_validate(job["request"]))
         return cap, job
