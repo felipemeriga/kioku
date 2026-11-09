@@ -134,3 +134,18 @@ async def test_second_event_failure_rolls_back_the_whole_batch(batch_context, st
     monkeypatch.setattr(store, "_event", original)
     with pytest.raises(Fenced, match="unknown_attempt"):
         await store.tool_events("foreign-job", attempt["id"], [("tool.completed", {})])
+
+
+async def test_active_attempt_endpoint_keeps_live_scope_and_revocation_checks(batch_context, store):
+    client, settings, payload, job, attempt = batch_context
+    path = f"/v1/jobs/{job['id']}/attempts/{attempt['id']}"
+    response = await client.get(path, headers=headers(settings, payload))
+    assert response.status_code == 200 and response.json()["active"] is True
+    assert (
+        await client.get(path, headers=headers(settings, payload, owner_id="other"))
+    ).status_code == 404
+    assert (
+        await client.get(path, headers=headers(settings, payload, folder_ids=["foreign"]))
+    ).status_code == 403
+    await store.begin_deletion("owner", "conversation")
+    assert (await client.get(path, headers=headers(settings, payload))).status_code == 410

@@ -806,20 +806,42 @@ class Store:
         their independent fenced transaction.
         """
         async with self.engine.connect() as conn:
+            return await self._get_for_access(conn, job_id, owner_id)
+
+    async def _get_for_access(self, conn, job_id, owner_id):
+        row = (
+            (
+                await conn.execute(
+                    select(jobs).where(jobs.c.id == job_id, jobs.c.owner_id == owner_id)
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if row is None:
+            return None, False
+        job = dict(row)
+        deleted = await self._scope_deleted(conn, owner_id, job["conversation_id"])
+        return job, deleted
+
+    async def get_attempt_for_access(self, job_id, owner_id, attempt_id):
+        """Keep the active-attempt read on the same live access-check connection."""
+        async with self.engine.connect() as conn:
+            job, deleted = await self._get_for_access(conn, job_id, owner_id)
+            if job is None or deleted:
+                return job, deleted, None
             row = (
                 (
                     await conn.execute(
-                        select(jobs).where(jobs.c.id == job_id, jobs.c.owner_id == owner_id)
+                        select(attempts).where(
+                            attempts.c.id == attempt_id, attempts.c.job_id == job_id
+                        )
                     )
                 )
                 .mappings()
                 .first()
             )
-            if row is None:
-                return None, False
-            job = dict(row)
-            deleted = await self._scope_deleted(conn, owner_id, job["conversation_id"])
-            return job, deleted
+            return job, deleted, dict(row) if row else None
 
     async def begin_deletion(self, owner_id, conversation_id=None):
         owner_hash = self.hash_id(owner_id)

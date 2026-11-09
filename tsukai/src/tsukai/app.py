@@ -8,7 +8,6 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import Field, ValidationError
-from sqlalchemy import select
 
 from .auth import authorize, capability, service_auth
 from .config import Settings
@@ -16,7 +15,6 @@ from .models import CatalogUnavailable, ModelCatalog
 from .protocol import TERMINAL, Ack, JobRequest, StrictModel
 from .scheduler import Scheduler
 from .store import Conflict, Store
-from .tables import attempts
 
 
 class ToolEventData(StrictModel):
@@ -67,14 +65,24 @@ def create_app(settings=None, store=None, native=None):
         status = 410 if code == "replay_expired" else 503 if code == "queue_full" else 409
         return JSONResponse({"error": {"code": code}}, status_code=status)
 
-    async def scoped_job(request, job_id):
+    async def scoped_state(request, job_id, attempt_id=None):
         cap = capability(request, settings)
-        job, deleted = await store.get_for_access(job_id, cap.owner_id)
+        attempt = None
+        if attempt_id is None:
+            job, deleted = await store.get_for_access(job_id, cap.owner_id)
+        else:
+            job, deleted, attempt = await store.get_attempt_for_access(
+                job_id, cap.owner_id, attempt_id
+            )
         if job is None:
             raise HTTPException(404, "job_not_found")
         if deleted:
             raise HTTPException(410, "execution_scope_deleted")
         authorize(cap, JobRequest.model_validate(job["request"]))
+        return cap, job, attempt
+
+    async def scoped_job(request, job_id):
+        cap, job, _ = await scoped_state(request, job_id)
         return cap, job
 
     @app.get("/health/live")
@@ -352,21 +360,9 @@ def create_app(settings=None, store=None, native=None):
 
     @app.get("/v1/jobs/{job_id}/attempts/{attempt_id}")
     async def active_attempt(job_id: str, attempt_id: str, request: Request):
-        cap, job = await scoped_job(request, job_id)
+        cap, job, attempt = await scoped_state(request, job_id, attempt_id)
         if cap.sub != "backend":
             raise HTTPException(403, "backend_only")
-        async with store.engine.connect() as conn:
-            attempt = (
-                (
-                    await conn.execute(
-                        select(attempts).where(
-                            attempts.c.id == attempt_id, attempts.c.job_id == job_id
-                        )
-                    )
-                )
-                .mappings()
-                .first()
-            )
         active = bool(
             attempt
             and attempt["status"] == "running"
