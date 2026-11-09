@@ -154,10 +154,41 @@ def prefetch(question, user_timezone, execute, *, filename=None, folders=()):
         )
     expansions = []
     if not overview:
+        from services.agent_memory import technical_terms
+
+        # Dated reports supply concrete navigation anchors for a later status
+        # check. Keep the original scope/cutoff; journals themselves are reports,
+        # not proof that a command ran or a deployment happened.
+        reports = (first.get("activity") or {}).get("days", [])[:2]
+        anchors = sorted(
+            {
+                t
+                for report in reports
+                for t in technical_terms(report.get("summary", ""))
+                if "_" in t or t.isdigit() or (len(t) >= 5 and t.isalpha())
+            }
+        )[:8]
+        followup = {}
+        if anchors:
+            focused = " ".join("#" + t if t.isdigit() else t.upper() for t in anchors)
+            followup = decoded(
+                run(
+                    "search_agent_history",
+                    {
+                        **args,
+                        "query": focused,
+                        "order": "latest",
+                        "limit": 5,
+                    },
+                )
+            )
+            pages.append(followup)
         # Read actual context, not only discovery excerpts. No new search scope
         # is invented; signed references retain their original temporal bounds.
         seen = set()
-        for match in first.get("matches", []):
+        primary = first.get("matches", [])
+        candidates = primary[:1] + followup.get("matches", [])[:1] + primary[1:]
+        for match in candidates:
             # Native archives can contain the same message in both an event
             # stream and a response record. Preserve both locators in search,
             # but spend the bounded expansion budget on distinct context.

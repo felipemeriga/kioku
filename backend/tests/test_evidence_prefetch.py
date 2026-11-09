@@ -95,6 +95,40 @@ def test_duplicate_transcript_projections_do_not_consume_both_expansions():
     assert expanded == ["event", "distinct"]
 
 
+def test_journal_identifiers_focus_a_latest_original_check_without_changing_scope():
+    calls = []
+
+    def execute(name, args):
+        calls.append((name, args))
+        if name == "search_agent_history":
+            if args["order"] == "latest":
+                return json.dumps({"matches": [{"reference": "latest", "excerpt": "merged"}]})
+            return json.dumps(
+                {
+                    "matches": [{"reference": "initial", "excerpt": "draft"}],
+                    "activity": {"days": [{"summary": "Updated PR #476 to GOMEMLIMIT=4GiB."}]},
+                }
+            )
+        return json.dumps({"evidence": []})
+
+    prefetch(
+        "In payments-repo, what setting did we choose on November 6, 2026?",
+        "UTC",
+        execute,
+        folders=[{"id": "authorized-folder", "name": "payments-repo"}],
+    )
+    searches = [a for name, a in calls if name == "search_agent_history"]
+    assert len(searches) == 2
+    initial, latest = searches
+    assert latest["query"] == "#476 GOMEMLIMIT" and latest["order"] == "latest"
+    for key in ["folder", "timezone", "from_date", "through_date"]:
+        assert latest[key] == initial[key]
+    assert [a["reference"] for name, a in calls if name == "read_agent_evidence"] == [
+        "initial",
+        "latest",
+    ]
+
+
 def test_history_is_prefetched_with_expansion_and_only_an_authorized_named_folder():
     calls = []
 
