@@ -451,7 +451,8 @@ export default function ChatPage() {
           false,
           execution,
           controller.signal,
-          execution.reasoning_effort,
+          execution.reasoning_effort ??
+            (execution.mode === "deep" ? "high" : "low"),
         );
       } catch (error) {
         if (current()) {
@@ -514,7 +515,9 @@ export default function ChatPage() {
       },
       model: execution.model,
       mode: execution.mode,
-      effort: execution.reasoning_effort,
+      effort:
+        execution.reasoning_effort ??
+        (execution.mode === "deep" ? "high" : "low"),
       debug: true,
     });
     setPendingRecovery(null);

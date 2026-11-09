@@ -3,10 +3,11 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "../test/renderWithProviders";
 import ChatPage from "./ChatPage";
-import { ApiError } from "../lib/api";
+import { ApiError, type NativeChatExecution } from "../lib/api";
 
 const fixtures = vi.hoisted(() => ({
   stream: vi.fn(),
+  execution: undefined as NativeChatExecution | undefined,
   messages: [
     {
       id: "saved",
@@ -27,6 +28,7 @@ vi.mock("../lib/api", async (original) => ({
 vi.mock("../hooks/useConversationsContext", () => ({
   useConversationsContext: () => ({
     selectedId: "conversation",
+    activeExecution: fixtures.execution,
     messages: fixtures.messages,
     setMessages: fixtures.setMessages,
     conversationsLoading: false,
@@ -46,13 +48,23 @@ vi.mock("../components/ChatArea", () => ({
       <span>{props.currentStage?.detail}</span>
       <button
         onClick={() =>
-          props.onSend("Follow-up question", undefined, "sonnet", "deep", true)
+          props.onSend(
+            "Follow-up question",
+            undefined,
+            "sonnet",
+            "agentic",
+            true,
+            "high",
+          )
         }
       >
         Send selected mode
       </button>
     </>
   ),
+}));
+vi.mock("../hooks/useAuth", () => ({
+  useAuth: () => ({ user: { id: "owner" } }),
 }));
 vi.mock("../components/ScopePickerDialog", () => ({ default: () => null }));
 vi.mock("../components/DocumentViewerDrawer", () => ({ default: () => null }));
@@ -61,6 +73,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 beforeEach(() => {
   fixtures.stream.mockReset();
+  fixtures.execution = undefined;
   fixtures.setMessages.mockReset();
   fixtures.messages = [
     {
@@ -98,7 +111,9 @@ it("automatically rebuilds one rejected policy change without duplicating the qu
   expect(rebuild[0]).toBe("conversation");
   expect(rebuild[1]).toBe("Follow-up question");
   expect(rebuild[6]).toBe("sonnet");
-  expect(rebuild[7]).toBe("deep");
+  expect(rebuild[7]).toBe("agentic");
+  expect(first[18]).toBe("high");
+  expect(rebuild[18]).toBe("high");
   expect(
     fixtures.messages.some(
       (message) =>
@@ -152,3 +167,52 @@ it("does not loop when a rebuilt policy is rejected again", async () => {
   expect(fixtures.stream).toHaveBeenCalledTimes(2);
   expect(fixtures.messages.filter((m) => m.role === "user")).toHaveLength(1);
 });
+
+it.each([
+  [undefined, "high"],
+  ["medium", "medium"],
+  ["low", "low"],
+] as const)(
+  "preserves recovered effort %s when rebuilding an accepted legacy Deep execution",
+  async (effort, expected) => {
+    fixtures.execution = {
+      state: "failed",
+      user_message_id: "question",
+      scope_folder_id: null,
+      scope_filename: null,
+      turn_id: "turn",
+      job_id: "job",
+      conversation_id: "conversation",
+      model: "sonnet",
+      mode: "deep",
+      reasoning_effort: effort,
+    };
+    fixtures.messages = [
+      {
+        id: "question",
+        role: "user",
+        content: "Original request",
+        created_at: "now",
+      },
+    ];
+    fixtures.stream.mockRejectedValueOnce(
+      new ApiError({
+        status: 409,
+        detail: { code: "execution_uncertain" },
+        userMessage: "Execution uncertain",
+      }),
+    );
+    fixtures.stream.mockResolvedValueOnce(undefined);
+    renderWithProviders(<ChatPage />);
+    await userEvent
+      .setup()
+      .click(
+        await screen.findByRole("button", {
+          name: "Rebuild context and retry",
+        }),
+      );
+    await waitFor(() => expect(fixtures.stream).toHaveBeenCalledTimes(2));
+    expect(fixtures.stream.mock.calls[0][18]).toBe(expected);
+    expect(fixtures.stream.mock.calls[1][18]).toBe(expected);
+  },
+);
