@@ -317,7 +317,8 @@ def test_api_and_native_tools_share_authorized_dispatch():
         search.assert_not_called()
 
 
-def test_weekly_root_activity_is_scoped_and_asof_omits_revised_summaries():
+def test_weekly_root_activity_is_scoped_and_asof_omits_revised_summaries(monkeypatch):
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "test-journal-reference")
     sb = Database()
     sb.rows["agent_journal_search_entries"] = [
         {
@@ -381,6 +382,57 @@ def test_public_and_native_mcp_register_readonly_offloaded_memory_tools():
         assert tool.annotations.readOnlyHint is True
         assert native[name].annotations.readOnlyHint is True
         assert native[name].annotations.destructiveHint is False
+
+
+def test_journal_day_continuation_preserves_scope_revision_and_local_day(monkeypatch):
+    from services.agent_memory import journal_activity, journal_body
+
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "test-journal-reference")
+    sb = Database()
+    common = {
+        "user_id": OWNER,
+        "folder_id": FOLDER,
+        "session_id": "native-session",
+        "agent": "codex",
+        "title": "Work",
+        "body": "Repeated evidence. " * 400,
+    }
+    inside = [
+        {**common, "entry_id": "a", "captured_at": "2026-11-06T04:00:00+00:00"},
+        {**common, "entry_id": "b", "captured_at": "2026-11-07T02:00:00+00:00"},
+    ]
+    sb.rows["agent_journal_search_entries"] = inside + [
+        {**common, "entry_id": "prior", "captured_at": "2026-11-06T02:59:00+00:00"},
+        {**inside[0], "session_id": "other-session", "entry_id": "other"},
+        {**inside[0], "user_id": "foreign", "entry_id": "foreign"},
+    ]
+    begin, end = bounds("2026-11-06", "2026-11-06", tz="America/Sao_Paulo")
+    activity = journal_activity(
+        sb, OWNER, [FOLDER], begin, end, "America/Sao_Paulo", session="native-session"
+    )
+    reference = activity["days"][0]["reference"]
+    original_reference = reference
+    parts = []
+    while reference:
+        result = read_memory(sb, OWNER, [FOLDER], reference, char_limit=1000)
+        row = result["evidence"][0]
+        assert row["provenance"] == "journal_report"
+        assert row["char_start"] == sum(map(len, parts))
+        assert "raw_record" not in row
+        parts.append(row["excerpt"])
+        reference = result["next_reference"]
+    assert "".join(parts) == journal_body(inside)
+    with pytest.raises(HTTPException) as denied:
+        read_memory(sb, OWNER, [SIBLING], original_reference)
+    assert denied.value.status_code == 404
+    with pytest.raises(HTTPException) as denied:
+        read_memory(sb, "another-owner", [FOLDER], original_reference)
+    assert denied.value.status_code == 404
+    inside[0]["body"] = "Revised after discovery"
+    with pytest.raises(HTTPException) as changed:
+        read_memory(sb, OWNER, [FOLDER], original_reference)
+    assert changed.value.status_code == 409
+    assert changed.value.detail == {"code": "journal_revision_changed_search_again"}
 
 
 def test_public_mcp_uses_key_authority_and_narrowing_not_model_owner_ids():
@@ -639,7 +691,8 @@ def test_memory_backfill_publishes_complete_only_after_all_batches():
 
 
 @pytest.mark.parametrize("fraction", ["", ".3", ".33", ".333", ".3333", ".33333", ".333333"])
-def test_postgres_timestamps_accept_variable_fraction_precision(fraction):
+def test_postgres_timestamps_accept_variable_fraction_precision(fraction, monkeypatch):
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "test-journal-reference")
     from services.agent_memory import journal_activity
 
     sb = Database()
@@ -742,6 +795,45 @@ def test_chat_rejects_pages_that_exceed_inline_transport_limits(name, arguments)
 
     result = json.loads(execute_memory_tool(Database(), name, arguments, OWNER, [FOLDER]))
     assert result["status"] == "error"
+
+
+def test_journal_continuation_citations_identify_the_page_without_original_links():
+    from services.agent_memory_tools import execute_memory_tool
+    from services.citations import CitationRegistry
+
+    citations = CitationRegistry()
+    for start in [0, 1000]:
+        result = {
+            "source_kind": "journal_day",
+            "date": "2026-11-06",
+            "folder_id": FOLDER,
+            "session_id": "native-session",
+            "repository": "repo",
+            "evidence": [
+                {
+                    "event_id": "a" * 64,
+                    "source_kind": "journal_day",
+                    "char_start": start,
+                    "recorded_at": "2026-11-07T02:00:00+00:00",
+                    "role": "journal",
+                    "excerpt": "Relevant report " + str(start),
+                }
+            ],
+        }
+        with patch("services.agent_memory_tools.read_memory", return_value=result):
+            encoded = execute_memory_tool(
+                Database(),
+                "read_agent_evidence",
+                {"reference": "signed"},
+                OWNER,
+                [FOLDER],
+                citations=citations,
+            )
+        assert json.loads(encoded)["evidence"][0]["citation"]
+    entries = citations.entries()
+    assert len(entries) == 2
+    assert all("2026-11-06 dated entries" in entry["source"] for entry in entries)
+    assert all(entry["url"] is None for entry in entries)
 
 
 def test_explicit_identifiers_prevent_generic_latest_records_from_burying_outcomes():

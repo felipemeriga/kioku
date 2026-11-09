@@ -189,6 +189,11 @@ def provenance(event, body):
     return "tool_result" if event["event_type"] == "tool_result" else event["role"] + "_statement"
 
 
+def journal_body(entries):
+    ordered = sorted(entries, key=lambda r: (r["captured_at"], r["entry_id"]))
+    return "\n\n".join(f"{r['captured_at']}\n{r.get('body') or ''}" for r in ordered)
+
+
 def journal_activity(sb, user_id, folders, after, before, tz, limit=50, offset=0, session=None):
     q = (
         sb.table("agent_journal_search_entries")
@@ -211,15 +216,29 @@ def journal_activity(sb, user_id, folders, after, before, tz, limit=50, offset=0
         unique.setdefault(key, []).append(r)
     days = []
     for (_, _, day), entries in unique.items():
-        entries.reverse()  # Every bullet stays on its own capture day.
-        body = "\n\n".join(f"{r['captured_at']}\n{r.get('body') or ''}" for r in entries)
+        entries.sort(key=lambda r: (r["captured_at"], r["entry_id"]))
+        body = journal_body(entries)
+        revision = hashlib.sha256(body.encode()).hexdigest()
         days.append(
             {
                 **{k: v for k, v in entries[-1].items() if k != "body"},
                 "date": day,
                 "summary": body[:6000],
                 "summary_truncated": len(body) > 6000,
-                "entry_ids": [r["entry_id"] for r in entries],
+                "entry_count": len(entries),
+                "reference": encode_reference(
+                    {
+                        "v": 1,
+                        "kind": "journal_day",
+                        "owner": user_id,
+                        "folder": entries[0]["folder_id"],
+                        "session": entries[0]["session_id"],
+                        "day": day,
+                        "timezone": tz,
+                        "revision": revision,
+                        "start": 0,
+                    }
+                ),
                 "source_kind": "journal_entries",
                 "interpretation": (
                     "Dated journal entry bodies reporting work on this day, not the "
@@ -234,6 +253,57 @@ def journal_activity(sb, user_id, folders, after, before, tz, limit=50, offset=0
         "has_more": len(activity) > offset + limit or len(rows) > 2000,
         "sampled_entries": min(len(rows), 2000),
         "next_offset": offset + limit,
+    }
+
+
+def read_journal_day(sb, user_id, folders, ref, char_limit):
+    after, before = bounds(ref["day"], ref["day"], tz=ref["timezone"])
+    entries = (
+        sb.table("agent_journal_search_entries")
+        .select("folder_id,session_id,agent,title,body,captured_at,entry_id")
+        .eq("user_id", user_id)
+        .eq("folder_id", ref["folder"])
+        .eq("session_id", ref["session"])
+        .gte("captured_at", after)
+        .lt("captured_at", before)
+        .order("captured_at")
+        .limit(2001)
+        .execute()
+        .data
+        or []
+    )
+    body = journal_body(entries)
+    if len(entries) > 2000 or hashlib.sha256(body.encode()).hexdigest() != ref["revision"]:
+        invalid("journal_revision_changed_search_again", 409)
+    start = ref["start"]
+    excerpt = body[start : start + char_limit]
+    more = start + len(excerpt) < len(body)
+    return {
+        "status": "ok",
+        "source_kind": "journal_day",
+        "date": ref["day"],
+        "folder_id": ref["folder"],
+        "session_id": ref["session"],
+        "repository": next(f["name"] for f in folders if f["id"] == ref["folder"]),
+        "time_scope": {"after": after, "before_exclusive": before, "timezone": ref["timezone"]},
+        "next_reference": encode_reference({**ref, "start": start + len(excerpt)})
+        if more
+        else None,
+        "evidence": [
+            {
+                "event_id": ref["revision"],
+                "source_kind": "journal_day",
+                "recorded_at": entries[-1]["captured_at"] if entries else None,
+                "role": "journal",
+                "event_type": "journal_report",
+                "provenance": "journal_report",
+                "char_start": start,
+                "excerpt": excerpt,
+                "has_more": more,
+            }
+        ],
+        "interpretation": "Revisable dated journal reports, not original transcripts or "
+        "proof of execution/deployment. Follow next_reference for remaining text.",
     }
 
 
@@ -419,6 +489,8 @@ def read_memory(sb, user_id, allowed, reference, before=1, after=1, char_limit=8
     folders = folders_in_scope(sb, user_id, allowed)
     if ref["owner"] != user_id or ref["folder"] not in {r["id"] for r in folders}:
         invalid("memory_reference_not_found", 404)
+    if ref.get("kind") == "journal_day":
+        return read_journal_day(sb, user_id, folders, ref, char_limit)
     UUID(ref["session"])
     store = EvidenceStore(sb, user_id, ref["folder"])
     session = store.session(ref["session"])
