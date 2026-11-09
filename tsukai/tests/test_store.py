@@ -101,11 +101,16 @@ async def test_fresh_repair_and_metadata_reserved_lane(store):
     child_claim = await store.claim("worker")
     assert child_claim["job"]["profile"] == "metadata_child"
     await store.finish(
-        child_claim["attempt"], "failed", error={"code": "invalid_structured_output"}, retry=True
+        child_claim["attempt"],
+        "failed",
+        error={"code": "invalid_structured_output"},
+        retry=True,
+        diagnostic={"validation_error": "required field missing"},
     )
     repair = await store.claim("worker")
     assert repair["attempt"]["native_session_id"] != child_claim["attempt"]["native_session_id"]
     assert not repair["attempt"]["resume"]
+    assert repair["repair_diagnostic"] == {"validation_error": "required field missing"}
 
 
 async def test_cancel_queued_and_running(store):
@@ -586,3 +591,78 @@ async def test_dispatch_read_preflight_detects_expired_leases_without_queued_job
     assert (await store.get(job["id"]))["status"] == "uncertain"
     with pytest.raises(Fenced):
         await store.append(attempt, "text.delta", {"text": "stale"})
+
+
+async def test_claim_statement_failure_rolls_back_attempt_job_and_conversation_lock(
+    store, monkeypatch
+):
+    from sqlalchemy import select
+
+    from tsukai.tables import jobs, locks
+
+    job = await store.admit(request(profile="chat", conversation_id="atomic-claim"))
+    original = store._event
+
+    async def fail_started(conn, job_id, kind, *args, **kwargs):
+        if kind == "attempt.started":
+            raise RuntimeError("injected after claim writes")
+        return await original(conn, job_id, kind, *args, **kwargs)
+
+    monkeypatch.setattr(store, "_event", fail_started)
+    with pytest.raises(RuntimeError, match="injected"):
+        await store.claim("worker")
+    async with store.read_connection() as conn:
+        state = (await conn.execute(select(jobs).where(jobs.c.id == job["id"]))).mappings().one()
+        held = (
+            (await conn.execute(select(locks).where(locks.c.job_id == job["id"]))).mappings().one()
+        )
+        assert (
+            await conn.execute(select(attempts).where(attempts.c.job_id == job["id"]))
+        ).first() is None
+    assert state["status"] == "queued" and state["attempt_count"] == 0
+    assert held["attempt_id"] is None and held["fence"] is None
+    monkeypatch.setattr(store, "_event", original)
+    claimed = await store.claim("worker")
+    assert claimed["attempt"]["number"] == 1
+    assert claimed["repair_diagnostic"] is None
+
+
+async def test_pg_admission_snapshot_and_claim_use_bounded_roundtrips(store):
+    from sqlalchemy import event, select
+
+    from tsukai.tables import jobs, locks
+
+    if store.engine.dialect.name != "postgresql":
+        pytest.skip("production PostgreSQL snapshot and atomic DML")
+    statements = []
+
+    def record(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    event.listen(store.engine.sync_engine, "before_cursor_execute", record)
+    try:
+        req = request(profile="chat", conversation_id="雪-unicode", prompt='quoted "evidence"')
+        job = await store.admit(req)
+        admission = list(statements)
+        statements.clear()
+        assert (await store.admit(req)) == job
+        statements.clear()
+        claim = await store.claim("worker")
+        claiming = list(statements)
+    finally:
+        event.remove(store.engine.sync_engine, "before_cursor_execute", record)
+    # One snapshot carries live tombstones, idempotency, capacity, lock and session.
+    assert sum("row_to_json" in sql for sql in admission) == 1
+    assert sum("json_agg" in sql for sql in claiming) == 1
+    assert sum("created_attempt AS" in sql for sql in claiming) == 1
+    assert not any("tsukai_attempts.diagnostic" in sql for sql in claiming)
+    assert claim["attempt"]["number"] == 1
+    async with store.read_connection() as conn:
+        state = (await conn.execute(select(jobs).where(jobs.c.id == job["id"]))).mappings().one()
+        held = (
+            (await conn.execute(select(locks).where(locks.c.job_id == job["id"]))).mappings().one()
+        )
+    assert state["status"] == "running" and state["attempt_count"] == 1
+    assert held["attempt_id"] == claim["attempt"]["id"]
+    assert held["fence"] == claim["attempt"]["fence"]
+    assert held["lease_until"] == claim["attempt"]["lease_until"]
