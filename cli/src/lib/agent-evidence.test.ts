@@ -1208,21 +1208,13 @@ test("an unreadable source without coverage does not spin through the capture bu
       }) + "\n",
     );
     for (const source of sources) {
-      await registerSource(f.root, source);
-      writeJson(
-        join(
-          f.root,
-          ".kioku/memory/.evidence-state/pending",
-          source.session + ".json",
-        ),
-        {
-          token: source.session,
-          source,
-          event: "Stop",
-          enqueued_at: new Date().toISOString(),
-          observed_size:
-            source.session === "fresh" ? readFileSync(source.path).length : 100,
-        },
+      assert.equal(
+        await dispatchEvidence(f.root, "codex", {
+          session_id: source.session,
+          transcript_path: source.path,
+          hook_event_name: "Stop",
+        }),
+        f.root,
       );
     }
     // Advance virtual time in local loops so a former 90-second spin fails quickly.
