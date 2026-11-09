@@ -158,7 +158,11 @@ def _folder_names(sb, folder_ids: list[str]) -> dict[str, str]:
 
 
 def _code_graph_lookup(
-    tool_input: dict, scope_folder_ids: list[str] | None, scope_filename: str | None = None
+    tool_input: dict,
+    scope_folder_ids: list[str] | None,
+    scope_filename: str | None = None,
+    *,
+    user_id: str | None = None,
 ) -> str:
     """Query the code graph across every repo in scope. Symbols/edges are
     per-folder, so we fan out over the scope folders and label each hit with
@@ -183,6 +187,11 @@ def _code_graph_lookup(
         return f" (updated {d})" if d else ""
 
     lines: list[str] = []
+    scoped_outline = None
+    if op == "outline" and user_id is not None:
+        scoped_outline = {}
+        for row in graph_store.outline_scope(sb, owner_id=user_id, folder_ids=folders, path=path):
+            scoped_outline.setdefault(row["folder_id"], []).append(row)
     for fid in folders:
         repo = names.get(fid, fid)
         if op == "definition":
@@ -206,7 +215,11 @@ def _code_graph_lookup(
                     f"{r['file']}:{r['start_line']}{_when(r)}"
                 )
         elif op == "outline":
-            for r in graph_store.outline(sb, folder_id=fid, path=path):
+            for r in (
+                scoped_outline.get(fid, [])
+                if scoped_outline is not None
+                else graph_store.outline(sb, folder_id=fid, path=path)
+            ):
                 if scope_filename and r.get("file") != scope_filename:
                     continue
                 lines.append(
@@ -469,7 +482,7 @@ def execute_tool(
         return "\n\n---\n\n".join(parts)
 
     if tool_name == "code_graph_lookup":
-        return _code_graph_lookup(tool_input, scope_folder_ids, scope_filename)
+        return _code_graph_lookup(tool_input, scope_folder_ids, scope_filename, user_id=user_id)
 
     if tool_name == "recent_changes":
         return _recent_changes(user_id, scope_folder_ids)
