@@ -12,7 +12,10 @@ SEARCH_PROPERTIES = {
     "query": {
         "type": "string",
         "maxLength": 2000,
-        "description": "Natural-language topic, or empty for a daily activity overview.",
+        "description": (
+            "Natural-language topic, or empty for a daily activity overview. "
+            "Preserve code identifier spelling/case; explicit identifiers get priority."
+        ),
     },
     "folder": {
         "type": "string",
@@ -149,7 +152,7 @@ def execute_memory_tool(
     except HTTPException as exc:
         return json.dumps({"status": "error", "detail": exc.detail})
     if name == "search_agent_history":
-        terms = {
+        terms = set(result.get("search_terms") or []) or {
             w
             for q in [arguments.get("query", ""), *(arguments.get("queries") or [])]
             for w in re.findall(r"[a-z0-9_]+", q.lower())

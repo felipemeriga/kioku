@@ -360,6 +360,8 @@ async def search_agent_history(
 
     Resolve this week/yesterday in the user timezone and pass explicit dates.
     Empty query browses daily activity. Narrow folder when the user names a repo.
+    Preserve code identifier spelling/case in queries; identifiers get priority.
+    Unmatched identifiers are flagged when broader fallback results are returned.
     Pages contain at most 10 records so results stay readable inline. Follow
     next_offset/has_more. Check order=latest and expand evidence before claiming
     an outcome remained unverified; earlier pages can miss later follow-ups.
