@@ -97,15 +97,22 @@ class Store:
             await conn.execute(select(jobs.c.id).limit(1))
 
     async def _event(self, conn, job_id, kind, data, attempt_id=None):
-        seq = (await conn.execute(select(jobs.c.next_seq).where(jobs.c.id == job_id))).scalar_one()
         now = time.time()
+        # Reservation and insertion share the caller's fenced transaction. Rolling
+        # back either write rolls back both; no event is exposed before commit.
+        next_seq = (
+            await conn.execute(
+                update(jobs)
+                .where(jobs.c.id == job_id)
+                .values(next_seq=jobs.c.next_seq + 1, updated_at=now)
+                .returning(jobs.c.next_seq)
+            )
+        ).scalar_one()
+        seq = next_seq - 1
         await conn.execute(
             insert(events).values(
                 job_id=job_id, seq=seq, attempt_id=attempt_id, type=kind, data=data, created_at=now
             )
-        )
-        await conn.execute(
-            update(jobs).where(jobs.c.id == job_id).values(next_seq=seq + 1, updated_at=now)
         )
         return seq
 
@@ -538,11 +545,14 @@ class Store:
         }
 
     async def _owned(self, conn, attempt):
-        current = (
-            (await conn.execute(select(attempts).where(attempts.c.id == attempt["id"])))
-            .mappings()
-            .first()
-        )
+        row = (
+            await conn.execute(
+                select(attempts, jobs)
+                .join(jobs, jobs.c.id == attempts.c.job_id)
+                .where(attempts.c.id == attempt["id"], jobs.c.id == attempt["job_id"])
+            )
+        ).first()
+        current = {column.name: row._mapping[column] for column in attempts.c} if row else None
         if (
             not current
             or current["fence"] != attempt["fence"]
@@ -550,11 +560,7 @@ class Store:
             or current["lease_until"] <= time.time()
         ):
             raise Fenced("attempt_lease_lost")
-        job = (
-            (await conn.execute(select(jobs).where(jobs.c.id == attempt["job_id"])))
-            .mappings()
-            .one()
-        )
+        job = {column.name: row._mapping[column] for column in jobs.c}
         if job["profile"] == "metadata_child":
             parent = (
                 (
@@ -567,11 +573,11 @@ class Store:
             )
             if not parent or parent["status"] != "running" or parent["cancel_requested"]:
                 raise Fenced("metadata_parent_inactive")
-        return current
+        return job
 
     async def heartbeat(self, attempt):
         async with self.transaction() as conn:
-            await self._owned(conn, attempt)
+            job = await self._owned(conn, attempt)
             await conn.execute(
                 update(attempts)
                 .where(attempts.c.id == attempt["id"])
@@ -582,11 +588,7 @@ class Store:
                 .where(locks.c.attempt_id == attempt["id"])
                 .values(lease_until=time.time() + 30)
             )
-            return (
-                await conn.execute(
-                    select(jobs.c.cancel_requested).where(jobs.c.id == attempt["job_id"])
-                )
-            ).scalar_one()
+            return job["cancel_requested"]
 
     async def append(self, attempt, kind, data):
         async with self.transaction() as conn:
@@ -629,12 +631,7 @@ class Store:
         if result is not None:
             result = {**result, "attempt_id": attempt["id"]}
         async with self.transaction() as conn:
-            await self._owned(conn, attempt)
-            job = (
-                (await conn.execute(select(jobs).where(jobs.c.id == attempt["job_id"])))
-                .mappings()
-                .one()
-            )
+            job = await self._owned(conn, attempt)
             if job["cancel_requested"]:
                 status, result, error, retry = (
                     "cancelled",

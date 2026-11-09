@@ -523,3 +523,20 @@ async def test_dispatch_uses_one_transaction_for_reaping_and_empty_claim(store):
     assert len(transactions) == 1
     if store.engine.dialect.name == "postgresql":
         assert len(statements) == 4  # one shared lock, expiry, recovery, queued jobs
+
+
+async def test_event_sequence_reservation_rolls_back_without_replay_gap(store):
+    job = await store.admit(request())
+    attempt = (await store.claim("worker"))["attempt"]
+    before = await store.replay(job["id"])
+    with pytest.raises(RuntimeError, match="interrupted"):
+        async with store.transaction() as conn:
+            await store._event(
+                conn, job["id"], "text.delta", {"text": "not committed"}, attempt["id"]
+            )
+            raise RuntimeError("interrupted")
+    assert await store.replay(job["id"]) == before
+    await store.append(attempt, "text.delta", {"text": "durable"})
+    replay = await store.replay(job["id"])
+    assert [item["seq"] for item in replay] == list(range(1, len(replay) + 1))
+    assert replay[-1]["data"] == {"text": "durable"}
