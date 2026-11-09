@@ -1787,6 +1787,115 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           font-size: 17px;
         }
       }
+
+      .context-panel {
+        container-type: inline-size;
+      }
+      .context-footer {
+        gap: 8px;
+        flex-shrink: 0;
+      }
+      .context-footer > span {
+        min-width: 0;
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .shell.navigation-collapsed .rail {
+        display: none;
+      }
+      .shell.navigation-collapsed {
+        padding-bottom: 0;
+      }
+      .evidence-dialog {
+        container-type: inline-size;
+      }
+      .reader-tools {
+        flex-wrap: wrap;
+      }
+      .reader-tabs {
+        flex-shrink: 0;
+        max-width: 100%;
+      }
+      .reader-tabs button {
+        white-space: nowrap;
+      }
+      .evidence-heading .session-meta {
+        overflow-wrap: anywhere;
+      }
+      .reader-event p,
+      .reader-event li,
+      .raw-record {
+        overflow-wrap: anywhere;
+      }
+      @container (max-width: 190px) {
+        .context-header {
+          padding-inline: 10px;
+          gap: 6px;
+        }
+        .context-scroll {
+          padding-inline: 6px;
+        }
+        .folder-row {
+          padding-inline: 6px;
+          gap: 5px;
+        }
+        .folder-row.level-1 {
+          padding-left: 16px;
+        }
+        .folder-row.level-2 {
+          padding-left: 28px;
+        }
+        .folder-row.level-2.active {
+          padding-left: 26px;
+        }
+        .section-label {
+          margin-inline: 6px;
+        }
+        .context-footer {
+          padding-inline: 10px;
+        }
+        .context-search {
+          margin-inline: 10px;
+          padding-inline: 7px;
+        }
+        .conversation-row {
+          padding-inline: 8px;
+        }
+      }
+      @container (max-width: 360px) {
+        .evidence-top {
+          gap: 8px;
+          padding: 8px 12px;
+        }
+        .evidence-heading {
+          padding: 12px 16px 18px;
+        }
+        .evidence-heading h2 {
+          font-size: 19px;
+        }
+        .reader-tools {
+          gap: 8px;
+          padding: 12px 16px;
+        }
+        .reader-tabs button {
+          padding-inline: 8px;
+        }
+        .reader-events {
+          padding: 16px 14px 30px;
+        }
+        .reader-event {
+          padding: 12px;
+        }
+        .event-heading {
+          gap: 4px;
+          flex-wrap: wrap;
+        }
+        .code-block {
+          padding: 10px;
+        }
+      }
+
       @media (prefers-reduced-motion: reduce) {
         * {
           scroll-behavior: auto !important;
@@ -2112,8 +2221,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           ><button
             class="icon-button"
             id="context-collapse"
-            aria-label="Hide navigation"
-            title="Hide navigation"
+            aria-label="Collapse navigation"
+            title="Collapse navigation"
           >
             <svg><use href="#i-panel" /></svg>
           </button>
@@ -2493,7 +2602,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           aria-orientation="vertical"
           aria-label="Resize original transcript"
           aria-controls="evidence-dialog"
-          aria-valuemin="380"
+          aria-valuemin="280"
           aria-valuemax="1000"
           aria-valuenow="680"
           aria-valuetext="680 pixels"
@@ -2610,15 +2719,14 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         conversations: 288,
         calendar: 276,
         evidence: 680,
-        foldersHidden: false,
-        conversationsHidden: false,
+        navigationHidden: false,
         calendarHidden: false,
       };
       const bounds = {
-        folders: [220, 440],
-        conversations: [240, 440],
+        folders: [140, 440],
+        conversations: [160, 440],
         calendar: [220, 380],
-        evidence: [380, 1000],
+        evidence: [280, 1000],
       };
       let state = { ...defaults };
       try {
@@ -2631,12 +2739,13 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
                 Math.max(bounds[key][0], Math.round(saved[key])),
               );
           }
-          for (const key of [
-            "foldersHidden",
-            "conversationsHidden",
-            "calendarHidden",
-          ])
+          for (const key of ["navigationHidden", "calendarHidden"])
             if (typeof saved[key] === "boolean") state[key] = saved[key];
+          if (
+            typeof saved.navigationHidden !== "boolean" &&
+            (saved.foldersHidden === true || saved.conversationsHidden === true)
+          )
+            state.navigationHidden = true;
         }
       } catch {
         /* A blocked or malformed storage entry falls back to the default layout. */
@@ -2700,7 +2809,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       }
       function renderLayout() {
         const key = currentNav(),
-          hidden = state[`${key}Hidden`];
+          hidden = state.navigationHidden;
         document.documentElement.style.setProperty(
           "--folder-width",
           `${clamp(state[key], key)}px`,
@@ -2713,6 +2822,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           "--evidence-width",
           `${drawerFull ? window.innerWidth - 24 : clamp(state.evidence, "evidence")}px`,
         );
+        $("#shell").classList.toggle("navigation-collapsed", hidden);
         $("#context-panel").classList.toggle("is-collapsed", hidden);
         $("#folder-resizer").hidden = hidden;
         $("#history-region").classList.toggle(
@@ -2720,8 +2830,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           state.calendarHidden,
         );
         $("#restore-calendar").hidden = !state.calendarHidden;
-        $("#menu-folder-label").textContent =
-          `${hidden ? "Show" : "Hide"} ${key === "folders" ? "folders" : "conversations"}`;
+        $("#menu-folder-label").textContent = hidden
+          ? "Show navigation"
+          : "Hide navigation";
         $("#menu-calendar-label").textContent = state.calendarHidden
           ? "Show calendar"
           : "Hide calendar";
@@ -2734,14 +2845,20 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         $("#full-transcript").textContent = drawerFull
           ? "Restore panel width"
           : "Open full transcript";
-        $("#show-navigation").title =
-          hidden || isNarrow() ? "Show folders" : "Hide folders";
+        $("#show-navigation").title = hidden
+          ? "Show navigation"
+          : isNarrow()
+            ? "Open folders"
+            : "Collapse navigation";
         $("#show-navigation").setAttribute(
           "aria-label",
           $("#show-navigation").title,
         );
-        $("#chat-show-navigation").title =
-          hidden || isNarrow() ? "Show conversations" : "Hide conversations";
+        $("#chat-show-navigation").title = hidden
+          ? "Show navigation"
+          : isNarrow()
+            ? "Open conversations"
+            : "Collapse navigation";
         $("#chat-show-navigation").setAttribute(
           "aria-label",
           $("#chat-show-navigation").title,
@@ -2754,9 +2871,17 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         updateHandle($("#evidence-resizer"), "evidence");
         $("#rail-toggle").setAttribute(
           "aria-label",
-          `${hidden ? "Show" : "Hide"} ${key}`,
+          hidden ? "Show navigation" : "Collapse navigation",
         );
-        $("#rail-toggle").title = `${hidden ? "Show" : "Hide"} ${key}`;
+        $("#rail-toggle").title = hidden
+          ? "Show navigation"
+          : "Collapse navigation";
+        $("#context-collapse").setAttribute(
+          "aria-label",
+          "Collapse navigation",
+        );
+        $("#context-collapse").title = "Collapse navigation";
+        $("#context-footer-name").title = $("#context-footer-name").textContent;
         $("#rail-toggle use").setAttribute(
           "href",
           hidden ? "#i-chevron" : "#i-left",
@@ -2772,22 +2897,32 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           ).focus();
         }
       }
+      function openMobile() {
+        $("#context-panel").classList.add("mobile-open");
+        $("#folder-scrim").classList.add("open");
+        $("#context-panel button").focus();
+      }
+      function toggleNavigation() {
+        state.navigationHidden = !state.navigationHidden;
+        closeMobile();
+        $("#layout-menu").hidden = true;
+        $("#layout-menu-button").setAttribute("aria-expanded", "false");
+        save();
+        renderLayout();
+        if (state.navigationHidden) {
+          $(
+            mode === "history" ? "#show-navigation" : "#chat-show-navigation",
+          ).focus();
+        } else if (isNarrow()) openMobile();
+      }
       function toggleNav() {
-        if (isNarrow()) {
-          const open = !$("#context-panel").classList.contains("mobile-open");
-          $("#context-panel").classList.toggle("mobile-open", open);
-          $("#folder-scrim").classList.toggle("open", open);
-          if (open) $("#context-panel button").focus();
-        } else {
-          const key = `${currentNav()}Hidden`;
-          state[key] = !state[key];
-          save();
-          renderLayout();
-          if (state[key])
-            $(
-              mode === "history" ? "#show-navigation" : "#chat-show-navigation",
-            ).focus();
+        if (state.navigationHidden || !isNarrow()) {
+          toggleNavigation();
+          return;
         }
+        if ($("#context-panel").classList.contains("mobile-open"))
+          closeMobile();
+        else openMobile();
       }
       function setMode(next) {
         mode = next;
@@ -2906,14 +3041,10 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       $("#chat-view-button").onclick = () => setMode("chat");
       $("#rail-chat").onclick = () => setMode("chat");
       $("#rail-documents").onclick = () => setMode("history");
-      for (const id of [
-        "#show-navigation",
-        "#chat-show-navigation",
-        "#context-collapse",
-        "#rail-toggle",
-        "#menu-folders",
-      ])
+      for (const id of ["#show-navigation", "#chat-show-navigation"])
         $(id).onclick = toggleNav;
+      for (const id of ["#context-collapse", "#rail-toggle", "#menu-folders"])
+        $(id).onclick = toggleNavigation;
       $("#folder-scrim").onclick = closeMobile;
       $("#layout-menu-button").onclick = () => {
         const open = $("#layout-menu").hidden;
@@ -3374,6 +3505,10 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         button.setAttribute("aria-expanded", String(!tree.hidden));
         button.setAttribute("aria-controls", tree.id);
       });
+      $$(".folder-row").forEach(
+        (button) => (button.title = button.textContent.trim()),
+      );
+      $("#context-footer-name").title = $("#context-footer-name").textContent;
       window.addEventListener("resize", () => {
         if (drag) stopDrag(false);
         if (!isNarrow()) closeMobile();
