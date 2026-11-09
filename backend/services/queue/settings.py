@@ -79,7 +79,9 @@ class WorkerSettings:
             agent_evidence_maintenance,
             second={0, 30},
             run_at_startup=True,
-            job_id="agent-evidence-maintenance",
+            # Use arq's schedule-specific identity. A fixed ID can retain a
+            # failed-job result and suppress every subsequent repair sweep.
+            keep_result=0,
         ),
     ]
     # Keep bulk indexing from saturating the database used by interactive reads.
