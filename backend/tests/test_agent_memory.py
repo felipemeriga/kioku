@@ -326,7 +326,8 @@ def test_weekly_root_activity_is_scoped_and_asof_omits_revised_summaries():
             "session_id": fid,
             "agent": "codex",
             "title": "Reported work",
-            "summary": "Reported investigation, not deployed proof",
+            "summary": "Future session overview: deployed next week",
+            "body": "Reported investigation on this day, not deployed proof",
             "captured_at": "2026-11-06T20:00:00+00:00",
             "entry_id": fid,
         }
@@ -346,7 +347,11 @@ def test_weekly_root_activity_is_scoped_and_asof_omits_revised_summaries():
         tz="America/Sao_Paulo",
     )
     assert len(result["activity"]["days"]) == 2
-    assert all(r["source_kind"] == "journal_summary" for r in result["activity"]["days"])
+    assert all(r["source_kind"] == "journal_entries" for r in result["activity"]["days"])
+    assert all("next week" not in r["summary"] for r in result["activity"]["days"])
+    assert all("this day" in r["summary"] for r in result["activity"]["days"])
+    selected = search_memory(sb, OWNER, [FOLDER, SIBLING], session=FOLDER)
+    assert len(selected["activity"]["days"]) == 1
     narrowed = search_memory(
         sb,
         OWNER,
@@ -369,7 +374,7 @@ def test_public_and_native_mcp_register_readonly_offloaded_memory_tools():
 
     native = {tool.name: tool for tool in asyncio.run(native_mcp.list_tools())}
     assert native["search_agent_history"].inputSchema["properties"]["limit"]["maximum"] == 10
-    assert native["read_agent_evidence"].inputSchema["properties"]["char_limit"]["maximum"] == 2000
+    assert native["read_agent_evidence"].inputSchema["properties"]["char_limit"]["maximum"] == 8000
     for name in ["search_agent_history", "read_agent_evidence"]:
         tool = mcp_server.mcp._tool_manager.get_tool(name)
         assert inspect.iscoroutinefunction(tool.fn)
@@ -710,10 +715,13 @@ def test_chat_memory_pages_keep_locators_and_sources_with_bounded_excerpts():
     result = json.loads(encoded)
     assert len(encoded.encode()) < 60000
     assert len(trace) == len(citations.entries()) == 20
-    assert all(len(r["excerpt"]) <= 400 and "GOMEMLIMIT" in r["excerpt"] for r in result["matches"])
+    assert all(
+        len(r["excerpt"]) <= 1200 and "GOMEMLIMIT" in r["excerpt"] for r in result["matches"]
+    )
     assert all(r["reference"] == "r" * 600 and r["excerpt_has_more"] for r in result["matches"])
     assert all(
-        len(r["summary"]) == 800 and r["summary_truncated"] for r in result["activity"]["days"]
+        len(r["summary"].encode()) <= 2000 and r["summary_truncated"]
+        for r in result["activity"]["days"]
     )
     assert result["next_offset"] == 10 and result["has_more"]
     assert "2026-11-06 tool" in citations.entries()[0]["source"]
@@ -725,7 +733,7 @@ def test_chat_memory_pages_keep_locators_and_sources_with_bounded_excerpts():
     [
         ("search_agent_history", {"limit": 50}),
         ("search_agent_history", {"limit": True}),
-        ("read_agent_evidence", {"reference": "x", "char_limit": 8000}),
+        ("read_agent_evidence", {"reference": "x", "char_limit": 16001}),
         ("read_agent_evidence", {"reference": "x", "before_records": 3}),
     ],
 )
@@ -751,13 +759,11 @@ def test_explicit_identifiers_prevent_generic_latest_records_from_burying_outcom
 
     def lookup(name, arguments):
         calls.append(arguments)
-        # Broad OR terms match hook maintenance; the explicit identifier does not.
-        count = 1 if arguments["p_terms"] == ["gomemlimit"] else 20
         return SimpleNamespace(
             execute=lambda: SimpleNamespace(
                 data={
                     "matches": [],
-                    "total_matches": count,
+                    "total_matches": 20,
                     "has_more": False,
                 }
             )
@@ -776,14 +782,15 @@ def test_explicit_identifiers_prevent_generic_latest_records_from_burying_outcom
         offset=10,
     )
     assert len(calls) == 1  # Empty page does not trigger a broader fallback.
-    assert calls[0]["p_terms"] == ["gomemlimit"]
+    assert calls[0]["p_terms"] == ["gomemlimit", "memory", "player", "usage"]
+    assert calls[0]["p_identifiers"] == ["gomemlimit"]
     assert calls[0]["p_order"] == "latest"
     assert calls[0]["p_before"] == "2026-11-07T03:00:00+00:00"
-    assert result["search_terms"] == ["gomemlimit"]
-    assert result["matching_mode"] == "identifier_first"
+    assert result["search_terms"] == calls[0]["p_terms"]
+    assert result["matching_mode"] == "identifier_boosted"
 
 
-def test_identifier_fallback_preserves_authority_and_dates_and_is_explicit():
+def test_unmatched_identifier_preserves_authority_and_dates_and_is_explicit():
     sb = Database()
     calls = []
 
@@ -793,7 +800,8 @@ def test_identifier_fallback_preserves_authority_and_dates_and_is_explicit():
             execute=lambda: SimpleNamespace(
                 data={
                     "matches": [],
-                    "total_matches": 0 if len(calls) == 1 else 2,
+                    "total_matches": 2,
+                    "unmatched_identifiers": ["unseen_symbol"],
                     "has_more": False,
                 }
             )
@@ -810,13 +818,43 @@ def test_identifier_fallback_preserves_authority_and_dates_and_is_explicit():
         tz="America/Sao_Paulo",
         order="latest",
     )
-    assert len(calls) == 2
-    assert {k: v for k, v in calls[0].items() if k != "p_terms"} == {
-        k: v for k, v in calls[1].items() if k != "p_terms"
-    }
-    assert result["matching_mode"] == "lexical_fallback"
+    assert len(calls) == 1
+    assert calls[0]["p_folder_ids"] == [FOLDER]
+    assert calls[0]["p_before"] == "2026-11-06T15:00:00.000001+00:00"
+    assert result["matching_mode"] == "identifier_boosted"
     assert result["unmatched_identifiers"] == ["unseen_symbol"]
     assert set(result["search_terms"]) == {"unseen_symbol", "player", "memory"}
+
+
+def test_acronym_keeps_distinguishing_words_and_expansions():
+    from services.agent_memory import lexical_terms
+
+    sb = Database()
+    calls = []
+
+    def lookup(name, args):
+        calls.append((name, args))
+        return SimpleNamespace(
+            execute=lambda: SimpleNamespace(
+                data={"matches": [], "total_matches": 0, "has_more": False}
+            )
+        )
+
+    sb.rpc = lookup
+    result = search_memory(
+        sb, OWNER, [FOLDER], query="newer SDK package link", queries=["missing archive symbols"]
+    )
+    assert result["search_terms"] == [
+        "archive",
+        "link",
+        "missing",
+        "newer",
+        "package",
+        "sdk",
+        "symbols",
+    ]
+    assert calls[0][0] == "search_agent_memory_v2"
+    assert {"garbage", "collector", "gc"} <= set(lexical_terms(["garbage collector"]))
 
 
 def test_short_explicit_issue_number_is_search_not_an_activity_overview():

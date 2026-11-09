@@ -21,7 +21,9 @@ STOP = set(
         "a an the is was were did do does have has we our it this that what "
         "which how why when where to for of in on and or with from already "
         "actually some before tried try can could would be been as at by not "
-        "work worked week yesterday today"
+        "work worked week yesterday today please tell me us you your about "
+        "record recorded records evidence history use using during between "
+        "november january february march april may june july august september october december"
     ).split()
 )
 
@@ -53,6 +55,27 @@ def technical_terms(query):
     }
     identifiers.update(re.findall(r"(?<!\w)#(\d{1,10})\b", query))
     return sorted(identifiers)
+
+
+def lexical_terms(queries):
+    """Expand conventional technical abbreviations without guessing outcomes."""
+    aliases = {
+        "garbage collect": "gc",
+        "garbage collector": "gc",
+        "garbage collection": "gc",
+        "out of memory": "oom",
+        "pull request": "pr",
+        "continuous integration": "ci",
+        "database": "db",
+    }
+    values = set()
+    for query in queries:
+        low = query.lower()
+        values.update(
+            word for word in re.findall(r"[a-z0-9_]+", low) if word not in STOP and len(word) > 1
+        )
+        values.update(alias for phrase, alias in aliases.items() if phrase in low)
+    return sorted(values)
 
 
 def bounds(from_date=None, through_date=None, as_of=None, tz="UTC"):
@@ -166,10 +189,10 @@ def provenance(event, body):
     return "tool_result" if event["event_type"] == "tool_result" else event["role"] + "_statement"
 
 
-def journal_activity(sb, user_id, folders, after, before, tz, limit=50, offset=0):
+def journal_activity(sb, user_id, folders, after, before, tz, limit=50, offset=0, session=None):
     q = (
         sb.table("agent_journal_search_entries")
-        .select("folder_id,session_id,agent,title,summary,captured_at,entry_id")
+        .select("folder_id,session_id,agent,title,body,captured_at,entry_id")
         .eq("user_id", user_id)
         .in_("folder_id", folders)
     )
@@ -181,21 +204,31 @@ def journal_activity(sb, user_id, folders, after, before, tz, limit=50, offset=0
     unique = {}
     zone = ZoneInfo(tz)
     for r in rows[:2000]:
+        if session and not r["session_id"].startswith(session):
+            continue
         day = isoparse(r["captured_at"]).astimezone(zone).date().isoformat()
         key = (r["folder_id"], r["session_id"], day)
-        unique.setdefault(
-            key,
+        unique.setdefault(key, []).append(r)
+    days = []
+    for (_, _, day), entries in unique.items():
+        entries.reverse()  # Every bullet stays on its own capture day.
+        body = "\n\n".join(f"{r['captured_at']}\n{r.get('body') or ''}" for r in entries)
+        days.append(
             {
-                **r,
+                **{k: v for k, v in entries[-1].items() if k != "body"},
                 "date": day,
-                "source_kind": "journal_summary",
+                "summary": body[:6000],
+                "summary_truncated": len(body) > 6000,
+                "entry_ids": [r["entry_id"] for r in entries],
+                "source_kind": "journal_entries",
                 "interpretation": (
-                    "Revisable summary of reported work, not proof of execution or "
-                    "deployment; verify originals."
+                    "Dated journal entry bodies reporting work on this day, not the "
+                    "cumulative session overview. The title labels the session, not "
+                    "a day-specific claim. Reports do not prove execution/deployment."
                 ),
-            },
+            }
         )
-    activity = sorted(unique.values(), key=lambda r: (r["date"], r["folder_id"], r["session_id"]))
+    activity = sorted(days, key=lambda r: (r["date"], r["folder_id"], r["session_id"]))
     return {
         "days": activity[offset : offset + limit],
         "has_more": len(activity) > offset + limit or len(rows) > 2000,
@@ -239,14 +272,7 @@ def search_memory(
     if not isinstance(queries, list) or len(queries) > 8:
         invalid("invalid_queries")
     expanded = [text(q, 300, "query_expansion", False) for q in queries]
-    terms = sorted(
-        set(
-            w
-            for q in [query, *expanded]
-            for w in re.findall(r"[a-z0-9_]+", q.lower())
-            if w not in STOP and len(w) > 1
-        )
-    )
+    terms = lexical_terms([query, *expanded])
     if len(terms) > 100:
         invalid("too_many_search_terms")
     tz = text(tz, 64, "timezone", False)
@@ -262,7 +288,9 @@ def search_memory(
             "coverage": "No accessible folders in this scope.",
         }
     identifiers = technical_terms(query)
-    matching_terms = identifiers or terms
+    # An acronym such as SDK must not erase "newer", "archive" or "link".
+    # Identifiers boost ranking, but all complementary terms remain searchable.
+    matching_terms = sorted(set(identifiers + terms))
     arguments = {
         "p_user_id": user_id,
         "p_folder_ids": list(scope),
@@ -273,16 +301,11 @@ def search_memory(
         "p_order": order,
         "p_limit": limit,
         "p_offset": offset,
+        "p_identifiers": identifiers,
+        "p_timezone": tz,
     }
-    result = rpc(sb, "search_agent_memory", arguments)
-    mode = "identifier_first" if identifiers else "lexical_terms"
-    # An identifier absent from this exact scope/time window may be a typo or
-    # an alias. Broader matches are orientation only, not evidence for that ID.
-    if identifiers and terms and result["total_matches"] == 0 and identifiers != terms:
-        matching_terms = terms
-        arguments = {**arguments, "p_terms": matching_terms}
-        result = rpc(sb, "search_agent_memory", arguments)
-        mode = "lexical_fallback"
+    result = rpc(sb, "search_agent_memory_v2", arguments)
+    mode = "identifier_boosted" if identifiers else "lexical_terms"
     matches = []
     stores = {}
     sessions = {}
@@ -344,6 +367,7 @@ def search_memory(
                 "source_truncated": row["source_truncated"],
                 "provenance": provenance(event, excerpt),
                 "excerpt": excerpt,
+                "matched_terms": row.get("matched_terms", []),
             }
         )
     if order == "chronological":
@@ -352,7 +376,7 @@ def search_memory(
         **result,
         "search_terms": matching_terms,
         "matching_mode": mode,
-        "unmatched_identifiers": identifiers if mode == "lexical_fallback" else [],
+        "unmatched_identifiers": result.get("unmatched_identifiers", []),
         "next_offset": offset + limit,
         "selection": "time_diverse_relevance"
         if matching_terms and order == "chronological"
@@ -363,15 +387,15 @@ def search_memory(
         "reference_time": datetime.now(ZoneInfo(tz)).isoformat(),
         "time_scope": {"after": after, "before_exclusive": before, "timezone": tz},
         "activity": journal_activity(
-            sb, user_id, list(scope), after, before, tz, min(limit, 10), offset
+            sb, user_id, list(scope), after, before, tz, min(limit, 10), offset, session
         )
         if not matching_terms and not as_of
         else None,
         "interpretation": (
             (
-                "Identifier search had no indexed matches in this scope/time; "
-                "broader fallback results are orientation only. "
-                if mode == "lexical_fallback"
+                "Some requested identifiers had no indexed matches in this scope/time; "
+                "other matches do not establish facts about those identifiers. "
+                if result.get("unmatched_identifiers")
                 else ""
             )
             + "Record time is not necessarily the time of the described event. "

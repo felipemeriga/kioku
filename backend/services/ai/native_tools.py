@@ -391,7 +391,7 @@ async def read_agent_evidence(
     reference: str,
     before_records: Annotated[int, Field(ge=0, le=1)] = 1,
     after_records: Annotated[int, Field(ge=0, le=1)] = 1,
-    char_limit: Annotated[int, Field(ge=1000, le=2000)] = 2000,
+    char_limit: Annotated[int, Field(ge=1000, le=8000)] = 4000,
 ) -> str:
     """Read originals, neighbors and paired commands/results under the reference's time scope."""
     return await asyncio.to_thread(
