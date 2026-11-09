@@ -4,7 +4,24 @@ import importlib.util
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
 from fastapi.testclient import TestClient
+
+
+def test_wrong_retrieval_source_is_rejected_before_server_start():
+    path = Path(__file__).resolve().parents[2] / "scripts/benchmarks/shadow_tools.py"
+    spec = importlib.util.spec_from_file_location("shadow_wrong_source", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    with pytest.raises(ValueError, match="expected candidate source"):
+        module.application(
+            {
+                "owner_id": "owner",
+                "folder_ids": ["folder"],
+                "token": "t" * 40,
+                "remote": "/unrelated-candidate",
+            }
+        )
 
 
 def test_shadow_service_requires_token_and_cannot_expand_case_scope(monkeypatch):

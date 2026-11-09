@@ -13,6 +13,8 @@ leave headroom below the user's80percent ceiling; missing/stale data fails close
 
 import argparse
 import asyncio
+import hashlib
+import inspect
 import json
 import math
 import re
@@ -63,6 +65,14 @@ async def run(payload, workers):
             "Usage-guarded benchmarks allow at most two sequential cases per batch"
         )
     config = payload["config"]
+    runner_file = Path(inspect.getfile(NativeRunner)).resolve()
+    if config.get("remote") and not runner_file.is_relative_to(
+        Path(config["remote"]) / "tsukai/src"
+    ):
+        raise ValueError(
+            "Native runner did not load from the expected candidate source"
+        )
+    runner_hash = hashlib.sha256(runner_file.read_bytes()).hexdigest()
     base = f"http://kioku-backend:{config['port']}"
     headers = {"Authorization": "Bearer " + config["token"]}
     semaphore = asyncio.Semaphore(workers)
@@ -83,6 +93,7 @@ async def run(payload, workers):
                 "stage": "retrieval",
                 "success": False,
                 "question": case["question"],
+                "runner_source_sha256": runner_hash,
             }
             if quota_exhausted.is_set():
                 result.update(error_code="not_run_after_quota_limit", total_seconds=0.0)

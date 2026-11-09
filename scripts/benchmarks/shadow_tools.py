@@ -8,6 +8,7 @@ is in memory so evaluation does not mutate chats, documents or originals.
 
 import argparse
 import asyncio
+import hashlib
 import hmac
 import inspect
 import json
@@ -33,6 +34,19 @@ from starlette.responses import JSONResponse
 def application(config):
     if len(config["token"]) < 32 or not config["owner_id"] or not config["folder_ids"]:
         raise ValueError("A private owner-scoped evaluation config is required")
+    source_files = [
+        Path(inspect.getfile(inspect.unwrap(fn))).resolve()
+        for fn in [prefetch, execute_tool]
+    ]
+    if config.get("remote") and any(
+        not path.is_relative_to(Path(config["remote"]) / "backend")
+        for path in source_files
+    ):
+        raise ValueError("Retrieval did not load from the expected candidate source")
+    source_hashes = {
+        path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in source_files
+    }
     cases, active = {}, ContextVar("evaluation_case", default=None)
     server = FastMCP(
         "Kioku",
@@ -193,6 +207,7 @@ def application(config):
             "evidence": state["evidence"],
             "citations": state["citations"].entries(),
             "calls": state["calls"],
+            "source_sha256": source_hashes,
         }
 
     app.mount("/mcp", server.streamable_http_app())

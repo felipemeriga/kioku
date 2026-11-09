@@ -97,3 +97,17 @@ def test_budget_guard_fails_closed(change, code):
     }
     assert module.budget_error({"subscription_usage": snapshot}) is None
     assert module.budget_error({"subscription_usage": {**snapshot, **change}}) == code
+
+
+def test_wrong_native_source_is_rejected_before_launch():
+    path = Path(__file__).resolve().parents[2] / "scripts/benchmarks/shadow_eval.py"
+    spec = importlib.util.spec_from_file_location("shadow_eval_source", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    with pytest.raises(ValueError, match="expected candidate source"):
+        asyncio.run(
+            module.run(
+                {"config": {"remote": "/unrelated-candidate"}, "cases": [{"id": "source-check"}]},
+                workers=1,
+            )
+        )
