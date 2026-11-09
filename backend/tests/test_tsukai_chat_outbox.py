@@ -14,7 +14,10 @@ from services.ai.scope import ExecutionScope
 
 
 @pytest.mark.parametrize("ack_fails", [False, True])
-def test_accepted_request_lost_before_job_mapping_recovers_after_backend_restart_once(ack_fails):
+@pytest.mark.parametrize("defer_ack", [False, True])
+def test_accepted_request_lost_before_job_mapping_recovers_after_backend_restart_once(
+    ack_fails, defer_ack
+):
     turn = {
         "id": "turn",
         "owner_id": "owner",
@@ -40,6 +43,7 @@ def test_accepted_request_lost_before_job_mapping_recovers_after_backend_restart
     runner_jobs, assistant_messages = {}, []
     saved_debug = []
     starts = []
+    acknowledgements = []
     drop_response = [True]
 
     class Client:
@@ -54,6 +58,7 @@ def test_accepted_request_lost_before_job_mapping_recovers_after_backend_restart
             return runner_jobs[key]["id"]
 
         def acknowledge(self, *args):
+            acknowledgements.append(args)
             if ack_fails:
                 raise httpx.ConnectError("ACK response unavailable after domain commit")
             return None
@@ -100,6 +105,7 @@ def test_accepted_request_lost_before_job_mapping_recovers_after_backend_restart
         patch("services.ai.chat.get_supabase_thread_safe", return_value=Database()),
         patch("services.ai.chat.sources_for", return_value=[]),
         patch("services.ai.chat.record_job_usage", return_value=[]),
+        patch("services.ai.chat.wake_reconciliation") as wake,
     ):
         with pytest.raises(httpx.ReadError):
             submit_turn(copy.deepcopy(turn))
@@ -110,7 +116,25 @@ def test_accepted_request_lost_before_job_mapping_recovers_after_backend_restart
         result = ExecutionResult(
             "durable-job", "canonical answer", None, None, "native", "accepted"
         )
-        publish_turn(recovered, result)
+        publish_turn(recovered, result, defer_ack=defer_ack)
+        if defer_ack:
+            assert turn["state"] == "committed"
+            assert turn["assistant_message_id"] == "message"
+            assert assistant_messages == ["canonical answer"]
+            assert not acknowledgements
+            wake.assert_called_once()
+            # A fresh reconciler needs only the durable committed turn. It must
+            # not submit inference or rebuild evidence/accounting to deliver ACK.
+            from services.ai.chat import reconcile_turn
+
+            with (
+                patch("services.ai.chat.submit_turn", side_effect=AssertionError("readmit")),
+                patch("services.ai.chat.sources_for", side_effect=AssertionError("rebuild")),
+                patch("services.ai.chat.record_job_usage", side_effect=AssertionError("recount")),
+            ):
+                reconcile_turn(copy.deepcopy(turn))
+            assert len(acknowledgements) == 1
+            assert turn["state"] == ("committed" if ack_fails else "acknowledged")
         publish_turn(copy.deepcopy(turn), result)
     assert len(starts) == 1
     assert assistant_messages == ["canonical answer"]
@@ -227,3 +251,43 @@ def test_admission_conflict_preserves_typed_recovery_code_in_durable_turn(code, 
         with pytest.raises(ExecutionError, match=code):
             submit_turn(turn)
     assert sb.table.return_value.update.call_args.args[0] == {"state": "failed", "error_code": code}
+
+
+def test_subscriber_delivers_committed_answer_without_waiting_for_remote_ack():
+    import json
+    from unittest.mock import MagicMock
+
+    from services.ai.chat import stream_turn
+
+    turn = {
+        "id": "turn",
+        "owner_id": "owner",
+        "conversation_id": "conversation",
+        "job_id": "job",
+        "request": {"operation": "rag_agent", "profile": "chat"},
+    }
+    result = ExecutionResult("job", "Canonical answer [1]", None, None, "native", "attempt")
+    client = MagicMock()
+    client.events.return_value = iter(
+        [{"type": "job.completed", "data": {}, "seq": 5, "attempt_id": "attempt"}]
+    )
+    client.result.return_value = result
+    db = MagicMock()
+    saved = db.table.return_value.select.return_value.eq.return_value.eq.return_value
+    saved.single.return_value.execute.return_value.data = {
+        "debug": {"timings": {}},
+        "citations": [{"number": 1}],
+    }
+    with (
+        patch("services.ai.chat.submit_turn", return_value=turn),
+        patch("services.ai.chat.turn_scope", return_value=ExecutionScope("owner")),
+        patch("services.ai.chat.client_for", return_value=client),
+        patch("services.ai.chat.get_supabase_thread_safe", return_value=db),
+        patch("services.ai.chat.publish_turn", return_value="message") as publish,
+    ):
+        frames = list(stream_turn(turn))
+    publish.assert_called_once_with(turn, result, attempt_id="attempt", defer_ack=True)
+    done = json.loads(frames[-1].removeprefix("data: ").strip())
+    assert done["done"] is True and done["message_id"] == "message"
+    assert done["replace"] == result.text and done["citations"] == [{"number": 1}]
+    client.acknowledge.assert_not_called()
