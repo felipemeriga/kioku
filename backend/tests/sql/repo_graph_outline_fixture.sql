@@ -13,3 +13,9 @@ INSERT INTO repo_symbols
 INSERT INTO repo_symbols VALUES ('00000000-0000-0000-0000-000000000001',
  '22222222-2222-2222-2222-222222222222','foreign','foreign','function','Src/a.ts',0,now());
 ALTER DEFAULT PRIVILEGES GRANT EXECUTE ON FUNCTIONS TO anon,authenticated;
+
+INSERT INTO repo_symbols(folder_id,user_id,node_id,symbol,kind,file,start_line,updated_at)
+SELECT '00000000-0000-0000-0000-000000000001','11111111-1111-1111-1111-111111111111',
+ 'special-'||ordinality,'special-'||ordinality,'function',file,1,'2026-11-09T12:00:00Z'
+FROM unnest(ARRAY['a.ts','a.tsx','src','src/a.ts','src-other/a.ts','a.ts/child.ts','zzz.ts'])
+ WITH ORDINALITY paths(file,ordinality);
