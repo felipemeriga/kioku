@@ -10,7 +10,20 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, and_, delete, event, func, insert, literal, or_, select, text, update
+from sqlalchemy import (
+    JSON,
+    and_,
+    delete,
+    event,
+    func,
+    insert,
+    literal,
+    or_,
+    select,
+    text,
+    union_all,
+    update,
+)
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.sql import visitors
@@ -1428,6 +1441,35 @@ class Store:
             if not attempt:
                 raise Fenced("unknown_attempt")
             await self._owned(conn, attempt)
+            if conn.dialect.name == "postgresql":
+                records = [(kind, data, time.time()) for kind, data in items]
+                if not records:
+                    return
+                sequence = (
+                    update(jobs)
+                    .where(jobs.c.id == job_id)
+                    .values(next_seq=jobs.c.next_seq + len(records), updated_at=records[-1][2])
+                    .returning((jobs.c.next_seq - len(records)).label("first_seq"))
+                    .cte("tool_event_sequences")
+                )
+                rows = [
+                    select(
+                        literal(job_id, type_=events.c.job_id.type),
+                        sequence.c.first_seq + index,
+                        literal(attempt_id, type_=events.c.attempt_id.type),
+                        literal(kind, type_=events.c.type.type),
+                        literal(data, type_=events.c.data.type),
+                        literal(created_at, type_=events.c.created_at.type),
+                    ).select_from(sequence)
+                    for index, (kind, data, created_at) in enumerate(records)
+                ]
+                await conn.execute(
+                    insert(events).from_select(
+                        ["job_id", "seq", "attempt_id", "type", "data", "created_at"],
+                        union_all(*rows),
+                    )
+                )
+                return
             for kind, data in items:
                 await self._event(conn, job_id, kind, data, attempt_id)
 
