@@ -14,6 +14,7 @@ import {
   alpha,
 } from "@mui/material";
 import { useSearchParams } from "react-router-dom";
+import MenuOpenIcon from "@mui/icons-material/MenuOpen";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
@@ -28,6 +29,9 @@ import { brand } from "../theme";
 import { hudLabel } from "./neo/sx";
 
 interface ContextPanelProps {
+  width?: number;
+  panelId?: string;
+  onCollapse?: () => void;
   activePage: AppPage;
   open: boolean;
   conversations: Conversation[];
@@ -43,6 +47,9 @@ interface ContextPanelProps {
 }
 
 export default function ContextPanel({
+  width = 248,
+  panelId,
+  onCollapse,
   activePage,
   open,
   conversations,
@@ -65,14 +72,14 @@ export default function ContextPanel({
       if (id === selectedFolderId) return;
       setSearchParams(id ? { folder: id } : {});
     },
-    [selectedFolderId, setSearchParams]
+    [selectedFolderId, setSearchParams],
   );
 
   const handleDeleteFolder = useCallback(
     (folderId: string, folderName: string) => {
       onRequestDeleteFolder?.(folderId, folderName);
     },
-    [onRequestDeleteFolder]
+    [onRequestDeleteFolder],
   );
 
   const [integrationsTarget, setIntegrationsTarget] = useState<{
@@ -83,7 +90,7 @@ export default function ContextPanel({
     (folderId: string, folderName: string) => {
       setIntegrationsTarget({ id: folderId, name: folderName });
     },
-    []
+    [],
   );
 
   if (!open) return null;
@@ -91,12 +98,24 @@ export default function ContextPanel({
   return (
     <Box
       component="aside"
+      id={panelId}
       aria-label={
         activePage === "/documents" ? "Folder navigator" : "Conversations"
       }
       data-testid="context-panel"
       sx={{
-        width: 248,
+        width,
+        minWidth: 0,
+        containerType: "inline-size",
+        "@container (max-width: 190px)": {
+          "& [data-folder-navigation]": { pl: 0.5, pr: 0.5 },
+          "& .MuiListItemIcon-root": { minWidth: 20 },
+          "& .folder-actions": {
+            position: "absolute",
+            right: 3,
+            backgroundColor: brand.surface2,
+          },
+        },
         maxWidth: "100%",
         height: "100dvh",
         display: "flex",
@@ -107,6 +126,19 @@ export default function ContextPanel({
         flexShrink: 0,
       }}
     >
+      {onCollapse && (
+        <Box sx={{ px: 1, pt: 1 }}>
+          <Tooltip title="Collapse navigation" describeChild>
+            <IconButton
+              aria-label="Collapse navigation"
+              onClick={onCollapse}
+              size="small"
+            >
+              <MenuOpenIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Box>
+      )}
       {activePage === "/" && (
         <ChatPanel
           conversations={conversations}
@@ -213,7 +245,16 @@ function ChatPanel({
           onClick={onNew}
           fullWidth
         >
-          New conversation
+          <Box
+            component="span"
+            sx={{
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            New conversation
+          </Box>
         </Button>
       </Box>
 
@@ -357,13 +398,15 @@ function ConversationRow({
       component="li"
       data-testid="conversation-row"
       aria-label={`Open conversation: ${conv.title}`}
+      title={conv.title}
       aria-current={isSelected ? "true" : undefined}
       selected={isSelected}
       onClick={editing ? undefined : onSelect}
       onDoubleClick={(e) => startEdit(e)}
       sx={{
+        minWidth: 0,
         borderRadius: "3px",
-        px: "12px",
+        px: "8px",
         py: "10px",
         mb: "2px",
         height: "auto",

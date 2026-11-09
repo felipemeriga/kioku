@@ -97,7 +97,10 @@
   }
 }
 .history-search-layout {
-  grid-template-columns: 218px minmax(0, 1fr);
+  grid-template-columns: var(--history-calendar-width, 276px) 12px minmax(
+      0,
+      1fr
+    );
 }
 .history-search-layout .learnings-calendar {
   padding: 14px;
@@ -149,5 +152,18 @@
   .history-search-results .MuiAlert-action {
     margin-left: 28px;
     padding-top: 0;
+  }
+}
+
+@container (max-width: 760px) {
+  .history-search-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .history-search-layout:not(.history-show-dates) .learnings-calendar {
+    display: none;
+  }
+  .learnings-panel .history-search-dates-toggle {
+    display: inline-flex;
+    margin-bottom: 12px;
   }
 }

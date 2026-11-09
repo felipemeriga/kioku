@@ -1,11 +1,16 @@
 .learnings-panel {
   padding: 4px 0 36px;
+  container-type: inline-size;
   color: #faf7ff;
 }
 .learnings-journal-layout {
   display: grid;
-  grid-template-columns: minmax(270px, 310px) minmax(0, 1fr);
-  gap: 20px;
+  grid-template-columns: var(--history-calendar-width, 276px) 12px minmax(
+      0,
+      1fr
+    );
+  column-gap: 8px;
+  row-gap: 20px;
   align-items: start;
 }
 .learnings-calendar,
@@ -289,4 +294,29 @@
 }
 .learnings-session-card:focus-within {
   border-color: #00f0ff;
+}
+
+.history-calendar-resizer {
+  display: flex;
+  align-self: stretch;
+  min-height: 330px;
+}
+.learnings-timeline {
+  min-width: 0;
+}
+@container (max-width: 760px) {
+  .learnings-journal-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .history-calendar-resizer {
+    display: none;
+  }
+  .learnings-calendar {
+    position: static;
+  }
+}
+@media (max-width: 800px) {
+  .history-calendar-resizer {
+    display: none;
+  }
 }

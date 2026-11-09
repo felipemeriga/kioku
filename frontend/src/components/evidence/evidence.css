@@ -229,3 +229,39 @@
 .evidence-event > .MuiToggleButtonGroup-root {
   margin: 12px 0;
 }
+
+.evidence-day-resizer {
+  display: flex;
+  align-self: stretch;
+}
+.evidence-day-button.MuiButton-root {
+  flex-wrap: wrap;
+  text-align: left;
+}
+.evidence-day-button.MuiButton-root span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.evidence-drawer .evidence-heading {
+  overflow-wrap: anywhere;
+}
+@container (max-width: 360px) {
+  .evidence-drawer .evidence-heading {
+    padding: 16px;
+  }
+  .evidence-drawer .evidence-toolbar {
+    padding: 10px 14px;
+    gap: 10px;
+  }
+  .evidence-drawer .evidence-reader-events {
+    padding: 12px;
+  }
+  .evidence-drawer .evidence-event {
+    padding: 10px;
+  }
+}
+@media (max-width: 700px) {
+  .evidence-day-resizer {
+    display: none;
+  }
+}

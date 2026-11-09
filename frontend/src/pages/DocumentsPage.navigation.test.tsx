@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { renderWithProviders } from "../test/renderWithProviders";
@@ -123,14 +129,12 @@ describe("folder browser history", () => {
 
   it("keeps a repeated retry failure visible and allows another manual attempt", async () => {
     const user = userEvent.setup();
-    const fetchDocuments = vi
-      .spyOn(api, "fetchDocuments")
-      .mockRejectedValue(
-        new api.ApiError({
-          status: 503,
-          userMessage: "Temporarily unavailable",
-        }),
-      );
+    const fetchDocuments = vi.spyOn(api, "fetchDocuments").mockRejectedValue(
+      new api.ApiError({
+        status: 503,
+        userMessage: "Temporarily unavailable",
+      }),
+    );
     renderWithProviders(<Navigation surface="grid" />, {
       initialEntries: ["/documents?folder=parent"],
     });
@@ -140,6 +144,95 @@ describe("folder browser history", () => {
       "Temporarily unavailable",
     );
     expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled();
+  });
+
+  it("recovers failed folder metadata and the sidebar with one page retry", async () => {
+    const user = userEvent.setup();
+    const repo = {
+      ...parent,
+      name: "Recovered repository",
+      kind: "repo" as const,
+    };
+    const breadcrumbs = vi
+      .spyOn(api, "fetchBreadcrumbs")
+      .mockRejectedValueOnce(new Error("Temporarily unavailable"))
+      .mockResolvedValue([repo]);
+    const folders = vi
+      .spyOn(api, "fetchFolders")
+      .mockImplementation(async (id) => (id ? [] : [repo]));
+    folders.mockRejectedValueOnce(new Error("Temporarily unavailable"));
+    vi.spyOn(api, "fetchBriefing").mockResolvedValue({
+      folder: repo,
+      schema_version: 1,
+      sections: {} as Awaited<ReturnType<typeof api.fetchBriefing>>["sections"],
+      last_generated_at: null,
+    } as Awaited<ReturnType<typeof api.fetchBriefing>>);
+    renderWithProviders(
+      <>
+        <ContextPanel
+          activePage="/documents"
+          open
+          conversations={[]}
+          selectedConversationId={null}
+          onSelectConversation={vi.fn()}
+          onNewConversation={vi.fn()}
+          onDeleteConversation={vi.fn()}
+        />
+        <Navigation surface="grid" />
+      </>,
+      { initialEntries: ["/documents?folder=parent"] },
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Folder unavailable" }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: "Retry folders" }),
+    ).toBeEnabled();
+    expect(screen.queryByText("Your corpus is empty")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(
+      await screen.findByRole("heading", { name: "Recovered repository" }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByRole("tab", { name: "Agents" }),
+    ).toBeInTheDocument();
+    expect(
+      await within(
+        screen.getByRole("complementary", { name: "Folder navigator" }),
+      ).findByText("Recovered repository"),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(breadcrumbs).toHaveBeenCalledTimes(2);
+  });
+
+  it("lets failed sidebar subfolders retry without navigation or a reload", async () => {
+    const folders = vi
+      .spyOn(api, "fetchFolders")
+      .mockImplementation(async (id) => (id ? [child] : [parent]));
+    let failed = false;
+    folders.mockImplementation(async (id) => {
+      if (!id) return [parent];
+      if (!failed) {
+        failed = true;
+        throw new Error("Temporarily unavailable");
+      }
+      return [child];
+    });
+    renderWithProviders(<Navigation surface="tree" />, {
+      initialEntries: ["/documents"],
+    });
+    fireEvent.click(await screen.findByText("Parent"));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Couldn’t load subfolders.",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Retry subfolders" }),
+    );
+    expect(await screen.findByText("Child")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/documents?folder=parent",
+    );
   });
 
   it("waits for folders before showing the empty corpus state", async () => {

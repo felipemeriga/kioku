@@ -1,7 +1,15 @@
-import { Button, Drawer, IconButton, Stack } from "@mui/material";
+import {
+  Button,
+  Drawer,
+  IconButton,
+  Stack,
+  useMediaQuery,
+} from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import { Link, useLocation } from "react-router-dom";
 import { evidenceUrl, type EvidenceLocation } from "../../lib/agentEvidenceApi";
+import PanelResizeHandle from "../PanelResizeHandle";
+import { usePanelSize } from "../../hooks/usePanelSize";
 import TranscriptViewer from "./TranscriptViewer";
 
 export default function EvidenceDrawer({
@@ -14,6 +22,8 @@ export default function EvidenceDrawer({
   onClose: () => void;
 }) {
   const route = useLocation();
+  const mobile = useMediaQuery("(max-width:600px)");
+  const panelSize = usePanelSize("originals", 680, 280, 1000, 72);
   return (
     <Drawer
       anchor="right"
@@ -21,18 +31,39 @@ export default function EvidenceDrawer({
       onClose={onClose}
       slotProps={{
         paper: {
-          sx: { width: { xs: "100%", sm: 680 }, maxWidth: "100%", p: 0 },
+          id: "original-evidence-panel",
+          sx: {
+            width: mobile ? "100%" : panelSize.size,
+            maxWidth: "100%",
+            p: 0,
+            containerType: "inline-size",
+          },
         },
       }}
     >
       {location && (
         <>
+          {!mobile && (
+            <PanelResizeHandle
+              label="Resize original transcript"
+              controls="original-evidence-panel"
+              {...panelSize}
+              onChange={panelSize.setSize}
+              direction={-1}
+              overlay
+            />
+          )}
           <Stack
             direction="row"
             justifyContent="flex-end"
             alignItems="center"
             gap={1}
-            sx={{ px: 2, py: 1 }}
+            sx={{
+              px: 2,
+              py: 1,
+              flexShrink: 0,
+              "& .MuiButton-root": { whiteSpace: "normal", lineHeight: 1.4 },
+            }}
           >
             <Button
               component={Link}

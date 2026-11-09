@@ -14,6 +14,8 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
+import PanelResizeHandle from "../PanelResizeHandle";
+import { usePanelSize } from "../../hooks/usePanelSize";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import { ApiError } from "../../lib/api";
 import {
@@ -40,6 +42,7 @@ export default function TranscriptViewer({
   onLocationChange: (location: EvidenceLocation) => void;
   variant?: "page" | "drawer";
 }) {
+  const daySize = usePanelSize("original-days", 190, 140, 300, 650);
   const { session, days, window: source } = useSessionEvidence(location);
   const queryClient = useQueryClient();
   const scroll = useRef<HTMLDivElement>(null);
@@ -144,8 +147,8 @@ export default function TranscriptViewer({
         {status === 404
           ? "Original evidence is unavailable for this session, or archival is not enabled yet."
           : status === 410
-          ? "Original evidence was deleted. The journal summary is still available."
-          : String(session.error)}
+            ? "Original evidence was deleted. The journal summary is still available."
+            : String(session.error)}
       </Alert>
     );
   }
@@ -258,7 +261,23 @@ export default function TranscriptViewer({
       </header>
       <div className="evidence-reader-layout">
         {variant === "page" && (
-          <aside className="evidence-day-sidebar">{dayNavigation}</aside>
+          <>
+            <aside
+              id="original-session-days"
+              className="evidence-day-sidebar"
+              style={{ width: daySize.size }}
+            >
+              {dayNavigation}
+            </aside>
+            <div className="evidence-day-resizer">
+              <PanelResizeHandle
+                label="Resize active session days"
+                controls="original-session-days"
+                {...daySize}
+                onChange={daySize.setSize}
+              />
+            </div>
+          </>
         )}
         <div className="evidence-reading-column">
           <Stack

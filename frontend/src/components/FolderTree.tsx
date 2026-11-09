@@ -3,6 +3,8 @@ import NotionFolderIndicator from "./NotionFolderIndicator";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Box,
+  Alert,
+  Button,
   List,
   ListItemButton,
   ListItemIcon,
@@ -92,6 +94,7 @@ function FolderTreeNode({
     <>
       <ListItemButton
         data-folder-navigation
+        title={folder.name}
         onMouseEnter={() => prefetchFolder(client, folder.id)}
         onFocus={() => prefetchFolder(client, folder.id)}
         selected={isSelected}
@@ -123,6 +126,7 @@ function FolderTreeNode({
             onOsFilesDropped(folder.id, files);
         }}
         sx={{
+          position: "relative",
           pl: 1.25 + depth * 1.75,
           py: 0.4,
           minHeight: 34,
@@ -250,12 +254,23 @@ function FolderTreeNode({
           </Box>
         )}
         {childrenQuery.isError && (
-          <Typography
-            role="alert"
-            sx={{ pl: 3 + depth * 1.75, py: 1, color: brand.red, fontSize: 13 }}
+          <Alert
+            severity="error"
+            icon={false}
+            sx={{ mx: 1, my: 1, p: 1, fontSize: 13 }}
           >
             Couldn’t load subfolders.
-          </Typography>
+            <Button
+              size="small"
+              color="inherit"
+              disabled={childrenQuery.isFetching}
+              onClick={() =>
+                void childrenQuery.refetch({ throwOnError: false })
+              }
+            >
+              Retry subfolders
+            </Button>
+          </Alert>
         )}
         {children.map((child) => (
           <FolderTreeNode
@@ -396,12 +411,21 @@ export default function FolderTree({
           </Box>
         )}
         {rootQuery.isError && (
-          <Typography
-            role="alert"
-            sx={{ px: 2, py: 1, color: brand.red, fontSize: 13 }}
+          <Alert
+            severity="error"
+            icon={false}
+            sx={{ mx: 1, my: 1, p: 1, fontSize: 13 }}
           >
             Couldn’t load folders.
-          </Typography>
+            <Button
+              size="small"
+              color="inherit"
+              disabled={rootQuery.isFetching}
+              onClick={() => void rootQuery.refetch({ throwOnError: false })}
+            >
+              Retry folders
+            </Button>
+          </Alert>
         )}
         {rootFolders.map((folder) => (
           <FolderTreeNode
