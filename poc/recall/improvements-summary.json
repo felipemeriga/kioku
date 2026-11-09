@@ -1,0 +1,24 @@
+{
+  "v2-development": {
+    "questions": 12,
+    "improved": true,
+    "manual_acceptable": 10,
+    "manual_limited": 2,
+    "valid_source_references": 12,
+    "budget_characters": 10000,
+    "input_tokens": 103112,
+    "output_tokens": 6230,
+    "api_equivalent_usd": 0.4747
+  },
+  "v2-holdout": {
+    "questions": 4,
+    "improved": true,
+    "manual_acceptable": 4,
+    "manual_limited": 0,
+    "valid_source_references": 4,
+    "budget_characters": 10000,
+    "input_tokens": 35622,
+    "output_tokens": 1894,
+    "api_equivalent_usd": 0.161408
+  }
+}

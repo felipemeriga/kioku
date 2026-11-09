@@ -80,3 +80,71 @@ class CitationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ImprovedContextTests(unittest.TestCase):
+    def test_call_pair_is_scoped_to_session_and_budget(self):
+        from improved import packet
+
+        def source(identity, text, sequence, kind, call=None, session="session"):
+            return {
+                **record(identity, text),
+                "record_sequence": sequence,
+                "event_type": kind,
+                "call_id": call,
+                "session_id": session,
+            }
+
+        records = [
+            source("command", "inspect_unique_sdk_version", 1, "tool_call", "call"),
+            source(
+                "result",
+                "observed version vendor build identifier",
+                2,
+                "tool_result",
+                "call",
+            ),
+            source(
+                "unrelated",
+                "private unrelated thread",
+                1,
+                "tool_result",
+                "call",
+                "different-session",
+            ),
+        ]
+        sources = packet(
+            Index(records), records, ["inspect_unique_sdk_version"], budget=2000
+        )
+        self.assertIn("result", [s["event_id"] for s in sources])
+        self.assertNotIn("unrelated", [s["event_id"] for s in sources])
+        self.assertLessEqual(sum(len(s["text"]) for s in sources), 2000)
+        for s in sources:
+            original = next(r for r in records if r["event_id"] == s["event_id"])
+            self.assertEqual(
+                s["text"],
+                original["text"][
+                    s["excerpt_offset"] : s["excerpt_offset"] + s["excerpt_length"]
+                ],
+            )
+
+    def test_model_cannot_invent_or_modify_resolved_quote(self):
+        from improved import resolve, span
+
+        evidence = span(
+            record("one", "Observed 4 GiB target; not a hard process cap."), 0
+        )
+        answer = {
+            "status": "supported",
+            "answer": "A soft target.",
+            "citations": [evidence["source_id"]],
+        }
+        resolved = resolve(answer, [evidence])
+        self.assertTrue(resolved["usable"])
+        self.assertEqual(resolved["resolved_citations"][0]["text"], evidence["text"])
+        self.assertFalse(
+            resolve({**answer, "citations": ["other-question-source"]}, [evidence])[
+                "usable"
+            ]
+        )
+        self.assertFalse(resolve({**answer, "citations": []}, [evidence])["usable"])

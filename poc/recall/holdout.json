@@ -1,0 +1,6 @@
+[
+ {"id":"audio","question":"Did the long playback baseline validate audio as well as video, or was there a limitation?","kind":"qualified"},
+ {"id":"vendor","question":"What exact missing component did we need the SDK vendor to provide before a newer archive could link?","kind":"positive"},
+ {"id":"batching","question":"When analyzing tracking latency, can we multiply a batch delay by the number of records to get the total delay?","kind":"qualified"},
+ {"id":"absent-gpu","question":"What experiment established that replacing the GPU eliminated the player memory problem?","kind":"absent"}
+]
