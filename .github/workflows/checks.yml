@@ -195,9 +195,10 @@ jobs:
           psql -h localhost -U postgres -d tsukai_bootstrap_fixture -v ON_ERROR_STOP=1 \
             -f backend/tests/sql/tsukai_chat_domain_fixture.sql \
             -f supabase/migrations/20261104130000_tsukai_chat_bridge.sql \
+            -c COMMIT \
+            -c "ALTER DEFAULT PRIVILEGES GRANT EXECUTE ON FUNCTIONS TO anon, authenticated" \
             -f supabase/migrations/20261109220000_tsukai_bootstrap_citation_batch.sql \
-            -f backend/tests/sql/tsukai_bootstrap_batch_acceptance.sql \
-            -c COMMIT
+            -f backend/tests/sql/tsukai_bootstrap_batch_acceptance.sql
       - name: Verify runtime grants can be applied twice after schema upgrade
         env:
           PGPASSWORD: fixture-admin-only

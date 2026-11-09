@@ -1,7 +1,8 @@
 -- Preserve the existing shared allocator while avoiding one network RTT per source.
+BEGIN;
 CREATE OR REPLACE FUNCTION public.tsukai_register_bootstrap_citations(
   p_job_id text,p_attempt_id text,p_citations jsonb
-) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
 DECLARE
   citation jsonb;
   n integer;
@@ -29,5 +30,7 @@ BEGIN
   END LOOP;
   RETURN numbers;
 END $$;
-REVOKE ALL ON FUNCTION public.tsukai_register_bootstrap_citations(text,text,jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.tsukai_register_bootstrap_citations(text,text,jsonb)
+  FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.tsukai_register_bootstrap_citations(text,text,jsonb) TO service_role;
+COMMIT;
