@@ -135,6 +135,14 @@ def test_shadow_service_requires_token_and_cannot_expand_case_scope(monkeypatch)
         assert response.status_code == 200
         assert len(calls) == before
         assert "not_prefetched" in response.json()["evidence"]
+        monkeypatch.setattr(module, "prefetch", lambda *args, **kwargs: ("No tools requested", []))
+        response = client.post(
+            "/prepare",
+            headers=headers,
+            json={"case": "no-tools", "question": "Do not use tools", "folder_ids": ["folder"]},
+        )
+        assert response.status_code == 200
+        assert response.json()["chat_contract"]["tool_allowlist"] == []
 
 
 def test_shadow_mcp_exposes_identical_production_tool_contract():

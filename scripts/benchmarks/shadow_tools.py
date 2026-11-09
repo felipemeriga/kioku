@@ -145,6 +145,8 @@ def application(config):
             raise HTTPException(403, "Evaluation scope changed")
         state = {"folders": body.folder_ids, "citations": Registry(), "calls": []}
         cases[body.case] = state
+        time_context = memory_time_context(body.timezone)
+        prefetch_calls = None
         if body.skip_prefetch:
             evidence = json.dumps(
                 {
@@ -154,7 +156,7 @@ def application(config):
                 }
             )
         else:
-            evidence, _ = await asyncio.to_thread(
+            evidence, prefetch_calls = await asyncio.to_thread(
                 prefetch,
                 body.question,
                 body.timezone,
@@ -172,12 +174,14 @@ def application(config):
                     content=body.question,
                     history=[],
                     turn_id=body.case,
-                    time_context=memory_time_context(body.timezone),
+                    time_context=time_context,
                     evidence=evidence,
                 ),
                 "max_tokens": NATIVE_CHAT_MAX_TOKENS,
                 "max_turns": NATIVE_CHAT_MAX_TURNS,
-                "tool_allowlist": [t.name for t in await server.list_tools()],
+                "tool_allowlist": [t.name for t in await server.list_tools()]
+                if prefetch_calls is None or prefetch_calls
+                else [],
             },
         }
 

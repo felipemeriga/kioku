@@ -175,7 +175,9 @@ async def run(payload, workers):
                             }
                         ),
                         tool_allowlist=contract["tool_allowlist"] if contract else [],
-                        tool_capability_ref=case["id"] if oracle is None else None,
+                        tool_capability_ref=case["id"]
+                        if contract and contract["tool_allowlist"]
+                        else None,
                         metadata={"history_transport": "resume-delta-v1"},
                     )
                     mcp = (
@@ -191,7 +193,7 @@ async def run(payload, workers):
                                 }
                             }
                         }
-                        if oracle is None
+                        if contract and contract["tool_allowlist"]
                         else None
                     )
                     attempt = {
