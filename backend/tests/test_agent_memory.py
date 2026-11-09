@@ -1072,3 +1072,78 @@ def test_short_explicit_issue_number_is_search_not_an_activity_overview():
     assert result["search_terms"] == ["1"]
     assert result["activity"]["matching_mode"] == "topical"
     assert result["selection"] == "time_diverse_relevance"
+
+
+def test_overview_keeps_all_dated_updates_and_original_only_activity(monkeypatch):
+    from services.agent_memory_tools import execute_memory_tool
+
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "test-overview-reference")
+    entries = [
+        {
+            "folder_id": FOLDER,
+            "session_id": "native",
+            "agent": "codex",
+            "title": "Cumulative title is not a dated outcome",
+            "entry_id": str(i),
+            "captured_at": f"2026-11-06T12:{i:02d}:00+00:00",
+            "body": f"Update {i}: " + "long reported investigation " * 40,
+        }
+        for i in range(30)
+    ]
+    entries[-1]["body"] = "Final correction: deployment remains unverified."
+    original = {
+        "folder_id": SIBLING,
+        "session_id": SESSION,
+        "native_session_id": "other-native",
+        "agent": "codex",
+        "date": "2026-11-06",
+        "event_count": 17,
+    }
+    snapshot = {
+        "entries": entries,
+        "entry_count": 30,
+        "original_days": [original],
+        "original_day_count": 1,
+        "snapshot_at": "2026-11-09T20:00:00Z",
+    }
+    with patch("services.agent_memory_overview.rpc", return_value=snapshot) as call:
+        value = json.loads(
+            execute_memory_tool(
+                Database(),
+                "search_agent_history",
+                {"projection": "overview", "query": ""},
+                OWNER,
+                [FOLDER, SIBLING],
+            )
+        )
+    assert call.call_count == 1  # No original body loading or model-driven page rounds.
+    assert call.call_args.args[1] == "agent_memory_overview"
+    assert value["inventory_complete"] is True
+    assert value["activity"]["has_more"] is False
+    day = value["activity"]["days"][0]
+    assert len(day["summary"]) > 2000  # Wrapper must not silently erase late updates.
+    assert all(f"Update {i}:" in day["summary"] for i in range(29))
+    assert "Final correction: deployment remains unverified." in day["summary"]
+    assert value["original_activity"][0]["native_session_id"] == "other-native"
+    assert day["reference"] and day["summary_truncated"]
+    snapshot["entry_count"] = 2001
+    with patch("services.agent_memory_overview.rpc", return_value=snapshot):
+        value = search_memory(Database(), OWNER, [FOLDER, SIBLING], projection="overview")
+    assert value["inventory_complete"] is False
+    assert value["coverage"] == "inventory_limit_reached_narrow_dates"
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"query": "deployment"},
+        {"as_of": "2026-11-06"},
+        {"offset": 10},
+        {"queries": ["RSS"]},
+        {"order": "latest"},
+    ],
+)
+def test_overview_rejects_incompatible_search_semantics(arguments):
+    with pytest.raises(HTTPException) as exc:
+        search_memory(Database(), OWNER, [FOLDER], projection="overview", **arguments)
+    assert exc.value.status_code == 422

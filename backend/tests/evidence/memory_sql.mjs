@@ -4,74 +4,74 @@ const require = createRequire(import.meta.url);
 const { PGlite } = require(process.env.PGLITE_MODULE || "@electric-sql/pglite");
 const db = new PGlite();
 await db.exec(
-  `CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role; CREATE SCHEMA auth; CREATE TABLE auth.users(id uuid PRIMARY KEY); CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS $$ SELECT nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$; CREATE TABLE folders(id uuid PRIMARY KEY,user_id uuid,kind text); CREATE SCHEMA storage; CREATE TABLE storage.buckets(id text PRIMARY KEY,name text,public boolean,file_size_limit bigint);`,
+  `CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role; CREATE SCHEMA auth; CREATE TABLE auth.users(id uuid PRIMARY KEY); CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS $$ SELECT nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$; CREATE TABLE folders(id uuid PRIMARY KEY,user_id uuid,kind text); CREATE SCHEMA storage; CREATE TABLE storage.buckets(id text PRIMARY KEY,name text,public boolean,file_size_limit bigint);`
 );
 await db.exec(
-  "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon,authenticated;",
+  "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon,authenticated;"
 );
 await db.exec(
   fs.readFileSync(
     new URL(
       "../../../supabase/migrations/20261105090000_agent_evidence.sql",
-      import.meta.url,
+      import.meta.url
     ),
-    "utf8",
-  ),
+    "utf8"
+  )
 );
 await db.exec(
   fs.readFileSync(
     new URL(
       "../../../supabase/migrations/20261105100000_agent_evidence_empty_attachments.sql",
-      import.meta.url,
+      import.meta.url
     ),
-    "utf8",
-  ),
+    "utf8"
+  )
 );
 await db.exec(
   fs.readFileSync(
     new URL(
       "../../../supabase/migrations/20261105103000_agent_evidence_rpc_privileges.sql",
-      import.meta.url,
+      import.meta.url
     ),
-    "utf8",
-  ),
+    "utf8"
+  )
 );
 
 await db.exec(
   fs.readFileSync(
     new URL(
       "../../../supabase/migrations/20261109090000_agent_memory_recall.sql",
-      import.meta.url,
+      import.meta.url
     ),
-    "utf8",
-  ),
+    "utf8"
+  )
 );
 await db.exec(
   fs.readFileSync(
     new URL(
       "../../../supabase/migrations/20261109110000_memory_relevance.sql",
-      import.meta.url,
+      import.meta.url
     ),
-    "utf8",
-  ),
+    "utf8"
+  )
 );
 await db.exec(
   fs.readFileSync(
     new URL(
       "../../../supabase/migrations/20261109120000_memory_latest_order.sql",
-      import.meta.url,
+      import.meta.url
     ),
-    "utf8",
-  ),
+    "utf8"
+  )
 );
 await db.exec(
   fs.readFileSync(
     new URL(
       "../../../supabase/migrations/20261109130000_memory_escape_tokens.sql",
-      import.meta.url,
+      import.meta.url
     ),
-    "utf8",
-  ),
+    "utf8"
+  )
 );
 const owner = "11111111-1111-4111-8111-111111111111",
   other = "11111111-1111-4111-8111-111111111112";
@@ -87,7 +87,7 @@ const call = async (name, args) =>
   (
     await db.query(
       `SELECT ${name}(${args.map((_, i) => "$" + (i + 1)).join(",")}) value`,
-      args,
+      args
     )
   ).rows[0].value;
 const descriptor = {
@@ -180,7 +180,7 @@ const search = (
   session = null,
   order = "chronological",
   limit = 20,
-  offset = 0,
+  offset = 0
 ) =>
   call("search_agent_memory", [
     user,
@@ -227,7 +227,7 @@ r = await search(
   null,
   "latest",
   1,
-  0,
+  0
 );
 if (r.matches[0].record_sequence !== 3 || !r.has_more)
   throw Error("latest pagination");
@@ -289,7 +289,7 @@ r = await search2(["unknown_symbol", "archive"], { ids: ["unknown_symbol"] });
 if (!r.unmatched_identifiers.includes("unknown_symbol"))
   throw Error("identifier miss was hidden");
 await db.exec(
-  "GRANT USAGE ON SCHEMA public,auth TO authenticated; SET ROLE authenticated;",
+  "GRANT USAGE ON SCHEMA public,auth TO authenticated; SET ROLE authenticated;"
 );
 await db.query("SELECT set_config('request.jwt.claim.sub',$1,false)", [other]);
 if ((await db.query("SELECT * FROM agent_memory_chunks")).rows.length)
@@ -303,14 +303,14 @@ for (const signature of [
   const p = (
     await db.query(
       "SELECT has_function_privilege('anon',$1,'EXECUTE') a,has_function_privilege('authenticated',$1,'EXECUTE') b,has_function_privilege('service_role',$1,'EXECUTE') s",
-      [signature],
+      [signature]
     )
   ).rows[0];
   if (p.a || p.b || !p.s) throw Error("memory RPC privileges");
 }
 await db.query(
   "UPDATE agent_evidence_objects SET memory_index_version=1 WHERE session_id=$1",
-  [a],
+  [a]
 );
 let upgrade = await call("search_agent_memory_v2", [
   owner,
@@ -339,11 +339,11 @@ for (const term of ["mongodb", "clock", "gomemlimit", "nmongodb", "nclock"]) {
   const result = await search(owner, [first], [term]);
   if (
     !result.matches.some(
-      (row) => row.char_start === 9000 && row.char_length === escaped.length,
+      (row) => row.char_start === 9000 && row.char_length === escaped.length
     )
   )
     throw Error(
-      "escape normalization lost a word or changed the original span: " + term,
+      "escape normalization lost a word or changed the original span: " + term
     );
 }
 upgrade = await call("search_agent_memory_v2", [
@@ -364,11 +364,82 @@ if (upgrade.index_pending_objects !== 0)
 const version = (
   await db.query(
     "SELECT memory_index_version FROM agent_evidence_objects WHERE session_id=$1",
-    [a],
+    [a]
   )
 ).rows[0].memory_index_version;
 if (version !== 2)
   throw Error("legacy publisher contract did not upgrade the vector version");
+// Overview inventories original-only days and all dated journal entries in one snapshot.
+await db.exec(`CREATE TABLE agent_journal_search_entries(
+ user_id uuid,folder_id uuid,session_id text,agent text,title text,body text,
+ captured_at timestamptz,entry_id text);`);
+await db.exec(
+  fs.readFileSync(
+    new URL(
+      "../../../supabase/migrations/20261109150000_memory_overview.sql",
+      import.meta.url
+    ),
+    "utf8"
+  )
+);
+await db.query(
+  `INSERT INTO agent_journal_search_entries VALUES
+ ($1,$2,'journal-only','codex','title','early report','2026-11-06T02:00:00Z','early'),
+ ($1,$2,'journal-only','codex','title','late correction','2026-11-06T04:00:00Z','late'),
+ ($3,$2,'foreign','codex','title','private','2026-11-06T02:00:00Z','foreign')`,
+  [owner, first, other]
+);
+let overview = await call("agent_memory_overview", [
+  owner,
+  [first],
+  null,
+  null,
+  null,
+  "America/Sao_Paulo",
+]);
+if (
+  overview.entry_count !== 2 ||
+  overview.entries[1].body !== "late correction"
+)
+  throw Error("overview lost late entry or leaked foreign owner");
+if (
+  !overview.original_days.some((d) => d.date === "2026-11-05") ||
+  !overview.original_days.some((d) => d.date === "2026-11-06") ||
+  overview.original_days.some((d) => d.folder_id !== first)
+)
+  throw Error("original-only date/scope coverage");
+overview = await call("agent_memory_overview", [
+  owner,
+  [first],
+  "2026-11-06T03:00:00Z",
+  null,
+  "journal-only",
+  "UTC",
+]);
+if (
+  overview.entry_count !== 1 ||
+  overview.entries[0].entry_id !== "late" ||
+  overview.original_day_count !== 0
+)
+  throw Error("overview session/time boundary");
+overview = await call("agent_memory_overview", [
+  other,
+  [first],
+  null,
+  null,
+  null,
+  "UTC",
+]);
+if (overview.entry_count || overview.original_day_count)
+  throw Error("foreign folder authorized");
+const permission = (
+  await db.query(`SELECT
+ has_function_privilege('anon','agent_memory_overview(uuid,uuid[],timestamptz,timestamptz,text,text)','EXECUTE') a,
+ has_function_privilege('authenticated','agent_memory_overview(uuid,uuid[],timestamptz,timestamptz,text,text)','EXECUTE') b,
+ has_function_privilege('service_role','agent_memory_overview(uuid,uuid[],timestamptz,timestamptz,text,text)','EXECUTE') c`)
+).rows[0];
+if (permission.a || permission.b || !permission.c)
+  throw Error("overview RPC privileges");
 await call("delete_agent_evidence", [owner, first, a]);
 if ((await search()).total_matches !== 0)
   throw Error("tombstone still searchable");
@@ -379,6 +450,6 @@ if (
 )
   throw Error("memory projection survived erase");
 console.log(
-  "Memory SQL: deep original spans, partial publication, dates, scopes, pagination, RLS and erasure passed",
+  "Memory SQL: deep original spans, partial publication, dates, scopes, pagination, RLS and erasure passed"
 );
 await db.close();

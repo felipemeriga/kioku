@@ -134,6 +134,7 @@ def prefetch(question, user_timezone, execute, *, filename=None, folders=()):
     if overview:
         args["query"] = ""
         args["order"] = "chronological"
+        args["projection"] = "overview"
     session = re.search(r"\bsession\s+([a-z0-9][a-z0-9_.:-]{6,179})", question, re.I)
     if session:
         args["session"] = session[1]

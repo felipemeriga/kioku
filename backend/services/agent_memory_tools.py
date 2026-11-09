@@ -9,6 +9,15 @@ from fastapi import HTTPException
 from services.agent_memory import STOP, read_memory, search_memory
 
 SEARCH_PROPERTIES = {
+    "projection": {
+        "type": "string",
+        "enum": ["discovery", "overview"],
+        "description": (
+            "Overview returns compact dated reports and original activity inventory in one "
+            "bounded snapshot; use empty query and chronological order. Discovery searches "
+            "original content."
+        ),
+    },
     "query": {
         "type": "string",
         "maxLength": 2000,
@@ -173,7 +182,11 @@ def execute_memory_tool(
             row["excerpt_offset"] = start
         for row in (result.get("activity") or {}).get("days", []):
             summary = row["summary"]
-            row["summary"] = summary.encode()[:2000].decode(errors="ignore")
+            row["summary"] = (
+                summary
+                if result.get("projection") == "overview"
+                else summary.encode()[:2000].decode(errors="ignore")
+            )
             row["summary_truncated"] = row.get("summary_truncated", False) or len(
                 row["summary"]
             ) < len(summary)
