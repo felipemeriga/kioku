@@ -4,7 +4,8 @@ import json
 
 from langsmith import traceable
 
-from db.client import get_supabase
+from db.client import get_supabase, get_supabase_thread_safe
+from services.agent_memory_tools import DEFINITIONS as MEMORY_TOOL_DEFINITIONS
 from services.citations import CitationRegistry
 from services.embeddings import embed_query
 from services.folder_summary.repo import get_latest_summary
@@ -138,6 +139,9 @@ TOOL_DEFINITIONS = [
         "input_schema": {"type": "object", "properties": {}, "required": []},
     },
 ]
+
+
+TOOL_DEFINITIONS.extend(MEMORY_TOOL_DEFINITIONS)
 
 # Cap the graph tool's output so a hot symbol (thousands of call sites) can't
 # flood the model's context; the model can narrow the query if it needs more.
@@ -305,6 +309,18 @@ def execute_tool(
     with its stable [N] so the model can cite it inline, and the source is
     registered for the frontend to map N → source.
     """
+    if tool_name in {"search_agent_history", "read_agent_evidence"}:
+        from services.agent_memory_tools import execute_memory_tool
+
+        return execute_memory_tool(
+            get_supabase_thread_safe(),
+            tool_name,
+            tool_input,
+            user_id,
+            scope_folder_ids,
+            scope_filename,
+            citations,
+        )
     if tool_name == "knowledge_base_search":
         query = tool_input["query"]
         embedding = embed_query(query)
