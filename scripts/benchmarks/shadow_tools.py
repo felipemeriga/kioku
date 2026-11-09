@@ -9,11 +9,13 @@ is in memory so evaluation does not mutate chats, documents or originals.
 import argparse
 import asyncio
 import hmac
+import inspect
 import json
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from pathlib import Path
 from threading import RLock
+from typing import Annotated
 
 import uvicorn
 from db.client import get_supabase_thread_safe
@@ -21,6 +23,7 @@ from fastapi import FastAPI, HTTPException
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import BaseModel, Field
+from services.ai import native_tools
 from services.citations import CitationRegistry
 from services.evidence_prefetch import prefetch
 from services.tools import execute_tool
@@ -74,7 +77,7 @@ def application(config):
         state["calls"].append(trace)
         return result
 
-    @server.tool()
+    @server.tool(description=inspect.getdoc(native_tools.knowledge_base_search))
     def knowledge_base_search(
         query: str, created_after: str | None = None, created_before: str | None = None
     ) -> str:
@@ -84,14 +87,14 @@ def application(config):
             {k: v for k, v in locals().items() if not callable(v)},
         )
 
-    @server.tool()
+    @server.tool(description=inspect.getdoc(native_tools.code_graph_lookup))
     def code_graph_lookup(operation: str, symbol: str = "", path: str = "") -> str:
         """Read indexed code definitions, references, impact or outline."""
         return run(
             "code_graph_lookup", {k: v for k, v in locals().items() if not callable(v)}
         )
 
-    @server.tool()
+    @server.tool(description=inspect.getdoc(native_tools.search_agent_history))
     def search_agent_history(
         query: str = "",
         folder: str | None = None,
@@ -101,7 +104,7 @@ def application(config):
         timezone: str = "UTC",
         session: str | None = None,
         order: str = "chronological",
-        limit: int = 10,
+        limit: Annotated[int, Field(ge=1, le=10)] = 10,
         offset: int = 0,
         queries: list[str] | None = None,
     ) -> str:
@@ -111,12 +114,12 @@ def application(config):
             {k: v for k, v in locals().items() if v is not None and not callable(v)},
         )
 
-    @server.tool()
+    @server.tool(description=inspect.getdoc(native_tools.read_agent_evidence))
     def read_agent_evidence(
         reference: str,
-        before_records: int = 1,
-        after_records: int = 1,
-        char_limit: int = 4000,
+        before_records: Annotated[int, Field(ge=0, le=1)] = 1,
+        after_records: Annotated[int, Field(ge=0, le=1)] = 1,
+        char_limit: Annotated[int, Field(ge=1000, le=8000)] = 4000,
     ) -> str:
         """Read bounded originals or journal reports; follow next_reference for more journal text."""
         return run(
@@ -141,6 +144,7 @@ def application(config):
         question: str = Field(min_length=1, max_length=4000)
         folder_ids: list[str] = Field(min_length=1, max_length=100)
         timezone: str = "America/Sao_Paulo"
+        skip_prefetch: bool = False
 
     @app.post("/prepare")
     async def prepare(body: Prepare):
@@ -161,13 +165,22 @@ def application(config):
             raise HTTPException(403, "Evaluation scope changed")
         state = {"folders": body.folder_ids, "citations": Registry(), "calls": []}
         cases[body.case] = state
-        evidence, _ = await asyncio.to_thread(
-            prefetch,
-            body.question,
-            body.timezone,
-            lambda name, args: run(name, args, body.case),
-            folders=owned,
-        )
+        if body.skip_prefetch:
+            evidence = json.dumps(
+                {
+                    "status": "not_prefetched",
+                    "scope": owned,
+                    "instruction": "Retrieve supporting evidence with the available tools.",
+                }
+            )
+        else:
+            evidence, _ = await asyncio.to_thread(
+                prefetch,
+                body.question,
+                body.timezone,
+                lambda name, args: run(name, args, body.case),
+                folders=owned,
+            )
         state["evidence"] = evidence
         return {"evidence": evidence, "citations": state["citations"].entries()}
 

@@ -67,6 +67,7 @@ async def run(payload, workers):
                                 "question": case["question"],
                                 "folder_ids": case["folder_ids"],
                                 "timezone": case.get("timezone", "America/Sao_Paulo"),
+                                "skip_prefetch": case.get("skip_prefetch", False),
                             },
                         )
                         response.raise_for_status()

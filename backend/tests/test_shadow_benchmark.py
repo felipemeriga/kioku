@@ -65,3 +65,24 @@ def test_shadow_service_requires_token_and_cannot_expand_case_scope(monkeypatch)
         assert set(calls[-1][1]) == {"query", "created_after", "created_before"}
         assert calls[-1][1]["query"] == "specific"
         assert client.get("/result/owned", headers=headers).status_code == 200
+        response = client.post(
+            "/mcp/",
+            headers=mcp_headers,
+            json={"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+        )
+        assert response.status_code == 200
+        assert "earlier pages can miss later follow-ups" in response.text
+        before = len(calls)
+        response = client.post(
+            "/prepare",
+            headers=headers,
+            json={
+                "case": "agent-plans",
+                "question": "What did we try?",
+                "folder_ids": ["folder"],
+                "skip_prefetch": True,
+            },
+        )
+        assert response.status_code == 200
+        assert len(calls) == before
+        assert "not_prefetched" in response.json()["evidence"]
