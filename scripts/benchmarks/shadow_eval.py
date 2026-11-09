@@ -32,14 +32,6 @@ from tsukai.validation import NativeError
 
 from tsukai.protocol import JobRequest
 
-TOOLS = [
-    "knowledge_base_search",
-    "code_graph_lookup",
-    "search_agent_history",
-    "read_agent_evidence",
-    "recent_changes",
-]
-
 
 def budget_error(payload):
     """Require fresh operator-observed quota; leave headroom below the user's80% cap."""
@@ -122,13 +114,33 @@ async def run(payload, workers):
                         )
                         response.raise_for_status()
                         evidence = response.json()["evidence"]
+                        contract = response.json().get("chat_contract")
+                        if not isinstance(contract, dict):
+                            raise NativeError("missing_production_chat_contract")
                         answer_instruction = response.json().get("answer_instruction")
-                        if not isinstance(answer_instruction, str) or not answer_instruction:
+                        if (
+                            not isinstance(answer_instruction, str)
+                            or not answer_instruction
+                        ):
                             raise NativeError("missing_answer_contract")
                     else:
+                        contract = None
                         result["stage"] = "oracle"
                         evidence = oracle
                         answer_instruction = "Answer from the supplied evidence; cite supporting sources."
+                    result["execution_path"] = {
+                        "contract": "production-native-chat" if contract else "oracle",
+                        "queue_and_publication": "bypassed-readonly-evaluation",
+                        "history": "fresh-conversation",
+                    }
+                    if contract:
+                        result["chat_contract_sha256"] = hashlib.sha256(
+                            json.dumps(contract, sort_keys=True).encode()
+                        ).hexdigest()
+                        result["system_prompt_sha256"] = hashlib.sha256(
+                            contract["system_prompt"].encode()
+                        ).hexdigest()
+                        result["tool_allowlist"] = contract["tool_allowlist"]
                     result["prefetch_seconds"] = time.monotonic() - began
                     conversation, session = str(uuid4()), str(uuid4())
                     zone = case.get("timezone", "America/Sao_Paulo")
@@ -146,10 +158,14 @@ async def run(payload, workers):
                         conversation_id=conversation,
                         model=result["model"],
                         reasoning_effort=result["effort"],
-                        max_tokens=6000,
-                        max_turns=8,
-                        system_prompt=payload["system_prompt"],
-                        prompt=json.dumps(
+                        max_tokens=contract["max_tokens"] if contract else 6000,
+                        max_turns=contract["max_turns"] if contract else 8,
+                        system_prompt=contract["system_prompt"]
+                        if contract
+                        else payload["system_prompt"],
+                        prompt=contract["prompt"]
+                        if contract
+                        else json.dumps(
                             {
                                 "canonical_history": [],
                                 "user_message": case["question"],
@@ -158,7 +174,7 @@ async def run(payload, workers):
                                 "citation_instruction": answer_instruction,
                             }
                         ),
-                        tool_allowlist=TOOLS if oracle is None else [],
+                        tool_allowlist=contract["tool_allowlist"] if contract else [],
                         tool_capability_ref=case["id"] if oracle is None else None,
                         metadata={"history_transport": "resume-delta-v1"},
                     )
@@ -214,6 +230,10 @@ async def run(payload, workers):
                         )
                         saved.raise_for_status()
                         result["retrieval"] = saved.json()
+                        if result["retrieval"].get("unsupported_calls"):
+                            result.update(
+                                success=False, error_code="unsupported_evaluation_tool"
+                            )
                     else:
                         result["retrieval"] = {"evidence": oracle}
                 except (NativeError, httpx.HTTPError, ValueError) as exc:

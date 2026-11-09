@@ -16,7 +16,6 @@ from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from pathlib import Path
 from threading import RLock
-from typing import Annotated
 
 import uvicorn
 from db.client import get_supabase_thread_safe
@@ -24,7 +23,15 @@ from fastapi import FastAPI, HTTPException
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import BaseModel, Field
+from services import rag
+from services.agent_memory_tools import memory_time_context
 from services.ai import native_tools
+from services.ai.chat import (
+    NATIVE_CHAT_MAX_TOKENS,
+    NATIVE_CHAT_MAX_TURNS,
+    NATIVE_CHAT_PROMPT,
+    native_chat_prompt,
+)
 from services.citations import CitationRegistry
 from services.evidence_prefetch import ANSWER_INSTRUCTION, prefetch
 from services.tools import execute_tool
@@ -36,13 +43,20 @@ def application(config):
         raise ValueError("A private owner-scoped evaluation config is required")
     source_files = [
         Path(inspect.getfile(inspect.unwrap(fn))).resolve()
-        for fn in [prefetch, execute_tool]
+        for fn in [
+            prefetch,
+            execute_tool,
+            native_chat_prompt,
+            memory_time_context,
+            native_tools.create_native_mcp,
+        ]
     ]
     if config.get("remote") and any(
         not path.is_relative_to(Path(config["remote"]) / "backend")
         for path in source_files
     ):
         raise ValueError("Retrieval did not load from the expected candidate source")
+    source_files.append(Path(inspect.getfile(rag)).resolve())
     source_hashes = {
         path.name: hashlib.sha256(path.read_bytes()).hexdigest()
         for path in source_files
@@ -76,6 +90,11 @@ def application(config):
 
     def run(name, arguments, case=None):
         state = cases[case or active.get()]
+        # External search and durable child jobs cannot be evaluated by this
+        # read-only adapter. Never substitute the legacy metadata API path.
+        if name in {"query_documents_metadata", "web_search"}:
+            state.setdefault("unsupported_calls", []).append(name)
+            return "This evaluation cannot execute this tool; record this case as unsuccessful."
         trace = {"name": name, "input": arguments, "sources": []}
         result = execute_tool(
             name,
@@ -91,60 +110,7 @@ def application(config):
         state["calls"].append(trace)
         return result
 
-    @server.tool(description=inspect.getdoc(native_tools.knowledge_base_search))
-    def knowledge_base_search(
-        query: str, created_after: str | None = None, created_before: str | None = None
-    ) -> str:
-        """Search scoped documents and indexed code with real hybrid retrieval."""
-        return run(
-            "knowledge_base_search",
-            {k: v for k, v in locals().items() if not callable(v)},
-        )
-
-    @server.tool(description=inspect.getdoc(native_tools.code_graph_lookup))
-    def code_graph_lookup(operation: str, symbol: str = "", path: str = "") -> str:
-        """Read indexed code definitions, references, impact or outline."""
-        return run(
-            "code_graph_lookup", {k: v for k, v in locals().items() if not callable(v)}
-        )
-
-    @server.tool(description=inspect.getdoc(native_tools.search_agent_history))
-    def search_agent_history(
-        query: str = "",
-        folder: str | None = None,
-        from_date: str | None = None,
-        through_date: str | None = None,
-        as_of: str | None = None,
-        timezone: str = "UTC",
-        session: str | None = None,
-        order: str = "chronological",
-        limit: Annotated[int, Field(ge=1, le=10)] = 10,
-        offset: int = 0,
-        queries: list[str] | None = None,
-    ) -> str:
-        """Search dated original evidence; keep scope, cutoff and coverage."""
-        return run(
-            "search_agent_history",
-            {k: v for k, v in locals().items() if v is not None and not callable(v)},
-        )
-
-    @server.tool(description=inspect.getdoc(native_tools.read_agent_evidence))
-    def read_agent_evidence(
-        reference: str,
-        before_records: Annotated[int, Field(ge=0, le=1)] = 1,
-        after_records: Annotated[int, Field(ge=0, le=1)] = 1,
-        char_limit: Annotated[int, Field(ge=1000, le=8000)] = 4000,
-    ) -> str:
-        """Read bounded originals or journal reports; follow next_reference for more journal text."""
-        return run(
-            "read_agent_evidence",
-            {k: v for k, v in locals().items() if not callable(v)},
-        )
-
-    @server.tool()
-    def recent_changes() -> str:
-        """Read the scoped Git-derived change digest, not agent-work history."""
-        return run("recent_changes", {})
+    native_tools.create_native_mcp(server=server, runner=run)
 
     @asynccontextmanager
     async def lifespan(_):
@@ -200,6 +166,19 @@ def application(config):
             "evidence": evidence,
             "citations": state["citations"].entries(),
             "answer_instruction": ANSWER_INSTRUCTION,
+            "chat_contract": {
+                "system_prompt": NATIVE_CHAT_PROMPT,
+                "prompt": native_chat_prompt(
+                    content=body.question,
+                    history=[],
+                    turn_id=body.case,
+                    time_context=memory_time_context(body.timezone),
+                    evidence=evidence,
+                ),
+                "max_tokens": NATIVE_CHAT_MAX_TOKENS,
+                "max_turns": NATIVE_CHAT_MAX_TURNS,
+                "tool_allowlist": [t.name for t in await server.list_tools()],
+            },
         }
 
     @app.get("/result/{case}")
@@ -211,6 +190,7 @@ def application(config):
             "evidence": state["evidence"],
             "citations": state["citations"].entries(),
             "calls": state["calls"],
+            "unsupported_calls": state.get("unsupported_calls", []),
             "source_sha256": source_hashes,
         }
 
