@@ -404,6 +404,19 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         border: 1px solid #a80d68;
         box-shadow: 0 0 12px #ff14931a;
       }
+      .rail-tooltip {
+        position: fixed;
+        z-index: 200;
+        padding: 7px 11px;
+        border: 1px solid #76528e;
+        border-radius: 5px;
+        background: #21112f;
+        color: var(--text);
+        font-size: 12px;
+        line-height: 1.5;
+        max-width: calc(100vw - 16px);
+        box-shadow: 0 4px 16px #0006;
+      }
       .rail-space {
         flex: 1;
       }
@@ -672,7 +685,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       }
       .repo-shell {
         padding: 32px 34px 52px;
-        max-width: 1400px;
+        width: 100%;
+        max-width: none;
         margin: 0 auto;
         position: relative;
         z-index: 1;
@@ -1295,7 +1309,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         min-height: 0;
       }
       .messages {
-        max-width: 850px;
+        width: 100%;
+        max-width: none;
         margin: 0 auto;
         display: flex;
         flex-direction: column;
@@ -1333,11 +1348,11 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       }
       .chat-message.assistant p {
         margin: 0 0 12px;
-        max-width: 75ch;
+        max-width: 105ch;
       }
       .chat-message.assistant ul {
         padding-left: 20px;
-        max-width: 75ch;
+        max-width: 105ch;
       }
       .chat-message .citation {
         display: inline-flex;
@@ -1353,7 +1368,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         vertical-align: middle;
       }
       .chat-message .code-block {
-        max-width: 700px;
+        max-width: none;
         margin: 16px 0;
       }
       .message-tools {
@@ -1363,10 +1378,11 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       }
       .composer-wrap {
         flex: none;
-        padding: 18px 30px 25px;
+        padding: 18px 32px 25px;
       }
       .composer {
-        max-width: 850px;
+        width: 100%;
+        max-width: none;
         margin: 0 auto;
         border: 1px solid #76528e;
         background: #130a20;
@@ -2038,25 +2054,20 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     </header>
     <div class="shell" id="shell">
       <nav class="rail" aria-label="Main navigation">
-        <div class="brand-mark" aria-label="Kioku">記</div>
-        <button
-          class="nav-button"
-          id="rail-chat"
-          title="Chat"
-          aria-label="Chat"
-        >
+        <button class="brand-mark" id="rail-home" aria-label="Kioku home">
+          記
+        </button>
+        <button class="nav-button" id="rail-chat" aria-label="Chat">
           <svg><use href="#i-chat" /></svg></button
         ><button
           class="nav-button active"
           id="rail-documents"
-          title="Documents"
           aria-label="Documents"
         >
           <svg><use href="#i-folder" /></svg></button
         ><button
           class="nav-button"
           id="rail-settings"
-          title="Layout settings"
           aria-label="Layout settings"
         >
           <svg><use href="#i-settings" /></svg>
@@ -2066,11 +2077,12 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           class="nav-button rail-bottom"
           id="rail-toggle"
           aria-label="Hide folders"
-          title="Hide folders"
         >
           <svg><use href="#i-left" /></svg>
         </button>
-        <div class="avatar" aria-label="Felipe">F</div>
+        <button class="avatar" id="rail-profile" aria-label="Felipe profile">
+          F
+        </button>
       </nav>
       <button
         class="folder-scrim"
@@ -2707,6 +2719,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         </div>
       </section>
     </div>
+    <div id="rail-tooltip" class="rail-tooltip" role="tooltip" hidden></div>
     <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
     <span id="resize-announcement" class="sr-only" aria-live="polite"></span>
     <script>
@@ -2807,7 +2820,40 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         handle.setAttribute("aria-valuetext", `${value} pixels`);
         handle.querySelector(".resize-label").textContent = `${value} px`;
       }
+      let tooltipOwner = null,
+        tooltipTimer = null;
+      function hideRailTooltip() {
+        clearTimeout(tooltipTimer);
+        tooltipOwner?.removeAttribute("aria-describedby");
+        tooltipOwner = null;
+        $("#rail-tooltip").hidden = true;
+      }
+      function showRailTooltip(button) {
+        hideRailTooltip();
+        tooltipOwner = button;
+        const tip = $("#rail-tooltip");
+        tip.textContent = button.getAttribute("aria-label");
+        button.setAttribute("aria-describedby", tip.id);
+        tip.hidden = false;
+        const rect = button.getBoundingClientRect();
+        const mobile = window.innerWidth <= 600;
+        const left = mobile
+          ? rect.left + (rect.width - tip.offsetWidth) / 2
+          : rect.right + 10;
+        const top = mobile
+          ? rect.top - tip.offsetHeight - 10
+          : rect.top + (rect.height - tip.offsetHeight) / 2;
+        tip.style.left = `${Math.max(8, Math.min(left, window.innerWidth - tip.offsetWidth - 8))}px`;
+        tip.style.top = `${Math.max(8, Math.min(top, window.innerHeight - tip.offsetHeight - 8))}px`;
+      }
+      function scheduleTooltipHide() {
+        clearTimeout(tooltipTimer);
+        tooltipTimer = setTimeout(() => {
+          if (document.activeElement !== tooltipOwner) hideRailTooltip();
+        }, 160);
+      }
       function renderLayout() {
+        hideRailTooltip();
         const key = currentNav(),
           hidden = state.navigationHidden;
         document.documentElement.style.setProperty(
@@ -2873,9 +2919,6 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           "aria-label",
           hidden ? "Show navigation" : "Collapse navigation",
         );
-        $("#rail-toggle").title = hidden
-          ? "Show navigation"
-          : "Collapse navigation";
         $("#context-collapse").setAttribute(
           "aria-label",
           "Collapse navigation",
@@ -3039,6 +3082,20 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       bindResizer("#evidence-resizer", () => "evidence", -1);
       $("#history-view-button").onclick = () => setMode("history");
       $("#chat-view-button").onclick = () => setMode("chat");
+      $("#rail-home").onclick = () => setMode("chat");
+      $("#rail-profile").onclick = () =>
+        toast("Profile options are unchanged in this layout preview.");
+      $$(".rail button").forEach((button) => {
+        button.addEventListener("pointerenter", () => showRailTooltip(button));
+        button.addEventListener("pointerleave", scheduleTooltipHide);
+        button.addEventListener("focus", () => showRailTooltip(button));
+        button.addEventListener("blur", hideRailTooltip);
+        button.addEventListener("click", hideRailTooltip);
+      });
+      $("#rail-tooltip").addEventListener("pointerenter", () =>
+        clearTimeout(tooltipTimer),
+      );
+      $("#rail-tooltip").addEventListener("pointerleave", scheduleTooltipHide);
       $("#rail-chat").onclick = () => setMode("chat");
       $("#rail-documents").onclick = () => setMode("history");
       for (const id of ["#show-navigation", "#chat-show-navigation"])
@@ -3330,6 +3387,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         $("#calendar-grid").append(button);
       }
       function openEvidence() {
+        hideRailTooltip();
         if (mode === "chat") selectedSession = sessions[1];
         bindEvidence(mode === "chat" ? 9 : selectedDay);
         returnFocus = document.activeElement;
@@ -3469,6 +3527,10 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       });
       document.addEventListener("keydown", (event) => {
         if (event.key === "Escape") {
+          if (!$("#rail-tooltip").hidden) {
+            hideRailTooltip();
+            return;
+          }
           if (drag) {
             stopDrag(false);
             return;
