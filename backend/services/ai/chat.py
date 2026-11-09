@@ -15,7 +15,7 @@ from fastapi import HTTPException
 
 from db.client import get_supabase_thread_safe
 from services.ai.accounting import record_job_usage
-from services.ai.client import ExecutionError
+from services.ai.client import ExecutionError, completed_event_result
 from services.ai.evidence import (
     BufferedBootstrapCitations,
     DurableCitations,
@@ -795,7 +795,17 @@ def stream_turn(turn: dict, *, cursor: int = 0):
                 frame["token"] = data.get("text", data.get("delta", ""))
                 frame["stage"] = "generating"
             elif kind in {"job.completed", "replay.expired"}:
-                result = client.result(turn["job_id"])
+                result = completed_event_result(turn["job_id"], event)
+                if result is None:
+                    result = client.result(turn["job_id"])
+                if (
+                    event.get("attempt_id")
+                    and result.attempt_id
+                    and event["attempt_id"] != result.attempt_id
+                ):
+                    raise ExecutionError("attempt_mismatch")
+                # publish_turn still checks current domain scope and performs an
+                # authenticated native usage read before committing any output.
                 message_id = publish_turn(
                     turn, result, attempt_id=event.get("attempt_id"), defer_ack=True
                 )
