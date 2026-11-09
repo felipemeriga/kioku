@@ -103,6 +103,7 @@ def test_nonpublishable_structured_outcomes_fail(outcome):
             lambda request: httpx.Response(
                 200,
                 json={
+                    "job_id": "job",
                     "status": "completed",
                     "result": {
                         "text": "question",

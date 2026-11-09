@@ -24,6 +24,100 @@ class ExecutionResult:
     attempt_id: str | None = None
 
 
+def parse_execution_result(
+    job_id: str, body: dict, *, attempt_id: str | None = None
+) -> ExecutionResult:
+    """One fail-closed result contract for authenticated GET and durable events."""
+    if not isinstance(body, dict) or body.get("job_id") != job_id:
+        raise ExecutionError("foreign_result")
+    status = body.get("status")
+    if not isinstance(status, str):
+        raise ExecutionError("invalid_result")
+    error = body.get("error")
+    if error is not None and not isinstance(error, dict):
+        raise ExecutionError("invalid_result")
+    if error and (
+        ("code" in error and not isinstance(error["code"], str))
+        or ("message" in error and not isinstance(error["message"], str))
+    ):
+        raise ExecutionError("invalid_result")
+    if status != "completed":
+        raise ExecutionError((error or {}).get("code", status), (error or {}).get("message", ""))
+    result = body.get("result")
+    if error is not None or not isinstance(result, dict) or not isinstance(result.get("text"), str):
+        raise ExecutionError("invalid_result")
+    for key in ("structured", "usage"):
+        if result.get(key) is not None and not isinstance(result[key], dict):
+            raise ExecutionError("invalid_result")
+    for key in ("native_session_id", "attempt_id"):
+        if result.get(key) is not None and (not isinstance(result[key], str) or not result[key]):
+            raise ExecutionError("invalid_result")
+    if attempt_id is not None and result.get("attempt_id") != attempt_id:
+        raise ExecutionError("attempt_mismatch")
+    structured = result.get("structured")
+    if isinstance(structured, dict) and "outcome" in structured:
+        if not isinstance(structured["outcome"], str) or structured["outcome"] not in {
+            "completed",
+            "needs_input",
+            "failed",
+        }:
+            raise ExecutionError("invalid_outcome")
+        if structured["outcome"] != "completed":
+            raise ExecutionError(
+                structured["outcome"], "completion did not produce publishable data"
+            )
+        if (
+            structured.get("data") is None
+            or structured.get("missing_inputs")
+            or structured.get("failure")
+        ):
+            raise ExecutionError("invalid_outcome")
+    return ExecutionResult(
+        job_id,
+        result["text"],
+        structured,
+        result.get("usage"),
+        result.get("native_session_id"),
+        result.get("attempt_id"),
+    )
+
+
+def completed_event_result(job_id: str, event: dict) -> ExecutionResult | None:
+    """Use only a bound durable terminal payload; legacy replay still requires GET."""
+    if not isinstance(event, dict) or event.get("job_id") != job_id:
+        raise ExecutionError("foreign_event")
+    if not isinstance(event.get("type"), str) or event["type"] not in {
+        "job.completed",
+        "replay.expired",
+    }:
+        raise ExecutionError("invalid_result_event")
+    data = event.get("data")
+    if not isinstance(data, dict):
+        raise ExecutionError("invalid_result_event")
+    if data.get("error") is not None or data.get("status", "completed") != "completed":
+        raise ExecutionError("invalid_result")
+    if data.get("job_id", job_id) != job_id:
+        raise ExecutionError("foreign_event")
+    event_attempt = event.get("attempt_id")
+    if event_attempt is not None and (not isinstance(event_attempt, str) or not event_attempt):
+        raise ExecutionError("invalid_result_event")
+    if "result" not in data:
+        return None
+    if not isinstance(data["result"], dict):
+        raise ExecutionError("invalid_result")
+    if event["type"] == "replay.expired":
+        # Older adapters synthesize only a text/structured fragment on HTTP410.
+        # It is not the authoritative durable completion envelope.
+        parse_execution_result(job_id, {"job_id": job_id, "status": "completed", **data})
+        return None
+    attempt_id = event.get("attempt_id")
+    if not isinstance(attempt_id, str) or not attempt_id:
+        raise ExecutionError("missing_attempt")
+    return parse_execution_result(
+        job_id, {"job_id": job_id, "status": "completed", **data}, attempt_id=attempt_id
+    )
+
+
 class TsukaiClient:
     def __init__(
         self,
@@ -172,33 +266,7 @@ class TsukaiClient:
         self._authorize()
         response = self._http.get(f"/v1/jobs/{job_id}/result")
         response.raise_for_status()
-        body = response.json()
-        if body["status"] != "completed":
-            error = body.get("error") or {}
-            raise ExecutionError(error.get("code", body["status"]), error.get("message", ""))
-        result = body.get("result")
-        if not isinstance(result, dict) or not isinstance(result.get("text"), str):
-            raise ExecutionError("invalid_result")
-        structured = result.get("structured")
-        if isinstance(structured, dict) and "outcome" in structured:
-            if structured["outcome"] != "completed":
-                raise ExecutionError(
-                    structured["outcome"], "completion did not produce publishable data"
-                )
-            if (
-                structured.get("data") is None
-                or structured.get("missing_inputs")
-                or structured.get("failure")
-            ):
-                raise ExecutionError("invalid_outcome")
-        return ExecutionResult(
-            job_id,
-            result["text"],
-            result.get("structured"),
-            result.get("usage"),
-            result.get("native_session_id"),
-            result.get("attempt_id"),
-        )
+        return parse_execution_result(job_id, response.json())
 
     def complete(self, request: dict) -> ExecutionResult:
         job_id = self.submit(request)

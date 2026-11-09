@@ -27,11 +27,11 @@ async def test_access_lookup_retains_live_ownership_and_deletion_checks(store, d
     def begin(conn):
         transactions.append(True)
 
-    event.listen(store.engine.sync_engine, "begin", begin)
+    event.listen(store._read_engine.sync_engine, "begin", begin)
     try:
         found, deleted = await store.get_for_access(job["id"], "owner")
     finally:
-        event.remove(store.engine.sync_engine, "begin", begin)
+        event.remove(store._read_engine.sync_engine, "begin", begin)
     assert found["id"] == job["id"] and deleted is False
     assert len(transactions) == 1
     assert await store.get_for_access(job["id"], "foreign-owner") == (None, False)
@@ -61,13 +61,13 @@ async def test_active_attempt_access_keeps_all_reads_on_one_connection(store):
     def begin(conn):
         transactions.append(True)
 
-    event.listen(store.engine.sync_engine, "begin", begin)
+    event.listen(store._read_engine.sync_engine, "begin", begin)
     try:
         found, deleted, current = await store.get_attempt_for_access(
             job["id"], "owner", attempt["id"]
         )
     finally:
-        event.remove(store.engine.sync_engine, "begin", begin)
+        event.remove(store._read_engine.sync_engine, "begin", begin)
     assert len(transactions) == 1
     assert found["id"] == job["id"] and deleted is False
     assert current["id"] == attempt["id"]

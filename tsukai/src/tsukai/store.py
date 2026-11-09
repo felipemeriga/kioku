@@ -10,9 +10,11 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from sqlalchemy import and_, delete, func, insert, or_, select, text, update
+from sqlalchemy import and_, delete, event, func, insert, or_, select, text, update
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.sql import visitors
+from sqlalchemy.sql.selectable import CompoundSelect, Select
 
 from .config import NATIVE_VERSION, heavy_maintenance
 from .protocol import TERMINAL, JobRequest
@@ -25,6 +27,18 @@ class Conflict(Exception):
 
 class Fenced(Conflict):
     pass
+
+
+def _select_only_connection(conn, cursor, statement, parameters, context, executemany):
+    if not context.execution_options.get("_tsukai_select_only"):
+        return
+    compiled = context.compiled
+    query = compiled.statement if compiled is not None else None
+    if not isinstance(query, (Select, CompoundSelect)) or any(
+        getattr(node, "is_dml", False) or getattr(node, "_for_update_arg", None) is not None
+        for node in visitors.iterate(query)
+    ):
+        raise ValueError("read connection accepts SELECT statements only")
 
 
 def is_interactive_job(request):
@@ -74,9 +88,31 @@ class Store:
                 context.check_hostname = True
                 options["connect_args"] = {"ssl": context}
                 url = url.difference_update_query(["ssl", "sslmode", "sslrootcert"])
-        self.engine = create_async_engine(url, **options)
+        if url.drivername == "postgresql+asyncpg":
+            # The shared pool rests in AUTOCOMMIT: even its liveness ping then
+            # needs one statement, without asyncpg's BEGIN/ping/ROLLBACK cycle.
+            # Every write still uses the explicit transactional engine below.
+            self._read_engine = create_async_engine(url, isolation_level="AUTOCOMMIT", **options)
+            event.listen(
+                self._read_engine.sync_engine, "before_cursor_execute", _select_only_connection
+            )
+            self.engine = self._read_engine.execution_options(
+                isolation_level="READ COMMITTED", _tsukai_select_only=False
+            )
+        else:
+            self.engine = self._read_engine = create_async_engine(url, **options)
         self.workspace_dir = workspace_dir
         self._local_lock = asyncio.Lock()
+
+    @asynccontextmanager
+    async def read_connection(self):
+        """Live SELECT-only access; no cached authority or read replay."""
+        async with self._read_engine.connect() as conn:
+            if conn.dialect.name == "postgresql":
+                # Mark only application reads; dialect initialization and pre-ping
+                # run before checkout completes and retain their normal behavior.
+                await conn.execution_options(_tsukai_select_only=True)
+            yield conn
 
     async def create_test_schema(self):
         async with self.engine.begin() as conn:
@@ -93,7 +129,7 @@ class Store:
                 yield conn
 
     async def ping(self):
-        async with self.engine.connect() as conn:
+        async with self.read_connection() as conn:
             await conn.execute(select(jobs.c.id).limit(1))
 
     async def _event(self, conn, job_id, kind, data, attempt_id=None):
@@ -286,12 +322,12 @@ class Store:
         return await self.get(job_id)
 
     async def get(self, job_id):
-        async with self.engine.connect() as conn:
+        async with self.read_connection() as conn:
             row = (await conn.execute(select(jobs).where(jobs.c.id == job_id))).mappings().first()
             return dict(row) if row else None
 
     async def unacknowledged(self, owner_id, caller):
-        async with self.engine.connect() as conn:
+        async with self.read_connection() as conn:
             rows = await conn.execute(
                 select(jobs)
                 .where(
@@ -345,7 +381,7 @@ class Store:
         Admission and lease updates remain authoritative SQL. Work arriving just
         after this read is still durable and wakes the next bounded polling tick.
         """
-        async with self.engine.connect() as conn:
+        async with self.read_connection() as conn:
             return bool(
                 (
                     await conn.execute(
@@ -775,7 +811,7 @@ class Store:
                 await self._terminal(conn, job, "cancelled", error={"code": "cancelled"})
 
     async def replay(self, job_id, after=0, limit=100):
-        async with self.engine.connect() as conn:
+        async with self.read_connection() as conn:
             first = (
                 await conn.execute(select(func.min(events.c.seq)).where(events.c.job_id == job_id))
             ).scalar_one()
@@ -831,7 +867,7 @@ class Store:
         return hashlib.sha256(value.encode()).hexdigest()
 
     async def scope_deleted(self, owner_id, conversation_id=None):
-        async with self.engine.connect() as conn:
+        async with self.read_connection() as conn:
             return await self._scope_deleted(conn, owner_id, conversation_id)
 
     async def _scope_deleted(self, conn, owner_id, conversation_id=None):
@@ -853,10 +889,21 @@ class Store:
         validate the capability against the returned request, and writes retain
         their independent fenced transaction.
         """
-        async with self.engine.connect() as conn:
+        async with self.read_connection() as conn:
             return await self._get_for_access(conn, job_id, owner_id)
 
     async def _get_for_access(self, conn, job_id, owner_id):
+        if conn.dialect.name == "postgresql":
+            row = (
+                await conn.execute(
+                    select(jobs, self._deleted_expression(owner_id).label("scope_deleted")).where(
+                        jobs.c.id == job_id, jobs.c.owner_id == owner_id
+                    )
+                )
+            ).first()
+            if row is None:
+                return None, False
+            return {column.name: row._mapping[column] for column in jobs.c}, bool(row.scope_deleted)
         row = (
             (
                 await conn.execute(
@@ -872,9 +919,56 @@ class Store:
         deleted = await self._scope_deleted(conn, owner_id, job["conversation_id"])
         return job, deleted
 
+    def _deleted_expression(self, owner_id):
+        """Correlate live tombstones with the authoritative job's conversation.
+
+        sha256(bytea) is PostgreSQL core, so this needs no extension or caller hint.
+        UTF-8 encoding matches hash_id for empty and Unicode conversation IDs.
+        """
+        conversation_hash = func.pg_catalog.encode(
+            func.pg_catalog.sha256(
+                func.pg_catalog.convert_to(func.coalesce(jobs.c.conversation_id, ""), "UTF8")
+            ),
+            "hex",
+        )
+        return (
+            select(tombstones.c.id)
+            .where(
+                tombstones.c.owner_sha256 == self.hash_id(owner_id),
+                tombstones.c.conversation_sha256.in_(["*", conversation_hash]),
+            )
+            .correlate(jobs)
+            .exists()
+        )
+
     async def get_attempt_for_access(self, job_id, owner_id, attempt_id):
         """Keep the active-attempt read on the same live access-check connection."""
-        async with self.engine.connect() as conn:
+        async with self.read_connection() as conn:
+            if conn.dialect.name == "postgresql":
+                row = (
+                    await conn.execute(
+                        select(
+                            jobs,
+                            attempts,
+                            self._deleted_expression(owner_id).label("scope_deleted"),
+                        )
+                        .outerjoin(
+                            attempts,
+                            and_(attempts.c.job_id == jobs.c.id, attempts.c.id == attempt_id),
+                        )
+                        .where(jobs.c.id == job_id, jobs.c.owner_id == owner_id)
+                    )
+                ).first()
+                if row is None:
+                    return None, False, None
+                job = {column.name: row._mapping[column] for column in jobs.c}
+                deleted = bool(row.scope_deleted)
+                attempt = (
+                    {column.name: row._mapping[column] for column in attempts.c}
+                    if not deleted and row._mapping[attempts.c.id] is not None
+                    else None
+                )
+                return job, deleted, attempt
             job, deleted = await self._get_for_access(conn, job_id, owner_id)
             if job is None or deleted:
                 return job, deleted, None
@@ -969,7 +1063,7 @@ class Store:
             return record
 
     async def deletion(self, deletion_id):
-        async with self.engine.connect() as conn:
+        async with self.read_connection() as conn:
             row = (
                 (await conn.execute(select(tombstones).where(tombstones.c.id == deletion_id)))
                 .mappings()
@@ -978,7 +1072,7 @@ class Store:
             return dict(row) if row else None
 
     async def pending_deletions(self):
-        async with self.engine.connect() as conn:
+        async with self.read_connection() as conn:
             rows = (
                 (await conn.execute(select(tombstones).where(tombstones.c.status == "pending")))
                 .mappings()
@@ -987,7 +1081,7 @@ class Store:
             return [dict(row) for row in rows]
 
     async def deletion_reap_ready(self, record, remote_grace):
-        async with self.engine.connect() as conn:
+        async with self.read_connection() as conn:
             active = (
                 await conn.execute(
                     select(jobs.c.id).where(
@@ -1042,7 +1136,7 @@ class Store:
 
     async def active_sessions(self):
         now = time.time()
-        async with self.engine.connect() as conn:
+        async with self.read_connection() as conn:
             rows = (
                 (
                     await conn.execute(
@@ -1099,7 +1193,7 @@ class Store:
         }
 
     async def attempt_usage(self, job_id):
-        async with self.engine.connect() as conn:
+        async with self.read_connection() as conn:
             job = (
                 (
                     await conn.execute(

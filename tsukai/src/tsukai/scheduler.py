@@ -478,7 +478,7 @@ class Scheduler:
         for attempt_id, task in list(self.tasks.items()):
             # Task ownership is local; heartbeat catches remote cancellations.
             # Cancel configuration/mint IO too, before a native process has started.
-            async with self.store.engine.connect() as conn:
+            async with self.store.read_connection() as conn:
                 from sqlalchemy import select
 
                 from .tables import attempts
