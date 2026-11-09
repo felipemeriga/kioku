@@ -166,7 +166,7 @@ def test_invalid_inputs_fail_before_provider_search(kwargs):
         search_memory(Database(), OWNER, [FOLDER], **kwargs)
 
 
-def archive():
+def archive(arguments="GOMEMLIMIT=3GiB"):
     sb = Database()
     records = [
         {
@@ -176,7 +176,7 @@ def archive():
                 "type": "function_call",
                 "call_id": "pair",
                 "name": "exec",
-                "arguments": "GOMEMLIMIT=3GiB",
+                "arguments": arguments,
             },
         },
         {
@@ -266,6 +266,35 @@ def test_evidence_reference_keeps_cutoff_for_neighbors_and_paired_results(monkey
     assert result["evidence"][0]["excerpt"] == "exec\nGOMEMLIMIT=3GiB"
     assert result["evidence"][0]["provenance"] == "command_only"
     assert result["time_scope"]["before_exclusive"] == "2026-11-06T03:00:00+00:00"
+
+
+def test_long_original_continuation_is_exact_and_retains_temporal_authority(monkeypatch):
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "test-only-reference-key")
+    arguments = "memory measurement. " * 200
+    sb = archive(arguments)
+    locator = reference()
+    parts = []
+    while locator:
+        result = read_memory(sb, OWNER, [FOLDER], locator, before=0, after=0, char_limit=1000)
+        assert len(result["evidence"]) == 1
+        assert result["time_scope"]["before_exclusive"] == "2026-11-06T03:00:00+00:00"
+        row = result["evidence"][0]
+        assert row["event_id"] == "1" * 64
+        assert row["char_start"] == sum(map(len, parts))
+        assert row["recorded_local"] == "2026-11-05T20:00:00-03:00"
+        parts.append(row["excerpt"])
+        locator = row["next_reference"]
+        assert bool(locator) is row["has_more"]
+    assert "".join(parts) == "exec\n" + arguments
+
+
+def test_recorded_local_disambiguates_the_calendar_day():
+    from services.agent_memory import recorded_local
+
+    assert recorded_local("2026-11-05T02:02:00Z", "America/Sao_Paulo") == (
+        "2026-11-04T23:02:00-03:00"
+    )
+    assert recorded_local(None, "UTC") is None
 
 
 def test_references_are_reauthorized_and_tampering_is_rejected(monkeypatch):

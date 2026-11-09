@@ -189,6 +189,10 @@ def provenance(event, body):
     return "tool_result" if event["event_type"] == "tool_result" else event["role"] + "_statement"
 
 
+def recorded_local(value, tz):
+    return isoparse(value).astimezone(ZoneInfo(tz)).isoformat() if value else None
+
+
 def journal_body(entries):
     ordered = sorted(entries, key=lambda r: (r["captured_at"], r["entry_id"]))
     return "\n\n".join(f"{r['captured_at']}\n{r.get('body') or ''}" for r in ordered)
@@ -432,6 +436,7 @@ def search_memory(
                 "event_id": row["event_id"],
                 "record_sequence": row["record_sequence"],
                 "recorded_at": row["event_at"],
+                "recorded_local": recorded_local(row["event_at"], tz),
                 "role": row["role"],
                 "event_type": row["event_type"],
                 "source_truncated": row["source_truncated"],
@@ -541,13 +546,17 @@ def read_memory(sb, user_id, allowed, reference, before=1, after=1, char_limit=8
     evidence = []
     for e in selected:
         body = original_text(store, session, e, cache)
-        start = max(0, ref["start"] - 500) if e["event_id"] == center["event_id"] else 0
+        start = 0
+        if e["event_id"] == center["event_id"]:
+            start = ref["start"] if ref.get("continuation") else max(0, ref["start"] - 500)
         excerpt = body[start : start + char_limit]
+        more = start + len(excerpt) < len(body)
         evidence.append(
             {
                 "event_id": e["event_id"],
                 "record_sequence": e["record_sequence"],
                 "recorded_at": e["event_at"],
+                "recorded_local": recorded_local(e["event_at"], ref["timezone"]),
                 "role": e["role"],
                 "event_type": e["event_type"],
                 "provenance": provenance(e, excerpt),
@@ -555,7 +564,17 @@ def read_memory(sb, user_id, allowed, reference, before=1, after=1, char_limit=8
                 "source_truncated": e["source_truncated"],
                 "char_start": start,
                 "excerpt": excerpt,
-                "has_more": start + len(excerpt) < len(body),
+                "has_more": more,
+                "next_reference": encode_reference(
+                    {
+                        **ref,
+                        "event": e["event_id"],
+                        "start": start + len(excerpt),
+                        "continuation": True,
+                    }
+                )
+                if more
+                else None,
                 "raw_record": {
                     "object_id": e["object_id"],
                     "byte_offset": e["byte_offset"],
