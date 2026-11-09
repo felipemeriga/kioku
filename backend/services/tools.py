@@ -405,8 +405,9 @@ def execute_tool(
                     body += f" — last updated {updated}"
             # Prefix with the stable citation number [N] so the model can cite it
             # inline; without a registry, keep the original bracketed header.
+            citation_number = citations.register(r) if citations is not None else None
             if citations is not None:
-                header = f"[{citations.register(r)}] {body}"
+                header = f"[{citation_number}] {body}"
             else:
                 header = f"[{body}]"
             chunks.append(f"{header}\n{r['content']}")
@@ -432,7 +433,7 @@ def execute_tool(
                                 "metadata": meta,
                                 "source_id": r.get("id"),
                                 "folder_id": meta.get("folder_id"),
-                                "citation_number": citations.register(r) if citations else None,
+                                "citation_number": citation_number,
                             }
                             if full_debug
                             else {}
