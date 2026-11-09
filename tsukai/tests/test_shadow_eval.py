@@ -3,12 +3,18 @@
 import asyncio
 import importlib.util
 import json
+import time
 from pathlib import Path
+
+import pytest
 
 from tsukai.validation import NativeError
 
 
-def test_quota_limit_stops_future_inference_but_records_every_case(monkeypatch, capsys):
+@pytest.mark.parametrize("verified_snapshot", [True, False])
+def test_subscription_guard_stops_inference_but_records_every_case(
+    monkeypatch, capsys, verified_snapshot
+):
     path = Path(__file__).resolve().parents[2] / "scripts/benchmarks/shadow_eval.py"
     spec = importlib.util.spec_from_file_location("shadow_eval_quota", path)
     module = importlib.util.module_from_spec(spec)
@@ -26,6 +32,12 @@ def test_quota_limit_stops_future_inference_but_records_every_case(monkeypatch, 
     monkeypatch.setattr(module, "Settings", lambda: object())
     monkeypatch.setattr(module, "NativeRunner", lambda _: Runner())
     payload = {
+        "subscription_usage": {
+            "five_hour": 20,
+            "seven_day": 10,
+            "observed_at": time.time(),
+            "account_verified": True,
+        },
         "config": {
             "owner_id": "11111111-1111-4111-8111-111111111111",
             "port": 9512,
@@ -39,16 +51,49 @@ def test_quota_limit_stops_future_inference_but_records_every_case(monkeypatch, 
                 "domain": "memory",
                 "oracle_evidence": "Supplied source",
             }
-            for case in ["first", "second", "third"]
+            for case in ["first", "second"]
         ],
     }
+    if not verified_snapshot:
+        payload["subscription_usage"] = {}
     asyncio.run(module.run(payload, workers=1))
     results = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
-    assert attempts == ["first"]
-    assert [r["id"] for r in results] == ["first", "second", "third"]
-    assert [r["error_code"] for r in results] == [
+    assert attempts == (["first"] if verified_snapshot else [])
+    assert [r["id"] for r in results] == ["first", "second"]
+    expected = [
         "quota_limited",
         "not_run_after_quota_limit",
-        "not_run_after_quota_limit",
     ]
+    if not verified_snapshot:
+        expected = ["usage_snapshot_required"] * 2
+    assert [r["error_code"] for r in results] == expected
     assert not any(r["success"] for r in results)
+
+
+@pytest.mark.parametrize(
+    "change,code",
+    [
+        ({"five_hour": 75}, "usage_reserve_reached"),
+        ({"seven_day": 80}, "usage_reserve_reached"),
+        ({"five_hour": 100}, "usage_reserve_reached"),
+        ({"five_hour": None}, "usage_snapshot_required"),
+        ({"five_hour": float("nan")}, "usage_snapshot_required"),
+        ({"seven_day": True}, "usage_snapshot_required"),
+        ({"seven_day": -1}, "usage_snapshot_invalid"),
+        ({"account_verified": False}, "usage_account_unverified"),
+        ({"observed_at": 0}, "usage_snapshot_stale"),
+    ],
+)
+def test_budget_guard_fails_closed(change, code):
+    path = Path(__file__).resolve().parents[2] / "scripts/benchmarks/shadow_eval.py"
+    spec = importlib.util.spec_from_file_location("shadow_eval_budget", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    snapshot = {
+        "five_hour": 20,
+        "seven_day": 10,
+        "observed_at": time.time(),
+        "account_verified": True,
+    }
+    assert module.budget_error({"subscription_usage": snapshot}) is None
+    assert module.budget_error({"subscription_usage": {**snapshot, **change}}) == code

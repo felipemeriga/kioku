@@ -4,11 +4,17 @@ Input JSON (stdin/file): config for shadow_tools, system_prompt, and cases with
 id, question, folder_ids, optional model/effort and oracle_evidence. Expected
 answers are never sent to the model. Results include every failure and the
 exact retrieved evidence; grading is separate. No production domain writes.
+
+Each batch requires subscription_usage: five_hour/seven_day percentages,
+observed_at epoch seconds, and account_verified=true from the operator's live
+meter check. Run at most two sequential cases. Stop admissions at75percent to
+leave headroom below the user's80percent ceiling; missing/stale data fails closed.
 """
 
 import argparse
 import asyncio
 import json
+import math
 import re
 import tempfile
 import time
@@ -33,7 +39,29 @@ TOOLS = [
 ]
 
 
+def budget_error(payload):
+    """Require fresh operator-observed quota; leave headroom below the user's80% cap."""
+    snapshot = payload.get("subscription_usage") or {}
+    values = [snapshot.get(k) for k in ("five_hour", "seven_day", "observed_at")]
+    if any(type(v) not in (float, int) or not math.isfinite(v) for v in values):
+        return "usage_snapshot_required"
+    five_hour, seven_day, observed_at = values
+    if not 0 <= five_hour <= 100 or not 0 <= seven_day <= 100:
+        return "usage_snapshot_invalid"
+    if snapshot.get("account_verified") is not True:
+        return "usage_account_unverified"
+    if not -5 <= time.time() - observed_at <= 90:
+        return "usage_snapshot_stale"
+    if max(five_hour, seven_day) >= 75:
+        return "usage_reserve_reached"
+    return None
+
+
 async def run(payload, workers):
+    if workers != 1 or not 1 <= len(payload["cases"]) <= 2:
+        raise ValueError(
+            "Usage-guarded benchmarks allow at most two sequential cases per batch"
+        )
     config = payload["config"]
     base = f"http://kioku-backend:{config['port']}"
     headers = {"Authorization": "Bearer " + config["token"]}
@@ -60,6 +88,12 @@ async def run(payload, workers):
                 result.update(error_code="not_run_after_quota_limit", total_seconds=0.0)
                 print(json.dumps(result, ensure_ascii=False), flush=True)
                 return
+            error = budget_error(payload)
+            if error:
+                result.update(error_code=error, total_seconds=0.0)
+                print(json.dumps(result, ensure_ascii=False), flush=True)
+                return
+            result["subscription_usage_before"] = payload["subscription_usage"]
             async with httpx.AsyncClient(timeout=180) as client:
                 try:
                     oracle = case.get("oracle_evidence")
@@ -146,6 +180,8 @@ async def run(payload, workers):
                     with tempfile.TemporaryDirectory(
                         prefix="kioku-quality-"
                     ) as workspace:
+                        if error := budget_error(payload):
+                            raise NativeError(error)
                         response = await native.run(
                             {"attempt": attempt, "workspace": workspace},
                             req,
@@ -182,9 +218,11 @@ async def run(payload, workers):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", type=Path, default=Path("/dev/stdin"))
-    parser.add_argument("--workers", type=int, choices=[1, 2], default=2)
+    parser.add_argument("--workers", type=int, choices=[1], default=1)
     args = parser.parse_args()
     payload = json.loads(args.input.read_text())
-    if not 1 <= len(payload["cases"]) <= 200:
-        raise ValueError("Provide between1 and200 evaluation cases")
+    if not 1 <= len(payload["cases"]) <= 2:
+        raise ValueError(
+            "Provide one or two cases with a fresh verified subscription usage snapshot"
+        )
     asyncio.run(run(payload, args.workers))
