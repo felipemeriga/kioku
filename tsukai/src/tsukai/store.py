@@ -605,17 +605,21 @@ class Store:
     async def heartbeat(self, attempt):
         async with self.transaction() as conn:
             job = await self._owned(conn, attempt)
+            lease_until = time.time() + 30
             await conn.execute(
                 update(attempts)
                 .where(attempts.c.id == attempt["id"])
-                .values(lease_until=time.time() + 30)
+                .values(lease_until=lease_until)
             )
             await conn.execute(
                 update(locks)
                 .where(locks.c.attempt_id == attempt["id"])
-                .values(lease_until=time.time() + 30)
+                .values(lease_until=lease_until)
             )
-            return job["cancel_requested"]
+            cancelled = job["cancel_requested"]
+        # Only committed authority may extend the worker's in-memory lease.
+        attempt["lease_until"] = lease_until
+        return cancelled
 
     async def append(self, attempt, kind, data):
         async with self.transaction() as conn:

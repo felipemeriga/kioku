@@ -18,6 +18,7 @@ from .store import Fenced
 from .validation import NativeError
 
 QUOTA_PROBE_COOLDOWN_SECONDS = 15 * 60
+FINALIZE_SECONDS = 20
 
 
 class Scheduler:
@@ -277,10 +278,17 @@ class Scheduler:
 
         async def finalize():
             began = time.monotonic()
-            with contextlib.suppress(Exception):
-                await self.store.heartbeat(attempt)
+            renewed = False
+            if attempt.get("lease_until", 0) - time.time() <= FINALIZE_SECONDS:
+                try:
+                    await self.store.heartbeat(attempt)
+                except Exception:
+                    pass  # finish still rejects expired/lost authority under its fencing lock.
+                else:
+                    renewed = True
             timings = attempt.setdefault("runtime_timings", {})
             timings["finalize_heartbeat_seconds"] = time.monotonic() - began
+            timings["finalize_heartbeat_renewed"] = renewed
             if stop_native:
                 await self.native.stop(attempt["id"])
             if retry:
@@ -292,7 +300,7 @@ class Scheduler:
                 attempt, status, result=result, error=error, diagnostic=diagnostic, retry=retry
             )
 
-        return await complete_cleanup(finalize(), 20)
+        return await complete_cleanup(finalize(), FINALIZE_SECONDS)
 
     async def execute(self, claim):
         attempt = claim["attempt"]
@@ -361,7 +369,6 @@ class Scheduler:
                 await asyncio.sleep(self.settings.heartbeat_seconds)
                 try:
                     cancelled = await self.store.heartbeat(attempt)
-                    attempt["lease_until"] = time.time() + 30
                     if cancelled:
                         self.signal_cancel(attempt["id"], current)
                         return
