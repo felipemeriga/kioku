@@ -156,7 +156,15 @@ def prefetch(question, user_timezone, execute, *, filename=None, folders=()):
     if not overview:
         # Read actual context, not only discovery excerpts. No new search scope
         # is invented; signed references retain their original temporal bounds.
-        for match in first.get("matches", [])[:2]:
+        seen = set()
+        for match in first.get("matches", []):
+            # Native archives can contain the same message in both an event
+            # stream and a response record. Preserve both locators in search,
+            # but spend the bounded expansion budget on distinct context.
+            key = (match.get("excerpt") or match["reference"]).strip()
+            if key in seen:
+                continue
+            seen.add(key)
             value = run(
                 "read_agent_evidence",
                 {
@@ -167,6 +175,8 @@ def prefetch(question, user_timezone, execute, *, filename=None, folders=()):
                 },
             )
             expansions.append(decoded(value))
+            if len(expansions) == 2:
+                break
     return json.dumps(
         {
             "source": "agent_history",

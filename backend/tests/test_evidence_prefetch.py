@@ -74,6 +74,27 @@ def test_document_scope_cannot_expand_into_history():
     assert evidence == "Document evidence [1]"
 
 
+def test_duplicate_transcript_projections_do_not_consume_both_expansions():
+    expanded = []
+
+    def execute(name, args):
+        if name == "search_agent_history":
+            return json.dumps(
+                {
+                    "matches": [
+                        {"reference": "event", "excerpt": "The same captured message"},
+                        {"reference": "response", "excerpt": "The same captured message"},
+                        {"reference": "distinct", "excerpt": "A different source observation"},
+                    ]
+                }
+            )
+        expanded.append(args["reference"])
+        return json.dumps({"evidence": []})
+
+    prefetch("What have we tried?", "UTC", execute)
+    assert expanded == ["event", "distinct"]
+
+
 def test_history_is_prefetched_with_expansion_and_only_an_authorized_named_folder():
     calls = []
 
