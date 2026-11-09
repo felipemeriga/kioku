@@ -10,7 +10,7 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from sqlalchemy import and_, delete, event, func, insert, or_, select, text, update
+from sqlalchemy import JSON, and_, delete, event, func, insert, literal, or_, select, text, update
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.sql import visitors
@@ -172,6 +172,64 @@ class Store:
             policy["structured_transport"] = "result-wrapper-v1"
         return hashlib.sha256(json.dumps(policy, sort_keys=True).encode()).hexdigest()
 
+    async def _admission_snapshot(self, conn, request):
+        """Independent checks share one PG snapshot under the admission lock."""
+        existing = (
+            select(func.pg_catalog.row_to_json(jobs.table_valued(), type_=JSON))
+            .where(
+                jobs.c.owner_id == request.owner_id,
+                jobs.c.caller == request.caller,
+                jobs.c.idempotency_key == request.idempotency_key,
+            )
+            .scalar_subquery()
+        )
+        state, held, parent = literal(None, JSON), literal(False), literal(None, JSON)
+        if request.conversation_id:
+            state = (
+                select(func.pg_catalog.row_to_json(sessions.table_valued(), type_=JSON))
+                .where(
+                    sessions.c.owner_id == request.owner_id,
+                    sessions.c.conversation_id == request.conversation_id,
+                )
+                .scalar_subquery()
+            )
+            held = (
+                select(locks.c.key)
+                .where(locks.c.key == self._chat_key(request.owner_id, request.conversation_id))
+                .exists()
+            )
+        if request.profile == "metadata_child":
+            parent = (
+                select(func.pg_catalog.row_to_json(jobs.table_valued(), type_=JSON))
+                .where(
+                    jobs.c.id == request.parent_job_id,
+                    jobs.c.owner_id == request.owner_id,
+                    jobs.c.status == "running",
+                )
+                .scalar_subquery()
+            )
+        statement = select(
+            select(tombstones.c.id)
+            .where(
+                tombstones.c.owner_sha256 == self.hash_id(request.owner_id),
+                tombstones.c.conversation_sha256.in_(
+                    ["*", self.hash_id(request.conversation_id or "")]
+                ),
+            )
+            .exists()
+            .label("blocked"),
+            existing.label("existing"),
+            select(func.count())
+            .select_from(jobs)
+            .where(jobs.c.status.in_(["queued", "running"]))
+            .scalar_subquery()
+            .label("count"),
+            held.label("held"),
+            state.label("state"),
+            parent.label("parent"),
+        )
+        return dict((await conn.execute(statement)).mappings().one())
+
     async def admit(self, request: JobRequest, queue_capacity=100, request_sha256=None):
         payload = request.model_dump(mode="json")
         digest = hashlib.sha256(
@@ -179,57 +237,78 @@ class Store:
         ).hexdigest()
         now = time.time()
         async with self.transaction() as conn:
+            snapshot = (
+                await self._admission_snapshot(conn, request)
+                if conn.dialect.name == "postgresql"
+                else None
+            )
             blocked = (
-                await conn.execute(
-                    select(tombstones.c.id).where(
-                        tombstones.c.owner_sha256 == self.hash_id(request.owner_id),
-                        tombstones.c.conversation_sha256.in_(
-                            ["*", self.hash_id(request.conversation_id or "")]
-                        ),
+                snapshot["blocked"]
+                if snapshot is not None
+                else (
+                    await conn.execute(
+                        select(tombstones.c.id).where(
+                            tombstones.c.owner_sha256 == self.hash_id(request.owner_id),
+                            tombstones.c.conversation_sha256.in_(
+                                ["*", self.hash_id(request.conversation_id or "")]
+                            ),
+                        )
                     )
-                )
-            ).first()
+                ).first()
+            )
             if blocked:
                 raise Conflict("execution_scope_deleted")
             existing = (
-                (
-                    await conn.execute(
-                        select(jobs).where(
-                            jobs.c.owner_id == request.owner_id,
-                            jobs.c.caller == request.caller,
-                            jobs.c.idempotency_key == request.idempotency_key,
+                snapshot["existing"]
+                if snapshot is not None
+                else (
+                    (
+                        await conn.execute(
+                            select(jobs).where(
+                                jobs.c.owner_id == request.owner_id,
+                                jobs.c.caller == request.caller,
+                                jobs.c.idempotency_key == request.idempotency_key,
+                            )
                         )
                     )
+                    .mappings()
+                    .first()
                 )
-                .mappings()
-                .first()
             )
             if existing:
                 if existing["payload_hash"] != digest:
                     raise Conflict("idempotency_payload_conflict")
                 return dict(existing)
             count = (
-                await conn.execute(
-                    select(func.count())
-                    .select_from(jobs)
-                    .where(jobs.c.status.in_(["queued", "running"]))
-                )
-            ).scalar_one()
+                snapshot["count"]
+                if snapshot is not None
+                else (
+                    await conn.execute(
+                        select(func.count())
+                        .select_from(jobs)
+                        .where(jobs.c.status.in_(["queued", "running"]))
+                    )
+                ).scalar_one()
+            )
             if count >= queue_capacity:
                 raise Conflict("queue_full")
             if request.profile == "metadata_child":
                 parent = (
-                    (
-                        await conn.execute(
-                            select(jobs).where(
-                                jobs.c.id == request.parent_job_id,
-                                jobs.c.owner_id == request.owner_id,
-                                jobs.c.status == "running",
+                    snapshot["parent"]
+                    if snapshot is not None
+                    else (
+                        (
+                            await conn.execute(
+                                select(jobs).where(
+                                    jobs.c.id == request.parent_job_id,
+                                    jobs.c.owner_id == request.owner_id,
+                                    jobs.c.status == "running",
+                                )
                             )
                         )
+                        .mappings()
+                        .first()
                     )
-                    .mappings()
-                    .first()
                 )
                 if (
                     not parent
@@ -241,20 +320,28 @@ class Store:
             job_id = str(uuid.uuid4())
             if request.conversation_id:
                 key = self._chat_key(request.owner_id, request.conversation_id)
-                held = (await conn.execute(select(locks).where(locks.c.key == key))).first()
+                held = (
+                    snapshot["held"]
+                    if snapshot is not None
+                    else (await conn.execute(select(locks).where(locks.c.key == key))).first()
+                )
                 if held:
                     raise Conflict("conversation_busy")
                 state = (
-                    (
-                        await conn.execute(
-                            select(sessions).where(
-                                sessions.c.owner_id == request.owner_id,
-                                sessions.c.conversation_id == request.conversation_id,
+                    snapshot["state"]
+                    if snapshot is not None
+                    else (
+                        (
+                            await conn.execute(
+                                select(sessions).where(
+                                    sessions.c.owner_id == request.owner_id,
+                                    sessions.c.conversation_id == request.conversation_id,
+                                )
                             )
                         )
+                        .mappings()
+                        .first()
                     )
-                    .mappings()
-                    .first()
                 )
                 if state and not request.rebuild_from_committed_history:
                     if state["state"] != "ready":
@@ -421,31 +508,65 @@ class Store:
         )
         if not candidates:
             return None
-        active_rows = (
-            (
-                await conn.execute(
-                    select(jobs.c.profile, jobs.c.caller, jobs.c.owner_id).where(
-                        jobs.c.status == "running"
+        if conn.dialect.name == "postgresql":
+            active_query = (
+                select(jobs.c.profile, jobs.c.caller, jobs.c.owner_id)
+                .where(jobs.c.status == "running")
+                .subquery()
+            )
+            served_query = (
+                select(jobs.c.owner_id, func.max(attempts.c.started_at).label("last_started"))
+                .join(attempts, attempts.c.job_id == jobs.c.id)
+                .group_by(jobs.c.owner_id)
+                .subquery()
+            )
+            load = (
+                (
+                    await conn.execute(
+                        select(
+                            select(func.json_agg(active_query.table_valued(), type_=JSON))
+                            .select_from(active_query)
+                            .scalar_subquery()
+                            .label("active"),
+                            select(func.json_agg(served_query.table_valued(), type_=JSON))
+                            .select_from(served_query)
+                            .scalar_subquery()
+                            .label("served"),
+                        )
                     )
                 )
+                .mappings()
+                .one()
             )
-            .mappings()
-            .all()
-        )
+            active_rows = load["active"] or []
+            served = {row["owner_id"]: row["last_started"] for row in load["served"] or []}
+        else:
+            active_rows = (
+                (
+                    await conn.execute(
+                        select(jobs.c.profile, jobs.c.caller, jobs.c.owner_id).where(
+                            jobs.c.status == "running"
+                        )
+                    )
+                )
+                .mappings()
+                .all()
+            )
         active = [row["profile"] for row in active_rows]
         owner_active = {}
         for row in active_rows:
             if row["profile"] != "metadata_child":
                 owner_active[row["owner_id"]] = owner_active.get(row["owner_id"], 0) + 1
-        served = dict(
-            (
-                await conn.execute(
-                    select(jobs.c.owner_id, func.max(attempts.c.started_at))
-                    .join(attempts, attempts.c.job_id == jobs.c.id)
-                    .group_by(jobs.c.owner_id)
-                )
-            ).all()
-        )
+        if conn.dialect.name != "postgresql":
+            served = dict(
+                (
+                    await conn.execute(
+                        select(jobs.c.owner_id, func.max(attempts.c.started_at))
+                        .join(attempts, attempts.c.job_id == jobs.c.id)
+                        .group_by(jobs.c.owner_id)
+                    )
+                ).all()
+            )
 
         # First avoid an owner's second root while another owner is waiting. Then
         # prefer chat, with one priority level per minute of queue aging; ties go to
@@ -574,17 +695,36 @@ class Store:
             resume=resume,
             counter_segment=str(uuid.uuid4()),
         )
-        await conn.execute(insert(attempts).values(**attempt))
-        await conn.execute(
-            update(jobs)
-            .where(jobs.c.id == job["id"])
-            .values(status="running", attempt_count=attempt["number"])
-        )
-        await conn.execute(
-            update(locks)
-            .where(locks.c.job_id == job["id"])
-            .values(attempt_id=attempt_id, fence=fence, lease_until=now + 30)
-        )
+        if conn.dialect.name == "postgresql":
+            # One atomic statement, still inside the locked dispatch transaction.
+            created = (
+                insert(attempts).values(**attempt).returning(attempts.c.id).cte("created_attempt")
+            )
+            started = (
+                update(jobs)
+                .where(jobs.c.id == job["id"])
+                .values(status="running", attempt_count=attempt["number"])
+                .returning(jobs.c.id)
+                .cte("started_job")
+            )
+            await conn.execute(
+                update(locks)
+                .where(locks.c.job_id == job["id"])
+                .values(attempt_id=attempt_id, fence=fence, lease_until=now + 30)
+                .add_cte(created, started)
+            )
+        else:
+            await conn.execute(insert(attempts).values(**attempt))
+            await conn.execute(
+                update(jobs)
+                .where(jobs.c.id == job["id"])
+                .values(status="running", attempt_count=attempt["number"])
+            )
+            await conn.execute(
+                update(locks)
+                .where(locks.c.job_id == job["id"])
+                .values(attempt_id=attempt_id, fence=fence, lease_until=now + 30)
+            )
         await self._event(
             conn,
             job["id"],
@@ -604,7 +744,9 @@ class Store:
                         attempts.c.number == attempt["number"] - 1,
                     )
                 )
-            ).scalar_one_or_none(),
+            ).scalar_one_or_none()
+            if attempt["number"] > 1
+            else None,
         }
 
     async def _owned(self, conn, attempt):
@@ -660,6 +802,44 @@ class Store:
     async def append(self, attempt, kind, data):
         async with self.transaction() as conn:
             await self._owned(conn, attempt)
+            if conn.dialect.name == "postgresql":
+                # Preserve the same fenced/advisory-locked transaction. Dependent
+                # DML CTEs persist timing, reserve a sequence and insert its event
+                # in one round trip; any failure rolls all three writes back.
+                now = time.time()
+                timing = (
+                    update(attempts)
+                    .where(attempts.c.id == attempt["id"])
+                    .values(
+                        first_event_at=attempt.get("first_event_at"),
+                        first_text_at=attempt.get("first_text_at"),
+                    )
+                    .returning(attempts.c.id)
+                    .cte("event_timing")
+                )
+                sequence = (
+                    update(jobs)
+                    .where(jobs.c.id == attempt["job_id"], select(timing.c.id).exists())
+                    .values(next_seq=jobs.c.next_seq + 1, updated_at=now)
+                    .returning((jobs.c.next_seq - 1).label("seq"))
+                    .cte("event_sequence")
+                )
+                statement = (
+                    insert(events)
+                    .from_select(
+                        ["job_id", "seq", "attempt_id", "type", "data", "created_at"],
+                        select(
+                            literal(attempt["job_id"], type_=events.c.job_id.type),
+                            sequence.c.seq,
+                            literal(attempt["id"], type_=events.c.attempt_id.type),
+                            literal(kind, type_=events.c.type.type),
+                            literal(data, type_=events.c.data.type),
+                            literal(now, type_=events.c.created_at.type),
+                        ).select_from(sequence),
+                    )
+                    .returning(events.c.seq)
+                )
+                return (await conn.execute(statement)).scalar_one()
             await conn.execute(
                 update(attempts)
                 .where(attempts.c.id == attempt["id"])
