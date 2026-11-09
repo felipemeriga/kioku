@@ -5,6 +5,7 @@ import uuid
 import httpx
 import pytest
 from sqlalchemy import event
+from sqlalchemy.engine import Engine
 from test_app import body, headers
 
 from tsukai.app import create_app
@@ -45,20 +46,21 @@ async def test_usage_snapshot_retains_failed_attempts_with_one_checkout(store):
         checkouts.append(True)
 
     def executed(conn, cursor, statement, parameters, context, executemany):
-        statements.append(statement)
+        if conn.engine.pool is pool:
+            statements.append(statement)
 
     pool = store.engine.sync_engine.pool
     event.listen(pool, "checkout", checkout)
-    event.listen(store.engine.sync_engine, "before_cursor_execute", executed)
+    event.listen(Engine, "before_cursor_execute", executed)
     try:
         found, deleted, usage = await usage_access_snapshot(store, job["id"], "owner")
     finally:
         event.remove(pool, "checkout", checkout)
-        event.remove(store.engine.sync_engine, "before_cursor_execute", executed)
+        event.remove(Engine, "before_cursor_execute", executed)
     assert found["id"] == job["id"] and deleted is False
     assert usage == expected and [row["status"] for row in usage] == ["failed", "completed"]
     assert len(checkouts) == 1
-    assert len(statements) == 2
+    assert len(statements) == (1 if store.engine.dialect.name == "postgresql" else 2)
     assert await usage_access_snapshot(store, job["id"], "foreign") == (None, False, [])
     assert await usage_access_snapshot(store, "missing", "owner") == (None, False, [])
     await store.begin_deletion("owner")

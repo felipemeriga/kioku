@@ -6,19 +6,27 @@ from .tables import attempts, jobs
 
 
 async def usage_access_snapshot(store, job_id, owner_id):
-    async with store.engine.connect() as conn:
-        rows = (
-            await conn.execute(
-                select(jobs, attempts)
-                .select_from(jobs.outerjoin(attempts, attempts.c.job_id == jobs.c.id))
-                .where(jobs.c.id == job_id, jobs.c.owner_id == owner_id)
-                .order_by(attempts.c.number)
-            )
-        ).all()
+    statement = (
+        select(jobs, attempts)
+        .select_from(jobs.outerjoin(attempts, attempts.c.job_id == jobs.c.id))
+        .where(jobs.c.id == job_id, jobs.c.owner_id == owner_id)
+        .order_by(attempts.c.number)
+    )
+    postgres = store.engine.dialect.name == "postgresql"
+    if postgres:
+        statement = statement.add_columns(
+            store._deleted_expression(owner_id).label("scope_deleted")
+        )
+    async with store.read_connection() as conn:
+        rows = (await conn.execute(statement)).all()
         if not rows:
             return None, False, []
         job = {column.name: rows[0]._mapping[column] for column in jobs.c}
-        deleted = await store._scope_deleted(conn, owner_id, job["conversation_id"])
+        deleted = (
+            bool(rows[0]._mapping["scope_deleted"])
+            if postgres
+            else await store._scope_deleted(conn, owner_id, job["conversation_id"])
+        )
         if deleted:
             return job, True, []
         usage = []
