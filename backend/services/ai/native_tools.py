@@ -16,9 +16,13 @@ from uuid import uuid4
 import jwt
 from fastapi import APIRouter, HTTPException, Request
 from mcp.server.fastmcp import FastMCP
+from mcp.server.lowlevel import Server
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field
+from starlette.applications import Starlette
 from starlette.responses import JSONResponse
+from starlette.routing import Route
 
 from db.client import get_supabase_thread_safe
 from services.ai.chat import owned_turn, turn_scope
@@ -439,7 +443,43 @@ def _redirect_tool(tool, runner):
     return redirected
 
 
-def create_native_mcp(*, server=None, runner=None) -> FastMCP:
+class _ToolsTransport:
+    def __init__(self, manager):
+        self.manager = manager
+
+    async def __call__(self, scope, receive, send):
+        await self.manager.handle_request(scope, receive, send)
+
+
+class ToolsOnlyMCP:
+    """Public SDK adapter: FastMCP validates tools; low-level transport lists only tools.
+
+    FastMCP 1.26 registers empty resources/prompts handlers unconditionally. Using
+    the documented low-level server avoids advertising those unused features,
+    without changing tool validation, structured results, or request authorization.
+    """
+
+    def __init__(self, registry: FastMCP):
+        self.registry = registry
+        protocol = Server(registry.name, instructions=registry.instructions)
+        protocol.list_tools()(registry.list_tools)
+        protocol.call_tool(validate_input=False)(registry.call_tool)
+        self.session_manager = StreamableHTTPSessionManager(
+            app=protocol, stateless=True, json_response=False
+        )
+
+    async def list_tools(self):
+        return await self.registry.list_tools()
+
+    async def call_tool(self, name, arguments):
+        return await self.registry.call_tool(name, arguments)
+
+    def streamable_http_app(self):
+        return Starlette(routes=[Route("/", _ToolsTransport(self.session_manager))])
+
+
+def create_native_mcp(*, server=None, runner=None) -> FastMCP | ToolsOnlyMCP:
+    supplied = server is not None
     server = server or FastMCP(
         "Kioku", host="0.0.0.0", stateless_http=True, streamable_http_path="/"
     )
@@ -458,7 +498,7 @@ def create_native_mcp(*, server=None, runner=None) -> FastMCP:
             else None
         )
         server.add_tool(_redirect_tool(tool, runner) if runner else tool, annotations=annotations)
-    return server
+    return server if supplied else ToolsOnlyMCP(server)
 
 
 native_mcp = create_native_mcp()
