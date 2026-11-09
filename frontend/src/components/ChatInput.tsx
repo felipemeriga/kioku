@@ -119,8 +119,11 @@ export default function ChatInput({
     ? rows.find((row) => row.resolvedModel === selectedModel)
         ?.supportedEffortLevels
     : undefined;
+  const requestEfforts = catalog.data?.request_controls?.reasoning_effort;
   const allowedEfforts = (["low", "medium", "high"] as const).filter(
-    (value) => !modelEfforts || modelEfforts.includes(value),
+    (value) =>
+      (!modelEfforts || modelEfforts.includes(value)) &&
+      (requestEfforts ? requestEfforts.includes(value) : value === "low"),
   );
   const previousConversationId = useRef(conversationId);
   useEffect(() => {
@@ -360,7 +363,7 @@ export default function ChatInput({
           </MenuItem>
         </Menu>
 
-        <Tooltip title="Reasoning effort — Low is fastest; higher effort may help complex questions">
+        <Tooltip title="Reasoning effort — Low favors speed; higher effort may help complex questions">
           <Chip
             label={`Effort: ${effort[0].toUpperCase()}${effort.slice(1)}`}
             aria-label={`Reasoning effort: ${effort}`}
@@ -391,7 +394,7 @@ export default function ChatInput({
               }}
             >
               {value === "low"
-                ? "Low — fastest (default)"
+                ? "Low — favor speed (default)"
                 : value === "medium"
                   ? "Medium — balanced"
                   : "High — more reasoning"}

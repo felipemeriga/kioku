@@ -14,7 +14,11 @@ vi.mock("../lib/api", () => ({
 }));
 
 beforeEach(() => {
-  vi.mocked(fetchChatModels).mockResolvedValue({ engine: "api", models: [] });
+  vi.mocked(fetchChatModels).mockResolvedValue({
+    engine: "api",
+    models: [],
+    request_controls: { reasoning_effort: ["low", "medium", "high"] },
+  });
 });
 
 it("offers actual subscription models, deduplicates aliases, and disables paid choices", async () => {
@@ -298,5 +302,20 @@ it("restores medium effort and disables the selector during execution", async ()
   );
   expect(
     screen.getByRole("button", { name: "Reasoning effort: medium" }),
+  ).toHaveAttribute("aria-disabled", "true");
+});
+
+it("does not offer effort levels an older backend would silently ignore", async () => {
+  vi.mocked(fetchChatModels).mockResolvedValue({ engine: "api", models: [] });
+  const user = userEvent.setup();
+  renderWithProviders(<ChatInput onSend={vi.fn()} disabled={false} />);
+  await user.click(
+    screen.getByRole("button", { name: "Reasoning effort: low" }),
+  );
+  expect(
+    screen.getByRole("menuitem", { name: "High — more reasoning" }),
+  ).toHaveAttribute("aria-disabled", "true");
+  expect(
+    screen.getByRole("menuitem", { name: "Medium — balanced" }),
   ).toHaveAttribute("aria-disabled", "true");
 });

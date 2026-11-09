@@ -439,6 +439,7 @@ export interface ChatModelOption {
 }
 
 export interface ChatModelCatalog {
+  request_controls?: { reasoning_effort?: ReasoningEffort[] };
   engine: "api" | "tsukai";
   models: ChatModelOption[];
   cli_version?: string;

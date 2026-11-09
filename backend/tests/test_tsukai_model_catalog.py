@@ -33,7 +33,11 @@ def test_api_users_never_access_native_catalog_or_inject_provider_models():
         patch("services.ai.models.engine_for", return_value="api"),
         patch("services.ai.models.client_for") as client,
     ):
-        assert chat_models("other-owner") == {"engine": "api", "models": []}
+        assert chat_models("other-owner") == {
+            "engine": "api",
+            "models": [],
+            "request_controls": {"reasoning_effort": ["low", "medium", "high"]},
+        }
         assert chat_operation("sonnet", "other-owner") == "rag_agent_sonnet"
         assert chat_operation("haiku", "other-owner") == "rag_agent"
         with pytest.raises(HTTPException) as error:
@@ -65,7 +69,11 @@ def test_authenticated_api_route_keeps_other_owners_on_legacy_models(monkeypatch
         patch("services.ai.models.client_for") as native_client,
         patch("routes.chat.stream_rag_response", return_value=iter([])) as api_stream,
     ):
-        assert http.get("/api/chat/models").json() == {"engine": "api", "models": []}
+        assert http.get("/api/chat/models").json() == {
+            "engine": "api",
+            "models": [],
+            "request_controls": {"reasoning_effort": ["low", "medium", "high"]},
+        }
         request = {"conversation_id": "11111111-1111-4111-8111-111111111111", "content": "question"}
         assert (
             http.post("/api/chat", json={**request, "model": "claude-opus-current"}).status_code
