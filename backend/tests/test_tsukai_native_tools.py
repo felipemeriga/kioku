@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -215,3 +216,16 @@ def test_metadata_child_is_consumed_only_after_root_tool_artifact_commits():
         assert order == ["artifact", "consume"]
     finally:
         native_tools._authority.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_native_history_projection_schema_and_forwarding_match_the_memory_tool():
+    server = native_tools.create_native_mcp()
+    tools = await server.list_tools()
+    history = next(tool for tool in tools if tool.name == "search_agent_history")
+    projection = history.inputSchema["properties"]["projection"]
+    assert projection["enum"] == ["discovery", "overview"]
+    assert projection["default"] == "discovery"
+    with patch.object(native_tools, "run_tool", return_value="bounded overview") as run:
+        assert await native_tools.search_agent_history(projection="overview") == "bounded overview"
+    assert run.call_args.args[1]["projection"] == "overview"
