@@ -1,6 +1,10 @@
 DO $$
 DECLARE batch jsonb := '[{"source_key":"a","source":{}},{"source_key":"b","source":{}},{"source_key":"a","source":{}}]';
 BEGIN
+ IF has_function_privilege('anon','public.tsukai_register_citation(text,text,text,jsonb)','EXECUTE')
+ OR has_function_privilege('authenticated','public.tsukai_register_citation(text,text,text,jsonb)','EXECUTE') THEN
+  RAISE EXCEPTION 'legacy allocator exposed to clients';
+ END IF;
  IF has_function_privilege('anon','public.tsukai_register_citations_batch(text,text,jsonb)','EXECUTE')
  OR has_function_privilege('authenticated','public.tsukai_register_citations_batch(text,text,jsonb)','EXECUTE') THEN
   RAISE EXCEPTION 'batch exposed to clients';
