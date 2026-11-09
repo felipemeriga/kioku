@@ -1,0 +1,82 @@
+{
+  "sessions": 4,
+  "records": 3354,
+  "chunks": 23720,
+  "snapshot_bytes": 25687384,
+  "snapshot_sha256": "98d32919d532decd7d52620d0c594c6df760dbffb1863345a511f4b7d75ce26e",
+  "questions": 12,
+  "manual_acceptable": 8,
+  "manual_limited": 3,
+  "manual_rejected": 1,
+  "citation_validation_pass": 11,
+  "anchor_probe_cases": 9,
+  "direct_anchor_hits": 7,
+  "expanded_anchor_hits": 9,
+  "input_tokens_including_cache_creation": 49931,
+  "output_tokens": 4949,
+  "api_equivalent_usd_reported_by_cli": 0.24919799999999998,
+  "native_model_seconds": 51.43304212499061,
+  "retrieval_ms_total": 1325.0622079649474,
+  "cases": [
+    {
+      "id": "sdk",
+      "audit": "pass",
+      "note": "Identifies the SDK build and reported identification method; source is an assistant report, not independent verification."
+    },
+    {
+      "id": "heap",
+      "audit": "limited",
+      "note": "Finds a 3 GiB decision, but history also contains a later 4 GiB configuration; top five excerpts do not reconcile scope and chronology."
+    },
+    {
+      "id": "baseline",
+      "audit": "pass",
+      "note": "Recovers the measured baseline and appropriately avoids calling the plateau a proven unbounded leak."
+    },
+    {
+      "id": "new-sdk",
+      "audit": "limited",
+      "note": "Finds the package assessment, but misses the original link attempt/results and correctly admits that limitation."
+    },
+    {
+      "id": "rss",
+      "audit": "limited",
+      "note": "Retrieves the earlier disk incident and unproven-leak conclusion, but does not integrate the later memory experiment."
+    },
+    {
+      "id": "memory-cap",
+      "audit": "pass",
+      "note": "Distinguishes Go runtime budget from total process RSS and a hard memory cap."
+    },
+    {
+      "id": "latency",
+      "audit": "reject",
+      "note": "The answer borrows a citation retrieved for a different question in the same batch. Per-question source validation rejects it; isolate answer contexts."
+    },
+    {
+      "id": "clock",
+      "audit": "pass",
+      "note": "Finds negative ages and wall/monotonic divergence; preserves uncertainty about suspension versus clock changes."
+    },
+    {
+      "id": "disk",
+      "audit": "pass",
+      "note": "Does not turn disk saturation into proof of a memory leak."
+    },
+    {
+      "id": "absent-db",
+      "audit": "pass",
+      "note": "Abstains from inventing a MongoDB-to-PostgreSQL migration despite unrelated PostgreSQL matches."
+    },
+    {
+      "id": "absent-kernel",
+      "audit": "pass",
+      "note": "Abstains from inventing a production kernel fix."
+    },
+    {
+      "id": "deployment",
+      "audit": "pass",
+      "note": "Does not treat mixed build-host experiments as proof of production deployment or a solved target."
+    }
+  ]
+}

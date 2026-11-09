@@ -1,0 +1,14 @@
+[
+ {"id":"sdk","question":"Which SDK version was actually identified in the running player, and how did we establish it?","kind":"positive","anchors":["3.7.0","tm_GetVersion"]},
+ {"id":"heap","question":"Have we already tried giving the garbage collector a smaller memory budget? What setting was chosen?","kind":"positive","anchors":["GOMEMLIMIT","4GiB"]},
+ {"id":"baseline","question":"Did we run the player long enough to get a baseline for memory and playback? What did that run show?","kind":"positive","anchors":["8.3","60"]},
+ {"id":"new-sdk","question":"What went wrong when we tried to use the newer vendor SDK package?","kind":"positive","anchors":["4.5.5","link"]},
+ {"id":"rss","question":"Did our investigation prove that the SDK was leaking memory, or was that still uncertain?","kind":"qualified","anchors":["RSS","leak"]},
+ {"id":"memory-cap","question":"Does the garbage collector setting we chose guarantee that the whole process stays below six gigabytes?","kind":"qualified","anchors":["GOMEMLIMIT","RSS"]},
+ {"id":"latency","question":"Have we measured where time is spent before tracking data becomes available in the database?","kind":"positive","anchors":["MongoDB","perf"]},
+ {"id":"clock","question":"Why could we not trust some of the laptop latency measurements?","kind":"positive","anchors":["clock","GSW"]},
+ {"id":"disk","question":"Was the earlier storage-pressure incident enough to establish a memory leak?","kind":"qualified","anchors":["disk","leak"]},
+ {"id":"absent-db","question":"Have we already migrated this repository from MongoDB to PostgreSQL and measured the improvement?","kind":"absent","anchors":[]},
+ {"id":"absent-kernel","question":"Which kernel patch fixed the vendor SDK memory leak in production?","kind":"absent","anchors":[]},
+ {"id":"deployment","question":"Which original evidence confirms that the memory-limit change was deployed and solved the total-memory target?","kind":"qualified","anchors":["GOMEMLIMIT","6"]}
+]
