@@ -10,6 +10,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from dateutil.parser import isoparse
 from fastapi import HTTPException
 
 from services.agent_evidence import EvidenceStore, rpc
@@ -65,8 +66,7 @@ def bounds(from_date=None, through_date=None, as_of=None, tz="UTC"):
             cutoff = (
                 datetime.combine(date.fromisoformat(as_of) + timedelta(days=1), time.min, zone)
                 if len(as_of) == 10
-                else datetime.fromisoformat(as_of.replace("Z", "+00:00"))
-                + timedelta(microseconds=1)
+                else isoparse(as_of) + timedelta(microseconds=1)
             )
             if cutoff.tzinfo is None:
                 invalid("as_of_requires_timezone")
@@ -167,12 +167,7 @@ def journal_activity(sb, user_id, folders, after, before, tz, limit=50, offset=0
     unique = {}
     zone = ZoneInfo(tz)
     for r in rows[:2000]:
-        day = (
-            datetime.fromisoformat(r["captured_at"].replace("Z", "+00:00"))
-            .astimezone(zone)
-            .date()
-            .isoformat()
-        )
+        day = isoparse(r["captured_at"]).astimezone(zone).date().isoformat()
         key = (r["folder_id"], r["session_id"], day)
         unique.setdefault(
             key,
