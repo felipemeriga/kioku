@@ -15,6 +15,8 @@ NOW = datetime(2026, 11, 9, 2, tzinfo=timezone.utc)  # Still Sunday in São Paul
     [
         ("What did we work on this week?", True),
         ("Have we tried the smaller budget?", True),
+        ("What were the issues we had yesterday?", True),
+        ("Summarize earlier experiments from the agent records", True),
         ("What did the documentation say about memory?", False),
         ("Where is ChargeService defined?", False),
         ("How does the ingestion pipeline work?", False),

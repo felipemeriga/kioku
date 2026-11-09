@@ -22,7 +22,9 @@ def history_question(question):
             r"\b(?:recorded work|agent history|original session|previous attempts?"
             r"|past sessions?)\b"
             r"|\b(?:did|have|had|were)\s+(?:we|i|you)\b"
-            r"|\b(?:we|i)\s+(?:worked|tried|discussed|investigated)\b"
+            r"|\b(?:we|i)\s+(?:worked|tried|discussed|investigated|had|changed|deployed)\b"
+            r"|\b(?:agent|session|journal)\s+(?:work|activity|records)\b"
+            r"|\b(?:earlier|previous|past)\s+(?:work|attempts?|experiments?|investigation)\b"
             r"|\bsessions?\s+(?:discussed|recorded|worked)\b",
             low,
         )
