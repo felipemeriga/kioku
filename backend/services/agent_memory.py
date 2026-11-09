@@ -23,7 +23,8 @@ STOP = set(
         "actually some before tried try can could would be been as at by not "
         "work worked week yesterday today please tell me us you your about "
         "record recorded records evidence history use using during between "
-        "november january february march april may june july august september october december"
+        "november january february march april may june july august september october december "
+        "keep answer concise cite relevant sources source please explain"
     ).split()
 )
 
@@ -198,7 +199,9 @@ def journal_body(entries):
     return "\n\n".join(f"{r['captured_at']}\n{r.get('body') or ''}" for r in ordered)
 
 
-def journal_activity(sb, user_id, folders, after, before, tz, limit=50, offset=0, session=None):
+def journal_activity(
+    sb, user_id, folders, after, before, tz, limit=50, offset=0, session=None, terms=()
+):
     q = (
         sb.table("agent_journal_search_entries")
         .select("folder_id,session_id,agent,title,body,captured_at,entry_id")
@@ -222,13 +225,28 @@ def journal_activity(sb, user_id, folders, after, before, tz, limit=50, offset=0
     for (_, _, day), entries in unique.items():
         entries.sort(key=lambda r: (r["captured_at"], r["entry_id"]))
         body = journal_body(entries)
+        start, score = 0, 0
+        if terms:
+            wanted = set(terms)
+            scored = [
+                (len(wanted & set(re.findall(r"[a-z0-9_]+", (e.get("body") or "").lower()))), i)
+                for i, e in enumerate(entries)
+            ]
+            score, selected = max(scored)
+            if not score:
+                continue
+            chosen = entries[selected]
+            start = body.index(f"{chosen['captured_at']}\n{chosen.get('body') or ''}")
+        summary = body[start : start + 6000]
         revision = hashlib.sha256(body.encode()).hexdigest()
         days.append(
             {
                 **{k: v for k, v in entries[-1].items() if k != "body"},
                 "date": day,
-                "summary": body[:6000],
-                "summary_truncated": len(body) > 6000,
+                "summary": summary,
+                "summary_char_start": start,
+                "summary_truncated": start > 0 or len(summary) < len(body),
+                "matched_term_count": score,
                 "entry_count": len(entries),
                 "reference": encode_reference(
                     {
@@ -240,7 +258,7 @@ def journal_activity(sb, user_id, folders, after, before, tz, limit=50, offset=0
                         "day": day,
                         "timezone": tz,
                         "revision": revision,
-                        "start": 0,
+                        "start": start,
                     }
                 ),
                 "source_kind": "journal_entries",
@@ -252,8 +270,11 @@ def journal_activity(sb, user_id, folders, after, before, tz, limit=50, offset=0
             }
         )
     activity = sorted(days, key=lambda r: (r["date"], r["folder_id"], r["session_id"]))
+    if terms:
+        activity.sort(key=lambda r: (r["matched_term_count"], r["captured_at"]), reverse=True)
     return {
         "days": activity[offset : offset + limit],
+        "matching_mode": "topical" if terms else "overview",
         "has_more": len(activity) > offset + limit or len(rows) > 2000,
         "sampled_entries": min(len(rows), 2000),
         "next_offset": offset + limit,
@@ -462,9 +483,18 @@ def search_memory(
         "reference_time": datetime.now(ZoneInfo(tz)).isoformat(),
         "time_scope": {"after": after, "before_exclusive": before, "timezone": tz},
         "activity": journal_activity(
-            sb, user_id, list(scope), after, before, tz, min(limit, 10), offset, session
+            sb,
+            user_id,
+            list(scope),
+            after,
+            before,
+            tz,
+            min(limit, 10),
+            offset,
+            session,
+            matching_terms,
         )
-        if not matching_terms and not as_of
+        if not as_of
         else None,
         "interpretation": (
             (

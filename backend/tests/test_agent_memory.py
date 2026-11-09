@@ -297,6 +297,45 @@ def test_recorded_local_disambiguates_the_calendar_day():
     assert recorded_local(None, "UTC") is None
 
 
+def test_topical_journal_navigation_uses_dated_bodies_and_readable_revision(monkeypatch):
+    from services.agent_memory import journal_activity
+
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "test-journal-reference")
+    sb = Database()
+    common = {
+        "user_id": OWNER,
+        "folder_id": FOLDER,
+        "session_id": "native",
+        "agent": "codex",
+        "title": "Future SDK deployment",
+        "summary": "SDK merged next week",
+    }
+    sb.rows["agent_journal_search_entries"] = [
+        {
+            **common,
+            "entry_id": "early",
+            "captured_at": "2026-11-06T12:00:00+00:00",
+            "body": "Memory budget initially 3GiB. " * 300,
+        },
+        {
+            **common,
+            "entry_id": "later",
+            "captured_at": "2026-11-06T19:00:00+00:00",
+            "body": "Memory budget raised to 4GiB; package change merged, deployment unverified.",
+        },
+    ]
+    result = journal_activity(sb, OWNER, [FOLDER], None, None, "UTC", terms=["memory", "budget"])
+    day = result["days"][0]
+    assert "4GiB" in day["summary"] and "3GiB" not in day["summary"]
+    assert day["summary_char_start"] > 6000
+    assert day["summary_truncated"]
+    assert "next week" not in day["summary"]
+    expanded = read_memory(sb, OWNER, [FOLDER], day["reference"])
+    assert expanded["evidence"][0]["excerpt"].startswith("2026-11-06T19:00:00")
+    assert "4GiB" in expanded["evidence"][0]["excerpt"]
+    assert journal_activity(sb, OWNER, [FOLDER], None, None, "UTC", terms=["sdk"])["days"] == []
+
+
 def test_references_are_reauthorized_and_tampering_is_rejected(monkeypatch):
     monkeypatch.setenv("SUPABASE_SERVICE_KEY", "test-only-reference-key")
     ref = reference()
@@ -991,5 +1030,5 @@ def test_short_explicit_issue_number_is_search_not_an_activity_overview():
     )
     result = search_memory(sb, OWNER, [FOLDER], query="#1")
     assert result["search_terms"] == ["1"]
-    assert result["activity"] is None
+    assert result["activity"]["matching_mode"] == "topical"
     assert result["selection"] == "time_diverse_relevance"
