@@ -158,3 +158,20 @@ def test_cleanup_only_removes_owned_terminal_exported_unchanged_fixtures(
     client = Client()
     assert runner.cleanup(client, tmp_path, [item])["deleted"] == expected
     assert len(client.deleted) == expected
+
+
+def test_failed_native_attempt_time_is_included_when_recovered():
+    state = {
+        "key": "00-positive-high",
+        "pair": 0,
+        "effort": "high",
+        "success": False,
+        "terminal": {"error": {"code": "wall_timeout"}},
+        "failure_telemetry": {"attempts": [{"elapsed_seconds": 308.7, "usage": None}]},
+    }
+    row = report.metrics(state, {"id": "positive", "question": "Recall alpha"}, {}, {})
+    summary = report.aggregate([row])["high"]
+    assert summary["completed"] == 0
+    assert summary["timings"]["runner_seconds"]["p95"] == 308.7
+    assert row["thinking_tokens"] is None
+    assert row["error_code"] == "wall_timeout"

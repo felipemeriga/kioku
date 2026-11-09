@@ -40,9 +40,14 @@ def metrics(state, question, gold, audit):
     terminal = state.get("terminal") or {}
     debug = terminal.get("debug") or {}
     execution = debug.get("execution") or {}
-    usage = execution.get("usage") or {}
-    attempts = (execution.get("timings") or {}).get("attempts") or []
-    tools = debug.get("tool_calls") or []
+    failure_attempts = (state.get("failure_telemetry") or {}).get("attempts") or []
+    usage = (
+        execution.get("usage")
+        or (failure_attempts[-1].get("usage") if failure_attempts else {})
+        or {}
+    )
+    attempts = (execution.get("timings") or {}).get("attempts") or failure_attempts
+    tools = debug.get("tool_calls") or state.get("recovered_tools") or []
     answer = terminal.get("replace") or ""
     citations = terminal.get("citations") or []
     cited = {int(x) for x in re.findall(r"\[(\d+)\]", answer)}
@@ -95,6 +100,9 @@ def metrics(state, question, gold, audit):
         "effort": state["effort"],
         "workers": state.get("workers", 1),
         "success": bool(state.get("success")),
+        "error_code": (terminal.get("error") or {}).get("code")
+        if isinstance(terminal.get("error"), dict)
+        else terminal.get("error"),
         "effort_verified": (state.get("verified_control") or {}).get("effort")
         == state["effort"],
         "server_seconds": (debug.get("timings") or {}).get("total_seconds"),
@@ -115,7 +123,9 @@ def metrics(state, question, gold, audit):
         "repeated_nonempty_result_batches": repeated_batches,
         "unique_original_events": len(set(retrieved + expanded)),
         "kind": question.get("kind", "temporal"),
-        "thinking_tokens": sum(m.get("thinkingTokens", 0) for m in models),
+        "thinking_tokens": sum(m.get("thinkingTokens", 0) for m in models)
+        if models and usage.get("complete")
+        else None,
         "output_tokens": usage.get("output_tokens"),
         "cache_read_tokens": usage.get("cache_read_tokens"),
         "citation_numbers_resolve": cited <= available,
@@ -144,6 +154,23 @@ def metrics(state, question, gold, audit):
         ],
         "queries": queries,
     }
+
+
+def quality_by_kind(rows):
+    result = {}
+    for kind in sorted({row["kind"] for row in rows}):
+        subset = [row for row in rows if row["kind"] == kind]
+        audited = [row for row in subset if row["audit"] is not None]
+        result[kind] = {
+            "trials": len(subset),
+            "audited": len(audited),
+            "manual_mean_score": statistics.mean(
+                row["audit"]["score"] for row in audited
+            )
+            if audited
+            else None,
+        }
+    return result
 
 
 def aggregate(rows):
@@ -191,6 +218,7 @@ def aggregate(rows):
             )
             if eligible
             else None,
+            "by_kind": quality_by_kind(group),
             "manually_audited": len(audited),
             "manual_mean_score": statistics.mean(r["audit"]["score"] for r in audited)
             if audited
@@ -227,6 +255,55 @@ def aggregate(rows):
     return result
 
 
+def comparison_table(summary):
+    def timing(effort, name, percentile="median"):
+        value = summary[effort]["timings"].get(name, {}).get(percentile)
+        return "Unavailable" if value is None else f"{value:.1f} s"
+
+    columns = [
+        (
+            "Completed trials",
+            lambda e: f"{summary[e]['completed']} / {summary[e]['trials']}",
+        ),
+        ("Runner median", lambda e: timing(e, "runner_seconds")),
+        ("Runner p95", lambda e: timing(e, "runner_seconds", "p95")),
+        ("First text median", lambda e: timing(e, "first_text_seconds")),
+        ("Observed tool time median", lambda e: timing(e, "tool_union_seconds")),
+        (
+            "Manual quality score",
+            lambda e: (
+                "Pending"
+                if summary[e]["manual_mean_score"] is None
+                else f"{summary[e]['manual_mean_score']:.0%} ({summary[e]['manually_audited']} audited)"
+            ),
+        ),
+        (
+            "Known topic-anchor discovery",
+            lambda e: (
+                f"{summary[e]['expanded_anchor_hits']} / {summary[e]['anchor_cases']}"
+            ),
+        ),
+        (
+            "Invalid citation numbers",
+            lambda e: str(summary[e]["citation_number_failures"]),
+        ),
+    ]
+    return (
+        "<section><h2>Measured comparison</h2><table><thead><tr><th>Metric</th><th>Low</th><th>High</th></tr></thead><tbody>"
+        + "".join(
+            "<tr><td>"
+            + html.escape(label)
+            + "</td><td>"
+            + html.escape(value("low"))
+            + "</td><td>"
+            + html.escape(value("high"))
+            + "</td></tr>"
+            for label, value in columns
+        )
+        + "</tbody></table></section>"
+    )
+
+
 def private_write(path, text):
     fd = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as stream:
@@ -254,21 +331,25 @@ def main():
     private_write(args.run / "summary.json", json.dumps(summary, indent=2))
     data = json.dumps(rows).replace("<", "\\u003c")
     totals = html.escape(json.dumps(summary, indent=2))
-    page = """<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Recall effort benchmark</title>
-<style>body{margin:0;background:#0b0812;color:#eee8f5;font:15px system-ui}main{max-width:1400px;margin:auto;padding:36px}h1{font-size:30px}p,small{color:#b8adc6}button,select{background:#21172f;color:inherit;border:1px solid #68507e;border-radius:6px;padding:10px}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px ui-monospace;line-height:1.6}section{background:#140e20;border:1px solid #49345f;border-radius:10px;margin:20px 0;padding:20px}.pair{display:grid;grid-template-columns:1fr 1fr;gap:18px}.answer{border-top:3px solid #29cedb;padding:16px;background:#191123;min-width:0}.answer.high{border-color:#ee269d}.answer pre{font:14px system-ui;line-height:1.7}.meta{color:#8de1d6}summary{cursor:pointer}label{display:inline-block;margin-right:18px}@media(max-width:700px){main{padding:18px}.pair{grid-template-columns:1fr}}</style>
+    comparison = comparison_table(summary)
+    page = (
+        """<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Recall effort benchmark</title>
+<style>body{margin:0;background:#0b0812;color:#eee8f5;font:15px system-ui}main{max-width:1400px;margin:auto;padding:36px}h1{font-size:30px}p,small{color:#b8adc6}button,select{background:#21172f;color:inherit;border:1px solid #68507e;border-radius:6px;padding:10px}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px ui-monospace;line-height:1.6}table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:12px;border-bottom:1px solid #49345f}th:nth-child(2){color:#29cedb}th:nth-child(3){color:#ee269d}section{background:#140e20;border:1px solid #49345f;border-radius:10px;margin:20px 0;padding:20px}.pair{display:grid;grid-template-columns:1fr 1fr;gap:18px}.answer{border-top:3px solid #29cedb;padding:16px;background:#191123;min-width:0}.answer.high{border-color:#ee269d}.answer pre{font:14px system-ui;line-height:1.7}.meta{color:#8de1d6}summary{cursor:pointer}label{display:inline-block;margin-right:18px}@media(max-width:700px){main{padding:18px}.pair{grid-template-columns:1fr}}</style>
 <main><small>KIOKU / RECALL EVALUATION</small><h1>Reasoning effort: speed and evidence</h1>
 <p>Actual native subscription runs. Low and High use the same model, scope, tool limits and output budget. Failed trials remain in the results. Queue time, model runtime and overlapping tool intervals are reported separately.</p>
 <p>Anchor hits and topic-probe recall@50/MRR@50/nDCG@10 measure discovery of known original records in first-appearance tool-trace order; they do not establish factual accuracy or form a complete relevance judgment for the live archive. Citation-number resolution does not prove that a source supports a claim. Manual audits are reported separately. Missing timing values are never replaced with zero.</p>
-<label>Question <select id="question"><option value="">All questions</option></select></label><label>Show <select id="status"><option value="">All trials</option><option value="failure">Execution failures</option><option value="audited">Manually audited</option></select></label>
+COMPARISON<label>Question <select id="question"><option value="">All questions</option></select></label><label>Show <select id="status"><option value="">All trials</option><option value="failure">Execution failures</option><option value="audited">Manually audited</option></select></label>
 <div id="cases"></div><section><details><summary>Aggregate metrics and sample sizes</summary><pre>SUMMARY</pre></details></section></main>
 <script id="data" type="application/json">DATA</script><script>
 const rows=JSON.parse(document.getElementById('data').textContent), select=document.getElementById('question'), status=document.getElementById('status');
 for(const id of [...new Set(rows.map(r=>r.case))]){const o=document.createElement('option');o.value=id;o.textContent=id;select.append(o)}
+const fmt=v=>Number.isFinite(v)?v.toFixed(1):'unavailable';
 const esc=v=>String(v??'unavailable').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function render(){const groups=new Map();for(const r of rows){if(select.value&&r.case!==select.value)continue;if(status.value==='failure'&&r.success)continue;if(status.value==='audited'&&!r.audit)continue;const g=groups.get(r.pair)||[];g.push(r);groups.set(r.pair,g)}document.getElementById('cases').innerHTML=[...groups].map(([n,rs])=>`<section><h2>${esc(rs[0].case)} <small>Pair ${n+1}</small></h2><p>${esc(rs[0].question)}</p><div class="pair">${rs.sort((a,b)=>a.effort==='low'?-1:b.effort==='low'?1:0).map(r=>`<article class="answer ${r.effort}"><h3>${esc(r.effort.toUpperCase())} · ${r.success?'Completed':'Failed'}</h3><div class="meta">Runner ${esc(r.runner_seconds)}s · Tools ${esc(r.tool_union_seconds)}s · ${r.search_calls} searches / ${r.read_calls} reads</div><p>${r.audit?esc(r.audit.verdict+': '+r.audit.note):'Factual audit pending'}</p><pre>${esc(r.answer)}</pre><details><summary>Cited evidence (${r.citations.length})</summary>${r.citations.map(c=>`<p>[${c.number}] ${esc(c.source)}</p><pre>${esc(c.excerpt)}</pre>`).join('')}</details><details><summary>Search strategy</summary><pre>${esc(JSON.stringify(r.queries,null,2))}</pre></details></article>`).join('')}</div></section>`).join('')}
-select.onchange=status.onchange=render;render();</script>""".replace(
-        "SUMMARY", totals
-    ).replace("DATA", data)
+function render(){const groups=new Map();for(const r of rows){if(select.value&&r.case!==select.value)continue;if(status.value==='failure'&&r.success)continue;if(status.value==='audited'&&!r.audit)continue;const g=groups.get(r.pair)||[];g.push(r);groups.set(r.pair,g)}document.getElementById('cases').innerHTML=[...groups].map(([n,rs])=>`<section><h2>${esc(rs[0].case)} <small>Pair ${n+1}</small></h2><p>${esc(rs[0].question)}</p><div class="pair">${rs.sort((a,b)=>a.effort==='low'?-1:b.effort==='low'?1:0).map(r=>`<article class="answer ${r.effort}"><h3>${esc(r.effort.toUpperCase())} · ${r.success?'Completed':'Failed'}</h3><div class="meta">Runner ${fmt(r.runner_seconds)}s · Tools ${fmt(r.tool_union_seconds)}s · ${r.search_calls} searches / ${r.read_calls} reads</div><p>${r.audit?esc(r.audit.verdict+': '+r.audit.note):'Factual audit pending'}</p><pre>${esc(r.answer || (r.error_code ? "No answer: " + r.error_code : "No durable answer"))}</pre><details><summary>Cited evidence (${r.citations.length})</summary>${r.citations.map(c=>`<p>[${c.number}] ${esc(c.source)}</p><pre>${esc(c.excerpt)}</pre>`).join('')}</details><details><summary>Search strategy</summary><pre>${esc(JSON.stringify(r.queries,null,2))}</pre></details></article>`).join('')}</div></section>`).join('')}
+select.onchange=status.onchange=render;render();</script>""".replace("SUMMARY", totals)
+        .replace("COMPARISON", comparison)
+        .replace("DATA", data)
+    )
     private_write(args.run / "report.html", page)
     compact = [
         {
