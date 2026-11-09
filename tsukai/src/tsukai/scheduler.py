@@ -136,8 +136,6 @@ class Scheduler:
         last_prune = 0
         while not self.draining:
             try:
-                await self.store.expire_queued()
-                await self.store.recover()
                 from .lifecycle import cleanup_deletions
 
                 await cleanup_deletions(self.store, self)
@@ -153,16 +151,19 @@ class Scheduler:
                         if spool.stat().st_mtime < time.time() - 30 * 86400:
                             spool.unlink(missing_ok=True)
                     last_prune = time.monotonic()
-                if self.auth_state == "ready" and time.monotonic() >= self.quota_until:
-                    while len(self.tasks) < 3:
-                        claim = await self.store.claim(self.worker_id)
-                        if claim is None:
-                            break
-                        task = asyncio.create_task(self.execute(claim))
-                        self.tasks[claim["attempt"]["id"]] = task
-                        task.add_done_callback(
-                            lambda t, key=claim["attempt"]["id"]: self.tasks.pop(key, None)
-                        )
+                capacity = (
+                    max(0, 3 - len(self.tasks))
+                    if self.auth_state == "ready" and time.monotonic() >= self.quota_until
+                    else 0
+                )
+                # Cleanup above observes durable deletion requests before any claim.
+                # Expiry and lease recovery still run on every dispatcher tick.
+                for claim in await self.store.dispatch(self.worker_id, capacity):
+                    task = asyncio.create_task(self.execute(claim))
+                    self.tasks[claim["attempt"]["id"]] = task
+                    task.add_done_callback(
+                        lambda t, key=claim["attempt"]["id"]: self.tasks.pop(key, None)
+                    )
             except asyncio.CancelledError:
                 raise
             except Exception:

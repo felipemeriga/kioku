@@ -299,226 +299,243 @@ class Store:
 
     async def expire_queued(self):
         async with self.transaction() as conn:
-            expired = (
-                (
-                    await conn.execute(
-                        select(jobs).where(
-                            jobs.c.status == "queued", jobs.c.queue_deadline < time.time()
-                        )
+            return await self._expire_queued(conn)
+
+    async def _expire_queued(self, conn):
+        expired = (
+            (
+                await conn.execute(
+                    select(jobs).where(
+                        jobs.c.status == "queued", jobs.c.queue_deadline < time.time()
                     )
                 )
-                .mappings()
-                .all()
             )
-            for job in expired:
-                await self._terminal(conn, job, "failed", error={"code": "queue_timeout"})
-            return len(expired)
+            .mappings()
+            .all()
+        )
+        for job in expired:
+            await self._terminal(conn, job, "failed", error={"code": "queue_timeout"})
+        return len(expired)
+
+    async def dispatch(self, worker_id, capacity=3):
+        """Reap and claim atomically with one shared-lock transaction per tick."""
+        async with self.transaction() as conn:
+            await self._expire_queued(conn)
+            await self._recover(conn)
+            claimed = []
+            for _ in range(max(0, min(capacity, 3))):
+                claim = await self._claim(conn, worker_id)
+                if claim is None:
+                    break
+                claimed.append(claim)
+            return claimed
 
     async def claim(self, worker_id, only_job_id=None):
-        now = time.time()
         async with self.transaction() as conn:
-            candidates = (
-                (
-                    await conn.execute(
-                        select(jobs)
-                        .where(jobs.c.status == "queued")
-                        .order_by(jobs.c.created_at)
-                        .with_for_update(skip_locked=True)
-                        .limit(100)
+            return await self._claim(conn, worker_id, only_job_id)
+
+    async def _claim(self, conn, worker_id, only_job_id=None):
+        now = time.time()
+        candidates = (
+            (
+                await conn.execute(
+                    select(jobs)
+                    .where(jobs.c.status == "queued")
+                    .order_by(jobs.c.created_at)
+                    .with_for_update(skip_locked=True)
+                    .limit(100)
+                )
+            )
+            .mappings()
+            .all()
+        )
+        if not candidates:
+            return None
+        active_rows = (
+            (
+                await conn.execute(
+                    select(jobs.c.profile, jobs.c.caller, jobs.c.owner_id).where(
+                        jobs.c.status == "running"
                     )
                 )
-                .mappings()
-                .all()
             )
-            if not candidates:
-                return None
-            active_rows = (
-                (
-                    await conn.execute(
-                        select(jobs.c.profile, jobs.c.caller, jobs.c.owner_id).where(
-                            jobs.c.status == "running"
-                        )
-                    )
+            .mappings()
+            .all()
+        )
+        active = [row["profile"] for row in active_rows]
+        owner_active = {}
+        for row in active_rows:
+            if row["profile"] != "metadata_child":
+                owner_active[row["owner_id"]] = owner_active.get(row["owner_id"], 0) + 1
+        served = dict(
+            (
+                await conn.execute(
+                    select(jobs.c.owner_id, func.max(attempts.c.started_at))
+                    .join(attempts, attempts.c.job_id == jobs.c.id)
+                    .group_by(jobs.c.owner_id)
                 )
-                .mappings()
-                .all()
+            ).all()
+        )
+
+        # First avoid an owner's second root while another owner is waiting. Then
+        # prefer chat, with one priority level per minute of queue aging; ties go to
+        # least recently served owner and original admission order. SQL is shared state.
+        def fair_order(job):
+            base = (
+                3
+                if job["profile"] == "metadata_child"
+                else 2
+                if is_interactive_job(job["request"])
+                else 1
             )
-            active = [row["profile"] for row in active_rows]
-            owner_active = {}
-            for row in active_rows:
-                if row["profile"] != "metadata_child":
-                    owner_active[row["owner_id"]] = owner_active.get(row["owner_id"], 0) + 1
-            served = dict(
-                (
-                    await conn.execute(
-                        select(jobs.c.owner_id, func.max(attempts.c.started_at))
-                        .join(attempts, attempts.c.job_id == jobs.c.id)
-                        .group_by(jobs.c.owner_id)
-                    )
-                ).all()
+            aged = base + int(max(0, now - job["created_at"]) / 60)
+            return (
+                owner_active.get(job["owner_id"], 0),
+                -aged,
+                served.get(job["owner_id"], 0),
+                job["created_at"],
             )
 
-            # First avoid an owner's second root while another owner is waiting. Then
-            # prefer chat, with one priority level per minute of queue aging; ties go to
-            # least recently served owner and original admission order. SQL is shared state.
-            def fair_order(job):
-                base = (
-                    3
-                    if job["profile"] == "metadata_child"
-                    else 2
-                    if is_interactive_job(job["request"])
-                    else 1
+        candidates = sorted(candidates, key=fair_order)
+        chosen = None
+        for job in candidates:
+            if only_job_id and job["id"] != only_job_id:
+                continue
+            child = job["profile"] == "metadata_child"
+            if (child and active.count("metadata_child") >= 1) or (
+                not child and sum(p != "metadata_child" for p in active) >= 2
+            ):
+                continue
+            if job["caller"] == "mihari" and any(row["caller"] == "mihari" for row in active_rows):
+                continue
+            if now > job["queue_deadline"]:
+                await self._terminal(conn, job, "failed", error={"code": "queue_timeout"})
+                continue
+            if child:
+                parent_id = job["request"]["parent_job_id"]
+                parent = (
+                    (await conn.execute(select(jobs).where(jobs.c.id == parent_id)))
+                    .mappings()
+                    .first()
                 )
-                aged = base + int(max(0, now - job["created_at"]) / 60)
-                return (
-                    owner_active.get(job["owner_id"], 0),
-                    -aged,
-                    served.get(job["owner_id"], 0),
-                    job["created_at"],
-                )
-
-            candidates = sorted(candidates, key=fair_order)
-            chosen = None
-            for job in candidates:
-                if only_job_id and job["id"] != only_job_id:
-                    continue
-                child = job["profile"] == "metadata_child"
-                if (child and active.count("metadata_child") >= 1) or (
-                    not child and sum(p != "metadata_child" for p in active) >= 2
-                ):
-                    continue
-                if job["caller"] == "mihari" and any(
-                    row["caller"] == "mihari" for row in active_rows
-                ):
-                    continue
-                if now > job["queue_deadline"]:
-                    await self._terminal(conn, job, "failed", error={"code": "queue_timeout"})
-                    continue
-                if child:
-                    parent_id = job["request"]["parent_job_id"]
-                    parent = (
-                        (await conn.execute(select(jobs).where(jobs.c.id == parent_id)))
-                        .mappings()
-                        .first()
-                    )
-                    parent_attempt = (
-                        (
-                            await conn.execute(
-                                select(attempts).where(
-                                    attempts.c.job_id == parent_id,
-                                    attempts.c.status == "running",
-                                    attempts.c.lease_until > now,
-                                )
-                            )
-                        )
-                        .mappings()
-                        .first()
-                    )
-                    if (
-                        not parent
-                        or parent["status"] != "running"
-                        or parent["cancel_requested"]
-                        or not parent_attempt
-                    ):
-                        await self._terminal(
-                            conn, job, "failed", error={"code": "metadata_parent_inactive"}
-                        )
-                        continue
-                chosen = dict(job)
-                break
-            if chosen is None:
-                return None
-            job = chosen
-            req = JobRequest.model_validate(job["request"])
-            attempt_id, fence, native_id = (str(uuid.uuid4()) for _ in range(3))
-            resume = False
-            session = None
-            owner_path = hashlib.sha256(req.owner_id.encode()).hexdigest()[:24]
-            workspace = f"{self.workspace_dir}/{owner_path}/{job['id']}"
-            if req.conversation_id:
-                session = (
+                parent_attempt = (
                     (
                         await conn.execute(
-                            select(sessions).where(
-                                sessions.c.owner_id == req.owner_id,
-                                sessions.c.conversation_id == req.conversation_id,
+                            select(attempts).where(
+                                attempts.c.job_id == parent_id,
+                                attempts.c.status == "running",
+                                attempts.c.lease_until > now,
                             )
                         )
                     )
                     .mappings()
                     .first()
                 )
-                if session:
-                    native_id, workspace, resume = (
-                        session["native_session_id"],
-                        session["workspace"],
-                        session["state"] != "new",
+                if (
+                    not parent
+                    or parent["status"] != "running"
+                    or parent["cancel_requested"]
+                    or not parent_attempt
+                ):
+                    await self._terminal(
+                        conn, job, "failed", error={"code": "metadata_parent_inactive"}
                     )
-                else:
-                    workspace = f"{self.workspace_dir}/chat/{native_id}"
+                    continue
+            chosen = dict(job)
+            break
+        if chosen is None:
+            return None
+        job = chosen
+        req = JobRequest.model_validate(job["request"])
+        attempt_id, fence, native_id = (str(uuid.uuid4()) for _ in range(3))
+        resume = False
+        session = None
+        owner_path = hashlib.sha256(req.owner_id.encode()).hexdigest()[:24]
+        workspace = f"{self.workspace_dir}/{owner_path}/{job['id']}"
+        if req.conversation_id:
+            session = (
+                (
                     await conn.execute(
-                        insert(sessions).values(
-                            owner_id=req.owner_id,
-                            conversation_id=req.conversation_id,
-                            native_session_id=native_id,
-                            generation=1,
-                            policy_fingerprint=self.policy_fingerprint(req),
-                            history=[],
-                            state="new",
-                            workspace=workspace,
-                            updated_at=now,
+                        select(sessions).where(
+                            sessions.c.owner_id == req.owner_id,
+                            sessions.c.conversation_id == req.conversation_id,
                         )
                     )
-            attempt = dict(
-                id=attempt_id,
-                job_id=job["id"],
-                number=job["attempt_count"] + 1,
-                fence=fence,
-                worker_id=worker_id,
-                status="running",
-                lease_until=now + 30,
-                deadline=(
-                    min(now + 300, parent_attempt["deadline"])
-                    if req.ai_depth
-                    else now + (600 if heavy_maintenance(req) else 300)
-                ),
-                started_at=now,
-                native_session_id=native_id,
-                resume=resume,
-                counter_segment=str(uuid.uuid4()),
+                )
+                .mappings()
+                .first()
             )
-            await conn.execute(insert(attempts).values(**attempt))
-            await conn.execute(
-                update(jobs)
-                .where(jobs.c.id == job["id"])
-                .values(status="running", attempt_count=attempt["number"])
-            )
-            await conn.execute(
-                update(locks)
-                .where(locks.c.job_id == job["id"])
-                .values(attempt_id=attempt_id, fence=fence, lease_until=now + 30)
-            )
-            await self._event(
-                conn,
-                job["id"],
-                "attempt.started",
-                {"number": attempt["number"], "native_session_id": native_id, "resume": resume},
-                attempt_id,
-            )
-            return {
-                "job": job,
-                "attempt": attempt,
-                "workspace": workspace,
-                "previous_usage": dict(session) if session else None,
-                "repair_diagnostic": (
-                    await conn.execute(
-                        select(attempts.c.diagnostic).where(
-                            attempts.c.job_id == job["id"],
-                            attempts.c.number == attempt["number"] - 1,
-                        )
+            if session:
+                native_id, workspace, resume = (
+                    session["native_session_id"],
+                    session["workspace"],
+                    session["state"] != "new",
+                )
+            else:
+                workspace = f"{self.workspace_dir}/chat/{native_id}"
+                await conn.execute(
+                    insert(sessions).values(
+                        owner_id=req.owner_id,
+                        conversation_id=req.conversation_id,
+                        native_session_id=native_id,
+                        generation=1,
+                        policy_fingerprint=self.policy_fingerprint(req),
+                        history=[],
+                        state="new",
+                        workspace=workspace,
+                        updated_at=now,
                     )
-                ).scalar_one_or_none(),
-            }
+                )
+        attempt = dict(
+            id=attempt_id,
+            job_id=job["id"],
+            number=job["attempt_count"] + 1,
+            fence=fence,
+            worker_id=worker_id,
+            status="running",
+            lease_until=now + 30,
+            deadline=(
+                min(now + 300, parent_attempt["deadline"])
+                if req.ai_depth
+                else now + (600 if heavy_maintenance(req) else 300)
+            ),
+            started_at=now,
+            native_session_id=native_id,
+            resume=resume,
+            counter_segment=str(uuid.uuid4()),
+        )
+        await conn.execute(insert(attempts).values(**attempt))
+        await conn.execute(
+            update(jobs)
+            .where(jobs.c.id == job["id"])
+            .values(status="running", attempt_count=attempt["number"])
+        )
+        await conn.execute(
+            update(locks)
+            .where(locks.c.job_id == job["id"])
+            .values(attempt_id=attempt_id, fence=fence, lease_until=now + 30)
+        )
+        await self._event(
+            conn,
+            job["id"],
+            "attempt.started",
+            {"number": attempt["number"], "native_session_id": native_id, "resume": resume},
+            attempt_id,
+        )
+        return {
+            "job": job,
+            "attempt": attempt,
+            "workspace": workspace,
+            "previous_usage": dict(session) if session else None,
+            "repair_diagnostic": (
+                await conn.execute(
+                    select(attempts.c.diagnostic).where(
+                        attempts.c.job_id == job["id"],
+                        attempts.c.number == attempt["number"] - 1,
+                    )
+                )
+            ).scalar_one_or_none(),
+        }
 
     async def _owned(self, conn, attempt):
         current = (
@@ -680,42 +697,43 @@ class Store:
 
     async def recover(self):
         async with self.transaction() as conn:
-            expired = (
-                (
-                    await conn.execute(
-                        select(attempts).where(
-                            attempts.c.status == "running", attempts.c.lease_until < time.time()
-                        )
-                    )
-                )
-                .mappings()
-                .all()
-            )
-            for attempt in expired:
-                job = (
-                    (await conn.execute(select(jobs).where(jobs.c.id == attempt["job_id"])))
-                    .mappings()
-                    .one()
-                )
+            return await self._recover(conn)
+
+    async def _recover(self, conn):
+        expired = (
+            (
                 await conn.execute(
-                    update(attempts)
-                    .where(attempts.c.id == attempt["id"])
-                    .values(
-                        status="uncertain", finished_at=time.time(), error={"code": "worker_lost"}
+                    select(attempts).where(
+                        attempts.c.status == "running", attempts.c.lease_until < time.time()
                     )
                 )
-                await self._terminal(
-                    conn,
-                    job,
-                    "uncertain",
-                    error={
-                        "code": "worker_lost",
-                        "usage_complete": False,
-                        "requires_explicit_recovery": True,
-                    },
-                    attempt_id=attempt["id"],
-                )
-            return len(expired)
+            )
+            .mappings()
+            .all()
+        )
+        for attempt in expired:
+            job = (
+                (await conn.execute(select(jobs).where(jobs.c.id == attempt["job_id"])))
+                .mappings()
+                .one()
+            )
+            await conn.execute(
+                update(attempts)
+                .where(attempts.c.id == attempt["id"])
+                .values(status="uncertain", finished_at=time.time(), error={"code": "worker_lost"})
+            )
+            await self._terminal(
+                conn,
+                job,
+                "uncertain",
+                error={
+                    "code": "worker_lost",
+                    "usage_complete": False,
+                    "requires_explicit_recovery": True,
+                },
+                attempt_id=attempt["id"],
+            )
+        return len(expired)
 
     async def cancel(self, job_id):
         async with self.transaction() as conn:

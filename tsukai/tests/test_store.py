@@ -442,3 +442,84 @@ async def test_idle_claim_does_not_scan_active_jobs_or_owner_history(store):
     reads = [statement for statement in statements if "FROM tsukai_jobs" in statement]
     assert len(reads) == 1
     assert "tsukai_attempts" not in reads[0]
+
+
+async def test_dispatch_recovers_expired_lease_before_claim_and_fences_old_writer(store):
+    from tsukai.tables import jobs
+
+    roots = []
+    for _ in range(2):
+        await store.admit(request())
+        roots.append((await store.claim("lost-worker"))["attempt"])
+    waiting = await store.admit(request())
+    async with store.transaction() as conn:
+        await conn.execute(
+            update(attempts).where(attempts.c.id == roots[0]["id"]).values(lease_until=0)
+        )
+        await conn.execute(
+            update(jobs).where(jobs.c.id == waiting["id"]).values(queue_deadline=time.time() + 30)
+        )
+    claims = await store.dispatch("new-worker")
+    assert [claim["job"]["id"] for claim in claims] == [waiting["id"]]
+    assert (await store.get(roots[0]["job_id"]))["status"] == "uncertain"
+    with pytest.raises(Fenced):
+        await store.append(roots[0], "text.delta", {"text": "stale"})
+
+
+async def test_dispatch_rollback_keeps_expiry_recovery_and_claim_atomic(store, monkeypatch):
+    from tsukai.tables import jobs
+
+    running = await store.admit(request())
+    attempt = (await store.claim("lost-worker"))["attempt"]
+    expired = await store.admit(request())
+    async with store.transaction() as conn:
+        await conn.execute(
+            update(attempts).where(attempts.c.id == attempt["id"]).values(lease_until=0)
+        )
+        await conn.execute(update(jobs).where(jobs.c.id == expired["id"]).values(queue_deadline=0))
+
+    async def fail_claim(*args):
+        raise RuntimeError("injected dispatch failure")
+
+    monkeypatch.setattr(store, "_claim", fail_claim)
+    with pytest.raises(RuntimeError, match="injected"):
+        await store.dispatch("worker")
+    assert (await store.get(running["id"]))["status"] == "running"
+    assert (await store.get(expired["id"]))["status"] == "queued"
+    assert [event["type"] for event in await store.replay(running["id"])] == [
+        "job.queued",
+        "attempt.started",
+    ]
+
+
+async def test_dispatch_without_capacity_still_expires_queue(store):
+    from tsukai.tables import jobs
+
+    expired = await store.admit(request())
+    async with store.transaction() as conn:
+        await conn.execute(update(jobs).where(jobs.c.id == expired["id"]).values(queue_deadline=0))
+    assert await store.dispatch("worker", capacity=0) == []
+    assert (await store.get(expired["id"]))["status"] == "failed"
+
+
+async def test_dispatch_uses_one_transaction_for_reaping_and_empty_claim(store):
+    from sqlalchemy import event
+
+    transactions, statements = [], []
+
+    def record_begin(conn):
+        transactions.append(True)
+
+    def record_statement(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    event.listen(store.engine.sync_engine, "begin", record_begin)
+    event.listen(store.engine.sync_engine, "before_cursor_execute", record_statement)
+    try:
+        assert await store.dispatch("idle-worker") == []
+    finally:
+        event.remove(store.engine.sync_engine, "begin", record_begin)
+        event.remove(store.engine.sync_engine, "before_cursor_execute", record_statement)
+    assert len(transactions) == 1
+    if store.engine.dialect.name == "postgresql":
+        assert len(statements) == 4  # one shared lock, expiry, recovery, queued jobs
