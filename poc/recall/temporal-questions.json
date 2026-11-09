@@ -1,0 +1,8 @@
+[
+ {"id":"before","question":"What had we tried for the Go memory budget by the end of November 5, 2026? Do not use anything learned on November 6.","expected_start":null,"expected_end":"2026-11-05"},
+ {"id":"evolution","question":"Between November 5 and November 6, 2026, how did our Go memory-budget experiments and decisions evolve? Explain conflicting values instead of choosing one silently.","expected_start":"2026-11-05","expected_end":"2026-11-06"},
+ {"id":"latest","question":"What was the most recent recorded request about the Go memory-budget value in this archive? Compare it with the earlier experiment, without claiming it is deployed today.","expected_start":null,"expected_end":null},
+ {"id":"single-day","question":"On November 6, 2026 only, what evidence did we record about garbage collection pressure and the proposed memory setting?","expected_start":"2026-11-06","expected_end":"2026-11-06"},
+ {"id":"outside","question":"What new Go memory-budget experiments did we record between November 7 and November 8, 2026?","expected_start":"2026-11-07","expected_end":"2026-11-08"},
+ {"id":"historical-note","question":"When later sessions discussed the October EC2 disk-pressure incident, did they establish its cause? Distinguish when the incident occurred from when the notes were recalled.","expected_start":null,"expected_end":null}
+]

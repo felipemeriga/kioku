@@ -71,7 +71,7 @@ class Index:
         self.avg = sum(c["length"] for c in self.chunks) / max(len(self.chunks), 1)
 
     def search(self, query, limit=50):
-        terms = set(words(query))
+        terms = sorted(set(words(query)))
 
         def score(c):
             total = 0

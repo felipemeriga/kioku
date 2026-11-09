@@ -148,3 +148,76 @@ class ImprovedContextTests(unittest.TestCase):
             ]
         )
         self.assertFalse(resolve({**answer, "citations": []}, [evidence])["usable"])
+
+
+class TemporalTests(unittest.TestCase):
+    def test_local_day_excludes_future_records_and_includes_utc_next_day(self):
+        from temporal import scoped_records
+        from zoneinfo import ZoneInfo
+
+        rows = [
+            {**record("before", "x"), "event_at": "2026-11-05T02:59:59Z"},
+            {**record("start", "x"), "event_at": "2026-11-05T03:00:00Z"},
+            {**record("late", "x"), "event_at": "2026-11-06T02:59:59Z"},
+            {**record("future", "x"), "event_at": "2026-11-06T03:00:00Z"},
+        ]
+        result = scoped_records(
+            rows,
+            {"mode": "range", "start_date": "2026-11-05", "end_date": "2026-11-05"},
+            ZoneInfo("America/Sao_Paulo"),
+        )
+        self.assertEqual([r["event_id"] for r in result], ["start", "late"])
+
+    def test_dst_day_uses_calendar_boundaries_not_fixed_24_hours(self):
+        from temporal import day_boundary
+        from zoneinfo import ZoneInfo
+
+        zone = ZoneInfo("America/New_York")
+        self.assertEqual(
+            (
+                day_boundary("2026-11-01", zone, True)
+                - day_boundary("2026-11-01", zone)
+            ).total_seconds(),
+            25 * 3600,
+        )
+
+    def test_empty_requested_interval_is_not_broadened(self):
+        from temporal import scoped_records
+        from zoneinfo import ZoneInfo
+
+        result = scoped_records(
+            [{**record("old", "older experiment"), "event_at": "2026-11-06T12:00:00Z"}],
+            {"mode": "range", "start_date": "2026-11-07", "end_date": "2026-11-08"},
+            ZoneInfo("UTC"),
+        )
+        self.assertEqual(result, [])
+
+    def test_recalled_event_date_is_not_replaced_with_record_time(self):
+        from temporal import resolve_timeline
+
+        source = {
+            "source_id": "known",
+            "recorded_at": "2026-11-05T12:00:00Z",
+            "recorded_local": "2026-11-05T09:00:00-03:00",
+            "text": "October incident remained unattributed",
+        }
+        answer = {
+            "status": "partial",
+            "answer": "Later notes recalled an October incident.",
+            "citations": ["known"],
+            "timeline": [
+                {
+                    "description": "Recalled incident",
+                    "described_event_time": "October 2026; exact date not established",
+                    "recorded_at": "1900-01-01",
+                    "citations": ["known"],
+                }
+            ],
+        }
+        resolved = resolve_timeline(answer, [source])
+        self.assertEqual(resolved["timeline"][0]["recorded_at"], source["recorded_at"])
+        self.assertEqual(
+            resolved["timeline"][0]["described_event_time"],
+            "October 2026; exact date not established",
+        )
+        self.assertTrue(resolved["citations_valid"])
