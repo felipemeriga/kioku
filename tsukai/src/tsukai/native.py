@@ -148,6 +148,7 @@ class NativeRunner:
 
     async def run(self, claim, req, emit, mcp=None):
         attempt = claim["attempt"]
+        timings = attempt.setdefault("runtime_timings", {})
         prompt = native_prompt(req, attempt["resume"])
         wall_seconds = (
             self.settings.maintenance_wall_seconds
@@ -231,7 +232,9 @@ class NativeRunner:
         init_seen = False
         stderr_task = None
         read_task = None
+        spawned_at = first_event_at = result_at = None
         try:
+            began = time.monotonic()
             proc = await asyncio.create_subprocess_exec(
                 *args,
                 cwd=workspace,
@@ -242,6 +245,9 @@ class NativeRunner:
                 start_new_session=True,
                 limit=self.settings.spool_bytes,
             )
+            spawned_at = time.monotonic()
+            timings["subprocess_spawn_seconds"] = spawned_at - began
+            timings["subprocess_spawned_at"] = time.time()
             self.processes[attempt["id"]] = proc
 
             # Drain stderr continuously; contents may contain secrets and never reach logs/DB.
@@ -253,12 +259,14 @@ class NativeRunner:
                         raise NativeError("output_overflow")
 
             stderr_task = asyncio.create_task(discard_stderr())
+            began = time.monotonic()
             proc.stdin.write(prompt.encode())
             try:
                 await asyncio.wait_for(proc.stdin.drain(), self.settings.first_event_seconds)
             except asyncio.TimeoutError:
                 raise NativeError("first_event_timeout") from None
             proc.stdin.close()
+            timings["stdin_write_seconds"] = time.monotonic() - began
             while True:
                 remaining = wall_seconds - (time.monotonic() - started)
                 if remaining <= 0:
@@ -308,6 +316,8 @@ class NativeRunner:
                     raise NativeError("invalid_native_ndjson") from None
                 if not first:
                     attempt["first_event_at"] = time.time()
+                    first_event_at = time.monotonic()
+                    timings["spawn_to_first_cli_event_seconds"] = first_event_at - spawned_at
                 first = True
                 kind = event.get("type")
                 if kind == "system" and event.get("subtype") == "init":
@@ -317,6 +327,10 @@ class NativeRunner:
                 elif kind == "stream_event":
                     delta = event.get("event", {}).get("delta", {})
                     if delta.get("type") == "text_delta":
+                        if "first_text_at" not in attempt:
+                            timings["first_cli_event_to_text_seconds"] = (
+                                time.monotonic() - first_event_at
+                            )
                         attempt.setdefault("first_text_at", time.time())
                         value = delta.get("text", "")
                         for offset in range(0, len(value), 4000):
@@ -326,6 +340,15 @@ class NativeRunner:
                             )
                 elif kind == "result":
                     final = event
+                    result_at = time.monotonic()
+                    timings["cli_result_received_at"] = time.time()
+                    timings["spawn_to_cli_result_seconds"] = result_at - spawned_at
+                    for field in ("duration_ms", "duration_api_ms"):
+                        value = event.get(field)
+                        if type(value) in (int, float) and 0 <= value < 3600000:
+                            timings["cli_reported_" + field.removesuffix("_ms") + "_seconds"] = (
+                                value / 1000
+                            )
                 elif kind in {"permission_request", "input_request"}:
                     raise NativeError("interaction_required")
                 # Raw init, hidden thinking, tool arguments/results are not authoritative traces.
@@ -333,6 +356,9 @@ class NativeRunner:
                 proc.wait(), max(0.1, wall_seconds - (time.monotonic() - started))
             )
             await stderr_task
+            timings["cli_process_exited_at"] = time.time()
+            if result_at is not None:
+                timings["cli_result_to_process_exit_seconds"] = time.monotonic() - result_at
             if not final:
                 raise NativeError("native_result_missing", uncertain=True)
             if not init_seen or final.get("session_id") != attempt["native_session_id"]:
@@ -415,6 +441,7 @@ class NativeRunner:
                 exc.uncertain = proc is not None
             raise
         finally:
+            cleanup_started = time.monotonic()
 
             async def cleanup():
                 if read_task and not read_task.done():
@@ -451,3 +478,4 @@ class NativeRunner:
                 Path(config_path).unlink(missing_ok=True)
 
             await complete_cleanup(cleanup(), 3 * self.settings.kill_grace_seconds + 2)
+            timings["native_cleanup_seconds"] = time.monotonic() - cleanup_started

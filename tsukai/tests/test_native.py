@@ -85,9 +85,27 @@ async def test_real_subprocess_normalization_and_no_private_events(tmp_path):
     async def emit(kind, data):
         events.append((kind, data))
 
-    result = await runner.run(claim(tmp_path), request(), emit)
+    invocation = claim(tmp_path)
+    result = await runner.run(invocation, request(), emit)
     assert result["text"] == "Canonical answer."
     assert events == [("text.delta", {"text": "Provisional ", "provisional": True})]
+    timings = invocation["attempt"]["runtime_timings"]
+    for name in (
+        "subprocess_spawn_seconds",
+        "stdin_write_seconds",
+        "spawn_to_first_cli_event_seconds",
+        "first_cli_event_to_text_seconds",
+        "spawn_to_cli_result_seconds",
+        "cli_result_to_process_exit_seconds",
+        "native_cleanup_seconds",
+    ):
+        assert isinstance(timings[name], float) and timings[name] >= 0
+    assert (
+        timings["subprocess_spawned_at"]
+        <= timings["cli_result_received_at"]
+        <= timings["cli_process_exited_at"]
+    )
+    assert "private-diagnostic" not in json.dumps(timings)
     assert result["usage"]["complete"] and result["usage"]["list_equivalent_usd"] == 0.001
     assert "private-diagnostic" not in json.dumps(events)
     assert not list(tmp_path.rglob("mcp-*.json"))

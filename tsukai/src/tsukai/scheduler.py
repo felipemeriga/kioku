@@ -237,6 +237,14 @@ class Scheduler:
             or not data["capability"]
         ):
             raise NativeError("invalid_tool_backend")
+        # Only the explicitly numeric timing fields are retained, never grant contents.
+        backend_timings = data.get("timings")
+        if not isinstance(backend_timings, dict):
+            backend_timings = {}
+        for name in ("owned_turn_seconds", "verify_attempt_seconds", "bootstrap_seconds"):
+            value = backend_timings.get(name)
+            if type(value) in (int, float) and 0 <= value < 3600:
+                claim["attempt"].setdefault("runtime_timings", {})["capability_" + name] = value
         return {
             "mcpServers": {
                 "kioku": {
@@ -268,12 +276,18 @@ class Scheduler:
         self.finishing.add(attempt["id"])
 
         async def finalize():
+            began = time.monotonic()
             with contextlib.suppress(Exception):
                 await self.store.heartbeat(attempt)
+            timings = attempt.setdefault("runtime_timings", {})
+            timings["finalize_heartbeat_seconds"] = time.monotonic() - began
             if stop_native:
                 await self.native.stop(attempt["id"])
             if retry:
                 await asyncio.sleep(random.uniform(0.1, 0.5))
+            if result is not None:
+                result["usage"] = {**(result.get("usage") or {}), "runtime_timings": timings}
+            timings["durable_finish_started_at"] = time.time()
             await self.store.finish(
                 attempt, status, result=result, error=error, diagnostic=diagnostic, retry=retry
             )
@@ -362,16 +376,23 @@ class Scheduler:
         result = None
         native_started = False
         try:
+            timings = attempt.setdefault("runtime_timings", {})
+            began = time.monotonic()
             config = await self.tool_config(claim, req)
+            timings["tool_capability_seconds"] = time.monotonic() - began
             remaining = attempt["deadline"] - time.time()
             if remaining <= 0:
                 raise NativeError("wall_timeout")
             async with asyncio.timeout(remaining):
                 native_started = True
+                began = time.monotonic()
                 result = await self.native.run(claim, req, emit, config)
+                timings["native_run_seconds"] = time.monotonic() - began
             self.finishing.add(attempt["id"])
             events.put_nowait(None)
+            began = time.monotonic()
             await publisher
+            timings["publisher_drain_seconds"] = time.monotonic() - began
             await self.finalize_attempt(attempt, "completed", result=result)
         except asyncio.CancelledError:
             self.cancelling.add(attempt["id"])
