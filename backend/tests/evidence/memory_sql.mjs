@@ -64,6 +64,15 @@ await db.exec(
     "utf8",
   ),
 );
+await db.exec(
+  fs.readFileSync(
+    new URL(
+      "../../../supabase/migrations/20261109130000_memory_escape_tokens.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  ),
+);
 const owner = "11111111-1111-4111-8111-111111111111",
   other = "11111111-1111-4111-8111-111111111112";
 const first = "22222222-2222-4222-8222-222222222222",
@@ -299,6 +308,67 @@ for (const signature of [
   ).rows[0];
   if (p.a || p.b || !p.s) throw Error("memory RPC privileges");
 }
+await db.query(
+  "UPDATE agent_evidence_objects SET memory_index_version=1 WHERE session_id=$1",
+  [a],
+);
+let upgrade = await call("search_agent_memory_v2", [
+  owner,
+  [first],
+  [],
+  null,
+  null,
+  null,
+  "relevance",
+  10,
+  0,
+  [],
+  "UTC",
+]);
+if (upgrade.index_pending_objects !== 1)
+  throw Error("legacy vector upgrade was hidden");
+const escaped = String.raw`result\nMongoDB acknowledgement\nclock divergence\tGOMEMLIMIT`;
+await call("publish_agent_memory_index", [
+  a,
+  "segment",
+  [chunk(2, 9000, escaped)],
+  false,
+  true,
+]);
+for (const term of ["mongodb", "clock", "gomemlimit", "nmongodb", "nclock"]) {
+  const result = await search(owner, [first], [term]);
+  if (
+    !result.matches.some(
+      (row) => row.char_start === 9000 && row.char_length === escaped.length,
+    )
+  )
+    throw Error(
+      "escape normalization lost a word or changed the original span: " + term,
+    );
+}
+upgrade = await call("search_agent_memory_v2", [
+  owner,
+  [first],
+  [],
+  null,
+  null,
+  null,
+  "relevance",
+  10,
+  0,
+  [],
+  "UTC",
+]);
+if (upgrade.index_pending_objects !== 0)
+  throw Error("normalized vector was not marked complete");
+const version = (
+  await db.query(
+    "SELECT memory_index_version FROM agent_evidence_objects WHERE session_id=$1",
+    [a],
+  )
+).rows[0].memory_index_version;
+if (version !== 2)
+  throw Error("legacy publisher contract did not upgrade the vector version");
 await call("delete_agent_evidence", [owner, first, a]);
 if ((await search()).total_matches !== 0)
   throw Error("tombstone still searchable");
