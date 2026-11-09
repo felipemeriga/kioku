@@ -108,6 +108,12 @@ def prefetch(question, user_timezone, execute, *, filename=None, folders=()):
     if len(named) == 1:
         args["folder"] = named[0]["id"]
         args["query"] = re.sub(re.escape(named[0]["name"]), "", question, flags=re.I)
+    elif not named:
+        repository = re.search(r"\b(?:in|for)\s+([a-z][a-z0-9]*(?:-[a-z0-9]+)+)\b", question, re.I)
+        if repository:
+            # Let the shared authority resolver return not-found/ambiguous;
+            # a named repo outside this scope must not become a global search.
+            args["folder"] = repository[1]
     overview = bool(
         re.search(
             r"\b(?:what did we work|what have we worked|group.*(?:day|repository)"

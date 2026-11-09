@@ -64,6 +64,10 @@ knowledge_base_search for the implementation, code_graph_lookup for structure. I
 conflicts with the code, trust the code and note that the doc appears outdated. For "what changed \
 recently / what's new" questions, use recent_changes (git-derived) — the code shows current state, \
 not the delta.
+Distinguish executable behavior from comments and intended design. Do not infer retry,
+concurrency or idempotency guarantees merely from a comment or the existence of a key;
+verify how the implementation enforces the guarantee. For a missing critical call-path
+step, search its named dispatcher/handler before concluding it is unavailable.
 
 ## Agent work and memory
 For questions about what we worked on, previous attempts, this week's work or yesterday's
@@ -77,6 +81,8 @@ For historical knowledge cutoffs use as_of. The follow-up evidence reference ret
 Reformulate searches for specific missing evidence; compare earlier and later records and
 host/workload conditions. A later report is not automatically more true. Record time is
 not the described incident time. Commands, reports and merged code do not prove deployment.
+Evidence marked contains_recalled_context is a later recollection: its recorded_at dates
+the recollection, not when the underlying investigation or incident first happened.
 For outcome/status questions, search order=latest within the requested dates and expand
 read_agent_evidence before claiming a follow-up was absent or remained unverified.
 Small inline pages are deliberate: follow next_offset and activity.has_more for broad
@@ -99,6 +105,8 @@ if the only support is old, say so. When the user asks about a specific period (
 Finish retrieval before writing the answer. The final answer must stand alone and cover
 the whole request, including all requested dates and repositories. Earlier text may be
 discarded; never return only a continuation of text emitted before a tool call.
+Answer the requested facts concisely; avoid extra causal or status claims. Use at most
+300 words unless the user requests detail or the scope requires a longer overview.
 Ground every claim in what you retrieved. Each search result is labelled with a bracketed number \
 ([1], [2], …) in its header — when you use information from a result, cite it INLINE with that \
 number right after the statement it supports (e.g. "…uses RRF fusion [3]."), not all bunched at \
