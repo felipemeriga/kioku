@@ -323,6 +323,15 @@ class NativeRunner:
                 if kind == "system" and event.get("subtype") == "init":
                     if event.get("session_id") != attempt["native_session_id"]:
                         raise NativeError("native_session_mismatch", uncertain=True)
+                    servers = event.get("mcp_servers")
+                    if isinstance(servers, list):
+                        timings["mcp_servers_count"] = len(servers)
+                        for status in ("connected", "failed", "pending", "needs-auth"):
+                            timings["mcp_servers_" + status.replace("-", "_")] = sum(
+                                1
+                                for server in servers
+                                if isinstance(server, dict) and server.get("status") == status
+                            )
                     init_seen = True
                 elif kind == "stream_event":
                     delta = event.get("event", {}).get("delta", {})

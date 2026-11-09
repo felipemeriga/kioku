@@ -106,6 +106,8 @@ async def test_real_subprocess_normalization_and_no_private_events(tmp_path):
         <= timings["cli_process_exited_at"]
     )
     assert "private-diagnostic" not in json.dumps(timings)
+    assert timings["mcp_servers_count"] == 2
+    assert timings["mcp_servers_connected"] == timings["mcp_servers_failed"] == 1
     assert result["usage"]["complete"] and result["usage"]["list_equivalent_usd"] == 0.001
     assert "private-diagnostic" not in json.dumps(events)
     assert not list(tmp_path.rglob("mcp-*.json"))
