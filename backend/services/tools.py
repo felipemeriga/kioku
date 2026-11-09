@@ -320,6 +320,7 @@ def execute_tool(
             scope_folder_ids,
             scope_filename,
             citations,
+            debug_retrieval=debug_retrieval,
         )
     if tool_name == "knowledge_base_search":
         query = tool_input["query"]

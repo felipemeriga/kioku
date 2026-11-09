@@ -1,11 +1,12 @@
 """Shared memory tool schemas/dispatch for API chat and subscription chat."""
 
 import json
+import re
 from urllib.parse import urlencode
 
 from fastapi import HTTPException
 
-from services.agent_memory import read_memory, search_memory
+from services.agent_memory import STOP, read_memory, search_memory
 
 SEARCH_PROPERTIES = {
     "query": {
@@ -38,7 +39,7 @@ SEARCH_PROPERTIES = {
     },
     "session": {"type": "string", "description": "Optional original session ID or prefix."},
     "order": {"type": "string", "enum": ["chronological", "latest", "relevance"]},
-    "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+    "limit": {"type": "integer", "minimum": 1, "maximum": 10, "default": 10},
     "offset": {"type": "integer", "minimum": 0, "maximum": 10000},
     "queries": {
         "type": "array",
@@ -82,9 +83,9 @@ DEFINITIONS = [
             "type": "object",
             "properties": {
                 "reference": {"type": "string", "maxLength": 4096},
-                "before_records": {"type": "integer", "minimum": 0, "maximum": 3},
-                "after_records": {"type": "integer", "minimum": 0, "maximum": 3},
-                "char_limit": {"type": "integer", "minimum": 1000, "maximum": 16000},
+                "before_records": {"type": "integer", "minimum": 0, "maximum": 1},
+                "after_records": {"type": "integer", "minimum": 0, "maximum": 1},
+                "char_limit": {"type": "integer", "minimum": 1000, "maximum": 2000},
             },
             "required": ["reference"],
             "additionalProperties": False,
@@ -93,7 +94,9 @@ DEFINITIONS = [
 ]
 
 
-def execute_memory_tool(sb, name, arguments, user_id, allowed, filename=None, citations=None):
+def execute_memory_tool(
+    sb, name, arguments, user_id, allowed, filename=None, citations=None, debug_retrieval=None
+):
     schema = next((d["input_schema"] for d in DEFINITIONS if d["name"] == name), None)
     if (
         schema is None
@@ -125,54 +128,103 @@ def execute_memory_tool(sb, name, arguments, user_id, allowed, filename=None, ci
         ]
     arguments = dict(arguments)
     if name == "search_agent_history":
+        arguments.setdefault("limit", 10)
+        if type(arguments["limit"]) is not int or not 1 <= arguments["limit"] <= 10:
+            return json.dumps({"status": "error", "code": "invalid_memory_page_limit"})
         arguments["tz"] = arguments.pop("timezone", "UTC")
         operation = search_memory
     else:
+        arguments.setdefault("char_limit", 2000)
+        if type(arguments["char_limit"]) is not int or not 1000 <= arguments["char_limit"] <= 2000:
+            return json.dumps({"status": "error", "code": "invalid_evidence_window"})
         arguments["before"] = arguments.pop("before_records", 1)
         arguments["after"] = arguments.pop("after_records", 1)
+        if any(
+            type(arguments[k]) is not int or not 0 <= arguments[k] <= 1 for k in ("before", "after")
+        ):
+            return json.dumps({"status": "error", "code": "invalid_evidence_window"})
         operation = read_memory
     try:
         result = operation(sb, user_id, allowed, **arguments)
     except HTTPException as exc:
         return json.dumps({"status": "error", "detail": exc.detail})
-    if citations:
+    if name == "search_agent_history":
+        terms = {
+            w
+            for q in [arguments.get("query", ""), *(arguments.get("queries") or [])]
+            for w in re.findall(r"[a-z0-9_]+", q.lower())
+            if w not in STOP and len(w) > 1
+        }
+        for row in result.get("matches", []):
+            body = row["excerpt"]
+            # Center a small discovery excerpt around query terms. Expansion
+            # always uses the signed locator into the complete archived record.
+            positions = [
+                m.start() for m in re.finditer(r"\b\w+\b", body) if m.group().lower() in terms
+            ]
+            start = max(0, positions[0] - 100) if positions else 0
+            row["excerpt"] = body[start : start + 400]
+            row["excerpt_has_more"] = len(body) > len(row["excerpt"])
+            row["excerpt_offset"] = start
+        for row in (result.get("activity") or {}).get("days", []):
+            summary = row["summary"]
+            row["summary"] = summary[:800]
+            row["summary_truncated"] = len(summary) > 800
+    repositories = {f["id"]: f["name"] for f in result.get("scope", [])}
+    if citations or debug_retrieval is not None:
         rows = result.get("matches", result.get("evidence", []))
         for row in rows:
             fid = row.get("folder_id") or result.get("folder_id")
             sid = row.get("session_id") or result.get("session_id")
-            loc = f"Agent history / {row.get('repository', fid)} / {sid} / {row['event_id']}"
-            body = row.get("excerpt", "")
-            number = citations.register(
-                {
-                    "source_type": "document",
-                    "content": body,
-                    "created_at": row.get("recorded_at"),
-                    "metadata": {
-                        "source_filename": loc,
-                        "source_id": row["event_id"],
-                        "folder_id": fid,
-                        "revision_id": row["event_id"],
-                        "file_url": f"/folders/{fid}/agent-sessions/{sid}?"
-                        + urlencode({"event": row["event_id"]}),
-                    },
-                }
+            repo = row.get("repository") or result.get("repository") or repositories.get(fid, fid)
+            day = (row.get("recorded_at") or "undated")[:10]
+            record = row.get("record_sequence", row["event_id"][:12])
+            loc = (
+                f"Agent history / {repo} / {sid} / {day} "
+                f"{row.get('role', 'record')} {record} [{row['event_id'][:12]}]"
             )
-            row["citation"] = f"[{number}]"
+            body = row.get("excerpt", "")
+            source = {
+                "source_type": "document",
+                "content": body,
+                "created_at": row.get("recorded_at"),
+                "metadata": {
+                    "source_filename": loc,
+                    "source_id": row["event_id"],
+                    "folder_id": fid,
+                    "revision_id": row["event_id"],
+                    "file_url": f"/folders/{fid}/agent-sessions/{sid}?"
+                    + urlencode({"event": row["event_id"]}),
+                },
+            }
+            if debug_retrieval is not None:
+                debug_retrieval.append({"source": loc, "source_type": "document", "content": body})
+            number = citations.register(source) if citations else None
+            if number is not None:
+                row["citation"] = f"[{number}]"
         for row in (result.get("activity") or {}).get("days", []):
             fid = row["folder_id"]
-            label = f"Agent journal / {fid} / {row['date']} / {row['entry_id']}"
-            number = citations.register(
-                {
-                    "content": row["summary"],
-                    "created_at": row["captured_at"],
-                    "metadata": {
-                        "source_filename": label,
-                        "source_id": row["entry_id"],
-                        "folder_id": fid,
-                    },
-                }
+            repo = repositories.get(fid, fid)
+            label = (
+                f"Agent journal / {repo} / {row['session_id']} / "
+                f"{row['date']} summary [{row['entry_id'][:12]}]"
             )
-            row["citation"] = f"[{number}]"
+            source = {
+                "content": row["summary"],
+                "created_at": row["captured_at"],
+                "metadata": {
+                    "source_filename": label,
+                    "source_id": row["entry_id"],
+                    "folder_id": fid,
+                },
+            }
+            if debug_retrieval is not None:
+                debug_retrieval.append(
+                    {"source": label, "source_type": "document", "content": row["summary"]}
+                )
+            number = citations.register(source) if citations else None
+            if number is not None:
+                row["citation"] = f"[{number}]"
 
     return json.dumps(result, ensure_ascii=False)
 

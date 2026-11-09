@@ -186,6 +186,7 @@ def journal_activity(sb, user_id, folders, after, before, tz, limit=50, offset=0
         "days": activity[offset : offset + limit],
         "has_more": len(activity) > offset + limit or len(rows) > 2000,
         "sampled_entries": min(len(rows), 2000),
+        "next_offset": offset + limit,
     }
 
 
@@ -201,7 +202,7 @@ def search_memory(
     tz="UTC",
     session=None,
     order="chronological",
-    limit=50,
+    limit=10,
     offset=0,
     queries=None,
 ):
@@ -315,6 +316,7 @@ def search_memory(
                 "native_session_id": row["native_session_id"],
                 "agent": row["agent"],
                 "event_id": row["event_id"],
+                "record_sequence": row["record_sequence"],
                 "recorded_at": row["event_at"],
                 "role": row["role"],
                 "event_type": row["event_type"],
@@ -327,13 +329,16 @@ def search_memory(
         matches.sort(key=lambda r: (r["recorded_at"] or "", r["session_id"], r["event_id"]))
     return {
         **result,
+        "next_offset": offset + limit,
         "selection": "time_diverse_relevance" if terms and order == "chronological" else order,
         "status": "ok",
         "matches": matches,
         "scope": [{"id": k, "name": v} for k, v in scope.items()],
         "reference_time": datetime.now(ZoneInfo(tz)).isoformat(),
         "time_scope": {"after": after, "before_exclusive": before, "timezone": tz},
-        "activity": journal_activity(sb, user_id, list(scope), after, before, tz, 50, offset)
+        "activity": journal_activity(
+            sb, user_id, list(scope), after, before, tz, min(limit, 10), offset
+        )
         if not terms and not as_of
         else None,
         "interpretation": (
@@ -413,6 +418,7 @@ def read_memory(sb, user_id, allowed, reference, before=1, after=1, char_limit=8
         evidence.append(
             {
                 "event_id": e["event_id"],
+                "record_sequence": e["record_sequence"],
                 "recorded_at": e["event_at"],
                 "role": e["role"],
                 "event_type": e["event_type"],
@@ -434,6 +440,8 @@ def read_memory(sb, user_id, allowed, reference, before=1, after=1, char_limit=8
         "folder_id": ref["folder"],
         "session_id": session["id"],
         "native_session_id": session["native_session_id"],
+        "agent": session["agent"],
+        "repository": next(f["name"] for f in folders if f["id"] == ref["folder"]),
         "time_scope": {
             "after": ref["after"],
             "before_exclusive": ref["before"],
