@@ -170,7 +170,10 @@ def create_app(settings=None, store=None, native=None):
         ):
             raise HTTPException(403, "model_catalog_capability_required")
         try:
-            return await model_catalog.get()
+            return {
+                **await model_catalog.get(),
+                "request_controls": {"reasoning_effort": ["low", "medium", "high"]},
+            }
         except CatalogUnavailable:
             raise HTTPException(503, "model_catalog_unavailable") from None
 
@@ -208,6 +211,14 @@ def create_app(settings=None, store=None, native=None):
                 row["resolvedModel"] for row in catalog["models"] if row["selectable"]
             }:
                 raise HTTPException(422, "unsupported_model")
+            if req.reasoning_effort is not None:
+                levels = next(
+                    row.get("supportedEffortLevels")
+                    for row in catalog["models"]
+                    if row["resolvedModel"] == req.model and row["selectable"]
+                )
+                if isinstance(levels, list) and req.reasoning_effort not in levels:
+                    raise HTTPException(422, "unsupported_reasoning_effort")
         if "repair_error" in req.metadata:
             raise HTTPException(422, "reserved_metadata_key")
         job = await store.admit(req, request_sha256=digest)

@@ -410,3 +410,16 @@ async def test_only_heavy_mihari_jobs_receive_longer_execution_deadline(
     await store.admit(req)
     claimed = await store.claim("worker")
     assert claimed["attempt"]["deadline"] - claimed["attempt"]["started_at"] == budget
+
+
+async def test_effort_can_change_per_turn_without_losing_resume_but_cannot_change_on_retry(store):
+    req = request(profile="chat", conversation_id="effort", reasoning_effort="low")
+    await store.admit(req)
+    with pytest.raises(Conflict, match="idempotency"):
+        await store.admit(req.model_copy(update={"reasoning_effort": "high"}))
+    first = (await store.claim("worker"))["attempt"]
+    await store.finish(first, "completed", result={"text": "ok", "usage": {}})
+    await store.admit(request(profile="chat", conversation_id="effort", reasoning_effort="high"))
+    second = (await store.claim("worker"))["attempt"]
+    assert second["resume"]
+    assert second["native_session_id"] == first["native_session_id"]

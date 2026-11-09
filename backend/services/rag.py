@@ -118,10 +118,13 @@ _MAX_SEARCHES_PER_TURN = 4
 _MAX_TOOL_ROUNDS = 5
 
 
-def _agent_params(model: str, mode: str) -> tuple[Task, int, int | None]:
-    """(task, max_tokens, thinking_budget) — model picks the route, mode picks
-    thinking. Only 'deep' enables extended thinking."""
+def _agent_params(
+    model: str, mode: str, reasoning_effort: str | None = None
+) -> tuple[Task, int, int | None]:
+    """Explicit effort overrides legacy mode-derived thinking on the API path."""
     task = Task.RAG_AGENT_SONNET if model == "sonnet" else Task.RAG_AGENT
+    if reasoning_effort is not None:
+        return task, 8192, {"low": None, "medium": 2048, "high": 4096}[reasoning_effort]
     if mode == "deep":
         return task, 8192, _DEEP_THINKING_BUDGET
     return task, 4096, None
@@ -275,6 +278,7 @@ def stream_rag_response(
     scope_folder_id: str | None = None,
     scope_filename: str | None = None,
     user_timezone: str = "UTC",
+    reasoning_effort: str | None = None,
 ) -> Generator[str, None, None]:
     """Agentic RAG pipeline: save message, run tool-use loop, stream response."""
     response_started = time.monotonic()
@@ -356,6 +360,7 @@ def stream_rag_response(
             ):
                 for chunk_kind, payload in _run_loop_and_stream_final(
                     user_timezone=user_timezone,
+                    reasoning_effort=reasoning_effort,
                     user_message=user_message,
                     user_id=user_id,
                     model=model,
@@ -480,6 +485,7 @@ def _run_loop_and_stream_final(
     model: str,
     mode: str,
     user_timezone: str = "UTC",
+    reasoning_effort: str | None = None,
     debug: bool = False,
     history: list[dict] | None,
     scope_folder_ids: list[str] | None = None,
@@ -501,7 +507,7 @@ def _run_loop_and_stream_final(
     # A final model call without tools guarantees a synthesis instead of an
     # unbounded series of increasingly similar searches.
     max_rounds = _MAX_TOOL_ROUNDS + 1
-    task, max_tokens, thinking_budget = _agent_params(model, mode)
+    task, max_tokens, thinking_budget = _agent_params(model, mode, reasoning_effort)
     system_prompt, tools = _mode_config(mode)
     from services.agent_memory_tools import memory_time_context
 

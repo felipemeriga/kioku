@@ -2,7 +2,7 @@
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 
 TERMINAL = frozenset({"completed", "failed", "cancelled", "uncertain"})
 
@@ -24,6 +24,7 @@ class JobRequest(StrictModel):
     max_tokens: int = Field(default=4096, ge=1, le=64000)
     max_turns: int = Field(default=8, ge=1, le=30)
     thinking_tokens: int = Field(default=0, ge=0, le=32000)
+    reasoning_effort: Literal["low", "medium", "high"] | None = None
     response_schema: dict[str, Any] | None = None
     conversation_id: str | None = Field(default=None, max_length=128)
     rebuild_from_committed_history: bool = False
@@ -34,6 +35,14 @@ class JobRequest(StrictModel):
     root_job_id: str | None = None
     ai_depth: Literal[0, 1] = 0
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @model_serializer(mode="wrap")
+    def preserve_legacy_request(self, handler):
+        data = handler(self)
+        # Old durable requests must retain their exact canonical digest.
+        if self.reasoning_effort is None:
+            data.pop("reasoning_effort", None)
+        return data
 
     @model_validator(mode="after")
     def coherent_profile(self):

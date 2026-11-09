@@ -85,6 +85,23 @@
       "title": "Thinking Tokens",
       "type": "integer"
     },
+    "reasoning_effort": {
+      "anyOf": [
+        {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reasoning Effort"
+    },
     "response_schema": {
       "anyOf": [
         {

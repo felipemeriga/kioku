@@ -11,6 +11,7 @@ from routes.conversations import get_conversation
 CONVERSATION = "a33db494-71d1-4228-8dd2-27399b22c07a"
 
 
+@pytest.mark.parametrize("mode,effort", [("plain", None), ("deep", None), ("agentic", "medium")])
 @pytest.mark.parametrize(
     "native,job,revoked",
     [(False, "job", False), (True, None, False), (True, "job", True), (True, "job", False)],
@@ -19,7 +20,7 @@ CONVERSATION = "a33db494-71d1-4228-8dd2-27399b22c07a"
     "state", ["submitted", "failed", "cancelled", "uncertain", "committed", "acknowledged"]
 )
 def test_existing_read_discovers_accepted_owned_execution_without_prompt_leak(
-    native, job, revoked, state
+    native, job, revoked, state, mode, effort
 ):
     db = MagicMock()
     queries = {}
@@ -31,9 +32,12 @@ def test_existing_read_discovers_accepted_owned_execution_without_prompt_leak(
         "conversation_id": CONVERSATION,
         "request": {
             "prompt": "private prompt",
-            "metadata": {"intent": {"model": "sonnet", "mode": "plain"}},
+            "metadata": {"intent": {"model": "sonnet", "mode": mode}},
         },
     }
+
+    if effort is not None:
+        turn["request"]["metadata"]["intent"]["reasoning_effort"] = effort
 
     def table(name):
         q = MagicMock()
@@ -76,7 +80,8 @@ def test_existing_read_discovers_accepted_owned_execution_without_prompt_leak(
             "job_id": "job",
             "conversation_id": CONVERSATION,
             "model": "sonnet",
-            "mode": "plain",
+            "mode": mode,
+            "reasoning_effort": effort or ("high" if mode == "deep" else "low"),
         }
         scope.assert_called_once_with(turn)
     else:

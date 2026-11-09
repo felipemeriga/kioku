@@ -396,6 +396,7 @@ export interface NativeChatExecution {
   conversation_id: string;
   model: ChatModel;
   mode: ChatMode;
+  reasoning_effort?: ReasoningEffort;
 }
 export interface ConversationWithMessages extends Conversation {
   messages: Message[];
@@ -431,11 +432,14 @@ export interface ChatModelOption {
   resolvedModel: string;
   displayName: string;
   description?: string;
+  supportedEffortLevels?: string[];
+  supportsEffort?: boolean;
   requires_usage_credits: boolean;
   selectable: boolean;
 }
 
 export interface ChatModelCatalog {
+  request_controls?: { reasoning_effort?: ReasoningEffort[] };
   engine: "api" | "tsukai";
   models: ChatModelOption[];
   cli_version?: string;
@@ -447,6 +451,8 @@ export async function fetchChatModels(): Promise<ChatModelCatalog> {
   const response = await apiFetch("/api/chat/models");
   return response.json();
 }
+export type ReasoningEffort = "low" | "medium" | "high";
+
 export type ChatMode = "plain" | "agentic" | "deep";
 
 export interface StageEvent {
@@ -474,6 +480,7 @@ export async function streamChat(
   rebuildFromCommittedHistory = false,
   resume?: NativeChatExecution,
   signal?: AbortSignal,
+  reasoningEffort: ReasoningEffort = "low",
 ): Promise<void> {
   // A stream is "clean" only if it emits a data.done frame. Anything else —
   // TCP drop, backend timeout, JSON parse loss — should raise, not silently
@@ -502,7 +509,8 @@ export async function streamChat(
         turn_id: turnId,
         content,
         model: model ?? "haiku",
-        mode: mode ?? "deep",
+        mode: mode ?? "agentic",
+        reasoning_effort: resume?.reasoning_effort ?? reasoningEffort,
         debug: debug ?? false,
         scope_folder_id: filters?.scopeFolderId || null,
         scope_filename: filters?.scopeFilename || null,
@@ -1215,7 +1223,11 @@ export async function fetchToolArtifact(
   let offset: number | null = 0;
   while (offset !== null) {
     const response = await apiFetch(
-      `/api/chat/jobs/${encodeURIComponent(jobId)}/artifacts/${encodeURIComponent(artifactId)}?offset=${offset}&limit=65536`,
+      `/api/chat/jobs/${encodeURIComponent(
+        jobId,
+      )}/artifacts/${encodeURIComponent(
+        artifactId,
+      )}?offset=${offset}&limit=65536`,
     );
     const page = await response.json();
     result += page.result;

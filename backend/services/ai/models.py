@@ -27,7 +27,11 @@ def native_enabled(owner_id: str) -> bool:
 
 def chat_models(owner_id: str) -> dict:
     if not native_enabled(owner_id):
-        return {"engine": "api", "models": []}
+        return {
+            "engine": "api",
+            "models": [],
+            "request_controls": {"reasoning_effort": ["low", "medium", "high"]},
+        }
     client = client_for(ExecutionScope(owner_id), "runtime.models.read", None)
     try:
         catalog = client.models()
@@ -48,6 +52,11 @@ def chat_models(owner_id: str) -> dict:
                 isinstance(row.get(key), bool) for key in ("requires_usage_credits", "selectable")
             ):
                 raise ValueError("Invalid model eligibility")
+            levels = row.get("supportedEffortLevels")
+            if levels is not None and (
+                not isinstance(levels, list) or any(not isinstance(level, str) for level in levels)
+            ):
+                raise ValueError("Invalid effort capabilities")
             rows.append(
                 {
                     key: row.get(key)
@@ -58,11 +67,14 @@ def chat_models(owner_id: str) -> dict:
                         "description",
                         "requires_usage_credits",
                         "selectable",
+                        "supportedEffortLevels",
+                        "supportsEffort",
                     )
                 }
             )
         return {
             "engine": "tsukai",
+            "request_controls": catalog.get("request_controls", {}),
             "models": rows,
             "cli_version": catalog.get("cli_version"),
             "fetched_at": catalog.get("fetched_at"),
@@ -74,17 +86,22 @@ def chat_models(owner_id: str) -> dict:
         client.close()
 
 
-def resolve_native_model(model: str, owner_id: str) -> str:
+def resolve_native_model(model: str, owner_id: str, reasoning_effort: str | None = None) -> str:
     try:
         catalog = chat_models(owner_id)
     except HTTPException:
         # Retain the previously supported fixed legacy routes only. New model
         # IDs require a successful authenticated catalog lookup, never guessing.
-        if model in {"haiku", "sonnet"}:
+        if reasoning_effort is None and model in {"haiku", "sonnet"}:
             return MODEL_FOR_TASK[Task.RAG_AGENT_SONNET if model == "sonnet" else Task.RAG_AGENT]
         raise
+    controls = catalog.get("request_controls") or {}
+    if reasoning_effort is not None and reasoning_effort not in controls.get(
+        "reasoning_effort", []
+    ):
+        raise HTTPException(503, "Reasoning controls are updating. Please try again shortly.")
     if catalog.get("stale"):
-        if model in {"haiku", "sonnet"}:
+        if reasoning_effort is None and model in {"haiku", "sonnet"}:
             return MODEL_FOR_TASK[Task.RAG_AGENT_SONNET if model == "sonnet" else Task.RAG_AGENT]
         raise HTTPException(503, "Refresh the native model catalog before choosing this model")
     for row in catalog["models"]:
@@ -97,5 +114,12 @@ def resolve_native_model(model: str, owner_id: str) -> str:
                 )
             if row["selectable"] is not True:
                 raise HTTPException(422, "This subscription model is currently unavailable")
+            levels = row.get("supportedEffortLevels")
+            if (
+                reasoning_effort is not None
+                and isinstance(levels, list)
+                and reasoning_effort not in levels
+            ):
+                raise HTTPException(422, "Choose a supported reasoning effort for this model")
             return row["resolvedModel"]
     raise HTTPException(422, "Choose an available subscription model from the model picker")
