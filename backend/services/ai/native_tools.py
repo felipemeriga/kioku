@@ -3,11 +3,13 @@
 import asyncio
 import hashlib
 import hmac
+import inspect
 import json
 import os
 import time
 from contextvars import ContextVar
 from datetime import datetime, timezone
+from functools import wraps
 from typing import Annotated
 from uuid import uuid4
 
@@ -391,9 +393,12 @@ async def read_agent_evidence(
     reference: str,
     before_records: Annotated[int, Field(ge=0, le=1)] = 1,
     after_records: Annotated[int, Field(ge=0, le=1)] = 1,
-    char_limit: Annotated[int, Field(ge=1000, le=2000)] = 2000,
+    char_limit: Annotated[int, Field(ge=1000, le=8000)] = 4000,
 ) -> str:
-    """Read originals, neighbors and paired commands/results under the reference's time scope."""
+    """Read bounded originals or dated journal reports.
+
+    Follow next_reference for remaining journal text.
+    """
     return await asyncio.to_thread(
         run_tool,
         "read_agent_evidence",
@@ -406,8 +411,22 @@ async def read_agent_evidence(
     )
 
 
-def create_native_mcp() -> FastMCP:
-    server = FastMCP("Kioku", host="0.0.0.0", stateless_http=True, streamable_http_path="/")
+def _redirect_tool(tool, runner):
+    signature = inspect.signature(tool)
+
+    @wraps(tool)
+    async def redirected(*args, **kwargs):
+        bound = signature.bind(*args, **kwargs)
+        bound.apply_defaults()
+        return await asyncio.to_thread(runner, tool.__name__, dict(bound.arguments))
+
+    return redirected
+
+
+def create_native_mcp(*, server=None, runner=None) -> FastMCP:
+    server = server or FastMCP(
+        "Kioku", host="0.0.0.0", stateless_http=True, streamable_http_path="/"
+    )
     for tool in (
         knowledge_base_search,
         code_graph_lookup,
@@ -422,7 +441,7 @@ def create_native_mcp() -> FastMCP:
             if tool.__name__ in {"search_agent_history", "read_agent_evidence"}
             else None
         )
-        server.add_tool(tool, annotations=annotations)
+        server.add_tool(_redirect_tool(tool, runner) if runner else tool, annotations=annotations)
     return server
 
 
