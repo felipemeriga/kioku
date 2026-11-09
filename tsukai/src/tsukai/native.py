@@ -57,6 +57,24 @@ def thinking_control(req):
     }
 
 
+def native_prompt(req, resume):
+    """Only verified resumes of the new contract already hold canonical history."""
+    if not (
+        resume
+        and req.profile == "chat"
+        and req.metadata.get("history_transport") == "resume-delta-v1"
+    ):
+        return req.prompt
+    try:
+        body = json.loads(req.prompt)
+        if not isinstance(body, dict) or not isinstance(body.get("canonical_history"), list):
+            raise ValueError()
+        body.pop("canonical_history")
+        return json.dumps(body, ensure_ascii=False)
+    except (ValueError, TypeError):
+        raise NativeError("invalid_chat_context") from None
+
+
 class NativeRunner:
     def __init__(self, settings):
         self.settings = settings
@@ -130,6 +148,7 @@ class NativeRunner:
 
     async def run(self, claim, req, emit, mcp=None):
         attempt = claim["attempt"]
+        prompt = native_prompt(req, attempt["resume"])
         wall_seconds = (
             self.settings.maintenance_wall_seconds
             if heavy_maintenance(req)
@@ -198,7 +217,6 @@ class NativeRunner:
         args += ["--mcp-config", config_path]
         if req.tool_allowlist:
             args += ["--allowedTools", *["mcp__kioku__" + tool for tool in req.tool_allowlist]]
-        prompt = req.prompt
         if claim.get("repair_diagnostic"):
             prompt += (
                 "\nPrevious attempt failed validation. The original evidence above remains "

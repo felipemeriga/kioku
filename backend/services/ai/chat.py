@@ -212,6 +212,7 @@ def prepare_turn(
             "user_timezone": user_timezone,
             "requested_model_id": resolved_model,
             "response_started_at": response_started_at,
+            "history_transport": "resume-delta-v1",
         },
     }
     if reasoning_effort is not None:

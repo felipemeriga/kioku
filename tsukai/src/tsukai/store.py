@@ -123,7 +123,7 @@ class Store:
             "thinking_tokens": request.thinking_tokens,
             "max_tokens": request.max_tokens,
             "native_cli": NATIVE_VERSION,
-            "host_prompt_version": "kioku-grounded-v1",
+            "host_prompt_version": "kioku-grounded-v2",
         }
         if request.response_schema is not None:
             policy["structured_transport"] = "result-wrapper-v1"
