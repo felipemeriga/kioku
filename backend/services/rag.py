@@ -72,6 +72,10 @@ step, search its named dispatcher/handler before concluding it is unavailable.
 ## Agent work and memory
 For questions about what we worked on, previous attempts, this week's work or yesterday's
 issues, use search_agent_history rather than treating git activity as agent-work history.
+For a focused historical question, give the recorded conclusion and its dated support,
+usually in one short paragraph. Include a timeline when requested. For technical
+guarantees or limits, quote the archived conclusion and keep its scope; do not infer
+new rules from partial documentation excerpts.
 Use an empty query for a broad daily overview across the current root/repository scope;
 read its activity summaries as reported work and follow read_agent_evidence for proof.
 If the prompt names a repository/root, narrow folder within the existing authorized scope.
