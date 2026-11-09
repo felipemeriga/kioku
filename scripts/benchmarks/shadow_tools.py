@@ -12,6 +12,7 @@ import hashlib
 import hmac
 import inspect
 import json
+import sys
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from pathlib import Path
@@ -37,6 +38,9 @@ from services.evidence_prefetch import ANSWER_INSTRUCTION, prefetch
 from services.tools import execute_tool
 from starlette.responses import JSONResponse
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from benchmark_guard import verify_sources
+
 
 def application(config):
     if len(config["token"]) < 32 or not config["owner_id"] or not config["folder_ids"]:
@@ -57,6 +61,13 @@ def application(config):
     ):
         raise ValueError("Retrieval did not load from the expected candidate source")
     source_files.append(Path(inspect.getfile(rag)).resolve())
+    source_lock = verify_sources(config, source_files)
+    if (
+        source_lock
+        and hashlib.sha256(NATIVE_CHAT_PROMPT.encode()).hexdigest()
+        != source_lock["system_prompt_sha256"]
+    ):
+        raise ValueError("Loaded production system prompt differs from its source lock")
     source_hashes = {
         path.name: hashlib.sha256(path.read_bytes()).hexdigest()
         for path in source_files
@@ -168,6 +179,7 @@ def application(config):
             "evidence": evidence,
             "citations": state["citations"].entries(),
             "answer_instruction": ANSWER_INSTRUCTION,
+            "source_lock": source_lock,
             "chat_contract": {
                 "system_prompt": NATIVE_CHAT_PROMPT,
                 "prompt": native_chat_prompt(
@@ -196,6 +208,7 @@ def application(config):
             "calls": state["calls"],
             "unsupported_calls": state.get("unsupported_calls", []),
             "source_sha256": source_hashes,
+            "source_lock": source_lock,
         }
 
     app.mount("/mcp", server.streamable_http_app())
