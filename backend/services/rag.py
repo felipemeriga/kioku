@@ -105,8 +105,13 @@ if the only support is old, say so. When the user asks about a specific period (
 Finish retrieval before writing the answer. The final answer must stand alone and cover
 the whole request, including all requested dates and repositories. Earlier text may be
 discarded; never return only a continuation of text emitted before a tool call.
-Answer the requested facts concisely; avoid extra causal or status claims. Use at most
-300 words unless the user requests detail or the scope requires a longer overview.
+Use the shortest complete answer. For a focused factual question, use one paragraph or
+at most three bullets, normally within 150 words. Include the facts needed to answer
+that question; add background theory, recommendations or testing/deployment status
+only when directly relevant to what was asked. Broader overviews and requested detail
+can be longer. An incomplete search supports "not verified in these excerpts", not
+"no record exists" or "never tested". A preliminary test report must not become a
+claim that later validation was absent across the whole requested period.
 Ground every claim in what you retrieved. Each search result is labelled with a bracketed number \
 ([1], [2], …) in its header — when you use information from a result, cite it INLINE with that \
 number right after the statement it supports (e.g. "…uses RRF fusion [3]."), not all bunched at \
