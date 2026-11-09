@@ -354,7 +354,9 @@ def search_memory(
         "matching_mode": mode,
         "unmatched_identifiers": identifiers if mode == "lexical_fallback" else [],
         "next_offset": offset + limit,
-        "selection": "time_diverse_relevance" if terms and order == "chronological" else order,
+        "selection": "time_diverse_relevance"
+        if matching_terms and order == "chronological"
+        else order,
         "status": "ok",
         "matches": matches,
         "scope": [{"id": k, "name": v} for k, v in scope.items()],
@@ -363,7 +365,7 @@ def search_memory(
         "activity": journal_activity(
             sb, user_id, list(scope), after, before, tz, min(limit, 10), offset
         )
-        if not terms and not as_of
+        if not matching_terms and not as_of
         else None,
         "interpretation": (
             (

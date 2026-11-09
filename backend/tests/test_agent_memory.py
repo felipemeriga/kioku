@@ -795,3 +795,20 @@ def test_identifier_fallback_preserves_authority_and_dates_and_is_explicit():
     assert result["matching_mode"] == "lexical_fallback"
     assert result["unmatched_identifiers"] == ["unseen_symbol"]
     assert set(result["search_terms"]) == {"unseen_symbol", "player", "memory"}
+
+
+def test_short_explicit_issue_number_is_search_not_an_activity_overview():
+    sb = Database()
+    sb.rpc = lambda *_: SimpleNamespace(
+        execute=lambda: SimpleNamespace(
+            data={
+                "matches": [],
+                "total_matches": 0,
+                "has_more": False,
+            }
+        )
+    )
+    result = search_memory(sb, OWNER, [FOLDER], query="#1")
+    assert result["search_terms"] == ["1"]
+    assert result["activity"] is None
+    assert result["selection"] == "time_diverse_relevance"
