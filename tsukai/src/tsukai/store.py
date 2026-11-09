@@ -317,6 +317,21 @@ class Store:
     async def claim(self, worker_id, only_job_id=None):
         now = time.time()
         async with self.transaction() as conn:
+            candidates = (
+                (
+                    await conn.execute(
+                        select(jobs)
+                        .where(jobs.c.status == "queued")
+                        .order_by(jobs.c.created_at)
+                        .with_for_update(skip_locked=True)
+                        .limit(100)
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            if not candidates:
+                return None
             active_rows = (
                 (
                     await conn.execute(
@@ -341,19 +356,6 @@ class Store:
                         .group_by(jobs.c.owner_id)
                     )
                 ).all()
-            )
-            candidates = (
-                (
-                    await conn.execute(
-                        select(jobs)
-                        .where(jobs.c.status == "queued")
-                        .order_by(jobs.c.created_at)
-                        .with_for_update(skip_locked=True)
-                        .limit(100)
-                    )
-                )
-                .mappings()
-                .all()
             )
 
             # First avoid an owner's second root while another owner is waiting. Then

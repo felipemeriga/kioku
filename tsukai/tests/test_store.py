@@ -423,3 +423,22 @@ async def test_effort_can_change_per_turn_without_losing_resume_but_cannot_chang
     second = (await store.claim("worker"))["attempt"]
     assert second["resume"]
     assert second["native_session_id"] == first["native_session_id"]
+
+
+async def test_idle_claim_does_not_scan_active_jobs_or_owner_history(store):
+    """Idle dispatcher ticks must release the shared admission lock promptly."""
+    from sqlalchemy import event
+
+    statements = []
+
+    def record_statement(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    event.listen(store.engine.sync_engine, "before_cursor_execute", record_statement)
+    try:
+        assert await store.claim("idle-worker") is None
+    finally:
+        event.remove(store.engine.sync_engine, "before_cursor_execute", record_statement)
+    reads = [statement for statement in statements if "FROM tsukai_jobs" in statement]
+    assert len(reads) == 1
+    assert "tsukai_attempts" not in reads[0]
