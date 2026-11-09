@@ -30,6 +30,12 @@ def private_json(path, value):
         target.write("\n")
 
 
+def append_event(path, value):
+    descriptor = os.open(path, os.O_CREAT | os.O_APPEND | os.O_WRONLY, 0o600)
+    with os.fdopen(descriptor, "a") as target:
+        target.write(json.dumps(value, ensure_ascii=False) + "\n")
+
+
 def validate_manifest(manifest):
     chains = manifest.get("conversations")
     if not isinstance(chains, list) or not 1 <= len(chains) <= 128:
@@ -101,7 +107,7 @@ async def sse_frames(response):
         yield json.loads("\n".join(lines))
 
 
-async def measure_turn(client, conversation_id, case, *, resumed, admit):
+async def measure_turn(client, conversation_id, case, *, resumed, admit, trace=None):
     result = {
         "id": case["id"],
         "conversation_id": conversation_id,
@@ -113,6 +119,15 @@ async def measure_turn(client, conversation_id, case, *, resumed, admit):
         "success": False,
         "started_at": datetime.now().astimezone().isoformat(),
     }
+    emit = trace or (lambda _event: None)
+    emit(
+        {
+            "event": "probe.created",
+            "turn_id": result["turn_id"],
+            "conversation_id": conversation_id,
+            "case_id": case["id"],
+        }
+    )
     # Admission immediately precedes the inference-triggering POST, including resumed turns.
     rejection = admit()
     if rejection:
@@ -137,12 +152,20 @@ async def measure_turn(client, conversation_id, case, *, resumed, admit):
         async with client.stream("POST", "/api/chat", json=payload) as response:
             result["headers_seconds"] = time.perf_counter() - started
             result["http_status"] = response.status_code
+            emit(
+                {
+                    "event": "http.headers",
+                    "seconds": result["headers_seconds"],
+                    "status": response.status_code,
+                }
+            )
             response.raise_for_status()
             if "text/event-stream" not in response.headers.get("content-type", ""):
                 raise ValueError("Expected SSE response")
             async for frame in sse_frames(response):
                 elapsed = time.perf_counter() - started
                 result["frames"].append({"seconds": elapsed, "data": frame})
+                emit({"event": "sse.frame", "seconds": elapsed, "data": frame})
                 if frame.get("job_id"):
                     result["job_id"] = frame["job_id"]
                 if isinstance(frame.get("token"), str):
@@ -195,6 +218,14 @@ async def measure_turn(client, conversation_id, case, *, resumed, admit):
         )
     finally:
         result["observed_seconds"] = time.perf_counter() - started
+        emit(
+            {
+                "event": "probe.finished",
+                "success": result["success"],
+                "seconds": result["observed_seconds"],
+                "error": result.get("error"),
+            }
+        )
     return result
 
 
@@ -262,12 +293,14 @@ async def run(args, *, transport=None):
                 )
                 renamed.raise_for_status()
                 for position, case in enumerate(chain["turns"]):
+                    trace_path = output / f"trace-{index:03d}-{position:03d}.jsonl"
                     row = await measure_turn(
                         client,
                         conversation_id,
                         case,
                         resumed=position > 0,
                         admit=lambda: budget_error(guard),
+                        trace=lambda event, path=trace_path: append_event(path, event),
                     )
                     row["chain"] = index
                     row["position"] = position
