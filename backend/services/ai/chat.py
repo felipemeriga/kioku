@@ -597,7 +597,9 @@ def acknowledge_committed_turn(turn: dict, message_id: str, *, scope=None):
             {
                 "state": "acknowledged",
             }
-        ).eq("id", turn["id"]).eq("owner_id", turn["owner_id"]).execute()
+        ).eq("id", turn["id"]).eq("owner_id", turn["owner_id"]).eq("state", "committed").eq(
+            "assistant_message_id", message_id
+        ).execute()
     except Exception as exc:
         logger.warning(
             "committed native answer acknowledgement deferred for %s (%s)",
