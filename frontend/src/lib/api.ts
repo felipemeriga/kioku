@@ -506,6 +506,7 @@ export async function streamChat(
         debug: debug ?? false,
         scope_folder_id: filters?.scopeFolderId || null,
         scope_filename: filters?.scopeFilename || null,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
       },
       headers: getAuthHeaders,
       resume,

@@ -88,6 +88,7 @@ def prepare_turn(
     filename: str | None,
     model_resolver: Callable[[str], str] | None = None,
     operation: str | None = None,
+    user_timezone: str = "UTC",
 ) -> dict:
     response_started_at = datetime.now(timezone.utc).isoformat()
     sb = get_supabase_thread_safe()
@@ -173,6 +174,8 @@ def prepare_turn(
         else Task.RAG_AGENT
     )
     resolved_model = model_resolver(model) if model_resolver else MODEL_FOR_TASK[task]
+    from services.agent_memory_tools import memory_time_context
+
     request = {
         "schema_version": 1,
         "idempotency_key": turn_id,
@@ -184,6 +187,7 @@ def prepare_turn(
         "system_prompt": NATIVE_PLAIN_PROMPT
         if mode == "plain"
         else SYSTEM_PROMPT
+        + memory_time_context(user_timezone)
         + (
             "\nOnly use Kioku MCP retrieval tools. Prior conversation citations belong to prior "
             "turns; cite only evidence returned for this current turn. Do not use local files, "
@@ -198,6 +202,7 @@ def prepare_turn(
         "metadata": {
             "turn_id": turn_id,
             "intent": intent,
+            "user_timezone": user_timezone,
             "requested_model_id": resolved_model,
             "response_started_at": response_started_at,
         },

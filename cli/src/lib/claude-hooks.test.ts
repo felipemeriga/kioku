@@ -102,6 +102,11 @@ test("agent instructions only advertise available knowledge tools", () => {
   const snippet = secondBrainSnippet();
   assert.doesNotMatch(snippet, /Mem0|save_memory|search_memory|Stop hook/);
   assert.match(snippet, /update_folder_briefing_section/);
+  assert.match(snippet, /search_agent_history/);
+  assert.match(snippet, /read_agent_evidence/);
+  assert.match(snippet, /as_of/);
+  assert.match(snippet, /untrusted data/);
+  assert.doesNotMatch(snippet, /Mihari maintains a smaller set/);
   assert.doesNotMatch(snippet, /don't grep|Prefer these over/);
   assert.match(snippet, /Read current local files/);
   assert.match(snippet, /routine lookups do not need duplicate searches/);

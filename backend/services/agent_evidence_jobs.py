@@ -107,6 +107,11 @@ def process_session(sb, session):
             ).execute()
             break
 
+    # Derived recall indexing must not delay the original manifest's materialization.
+    from services.agent_memory_index import index_pending_memory
+
+    index_pending_memory(store, s)
+
 
 def purge_session(sb, s):
     store = EvidenceStore(sb, s["user_id"], s["folder_id"])

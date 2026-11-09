@@ -29,6 +29,7 @@ class ChatRequest(BaseModel):
     # RAG scope: restrict retrieval to a folder subtree and/or one document.
     scope_folder_id: str | None = None
     scope_filename: str | None = None
+    timezone: str = Field(default="UTC", max_length=64)
 
 
 @router.get("/chat/models")
@@ -40,6 +41,12 @@ def available_chat_models(user_id: str = Depends(get_current_user)):
 
 @router.post("/chat")
 def chat(request: ChatRequest, user_id: str = Depends(get_current_user)):
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    try:
+        ZoneInfo(request.timezone)
+    except (ValueError, ZoneInfoNotFoundError):
+        raise HTTPException(422, "Invalid timezone") from None
     # Validate before opening the stream: a malformed conversation_id reaches
     # the uuid column in stream_rag_response and raises 22P02, which crashes the
     # generator (client gets a silent empty stream + a server-side traceback).
@@ -84,6 +91,7 @@ def chat(request: ChatRequest, user_id: str = Depends(get_current_user)):
             rebuild=request.rebuild_from_committed_history,
             folder_id=request.scope_folder_id,
             filename=request.scope_filename,
+            user_timezone=request.timezone,
             model_resolver=lambda model: resolve_native_model(model, user_id),
             operation=operation,
         )
@@ -100,6 +108,7 @@ def chat(request: ChatRequest, user_id: str = Depends(get_current_user)):
             debug=request.debug,
             scope_folder_id=request.scope_folder_id,
             scope_filename=request.scope_filename,
+            user_timezone=request.timezone,
         )
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

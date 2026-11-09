@@ -139,7 +139,9 @@ def project_record(record: dict, agent: str, state: dict) -> dict:
     }
 
 
-def iter_segment(raw: bytes, descriptor: dict, session: dict, state: dict):
+def iter_segment(
+    raw: bytes, descriptor: dict, session: dict, state: dict, *, include_content=False
+):
     state.setdefault("native_session_id", session["native_session_id"])
     state.setdefault(
         "own_context", session["agent"] == "claude_code" or session.get("parent_session_id") is None
@@ -164,7 +166,8 @@ def iter_segment(raw: bytes, descriptor: dict, session: dict, state: dict):
                 "content_preview": "Uninterpretable original record",
                 "source_truncated": False,
             }
-        projection.pop("_content", None)
+        if not include_content:
+            projection.pop("_content", None)
         yield {
             **projection,
             "event_id": event_id(
