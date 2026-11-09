@@ -162,11 +162,15 @@ def prepare_turn(
         for message in history
         if message.get("id") not in incomplete_users
     ]
+    from services.agent_memory_tools import memory_time_context
+
+    time_context = memory_time_context(user_timezone)
     prompt = json.dumps(
         {
             "canonical_history": history[-60:],
             "user_message": content,
             "evidence_namespace": turn_id,
+            "time_context": time_context,
         },
         ensure_ascii=False,
     )
@@ -180,8 +184,6 @@ def prepare_turn(
         else Task.RAG_AGENT
     )
     resolved_model = model_resolver(model) if model_resolver else MODEL_FOR_TASK[task]
-    from services.agent_memory_tools import memory_time_context
-
     request = {
         "schema_version": 1,
         "idempotency_key": turn_id,
@@ -193,7 +195,6 @@ def prepare_turn(
         "system_prompt": NATIVE_PLAIN_PROMPT
         if mode == "plain"
         else SYSTEM_PROMPT
-        + memory_time_context(user_timezone)
         + (
             "\nOnly use Kioku MCP retrieval tools. Prior conversation citations belong to prior "
             "turns; cite only evidence returned for this current turn. Do not use local files, "
@@ -236,7 +237,12 @@ def prepare_turn(
             full_debug=True,
         )
         request["prompt"] = json.dumps(
-            {"canonical_history": history[-60:], "user_message": content, "evidence": evidence}
+            {
+                "canonical_history": history[-60:],
+                "user_message": content,
+                "evidence": evidence,
+                "time_context": time_context,
+            }
         )
         save_trace(
             owner_id,
@@ -281,6 +287,7 @@ def prepare_turn(
             {
                 "canonical_history": history[-60:],
                 "user_message": content,
+                "time_context": time_context,
                 "evidence_namespace": turn_id,
                 "current_turn_evidence": evidence,
                 "citation_instruction": (

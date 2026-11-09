@@ -423,6 +423,13 @@ def test_native_chat_receives_browser_timezone_and_memory_tool_contract():
         patch("services.ai.chat.descendant_folder_ids", return_value=[FOLDER]),
         patch("services.ai.chat.execute_tool", return_value="No document evidence"),
         patch("services.ai.chat.save_trace"),
+        patch(
+            "services.agent_memory_tools.memory_time_context",
+            side_effect=[
+                "Current local timestamp: first; user timezone: America/Sao_Paulo. Monday",
+                "Current local timestamp: second; user timezone: America/Sao_Paulo. Monday",
+            ],
+        ),
     ):
         result = prepare_turn(
             owner_id=OWNER,
@@ -435,10 +442,25 @@ def test_native_chat_receives_browser_timezone_and_memory_tool_contract():
             filename=None,
             user_timezone="America/Sao_Paulo",
         )
+        next_turn = prepare_turn(
+            owner_id=OWNER,
+            conversation_id="conversation",
+            content="And yesterday?",
+            turn_id="next-turn",
+            model="sonnet",
+            mode="deep",
+            folder_id=FOLDER,
+            filename=None,
+            user_timezone="America/Sao_Paulo",
+        )
     request = result["request"]
     assert request["metadata"]["user_timezone"] == "America/Sao_Paulo"
-    assert "user timezone: America/Sao_Paulo" in request["system_prompt"]
-    assert "Monday" in request["system_prompt"]
+    context = json.loads(request["prompt"])["time_context"]
+    assert "user timezone: America/Sao_Paulo" in context
+    assert "Monday" in context
+    assert "Current local timestamp:" not in request["system_prompt"]
+    assert next_turn["request"]["system_prompt"] == request["system_prompt"]
+    assert json.loads(next_turn["request"]["prompt"])["time_context"] != context
     assert {"search_agent_history", "read_agent_evidence"} <= set(request["tool_allowlist"])
     # Timezone is frozen in the prepared body, not added to user-intent equality;
     # resuming an existing turn from another computer doesn't reinterpret it.
