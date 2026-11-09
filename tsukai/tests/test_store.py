@@ -434,11 +434,11 @@ async def test_idle_claim_does_not_scan_active_jobs_or_owner_history(store):
     def record_statement(conn, cursor, statement, parameters, context, executemany):
         statements.append(statement)
 
-    event.listen(store.engine.sync_engine, "before_cursor_execute", record_statement)
+    event.listen(store._read_engine.sync_engine, "before_cursor_execute", record_statement)
     try:
         assert await store.claim("idle-worker") is None
     finally:
-        event.remove(store.engine.sync_engine, "before_cursor_execute", record_statement)
+        event.remove(store._read_engine.sync_engine, "before_cursor_execute", record_statement)
     reads = [statement for statement in statements if "FROM tsukai_jobs" in statement]
     assert len(reads) == 1
     assert "tsukai_attempts" not in reads[0]
@@ -513,13 +513,13 @@ async def test_idle_dispatch_only_reads_and_never_takes_the_global_write_lock(st
     def record_statement(conn, cursor, statement, parameters, context, executemany):
         statements.append(statement)
 
-    event.listen(store.engine.sync_engine, "begin", record_begin)
-    event.listen(store.engine.sync_engine, "before_cursor_execute", record_statement)
+    event.listen(store._read_engine.sync_engine, "begin", record_begin)
+    event.listen(store._read_engine.sync_engine, "before_cursor_execute", record_statement)
     try:
         assert await store.dispatch("idle-worker") == []
     finally:
-        event.remove(store.engine.sync_engine, "begin", record_begin)
-        event.remove(store.engine.sync_engine, "before_cursor_execute", record_statement)
+        event.remove(store._read_engine.sync_engine, "begin", record_begin)
+        event.remove(store._read_engine.sync_engine, "before_cursor_execute", record_statement)
     assert len(transactions) == 1
     assert len(statements) == 1
     assert "pg_advisory" not in statements[0]

@@ -1,10 +1,21 @@
 """Verify-full uses system trust without home-directory certificate provisioning."""
 
 import ssl
+from types import SimpleNamespace
 
 import pytest
 
 from tsukai.store import Store
+
+
+@pytest.fixture(autouse=True)
+def constructor_only_engine_events(monkeypatch):
+    # These tests replace the entire engine constructor, never open connections.
+    monkeypatch.setattr("tsukai.store.event.listen", lambda *args, **kwargs: None)
+
+
+def read_engine(write_engine):
+    return SimpleNamespace(sync_engine=object(), execution_options=lambda **kwargs: write_engine)
 
 
 @pytest.mark.parametrize(
@@ -16,7 +27,7 @@ async def test_verify_full_uses_verified_system_context_and_bounded_pool(monkeyp
 
     def engine(url, **options):
         captured.update(url=url, options=options)
-        return sentinel
+        return read_engine(sentinel)
 
     monkeypatch.setattr("tsukai.store.create_async_engine", engine)
     store = Store(
@@ -33,6 +44,8 @@ async def test_verify_full_uses_verified_system_context_and_bounded_pool(monkeyp
     assert captured["options"]["pool_size"] == 4
     assert captured["options"]["max_overflow"] == 0
     assert captured["options"]["pool_timeout"] == 5
+    assert captured["options"]["isolation_level"] == "AUTOCOMMIT"
+    assert captured["options"]["pool_pre_ping"] is True
 
 
 @pytest.mark.parametrize(
@@ -68,7 +81,7 @@ async def test_explicit_public_ca_is_added_without_weakening_system_trust(
 
     def engine(url, **options):
         captured.update(url=url, options=options)
-        return object()
+        return read_engine(object())
 
     monkeypatch.setattr("tsukai.store.create_async_engine", engine)
     url = "postgresql+asyncpg://fixture:fixture@db.example/tsukai_fixture?ssl=verify-full"
