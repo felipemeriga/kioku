@@ -269,7 +269,7 @@ def test_subscriber_delivers_committed_answer_without_waiting_for_remote_ack():
     result = ExecutionResult("job", "Canonical answer [1]", None, None, "native", "attempt")
     client = MagicMock()
     client.events.return_value = iter(
-        [{"type": "job.completed", "data": {}, "seq": 5, "attempt_id": "attempt"}]
+        [{"job_id": "job", "type": "job.completed", "data": {}, "seq": 5, "attempt_id": "attempt"}]
     )
     client.result.return_value = result
     db = MagicMock()
