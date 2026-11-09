@@ -200,6 +200,10 @@ jobs:
             -f supabase/migrations/20261109220000_tsukai_bootstrap_citation_batch.sql \
             -f backend/tests/sql/tsukai_bootstrap_batch_acceptance.sql \
             -f supabase/migrations/20261110010000_tsukai_tool_citation_batch.sql \
+            -c "GRANT EXECUTE ON FUNCTION public.tsukai_register_citation(text,text,text,jsonb) TO anon, authenticated" \
+            -f supabase/migrations/20261110011000_tsukai_citation_allocator_permissions.sql \
+            -c "GRANT EXECUTE ON FUNCTION public.tsukai_begin_chat_turn(uuid,uuid,uuid,jsonb,text), public.tsukai_commit_chat_turn(uuid,uuid,text,text,jsonb,jsonb), public.tsukai_scoped_metadata(uuid,uuid[],text,text,text,timestamptz,timestamptz) TO anon, authenticated" \
+            -f supabase/migrations/20261110012000_tsukai_internal_rpc_permissions.sql \
             -f backend/tests/sql/tsukai_tool_batch_acceptance.sql
       - name: Verify runtime grants can be applied twice after schema upgrade
         env:
