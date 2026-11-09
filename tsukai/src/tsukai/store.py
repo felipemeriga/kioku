@@ -802,6 +802,44 @@ class Store:
     async def append(self, attempt, kind, data):
         async with self.transaction() as conn:
             await self._owned(conn, attempt)
+            if conn.dialect.name == "postgresql":
+                # Preserve the same fenced/advisory-locked transaction. Dependent
+                # DML CTEs persist timing, reserve a sequence and insert its event
+                # in one round trip; any failure rolls all three writes back.
+                now = time.time()
+                timing = (
+                    update(attempts)
+                    .where(attempts.c.id == attempt["id"])
+                    .values(
+                        first_event_at=attempt.get("first_event_at"),
+                        first_text_at=attempt.get("first_text_at"),
+                    )
+                    .returning(attempts.c.id)
+                    .cte("event_timing")
+                )
+                sequence = (
+                    update(jobs)
+                    .where(jobs.c.id == attempt["job_id"], select(timing.c.id).exists())
+                    .values(next_seq=jobs.c.next_seq + 1, updated_at=now)
+                    .returning((jobs.c.next_seq - 1).label("seq"))
+                    .cte("event_sequence")
+                )
+                statement = (
+                    insert(events)
+                    .from_select(
+                        ["job_id", "seq", "attempt_id", "type", "data", "created_at"],
+                        select(
+                            literal(attempt["job_id"], type_=events.c.job_id.type),
+                            sequence.c.seq,
+                            literal(attempt["id"], type_=events.c.attempt_id.type),
+                            literal(kind, type_=events.c.type.type),
+                            literal(data, type_=events.c.data.type),
+                            literal(now, type_=events.c.created_at.type),
+                        ).select_from(sequence),
+                    )
+                    .returning(events.c.seq)
+                )
+                return (await conn.execute(statement)).scalar_one()
             await conn.execute(
                 update(attempts)
                 .where(attempts.c.id == attempt["id"])
