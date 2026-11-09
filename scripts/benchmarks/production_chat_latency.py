@@ -356,7 +356,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for field in ("auth", "manifest", "usage-lease", "deployment-proof", "output"):
         parser.add_argument(f"--{field}", required=True)
-    parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--workers", type=int, default=2)
     args = parser.parse_args()
     with coordinator_lock():
         summary = asyncio.run(run(args))
