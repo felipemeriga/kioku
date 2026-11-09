@@ -712,3 +712,103 @@ def test_chat_rejects_pages_that_exceed_inline_transport_limits(name, arguments)
 
     result = json.loads(execute_memory_tool(Database(), name, arguments, OWNER, [FOLDER]))
     assert result["status"] == "error"
+
+
+def test_explicit_identifiers_prevent_generic_latest_records_from_burying_outcomes():
+    from services.agent_memory import technical_terms
+
+    assert technical_terms("What about GOMEMLIMIT memory_index_version 4GiB SDK #476 THIS?") == [
+        "476",
+        "4gib",
+        "gomemlimit",
+        "memory_index_version",
+        "sdk",
+    ]
+    sb = Database()
+    calls = []
+
+    def lookup(name, arguments):
+        calls.append(arguments)
+        # Broad OR terms match hook maintenance; the explicit identifier does not.
+        count = 1 if arguments["p_terms"] == ["gomemlimit"] else 20
+        return SimpleNamespace(
+            execute=lambda: SimpleNamespace(
+                data={
+                    "matches": [],
+                    "total_matches": count,
+                    "has_more": False,
+                }
+            )
+        )
+
+    sb.rpc = lookup
+    result = search_memory(
+        sb,
+        OWNER,
+        [FOLDER],
+        query="GOMEMLIMIT player memory usage",
+        from_date="2026-11-02",
+        through_date="2026-11-06",
+        tz="America/Sao_Paulo",
+        order="latest",
+        offset=10,
+    )
+    assert len(calls) == 1  # Empty page does not trigger a broader fallback.
+    assert calls[0]["p_terms"] == ["gomemlimit"]
+    assert calls[0]["p_order"] == "latest"
+    assert calls[0]["p_before"] == "2026-11-07T03:00:00+00:00"
+    assert result["search_terms"] == ["gomemlimit"]
+    assert result["matching_mode"] == "identifier_first"
+
+
+def test_identifier_fallback_preserves_authority_and_dates_and_is_explicit():
+    sb = Database()
+    calls = []
+
+    def lookup(name, arguments):
+        calls.append(arguments)
+        return SimpleNamespace(
+            execute=lambda: SimpleNamespace(
+                data={
+                    "matches": [],
+                    "total_matches": 0 if len(calls) == 1 else 2,
+                    "has_more": False,
+                }
+            )
+        )
+
+    sb.rpc = lookup
+    result = search_memory(
+        sb,
+        OWNER,
+        [FOLDER],
+        query="UNSEEN_SYMBOL player memory",
+        from_date="2026-11-06",
+        as_of="2026-11-06T12:00:00-03:00",
+        tz="America/Sao_Paulo",
+        order="latest",
+    )
+    assert len(calls) == 2
+    assert {k: v for k, v in calls[0].items() if k != "p_terms"} == {
+        k: v for k, v in calls[1].items() if k != "p_terms"
+    }
+    assert result["matching_mode"] == "lexical_fallback"
+    assert result["unmatched_identifiers"] == ["unseen_symbol"]
+    assert set(result["search_terms"]) == {"unseen_symbol", "player", "memory"}
+
+
+def test_short_explicit_issue_number_is_search_not_an_activity_overview():
+    sb = Database()
+    sb.rpc = lambda *_: SimpleNamespace(
+        execute=lambda: SimpleNamespace(
+            data={
+                "matches": [],
+                "total_matches": 0,
+                "has_more": False,
+            }
+        )
+    )
+    result = search_memory(sb, OWNER, [FOLDER], query="#1")
+    assert result["search_terms"] == ["1"]
+    assert result["activity"] is None
+    assert result["selection"] == "time_diverse_relevance"

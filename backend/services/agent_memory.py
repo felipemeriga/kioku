@@ -41,6 +41,20 @@ def text(value, limit, name, empty=True):
     return value.strip()
 
 
+def technical_terms(query):
+    """Prefer explicit code identifiers over conversational words, without a model."""
+    identifiers = {
+        w.lower()
+        for w in re.findall(r"[A-Za-z0-9_]+", query)
+        if len(w) >= 3
+        and w.lower() not in STOP
+        and any(c.isalpha() for c in w)
+        and (w.isupper() or "_" in w or any(c.isdigit() for c in w))
+    }
+    identifiers.update(re.findall(r"(?<!\w)#(\d{1,10})\b", query))
+    return sorted(identifiers)
+
+
 def bounds(from_date=None, through_date=None, as_of=None, tz="UTC"):
     try:
         if from_date is not None:
@@ -247,21 +261,28 @@ def search_memory(
             "scope": [],
             "coverage": "No accessible folders in this scope.",
         }
-    result = rpc(
-        sb,
-        "search_agent_memory",
-        {
-            "p_user_id": user_id,
-            "p_folder_ids": list(scope),
-            "p_terms": terms,
-            "p_after": after,
-            "p_before": before,
-            "p_session": session,
-            "p_order": order,
-            "p_limit": limit,
-            "p_offset": offset,
-        },
-    )
+    identifiers = technical_terms(query)
+    matching_terms = identifiers or terms
+    arguments = {
+        "p_user_id": user_id,
+        "p_folder_ids": list(scope),
+        "p_terms": matching_terms,
+        "p_after": after,
+        "p_before": before,
+        "p_session": session,
+        "p_order": order,
+        "p_limit": limit,
+        "p_offset": offset,
+    }
+    result = rpc(sb, "search_agent_memory", arguments)
+    mode = "identifier_first" if identifiers else "lexical_terms"
+    # An identifier absent from this exact scope/time window may be a typo or
+    # an alias. Broader matches are orientation only, not evidence for that ID.
+    if identifiers and terms and result["total_matches"] == 0 and identifiers != terms:
+        matching_terms = terms
+        arguments = {**arguments, "p_terms": matching_terms}
+        result = rpc(sb, "search_agent_memory", arguments)
+        mode = "lexical_fallback"
     matches = []
     stores = {}
     sessions = {}
@@ -329,8 +350,13 @@ def search_memory(
         matches.sort(key=lambda r: (r["recorded_at"] or "", r["session_id"], r["event_id"]))
     return {
         **result,
+        "search_terms": matching_terms,
+        "matching_mode": mode,
+        "unmatched_identifiers": identifiers if mode == "lexical_fallback" else [],
         "next_offset": offset + limit,
-        "selection": "time_diverse_relevance" if terms and order == "chronological" else order,
+        "selection": "time_diverse_relevance"
+        if matching_terms and order == "chronological"
+        else order,
         "status": "ok",
         "matches": matches,
         "scope": [{"id": k, "name": v} for k, v in scope.items()],
@@ -339,10 +365,16 @@ def search_memory(
         "activity": journal_activity(
             sb, user_id, list(scope), after, before, tz, min(limit, 10), offset
         )
-        if not terms and not as_of
+        if not matching_terms and not as_of
         else None,
         "interpretation": (
-            "Record time is not necessarily the time of the described event. "
+            (
+                "Identifier search had no indexed matches in this scope/time; "
+                "broader fallback results are orientation only. "
+                if mode == "lexical_fallback"
+                else ""
+            )
+            + "Record time is not necessarily the time of the described event. "
             "Reports and commands do not prove execution or deployment. No matches "
             "is not proof no work occurred."
         ),

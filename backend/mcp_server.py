@@ -2298,7 +2298,9 @@ def search_agent_history(
     issues. Empty query browses reported daily activity; specific queries search
     originals without embeddings. Add concise query reformulations in queries.
     folder narrows to an authorized UUID or unambiguous name; omit for the full
-    current scope, including multiple repositories. Dates are YYYY-MM-DD in the
+    current scope, including multiple repositories. Preserve code identifiers;
+    they are matched before broad conversational terms, with a flagged fallback
+    if none occur in this exact time/scope. Dates are YYYY-MM-DD in the
     supplied IANA timezone; through_date is inclusive. as_of is a local day or
     offset-aware timestamp, enforced before retrieval and evidence expansion.
     Resolve relative dates using the user's timezone; do not guess the year.
