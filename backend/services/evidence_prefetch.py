@@ -20,7 +20,10 @@ a code question as a component or function unless the user asks for a person or 
 exact cadence, endpoint, parameter, error message, or comparison, use a targeted tool call
 when the supplied excerpt lacks the requested detail. For a dated issue recap, check every
 session-day group in the supplied inventory and include each distinct issue; a short answer
-should not silently skip a session. Return a complete standalone answer."""
+should not silently skip a session. For scheduler cadence, report an unambiguous numeric
+interval in a constant name when that constant is assigned directly to the schedule;
+check development overrides separately and distinguish the game-update scan from
+readiness/status polls. Return a complete standalone answer."""
 
 
 def history_question(question):
@@ -114,14 +117,18 @@ def source_search_query(question: str, repo_name: str | None = None) -> str:
         return question
     query = question
     if re.search(r"\b(?:new|current)\s+\w+\s+work", low):
-        query = re.sub(r"\bnew\s+", "", query, flags=re.I)
-        query += " current source code implementation"
+        query = re.sub(r"\b(?:new|current)\s+", "", query, flags=re.I).rstrip(" ?")
+        if repo_name and repo_name.lower() not in low:
+            return f"{query} on {repo_name}?"
+        return query + "?"
+    if "scheduler" in low and re.search(r"\b(?:how often|interval|cadence)\b", low):
+        query += " game update cron schedule interval"
     if re.search(r"\b(?:who|what|which)\b.*\b(?:start|starts|starting|launch)\b", low):
         query += " scheduler caller invokes launch function"
     if re.search(r"\b(?:error|failure|fail|can't)\b", low) and re.search(
         r"\b(?:start|starting|launch)\b", low
     ):
-        query += " caller logger.error catch cleanup"
+        query += " caller logger.error cleanup underlying start function thrown errors"
     if repo_name and repo_name.lower() not in low:
         query += f" in {repo_name}"
     return query
@@ -144,7 +151,14 @@ def prefetch(question, user_timezone, execute, *, filename=None, folders=(), rep
         return json.dumps({"source": "none", "reason": "User requested no tool use."}), calls
     if filename or not history_question(question):
         query = source_search_query(question, repo_name)
-        return run("knowledge_base_search", {"query": query}), calls
+        arguments = {"query": query}
+        if source_question(question) and (
+            re.search(r"\bhow\s+does\s+the\s+(?:new|current)\s+\w+\s+work\b", question, re.I)
+            or ("scheduler" in question.lower() and "how often" in question.lower())
+            or ("in the code" in question.lower() and "error" in question.lower())
+        ):
+            arguments["top_k"] = 8
+        return run("knowledge_base_search", arguments), calls
 
     filters = date_filters(question, user_timezone)
     args = {"query": question, "timezone": user_timezone, "order": "relevance", **filters}
