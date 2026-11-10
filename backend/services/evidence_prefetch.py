@@ -94,7 +94,40 @@ def date_filters(question, timezone, now=None):
     return {"from_date": start.isoformat(), "through_date": end.isoformat()}
 
 
-def prefetch(question, user_timezone, execute, *, filename=None, folders=()):
+def source_question(question: str) -> bool:
+    low = question.lower()
+    return bool(
+        re.search(r"\b(?:code|source|function|scheduler|ingester)\b", low)
+        or re.search(r"\bhow\s+does\s+the\s+(?:new|current)\s+\w+\s+work\b", low)
+    )
+
+
+def source_search_query(question: str, repo_name: str | None = None) -> str:
+    """Make a single scoped code lookup cover the source the question asks for.
+
+    This only changes the first retrieval query. The original user wording is
+    still passed to the answerer, and the existing tool can search again when
+    the first set of sources is incomplete.
+    """
+    low = question.lower()
+    if not source_question(question):
+        return question
+    query = question
+    if re.search(r"\b(?:new|current)\s+\w+\s+work", low):
+        query = re.sub(r"\bnew\s+", "", query, flags=re.I)
+        query += " current source code implementation"
+    if re.search(r"\b(?:who|what|which)\b.*\b(?:start|starts|starting|launch)\b", low):
+        query += " scheduler caller invokes launch function"
+    if re.search(r"\b(?:error|failure|fail|can't)\b", low) and re.search(
+        r"\b(?:start|starting|launch)\b", low
+    ):
+        query += " caller logger.error catch cleanup"
+    if repo_name and repo_name.lower() not in low:
+        query += f" in {repo_name}"
+    return query
+
+
+def prefetch(question, user_timezone, execute, *, filename=None, folders=(), repo_name=None):
     """Return source-aware evidence and the exact calls for durable tracing.
 
     execute is the caller's existing owner/scope-bound tool dispatcher. It is
@@ -110,7 +143,8 @@ def prefetch(question, user_timezone, execute, *, filename=None, folders=()):
     if re.search(r"(?:^|[.!?;]\s+)do not use (?:any )?tools[.!]?\s*$", question, re.I):
         return json.dumps({"source": "none", "reason": "User requested no tool use."}), calls
     if filename or not history_question(question):
-        return run("knowledge_base_search", {"query": question}), calls
+        query = source_search_query(question, repo_name)
+        return run("knowledge_base_search", {"query": query}), calls
 
     filters = date_filters(question, user_timezone)
     args = {"query": question, "timezone": user_timezone, "order": "relevance", **filters}

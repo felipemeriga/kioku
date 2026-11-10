@@ -344,9 +344,10 @@ def prepare_turn(
         # A concurrent candidate for the same logical turn must never share evidence.
         candidate_id = str(uuid4())
         request["metadata"]["bootstrap_namespace"] = candidate_id
-        from services.evidence_prefetch import history_question, prefetch
+        from services.evidence_prefetch import history_question, prefetch, source_question
 
         source_folders = []
+        repo_name = None
         if not filename and history_question(content):
             source_folders = (
                 sb.table("folders")
@@ -357,6 +358,21 @@ def prepare_turn(
                 .data
                 or []
             )
+        elif not filename and source_question(content):
+            # The selected repo name helps a vague code question find current
+            # source without another model/tool round. Read only this scope's
+            # first folder; no authority is inferred from the text itself.
+            row = (
+                sb.table("folders")
+                .select("name")
+                .eq("user_id", owner_id)
+                .eq("id", folders[0])
+                .limit(1)
+                .execute()
+                .data
+                or []
+            )
+            repo_name = row[0]["name"] if row else None
 
         retrieval = []
         timings = []
@@ -386,7 +402,12 @@ def prepare_turn(
             return value
 
         evidence, calls = prefetch(
-            content, user_timezone, retrieve, filename=filename, folders=source_folders
+            content,
+            user_timezone,
+            retrieve,
+            filename=filename,
+            folders=source_folders,
+            repo_name=repo_name,
         )
         # Persist the entire private candidate before its trace or accepted turn.
         # All retrievals and evidence expansions share this allocator instance.
