@@ -1200,6 +1200,97 @@ test("a long checkpoint publishes its captured prefix before the worker budget e
   }
 });
 
+test("a small active tail waits without empty uploads, then flushes after one minute", async () => {
+  const f = fixture();
+  const oldHome = process.env.CODEX_HOME;
+  const oldConfig = process.env.XDG_CONFIG_HOME;
+  const originalNow = Date.now;
+  let now = originalNow();
+  process.env.CODEX_HOME = join(f.root, "home");
+  process.env.XDG_CONFIG_HOME = join(f.root, "config");
+  const native = join(process.env.CODEX_HOME, "sessions");
+  mkdirSync(native, { recursive: true });
+  const source: Source = {
+    agent: "codex",
+    session: "small-tail",
+    root: "small-tail",
+    path: join(native, "small-tail.jsonl"),
+  };
+  let commits = 0;
+  const remote = await server((req, res, bytes) => {
+    res.setHeader("Content-Type", "application/json");
+    if (req.url!.endsWith("/capabilities"))
+      res.end(
+        JSON.stringify({
+          enabled: true,
+          schema: 1,
+          max_object_bytes: 67108864,
+          max_batch_objects: 256,
+        }),
+      );
+    else if (req.url!.endsWith("/batches")) {
+      const batch = JSON.parse(bytes.toString());
+      res.end(
+        JSON.stringify({
+          session_id: "small-tail-remote",
+          revision: commits,
+          missing_objects: batch.objects.map(
+            (object: { id: string }) => object.id,
+          ),
+        }),
+      );
+    } else if (req.method === "PUT") res.end("{}");
+    else
+      res.end(
+        JSON.stringify({
+          status: "accepted",
+          session_id: "small-tail-remote",
+          revision: ++commits,
+        }),
+      );
+  });
+  try {
+    config(f.root, remote.url);
+    writeFileSync(source.path, line("first"));
+    const first = await captureSource(f.root, "folder", source);
+    await syncEvidence(f.root, "folder", source, first, true);
+    appendFileSync(source.path, line("second"));
+    await dispatchEvidence(f.root, "codex", {
+      session_id: source.session,
+      transcript_path: source.path,
+      hook_event_name: "PostToolUse",
+    });
+    const scheduled: number[] = [];
+    Date.now = () => now;
+    await evidenceWorker(f.root, true, {
+      scheduleRetry: (_root, at) => scheduled.push(at),
+    });
+    assert.equal(commits, 1);
+    assert.equal(
+      readManifest(f.root, source)!.coverage!.captured_through,
+      line("first").length,
+    );
+    assert.equal(scheduled.length, 1);
+    assert.ok(scheduled[0] > now + 50_000);
+    now += 61_000;
+    await evidenceWorker(f.root, true, { scheduleRetry: () => {} });
+    assert.equal(readManifest(f.root, source)!.coverage!.pending_bytes, 0);
+    assert.ok(commits > 1);
+    assert.equal(
+      readdirSync(join(f.root, ".kioku/memory/.evidence-state/pending")).length,
+      0,
+    );
+  } finally {
+    Date.now = originalNow;
+    if (oldHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = oldHome;
+    if (oldConfig === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = oldConfig;
+    await remote.close();
+    f.cleanup();
+  }
+});
+
 test("queued sessions run before background scans and rotate after an exhausted worker budget", async () => {
   const f = fixture();
   const oldHome = process.env.CODEX_HOME;
