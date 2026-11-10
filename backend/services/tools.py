@@ -339,14 +339,10 @@ def execute_tool(
     if tool_name == "knowledge_base_search":
         query = tool_input["query"]
         embedding = embed_query(query)
-        top_k = tool_input.get("top_k", 5)
-        if type(top_k) is not int or not 1 <= top_k <= 8:
-            return "Invalid knowledge-base result limit."
         results = search_documents(
             embedding,
             query_text=query,
             user_id=user_id,
-            top_k=top_k,
             fast_mode=fast_mode,
             folder_ids=scope_folder_ids,
             source_filename=scope_filename,

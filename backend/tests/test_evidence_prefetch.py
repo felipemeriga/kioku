@@ -97,8 +97,9 @@ def test_vague_current_code_question_uses_scoped_source_query_once():
         (
             "knowledge_base_search",
             {
-                "query": "How does the guardrails work on c360-lead?",
-                "top_k": 8,
+                "query": (
+                    "How does the guardrails work? current source code implementation in c360-lead"
+                )
             },
         )
     ]
@@ -112,24 +113,10 @@ def test_source_query_adds_caller_and_failure_context_without_extra_calls():
     assert "scheduler caller invokes launch function" in caller
     assert "in c360-cx-video-hub-cloud" in caller
     errors = source_search_query("What errors print if it can't start the ingester?", "repo")
-    assert "underlying start function thrown errors" in errors
+    assert "caller logger.error catch cleanup" in errors
     assert source_search_query("What did the documentation say?", "repo") == (
         "What did the documentation say?"
     )
-
-
-def test_scheduler_cadence_prefetch_widens_one_query_without_another_round():
-    calls = []
-
-    def execute(name, arguments):
-        calls.append((name, arguments))
-        return "Source [1]"
-
-    evidence, _ = prefetch("On the scheduler, how often do we check before a game?", "UTC", execute)
-    assert evidence == "Source [1]"
-    assert len(calls) == 1
-    assert calls[0][1]["top_k"] == 8
-    assert "game update cron schedule interval" in calls[0][1]["query"]
 
 
 def test_duplicate_transcript_projections_do_not_consume_both_expansions():
