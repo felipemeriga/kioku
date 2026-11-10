@@ -1,9 +1,9 @@
 {
-  "source_sha": "ceb08119e54b9521c5e45cebb4e6124cf1535618",
+  "source_sha": "c0f376a7369100c927458c8ac1d22eb1280cfa40",
   "release_branch": "main",
   "versions": {
-    "backend": "0.3.68",
-    "mcp": "0.3.68"
+    "backend": "0.3.69",
+    "mcp": "0.3.69"
   },
   "release_levels": {
     "backend": "patch",
@@ -13,19 +13,19 @@
   "images": [
     {
       "package": "backend",
-      "version": "0.3.68",
+      "version": "0.3.69",
       "image": "felipemeriga1/kioku-backend",
       "context": "backend",
       "dockerfile": "backend/Dockerfile",
-      "tag": "0.3.68-ceb08119e54b"
+      "tag": "0.3.69-c0f376a73691"
     },
     {
       "package": "mcp",
-      "version": "0.3.68",
+      "version": "0.3.69",
       "image": "felipemeriga1/kioku-mcp",
       "context": "backend",
       "dockerfile": "backend/Dockerfile.mcp",
-      "tag": "0.3.68-ceb08119e54b"
+      "tag": "0.3.69-c0f376a73691"
     }
   ],
   "cli": false,
