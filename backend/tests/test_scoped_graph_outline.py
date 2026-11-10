@@ -81,3 +81,81 @@ def test_execute_tool_forwards_authenticated_owner_to_graph_outline():
             == "outline"
         )
         assert lookup.call_args.kwargs["user_id"] == "owner"
+
+
+def test_exact_code_source_is_owner_folder_file_and_line_scoped():
+    sb = Mock()
+    query = sb.table.return_value.select.return_value
+    query.eq.return_value = query
+    query.in_.return_value = query
+    query.lte.return_value = query
+    query.gte.return_value = query
+    query.order.return_value = query
+    query.limit.return_value = query
+    query.execute.return_value = SimpleNamespace(
+        data=[
+            {
+                "id": "chunk-1",
+                "folder_id": "allowed",
+                "file": "src/service.py",
+                "symbol": "start_service",
+                "start_line": 10,
+                "end_line": 20,
+                "content": "def start_service():\n    return True",
+                "file_hash": "revision-1",
+            }
+        ]
+    )
+    citations = Mock()
+    citations.register_many.return_value = [4]
+    retrieval = []
+    with (
+        patch.object(tools, "get_supabase", return_value=sb),
+        patch.object(tools, "_folder_names", return_value={"allowed": "repo"}),
+    ):
+        result = tools._code_graph_lookup(
+            {"operation": "source", "path": "src/service.py", "line": 12},
+            ["allowed"],
+            user_id="owner",
+            citations=citations,
+            debug_retrieval=retrieval,
+        )
+    sb.table.assert_called_once_with("code_chunks")
+    assert query.eq.call_args_list[0].args == ("user_id", "owner")
+    assert query.in_.call_args.args == ("folder_id", ["allowed"])
+    assert query.eq.call_args_list[1].args == ("file", "src/service.py")
+    query.lte.assert_called_once_with("start_line", 12)
+    query.gte.assert_called_once_with("end_line", 12)
+    assert "[4] Code: [repo] src/service.py:10-20" in result
+    assert retrieval[0]["source_type"] == "code"
+    cited = citations.register_many.call_args.args[0][0]
+    assert cited["metadata"]["revision_id"] == "revision-1"
+    assert cited["metadata"]["folder_id"] == "allowed"
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        {"operation": "source", "path": "../secret.py", "line": 1},
+        {"operation": "source", "path": "/etc/passwd", "line": 1},
+        {"operation": "source", "path": "src/service.py", "line": 0},
+        {"operation": "source", "path": "src/service.py", "line": True},
+    ],
+)
+def test_exact_code_source_rejects_invalid_paths_and_lines_before_database(args):
+    with patch.object(tools, "get_supabase") as sb:
+        result = tools._code_graph_lookup(args, ["allowed"], user_id="owner")
+    assert "needs a repository-relative" in result
+    sb.assert_not_called()
+
+
+def test_exact_code_source_cannot_escape_selected_file():
+    with patch.object(tools, "get_supabase") as sb:
+        result = tools._code_graph_lookup(
+            {"operation": "source", "path": "src/other.py", "line": 10},
+            ["allowed"],
+            "src/selected.py",
+            user_id="owner",
+        )
+    assert "outside this turn's selected-file scope" in result
+    sb.assert_not_called()

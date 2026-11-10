@@ -50,6 +50,8 @@ NATIVE_CHAT_PROMPT = SYSTEM_PROMPT + (
     "turns; cite only evidence returned for this current turn. Do not use local files, "
     "shells, web tools outside Kioku, or claim native memory proves repository facts. "
     "For current code behavior, prefer indexed source to dated notes; trace callers "
+    "and use code_graph_lookup source with the exact path and line when a graph result "
+    "locates code but a search excerpt does not show its body. "
     "when asked what starts a service. For an exact cadence, endpoint, parameter, "
     "error, or comparison, search again if supplied evidence lacks the detail. "
     "For dated history recaps, cover each session-day group in the returned inventory."

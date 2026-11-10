@@ -334,8 +334,10 @@ async def knowledge_base_search(
     )
 
 
-async def code_graph_lookup(operation: str, symbol: str = "", path: str = "") -> str:
-    """Look up indexed definitions, references, impact or outline in this scope."""
+async def code_graph_lookup(
+    operation: str, symbol: str = "", path: str = "", line: int | None = None
+) -> str:
+    """Look up graph structure or read indexed source at an exact file and line."""
     return await asyncio.to_thread(
         run_tool,
         "code_graph_lookup",
@@ -343,6 +345,7 @@ async def code_graph_lookup(operation: str, symbol: str = "", path: str = "") ->
             "operation": operation,
             "symbol": symbol,
             "path": path,
+            "line": line,
         },
     )
 

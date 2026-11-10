@@ -39,7 +39,8 @@ indexed source code (real code chunks, not just prose). It performs internal que
 pass ONE clear question per call. Search again only when the returned evidence has a specific gap.
 - code_graph_lookup — exact structural lookups in the code graph across every repo in scope: where \
 a symbol is defined, who references/calls it, its blast radius (impact), or an outline of a \
-file/directory. Use it for precise "where is X defined / who calls X / what depends on X" \
+file/directory. Its source operation reads indexed code at an exact file and line. \
+Use it for precise "where is X defined / who calls X / what depends on X" \
 questions about named functions, classes, or methods.
 - query_documents_metadata — structured questions about the document collection (counts, types, \
 topics, dates).
