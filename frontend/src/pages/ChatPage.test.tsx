@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "../test/renderWithProviders";
 import ChatPage from "./ChatPage";
@@ -43,9 +43,11 @@ vi.mock("../components/ChatArea", () => ({
   default: (props: {
     onSend: (...args: unknown[]) => void;
     currentStage?: { detail?: string };
+    streamingContent?: string;
   }) => (
     <>
       <span>{props.currentStage?.detail}</span>
+      <span data-testid="streaming-answer">{props.streamingContent}</span>
       <button
         onClick={() =>
           props.onSend(
@@ -147,6 +149,28 @@ it("shows progress before the first backend frame", async () => {
     .setup()
     .click(screen.getByRole("button", { name: "Send selected mode" }));
   expect(screen.getByText("Preparing your answer")).toBeInTheDocument();
+});
+
+it("reveals a large answer frame progressively while preserving its full content", async () => {
+  const frames: FrameRequestCallback[] = [];
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+    frames.push(callback);
+    return frames.length;
+  });
+  vi.stubGlobal("cancelAnimationFrame", vi.fn());
+  fixtures.stream.mockImplementation(() => new Promise(() => {}));
+  renderWithProviders(<ChatPage />);
+  await userEvent
+    .setup()
+    .click(screen.getByRole("button", { name: "Send selected mode" }));
+  const answer = "Evidence ".repeat(100);
+  act(() => fixtures.stream.mock.calls[0][2](answer));
+  expect(screen.getByTestId("streaming-answer")).toBeEmptyDOMElement();
+  act(() => frames.shift()?.(16));
+  const visible = screen.getByTestId("streaming-answer").textContent || "";
+  expect(visible.length).toBeGreaterThan(0);
+  expect(visible.length).toBeLessThan(answer.length);
+  expect(answer.startsWith(visible)).toBe(true);
 });
 
 it("does not loop when a rebuilt policy is rejected again", async () => {

@@ -68,7 +68,7 @@ export default function ChatPage() {
       sendController.current?.abort();
       activeRequest.current = null;
     },
-    [user?.id],
+    [user?.id]
   );
   useEffect(() => {
     selectedConversation.current = selectedId;
@@ -76,6 +76,51 @@ export default function ChatPage() {
   const displayingStream = isStreaming && streamConversationId === selectedId;
   const [currentStage, setCurrentStage] = useState<StageEvent | null>(null);
   const streamingRef = useRef("");
+  const revealedRef = useRef("");
+  const revealFrame = useRef<number | null>(null);
+  const revealTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const revealTick = useRef(0);
+  const stopReveal = () => {
+    if (revealFrame.current !== null) cancelAnimationFrame(revealFrame.current);
+    if (revealTimer.current !== null) clearTimeout(revealTimer.current);
+    revealFrame.current = null;
+    revealTimer.current = null;
+    revealTick.current = 0;
+  };
+  const revealText = (text: string) => {
+    if (!text.startsWith(revealedRef.current)) revealedRef.current = "";
+    if (revealFrame.current !== null) return;
+    const tick = (time: number) => {
+      const elapsed = revealTick.current ? time - revealTick.current : 16;
+      revealTick.current = time;
+      const next = Math.min(
+        streamingRef.current.length,
+        revealedRef.current.length + Math.max(1, Math.ceil(elapsed * 2.4))
+      );
+      revealedRef.current = streamingRef.current.slice(0, next);
+      setStreamingContent(revealedRef.current);
+      revealFrame.current =
+        next < streamingRef.current.length ? requestAnimationFrame(tick) : null;
+    };
+    revealFrame.current = requestAnimationFrame(tick);
+  };
+  const finishReveal = (done: () => void) => {
+    const remaining = streamingRef.current.length - revealedRef.current.length;
+    if (remaining <= 0) {
+      stopReveal();
+      done();
+      return;
+    }
+    // Keep the canonical response immediate in state; only the visual reveal
+    // gets a short grace period after the final network frame.
+    revealTimer.current = setTimeout(() => {
+      stopReveal();
+      revealedRef.current = streamingRef.current;
+      setStreamingContent(streamingRef.current);
+      done();
+    }, Math.min(900, Math.ceil(remaining / 2.4)));
+  };
+  useEffect(() => () => stopReveal(), []);
   const activeJob = useRef<string | null>(null);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [liveTools, setLiveTools] = useState<
@@ -97,7 +142,7 @@ export default function ChatPage() {
   } | null>(null);
 
   const [scopes, setScopes] = useState<Record<string, ChatScope>>(() =>
-    readScopes(),
+    readScopes()
   );
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -125,7 +170,7 @@ export default function ChatPage() {
       : null;
 
   const scope: ChatScope | null = selectedId
-    ? (urlScope ?? scopes[selectedId] ?? null)
+    ? urlScope ?? scopes[selectedId] ?? null
     : urlScope;
 
   const applyScope = (conversationId: string, next: ChatScope | null) => {
@@ -155,7 +200,7 @@ export default function ChatPage() {
     mode?: ChatMode,
     debug?: boolean,
     effort?: ReasoningEffort,
-    rebuild = false,
+    rebuild = false
   ) => {
     if (displayingStream) return;
 
@@ -201,6 +246,8 @@ export default function ChatPage() {
     if (!rebuild) setMessages((prev) => [...prev, userMsg]);
     setIsStreaming(true);
     setStreamingContent("");
+    stopReveal();
+    revealedRef.current = "";
     setCurrentStage({ stage: "thinking", detail: "Preparing your answer" });
     streamingRef.current = "";
     activeJob.current = null;
@@ -216,12 +263,12 @@ export default function ChatPage() {
     const scopedFilters: ChatFilters | undefined = rebuild
       ? filters
       : scope
-        ? {
-            ...(filters ?? {}),
-            scopeFolderId: scope.folderId,
-            scopeFilename: scope.filename ?? null,
-          }
-        : filters;
+      ? {
+          ...(filters ?? {}),
+          scopeFolderId: scope.folderId,
+          scopeFilename: scope.filename ?? null,
+        }
+      : filters;
 
     const runRequest = (rebuildContext: boolean) =>
       streamChat(
@@ -230,26 +277,29 @@ export default function ChatPage() {
         (token) => {
           if (activeRequest.current !== requestId) return;
           streamingRef.current += token;
-          setStreamingContent(streamingRef.current);
+          revealText(streamingRef.current);
         },
         () => {
           if (activeRequest.current !== requestId) return;
-          const assistantMsg: Message = {
-            id: crypto.randomUUID(),
-            role: "assistant",
-            content: streamingRef.current,
-            created_at: new Date().toISOString(),
-            debug: debugTrace,
-            citations,
-          };
-          if (selectedConversation.current === convId)
-            setMessages((msgs) => [...msgs, assistantMsg]);
-          setStreamingContent("");
-          streamingRef.current = "";
-          setIsStreaming(false);
-          setCurrentStage(null);
-          loadConversations();
-          activeRequest.current = null;
+          finishReveal(() => {
+            if (activeRequest.current !== requestId) return;
+            const assistantMsg: Message = {
+              id: crypto.randomUUID(),
+              role: "assistant",
+              content: streamingRef.current,
+              created_at: new Date().toISOString(),
+              debug: debugTrace,
+              citations,
+            };
+            if (selectedConversation.current === convId)
+              setMessages((msgs) => [...msgs, assistantMsg]);
+            setStreamingContent("");
+            streamingRef.current = "";
+            setIsStreaming(false);
+            setCurrentStage(null);
+            loadConversations();
+            activeRequest.current = null;
+          });
         },
         scopedFilters,
         (stage) => {
@@ -268,7 +318,7 @@ export default function ChatPage() {
         (text) => {
           if (activeRequest.current !== requestId) return;
           streamingRef.current = text;
-          setStreamingContent(text);
+          revealText(text);
         },
         (jobId) => {
           if (activeRequest.current !== requestId) return;
@@ -299,7 +349,7 @@ export default function ChatPage() {
         rebuildContext,
         undefined,
         controller.signal,
-        effort,
+        effort
       );
     try {
       try {
@@ -362,6 +412,8 @@ export default function ChatPage() {
       toast.showError(err, "Chat failed.");
       setIsStreaming(false);
       setStreamingContent("");
+      stopReveal();
+      revealedRef.current = "";
       setCurrentStage(null);
       streamingRef.current = "";
       activeRequest.current = null;
@@ -373,7 +425,7 @@ export default function ChatPage() {
       execution: NativeChatExecution,
       controller: AbortController,
       requestId: string,
-      settled: () => void,
+      settled: () => void
     ) => {
       const current = () =>
         !controller.signal.aborted && activeRequest.current === requestId;
@@ -452,7 +504,7 @@ export default function ChatPage() {
           execution,
           controller.signal,
           execution.reasoning_effort ??
-            (execution.mode === "deep" ? "high" : "low"),
+            (execution.mode === "deep" ? "high" : "low")
         );
       } catch (error) {
         if (current()) {
@@ -481,7 +533,7 @@ export default function ChatPage() {
           setCurrentStage(null);
         }
       }
-    },
+    }
   );
   const offerPendingRecovery = useEffectEvent(() => {
     if (
@@ -503,7 +555,7 @@ export default function ChatPage() {
     )
       return;
     const message = messages.find(
-      (row) => row.id === execution.user_message_id && row.role === "user",
+      (row) => row.id === execution.user_message_id && row.role === "user"
     );
     if (!message) return;
     setRecovery({
@@ -572,7 +624,7 @@ export default function ChatPage() {
                   recovery.mode,
                   recovery.debug,
                   recovery.effort,
-                  true,
+                  true
                 )
               }
             >
@@ -596,7 +648,7 @@ export default function ChatPage() {
           variant="outlined"
           onClick={() => {
             void cancelChatExecution(activeJob.current!).catch((error) =>
-              toast.showError(error, "Cancellation failed"),
+              toast.showError(error, "Cancellation failed")
             );
           }}
           sx={{ alignSelf: "flex-end", m: "8px 16px" }}
