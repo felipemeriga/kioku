@@ -1200,7 +1200,7 @@ test("a long checkpoint publishes its captured prefix before the worker budget e
   }
 });
 
-test("a small active tail waits without empty uploads, then flushes after one minute", async () => {
+test("fresh hooks do not postpone a small tail beyond the last capture deadline", async () => {
   const f = fixture();
   const oldHome = process.env.CODEX_HOME;
   const oldConfig = process.env.XDG_CONFIG_HOME;
@@ -1273,6 +1273,13 @@ test("a small active tail waits without empty uploads, then flushes after one mi
     assert.equal(scheduled.length, 1);
     assert.ok(scheduled[0] > now + 50_000);
     now += 61_000;
+    const pendingDir = join(f.root, ".kioku/memory/.evidence-state/pending");
+    const pendingPath = join(pendingDir, readdirSync(pendingDir)[0]);
+    const queued = readJson<{ enqueued_at: string }>(pendingPath, {
+      enqueued_at: "",
+    });
+    queued.enqueued_at = new Date(now - 30_000).toISOString();
+    writeJson(pendingPath, queued);
     await evidenceWorker(f.root, true, { scheduleRetry: () => {} });
     assert.equal(readManifest(f.root, source)!.coverage!.pending_bytes, 0);
     assert.ok(commits > 1);
@@ -1282,6 +1289,90 @@ test("a small active tail waits without empty uploads, then flushes after one mi
     );
   } finally {
     Date.now = originalNow;
+    if (oldHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = oldHome;
+    if (oldConfig === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = oldConfig;
+    await remote.close();
+    f.cleanup();
+  }
+});
+
+test("an old missing source clears its job only after the gap is published", async () => {
+  const f = fixture();
+  const oldHome = process.env.CODEX_HOME;
+  const oldConfig = process.env.XDG_CONFIG_HOME;
+  process.env.CODEX_HOME = join(f.root, "home");
+  process.env.XDG_CONFIG_HOME = join(f.root, "config");
+  const native = join(process.env.CODEX_HOME, "sessions");
+  mkdirSync(native, { recursive: true });
+  const source: Source = {
+    agent: "codex",
+    session: "missing-old",
+    root: "missing-old",
+    path: join(native, "missing-old.jsonl"),
+  };
+  let commits = 0;
+  const remote = await server((req, res) => {
+    res.setHeader("Content-Type", "application/json");
+    if (req.url!.endsWith("/capabilities"))
+      res.end(
+        JSON.stringify({
+          enabled: true,
+          schema: 1,
+          max_object_bytes: 67108864,
+          max_batch_objects: 256,
+        }),
+      );
+    else if (req.url!.endsWith("/batches"))
+      res.end(
+        JSON.stringify({
+          session_id: "missing-remote",
+          revision: commits,
+          missing_objects: [],
+        }),
+      );
+    else
+      res.end(
+        JSON.stringify({
+          status: "accepted",
+          session_id: "missing-remote",
+          revision: ++commits,
+        }),
+      );
+  });
+  try {
+    config(f.root, remote.url);
+    await dispatchEvidence(f.root, "codex", {
+      session_id: source.session,
+      transcript_path: source.path,
+      hook_event_name: "SessionEnd",
+    });
+    const pendingDir = join(f.root, ".kioku/memory/.evidence-state/pending");
+    await evidenceWorker(f.root, true, { scheduleRetry: () => {} });
+    assert.equal(commits, 1);
+    assert.ok(
+      readManifest(f.root, source)!.gaps.some(
+        (gap) => gap.code === "source_unreadable",
+      ),
+    );
+    assert.equal(readdirSync(pendingDir).length, 1);
+    const pendingPath = join(pendingDir, readdirSync(pendingDir)[0]);
+    const queued = readJson<{ enqueued_at: string }>(pendingPath, {
+      enqueued_at: "",
+    });
+    queued.enqueued_at = new Date(
+      Date.now() - 2 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    writeJson(pendingPath, queued);
+    await evidenceWorker(f.root, true, { scheduleRetry: () => {} });
+    assert.equal(readdirSync(pendingDir).length, 0);
+    assert.equal(commits, 1);
+    const archivedRevision = readManifest(f.root, source)!.revision;
+    await evidenceWorker(f.root, true, { scheduleRetry: () => {} });
+    assert.equal(readManifest(f.root, source)!.revision, archivedRevision);
+    assert.equal(commits, 1);
+  } finally {
     if (oldHome === undefined) delete process.env.CODEX_HOME;
     else process.env.CODEX_HOME = oldHome;
     if (oldConfig === undefined) delete process.env.XDG_CONFIG_HOME;
