@@ -155,7 +155,7 @@ def authenticate_tool(token: str) -> dict:
         )
     except jwt.PyJWTError:
         raise HTTPException(401, "Invalid native tool capability") from None
-    turn = owned_turn(grant["owner_id"], job_id=grant["job_id"])
+    turn = owned_turn(grant["owner_id"], job_id=grant["job_id"], authority_only=True)
     attempt = verify_attempt(turn, grant["attempt_id"])
     if set(grant["folder_ids"]) != set(attempt["folder_ids"]) or not set(
         grant["tool_allowlist"]

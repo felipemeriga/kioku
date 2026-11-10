@@ -202,7 +202,8 @@ def test_authenticated_independent_read_calls_can_overlap(monkeypatch):
         ),
     }
 
-    def owned(owner, *, job_id):
+    def owned(owner, *, job_id, authority_only=False):
+        assert authority_only is True
         return {**turn, "owner": owner}
 
     def verified(owned_turn, _attempt):
