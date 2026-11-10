@@ -333,6 +333,10 @@ class Scheduler:
 
                 with contextlib.suppress(TimeoutError):
                     await complete_cleanup(settle(), FINALIZE_SECONDS)
+            elif not operation.cancelled():
+                # Cancellation can race an append failure before result() runs.
+                # Consume it without exposing an unhandled SQL exception log.
+                operation.exception()
 
     async def execute(self, claim):
         attempt = claim["attempt"]
