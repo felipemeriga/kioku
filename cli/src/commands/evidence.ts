@@ -23,6 +23,7 @@ import {
   readJson,
   readManifest,
   registerSource,
+  SEGMENT_TARGET,
   sessionDir,
   sourceFromHook,
   sourcesInRepo,
@@ -275,6 +276,7 @@ export async function evidenceWorker(
     );
   const attempted = new Set<string>();
   let incompleteCapture = false;
+  let deferredCaptureAt: number | null = null;
   await withEvidenceLock(
     join(state, "worker.lock"),
     async () => {
@@ -323,11 +325,25 @@ export async function evidenceWorker(
           locallyPreserved.add(source.path);
           if (!authorizedNativePath(source.agent, source.path)) continue;
           try {
+            if (!existsSync(source.path)) continue;
+            const existing = readManifest(root, source);
+            const remaining =
+              checkpoint.observed_size -
+              (existing?.coverage?.captured_through ?? 0);
+            if (
+              checkpoint.event === "PostToolUse" &&
+              remaining > 0 &&
+              remaining < SEGMENT_TARGET &&
+              Date.now() < Date.parse(checkpoint.enqueued_at) + 60_000
+            )
+              continue;
             await captureSource(root, folder, source, {
               maxBytes: 4 * 1024 * 1024,
               lockWaitMs: 50,
               endOffset: checkpoint.observed_size || undefined,
-              progress: checkpoint.event === "PostToolUse",
+              progress:
+                checkpoint.event === "PostToolUse" &&
+                Date.now() < Date.parse(checkpoint.enqueued_at) + 60_000,
               finalizeJournal: checkpoint.event === "Stop",
               end: ["SessionEnd", "SubagentStop"].includes(checkpoint.event),
             });
@@ -356,7 +372,85 @@ export async function evidenceWorker(
             : [undefined]) {
             if (matching) attempted.add(matching.job.token);
             try {
+              const existingManifest = readManifest(root, source);
+              if (
+                !existsSync(source.path) &&
+                existingManifest?.gaps.some(
+                  (gap) => gap.code === "source_unreadable",
+                )
+              ) {
+                const sync = readJson<{ manifest_hash?: string }>(
+                  join(sessionDir(root, source), ".sync.json"),
+                  {},
+                );
+                if (
+                  sync.manifest_hash !== hash(JSON.stringify(existingManifest))
+                ) {
+                  try {
+                    await syncEvidence(
+                      root,
+                      folder,
+                      source,
+                      existingManifest,
+                      force,
+                      deadline,
+                    );
+                  } catch {
+                    // Keep the local gap record and retry it with the source later.
+                  }
+                }
+                deferredCaptureAt = Date.now() + 60_000;
+                continue;
+              }
+              if (
+                matching?.job.event === "PostToolUse" &&
+                matching.job.observed_size
+              ) {
+                const existing = readManifest(root, source);
+                const covered = existing?.coverage?.captured_through ?? 0;
+                const sync = readJson<{ manifest_hash?: string }>(
+                  join(sessionDir(root, source), ".sync.json"),
+                  {},
+                );
+                const existingSynced =
+                  !!existing &&
+                  sync.manifest_hash === hash(JSON.stringify(existing));
+                if (covered >= matching.job.observed_size && existingSynced) {
+                  rmSync(matching.path, { force: true });
+                  continue;
+                }
+                const remaining = matching.job.observed_size - covered;
+                const settleAt = Date.parse(matching.job.enqueued_at) + 60_000;
+                if (
+                  existing &&
+                  remaining > 0 &&
+                  remaining < SEGMENT_TARGET &&
+                  Date.now() < settleAt
+                ) {
+                  if (!existingSynced) {
+                    try {
+                      await syncEvidence(
+                        root,
+                        folder,
+                        source,
+                        existing,
+                        force,
+                        deadline,
+                      );
+                    } catch {
+                      // The upload state retains its own retry policy.
+                    }
+                  }
+                  deferredCaptureAt =
+                    deferredCaptureAt === null
+                      ? settleAt
+                      : Math.min(deferredCaptureAt, settleAt);
+                  continue;
+                }
+              }
               let priorOffset = -1;
+              const capturedBeforeRun =
+                readManifest(root, source)?.coverage?.captured_through ?? 0;
               let finalManifest;
               let complete = false;
               let synced;
@@ -367,7 +461,9 @@ export async function evidenceWorker(
                   endOffset: matching?.job.observed_size || undefined,
                   verifyPrefix:
                     priorOffset < 0 && matching?.job.event !== "PostToolUse",
-                  progress: matching?.job.event === "PostToolUse",
+                  progress:
+                    matching?.job.event === "PostToolUse" &&
+                    Date.now() < Date.parse(matching.job.enqueued_at) + 60_000,
                   finalizeJournal: matching?.job.event === "Stop",
                   end:
                     matching?.job.event === "SessionEnd" ||
@@ -405,8 +501,7 @@ export async function evidenceWorker(
                   complete ||
                   (m.coverage?.captured_through ?? -1) === priorOffset ||
                   m.gaps.some((g) => g.code === "source_unreadable") ||
-                  synced?.blocked ||
-                  matching?.job.event === "PostToolUse"
+                  synced?.blocked
                 )
                   break;
                 priorOffset = m.coverage?.captured_through ?? -1;
@@ -416,9 +511,30 @@ export async function evidenceWorker(
                 finalManifest &&
                 matching &&
                 !uploadDeferred &&
-                !synced?.blocked
+                !synced?.blocked &&
+                !finalManifest.gaps.some(
+                  (gap) => gap.code === "source_unreadable",
+                ) &&
+                (matching.job.event !== "PostToolUse" ||
+                  (finalManifest.coverage?.captured_through ?? 0) >
+                    capturedBeforeRun)
               )
                 incompleteCapture = true;
+              if (
+                !complete &&
+                finalManifest?.gaps.some(
+                  (gap) => gap.code === "source_unreadable",
+                )
+              )
+                deferredCaptureAt = Date.now() + 60_000;
+              if (
+                !complete &&
+                finalManifest &&
+                matching?.job.event === "PostToolUse" &&
+                (finalManifest.coverage?.captured_through ?? 0) <=
+                  capturedBeforeRun
+              )
+                deferredCaptureAt = Date.now() + 60_000;
               if (
                 complete &&
                 finalManifest &&
@@ -475,6 +591,7 @@ export async function evidenceWorker(
       )
       .map((sync) => sync.retry_at!);
     if (incompleteCapture) retryTimes.push(Date.now() + 1000);
+    if (deferredCaptureAt !== null) retryTimes.push(deferredCaptureAt);
     if (retryTimes.length)
       (options.scheduleRetry || spawnEvidenceWorker)(
         root,
