@@ -1,8 +1,8 @@
 {
-  "source_sha": "aed6edf1d4c0a69172010258311fbc1f6ec8f064",
+  "source_sha": "f1ec06d603ee9c83c65162c3b8151df0f0be9d6f",
   "release_branch": "main",
   "versions": {
-    "tsukai": "0.1.17"
+    "tsukai": "0.1.18"
   },
   "release_levels": {
     "tsukai": "patch"
@@ -11,11 +11,11 @@
   "images": [
     {
       "package": "tsukai",
-      "version": "0.1.17",
+      "version": "0.1.18",
       "image": "felipemeriga1/kioku-tsukai",
       "context": "tsukai",
       "dockerfile": "tsukai/Dockerfile",
-      "tag": "0.1.17-aed6edf1d4c0"
+      "tag": "0.1.18-f1ec06d603ee"
     }
   ],
   "cli": false,

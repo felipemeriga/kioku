@@ -308,7 +308,7 @@ wheels = [
 
 [[package]]
 name = "kioku-tsukai"
-version = "0.1.17"
+version = "0.1.18"
 source = { editable = "." }
 dependencies = [
     { name = "asyncpg" },
