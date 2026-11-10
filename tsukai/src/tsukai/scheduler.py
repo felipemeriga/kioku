@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 import json
+import logging
 import random
 import tempfile
 import time
@@ -296,8 +297,15 @@ class Scheduler:
             if result is not None:
                 result["usage"] = {**(result.get("usage") or {}), "runtime_timings": timings}
             timings["durable_finish_started_at"] = time.time()
+            finish_began = time.monotonic()
             await self.store.finish(
                 attempt, status, result=result, error=error, diagnostic=diagnostic, retry=retry
+            )
+            logging.getLogger("uvicorn.error").info(
+                "durable_finish_committed job_id=%s attempt_id=%s elapsed_seconds=%.6f",
+                attempt["job_id"],
+                attempt["id"],
+                time.monotonic() - finish_began,
             )
 
         return await complete_cleanup(finalize(), FINALIZE_SECONDS)

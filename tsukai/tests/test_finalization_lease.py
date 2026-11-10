@@ -105,3 +105,55 @@ async def test_skipping_fresh_heartbeat_cannot_bypass_a_lost_persisted_lease(sto
         )
     job = await store.get(value["job"]["id"])
     assert job["status"] == "running" and job["result"] is None
+
+
+async def test_finish_commit_log_follows_durable_return_without_persisted_usage_mutation(
+    store, monkeypatch, caplog
+):
+    value = await claim(store)
+    attempt = value["attempt"]
+    original = store.finish
+
+    async def finish(*args, **kwargs):
+        await original(*args, **kwargs)
+        assert not any("durable_finish_committed" in record.message for record in caplog.records)
+
+    monkeypatch.setattr(store, "finish", finish)
+    scheduler = Scheduler(store, Settings(auth_probe=False), AsyncMock())
+    caplog.set_level("INFO", logger="uvicorn.error")
+    await scheduler.finalize_attempt(
+        attempt, "completed", result={"text": "private answer marker", "usage": {}}
+    )
+    records = [record for record in caplog.records if "durable_finish_committed" in record.message]
+    assert len(records) == 1
+    assert records[0].name == "uvicorn.error" and records[0].levelname == "INFO"
+    message = records[0].message
+    assert f"job_id={attempt['job_id']}" in message
+    assert f"attempt_id={attempt['id']}" in message
+    assert float(message.rsplit("elapsed_seconds=", 1)[1]) >= 0
+    assert "private answer marker" not in message
+    job = await store.get(value["job"]["id"])
+    assert "durable_finish_seconds" not in job["result"]["usage"]["runtime_timings"]
+
+
+async def test_failed_finish_commit_does_not_log_committed(store, caplog):
+    if store.engine.dialect.name != "postgresql":
+        pytest.skip("PostgreSQL commit-failure acceptance")
+    value = await claim(store)
+    scheduler = Scheduler(store, Settings(auth_probe=False), AsyncMock())
+    caplog.set_level("INFO", logger="uvicorn.error")
+
+    def fail_commit(conn):
+        raise RuntimeError("injected finish commit failure")
+
+    event.listen(store.engine.sync_engine, "commit", fail_commit)
+    try:
+        with pytest.raises(RuntimeError, match="finish commit failure"):
+            await scheduler.finalize_attempt(
+                value["attempt"], "completed", result={"text": "not committed", "usage": {}}
+            )
+    finally:
+        event.remove(store.engine.sync_engine, "commit", fail_commit)
+    assert not any("durable_finish_committed" in record.message for record in caplog.records)
+    job = await store.get(value["job"]["id"])
+    assert job["status"] == "running" and job["result"] is None
