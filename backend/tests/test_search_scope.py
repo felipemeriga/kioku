@@ -86,6 +86,25 @@ class TestDescendantFolderIds(unittest.TestCase):
 
 
 class TestExecuteToolScope(unittest.TestCase):
+    def test_code_only_lookup_skips_document_embedding(self):
+        from services.tools import execute_tool
+
+        with (
+            patch("services.tools.embed_query") as embed,
+            patch("services.tools.search_documents", return_value=[]) as search,
+        ):
+            result = execute_tool(
+                "knowledge_base_search",
+                {"query": "current source", "code_only": True},
+                "u1",
+                fast_mode=True,
+                scope_folder_ids=["repo"],
+            )
+        self.assertIn("No relevant", result)
+        embed.assert_not_called()
+        self.assertTrue(search.call_args.kwargs["code_only"])
+        self.assertEqual(search.call_args.kwargs["top_k"], 8)
+
     def test_scope_reaches_search_documents(self):
         from services.tools import execute_tool
 

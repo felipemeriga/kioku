@@ -348,6 +348,7 @@ def search_documents(
     created_after: str | None = None,
     created_before: str | None = None,
     include_code: bool = True,
+    code_only: bool = False,
 ) -> list[dict]:
     """Hybrid search pipeline with optional query enhancement.
 
@@ -359,6 +360,15 @@ def search_documents(
     retrieval is narrowed to a single file or a date window — those filters
     describe documents, not code.
     """
+    if code_only:
+        if source_filename or created_after or created_before:
+            return []
+        with stage("code_search (fast)", indent=2):
+            candidates = _code_candidates(
+                query_text, user_id, folder_ids, root_folder_id, top_n=CODE_BLEND_TOP_N
+            )
+            return rerank(query_text, candidates, top_k=min(top_k, 8)) if candidates else []
+
     fetch_k = _FETCH_K
     blend_code = include_code and not source_filename and not created_after and not created_before
 
