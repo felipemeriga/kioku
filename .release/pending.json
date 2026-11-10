@@ -1,21 +1,31 @@
 {
-  "source_sha": "0ef4a6562f709646e5eeeb6cd1865d16a9d58981",
+  "source_sha": "4909769ebdbfa4357a1ad7dd1b514920ad7b7dc3",
   "release_branch": "main",
   "versions": {
-    "tsukai": "0.1.22"
+    "backend": "0.3.63",
+    "mcp": "0.3.63"
   },
   "release_levels": {
-    "tsukai": "patch"
+    "backend": "patch",
+    "mcp": "patch"
   },
   "major": false,
   "images": [
     {
-      "package": "tsukai",
-      "version": "0.1.22",
-      "image": "felipemeriga1/kioku-tsukai",
-      "context": "tsukai",
-      "dockerfile": "tsukai/Dockerfile",
-      "tag": "0.1.22-0ef4a6562f70"
+      "package": "backend",
+      "version": "0.3.63",
+      "image": "felipemeriga1/kioku-backend",
+      "context": "backend",
+      "dockerfile": "backend/Dockerfile",
+      "tag": "0.3.63-4909769ebdbf"
+    },
+    {
+      "package": "mcp",
+      "version": "0.3.63",
+      "image": "felipemeriga1/kioku-mcp",
+      "context": "backend",
+      "dockerfile": "backend/Dockerfile.mcp",
+      "tag": "0.3.63-4909769ebdbf"
     }
   ],
   "cli": false,
