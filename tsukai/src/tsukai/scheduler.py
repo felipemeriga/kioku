@@ -310,6 +310,30 @@ class Scheduler:
 
         return await complete_cleanup(finalize(), FINALIZE_SECONDS)
 
+    async def append_with_lease(self, attempt, kind, data):
+        """A stalled write cannot outlive live committed lease authority silently."""
+        operation = asyncio.create_task(self.store.append(attempt, kind, data))
+        try:
+            while True:
+                remaining = attempt["lease_until"] - time.time()
+                if remaining <= 0:
+                    raise Fenced("event_persistence_lease_lost")
+                done, _ = await asyncio.wait({operation}, timeout=remaining)
+                if done:
+                    return operation.result()
+                # A successful heartbeat can extend the same owned attempt while
+                # its append is waiting. Recheck that live value before fencing.
+        finally:
+            if not operation.done():
+                operation.cancel()
+
+                async def settle():
+                    with contextlib.suppress(asyncio.CancelledError, Exception):
+                        await operation
+
+                with contextlib.suppress(TimeoutError):
+                    await complete_cleanup(settle(), FINALIZE_SECONDS)
+
     async def execute(self, claim):
         attempt = claim["attempt"]
         req = JobRequest.model_validate(claim["job"]["request"])
@@ -363,7 +387,7 @@ class Scheduler:
                     data = {"text": "".join(chunks), "provisional": True}
                 while True:
                     try:
-                        await self.store.append(attempt, kind, data)
+                        await self.append_with_lease(attempt, kind, data)
                         break
                     except Fenced:
                         raise
@@ -386,8 +410,40 @@ class Scheduler:
                         self.signal_cancel(attempt["id"], current)
                         return
 
+        publisher_failed = asyncio.Event()
+
+        def publisher_finished(task):
+            if not task.cancelled() and task.exception() is not None:
+                publisher_failed.set()
+
+        async def guard_lease():
+            # Independent from heartbeat SQL: a blocked heartbeat/write must not
+            # let a native process continue spending beyond its last lease.
+            while True:
+                remaining = attempt["lease_until"] - time.time()
+                if remaining <= 0 or publisher_failed.is_set():
+                    logging.getLogger("uvicorn.error").warning(
+                        "execution_lease_guard job_id=%s attempt_id=%s reason=%s",
+                        attempt["job_id"],
+                        attempt["id"],
+                        "publisher_failed" if publisher_failed.is_set() else "lease_expired",
+                    )
+                    self.signal_cancel(attempt["id"], current)
+                    with contextlib.suppress(Exception):
+                        await complete_cleanup(
+                            self.native.stop(attempt["id"]),
+                            3 * self.settings.kill_grace_seconds + 2,
+                        )
+                    return
+                try:
+                    await asyncio.wait_for(publisher_failed.wait(), remaining)
+                except TimeoutError:
+                    pass  # A committed heartbeat may have extended this lease.
+
         heartbeat_task = asyncio.create_task(heartbeat())
         publisher = asyncio.create_task(publish())
+        publisher.add_done_callback(publisher_finished)
+        lease_guard = asyncio.create_task(guard_lease())
         result = None
         native_started = False
         try:
@@ -468,7 +524,8 @@ class Scheduler:
         finally:
             heartbeat_task.cancel()
             publisher.cancel()
-            for task in (heartbeat_task, publisher):
+            lease_guard.cancel()
+            for task in (heartbeat_task, publisher, lease_guard):
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await task
             spool.close()
