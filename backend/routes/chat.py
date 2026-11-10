@@ -81,31 +81,36 @@ def chat(request: ChatRequest, user_id: str = Depends(get_current_user)):
 
     operation = chat_operation(request.model, user_id)
     if engine_for(operation, user_id) == "tsukai":
-        from services.ai.chat import prepare_turn, stream_turn, wake_reconciliation
+        from services.ai.chat import prepare_turn, stream_preparing_turn
 
         if not request.turn_id:
             raise HTTPException(422, "Native chat requires a stable turn_id")
         require_uuid(request.turn_id, "Invalid turn identifier")
-        turn = prepare_turn(
-            owner_id=user_id,
-            conversation_id=request.conversation_id,
-            content=request.content,
-            turn_id=request.turn_id,
-            model=request.model,
-            mode=request.mode,
-            rebuild=request.rebuild_from_committed_history,
-            folder_id=request.scope_folder_id,
-            filename=request.scope_filename,
-            user_timezone=request.timezone,
-            reasoning_effort=native_effort,
-            legacy_effort_retry="reasoning_effort" not in request.model_fields_set,
-            model_resolver=lambda model: resolve_native_model(
-                model, user_id, reasoning_effort=native_effort
-            ),
-            operation=operation,
+        # Reject unavailable models before the response becomes an SSE stream.
+        resolved_model = resolve_native_model(
+            request.model, user_id, reasoning_effort=native_effort
         )
-        wake_reconciliation()
-        return StreamingResponse(stream_turn(turn), media_type="text/event-stream")
+
+        def prepare(on_progress):
+            return prepare_turn(
+                owner_id=user_id,
+                conversation_id=request.conversation_id,
+                content=request.content,
+                turn_id=request.turn_id,
+                model=request.model,
+                mode=request.mode,
+                rebuild=request.rebuild_from_committed_history,
+                folder_id=request.scope_folder_id,
+                filename=request.scope_filename,
+                user_timezone=request.timezone,
+                reasoning_effort=native_effort,
+                legacy_effort_retry="reasoning_effort" not in request.model_fields_set,
+                model_resolver=lambda _model: resolved_model,
+                operation=operation,
+                on_progress=on_progress,
+            )
+
+        return StreamingResponse(stream_preparing_turn(prepare), media_type="text/event-stream")
 
     def event_generator():
         yield from stream_rag_response(

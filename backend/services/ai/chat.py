@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import queue
 import threading
 import time
 from collections.abc import Callable
@@ -172,6 +173,7 @@ def prepare_turn(
     user_timezone: str = "UTC",
     reasoning_effort: str | None = None,
     legacy_effort_retry: bool = False,
+    on_progress: Callable[[str, str], None] | None = None,
 ) -> dict:
     response_started_at = datetime.now(timezone.utc).isoformat()
     sb = get_supabase_thread_safe()
@@ -300,6 +302,8 @@ def prepare_turn(
     else:
         # One authoritative retrieval before fresh, tool-disabled generation.
         retrieval = []
+        if on_progress:
+            on_progress("searching", "Checking project sources")
         evidence = execute_tool(
             "knowledge_base_search",
             {"query": content},
@@ -311,6 +315,7 @@ def prepare_turn(
             citations=DurableCitations(turn_id, "plain", owner_id, conversation_id),
             full_debug=True,
         )
+        request["metadata"]["prefetched_evidence"] = True
         request["prompt"] = json.dumps(
             {
                 "canonical_history": history[-60:],
@@ -342,6 +347,8 @@ def prepare_turn(
             },
             evidence,
         )
+        if on_progress:
+            on_progress("analyzing", "Search completed")
     if mode != "plain" and folders:
         # A concurrent candidate for the same logical turn must never share evidence.
         candidate_id = str(uuid4())
@@ -381,6 +388,13 @@ def prepare_turn(
         citations = BufferedBootstrapCitations(candidate_id, "bootstrap", owner_id, conversation_id)
 
         def retrieve(name, arguments):
+            if on_progress and not timings:
+                detail = (
+                    "Searching agent history"
+                    if name == "search_agent_history"
+                    else "Checking project sources"
+                )
+                on_progress("searching", detail)
             began = datetime.now(timezone.utc).isoformat()
             value = execute_tool(
                 name,
@@ -411,6 +425,7 @@ def prepare_turn(
             folders=source_folders,
             repo_name=repo_name,
         )
+        request["metadata"]["prefetched_evidence"] = bool(calls)
         # Persist the entire private candidate before its trace or accepted turn.
         # All retrievals and evidence expansions share this allocator instance.
         began = time.monotonic()
@@ -445,6 +460,8 @@ def prepare_turn(
             },
             evidence,
         )
+        if calls and on_progress:
+            on_progress("analyzing", "Search completed")
         request["prompt"] = native_chat_prompt(
             content=content,
             history=history,
@@ -855,6 +872,9 @@ def stream_turn(turn: dict, *, cursor: int = 0):
         )
         return
     scope, request = turn_scope(turn), turn["request"]
+    ready_stage = (
+        "analyzing" if request.get("metadata", {}).get("prefetched_evidence") else "thinking"
+    )
     client = client_for(scope, request["operation"], request["profile"])
     yield "data: " + json.dumps({"job_id": turn["job_id"], "turn_id": turn["id"]}) + "\n\n"
     try:
@@ -904,8 +924,8 @@ def stream_turn(turn: dict, *, cursor: int = 0):
                 frame.update({"error": data.get("error", kind), "done": True})
             else:
                 stage, detail = {
-                    "job.queued": ("thinking", "Queued for native execution"),
-                    "attempt.started": ("thinking", "Starting a scoped native attempt"),
+                    "job.queued": (ready_stage, "Queued for native execution"),
+                    "attempt.started": (ready_stage, "Starting a scoped native attempt"),
                     "tool.started": ("searching", f"Kioku tool: {data.get('name', 'retrieval')}"),
                     "retrieval.completed": ("analyzing", "Reading returned Kioku evidence"),
                     "tool.completed": ("analyzing", "Kioku tool completed"),
@@ -913,7 +933,7 @@ def stream_turn(turn: dict, *, cursor: int = 0):
                         "thinking",
                         "Native attempt failed; checking recovery policy",
                     ),
-                }.get(kind, ("thinking", "Native execution in progress"))
+                }.get(kind, (ready_stage, "Native execution in progress"))
                 frame.update({"stage": stage, "detail": detail, "progress": {"type": kind, **data}})
             yield "id: " + str(event["seq"]) + "\ndata: " + json.dumps(frame) + "\n\n"
     except Exception as exc:
@@ -924,6 +944,60 @@ def stream_turn(turn: dict, *, cursor: int = 0):
         )
     finally:
         client.close()
+
+
+def stream_preparing_turn(prepare: Callable[[Callable[[str, str], None]], dict]):
+    """Show real preparation work before the durable native execution exists.
+
+    Preparation continues after a browser disconnect. Its own worker wakes the
+    reconciler so a prepared turn is not stranded when the SSE subscriber leaves.
+    """
+    events: queue.Queue[tuple[str, object]] = queue.Queue()
+
+    def run_preparation():
+        try:
+            turn = prepare(lambda stage, detail: events.put(("stage", (stage, detail))))
+            wake_reconciliation()
+            events.put(("turn", turn))
+        except HTTPException as exc:
+            events.put(
+                (
+                    "error",
+                    {
+                        "error": exc.detail
+                        if isinstance(exc.detail, str)
+                        else "Chat request failed",
+                        "error_status": exc.status_code,
+                    },
+                )
+            )
+        except Exception:
+            logger.exception("native chat preparation failed")
+            events.put(("error", {"error": "Chat preparation failed. Please try again."}))
+
+    threading.Thread(target=run_preparation, name="native-chat-prepare", daemon=True).start()
+    yield (
+        "data: "
+        + json.dumps(
+            {"stage": "thinking", "detail": "Preparing your answer", "native_preparing": True}
+        )
+        + "\n\n"
+    )
+    while True:
+        try:
+            kind, payload = events.get(timeout=10)
+        except queue.Empty:
+            yield ": keepalive\n\n"
+            continue
+        if kind == "stage":
+            stage, detail = payload
+            yield "data: " + json.dumps({"stage": stage, "detail": detail}) + "\n\n"
+        elif kind == "error":
+            yield "data: " + json.dumps(payload) + "\n\n"
+            return
+        else:
+            yield from stream_turn(payload)
+            return
 
 
 def wake_reconciliation():

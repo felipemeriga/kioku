@@ -35,6 +35,7 @@ export default function StageTabs({
         return (
           <Box
             key={s.key}
+            aria-current={on ? "step" : undefined}
             sx={{
               p: "10px 14px",
               borderRight: `1px solid ${brand.line}`,
