@@ -23,6 +23,7 @@ services:
       - TSUKAI_CAPABILITY_ISSUER=${TSUKAI_CAPABILITY_ISSUER:-kioku-backend}
       - TSUKAI_ENTITLED_OWNER_IDS=${TSUKAI_ENTITLED_OWNER_IDS:?explicit entitled owner IDs required}
       - TSUKAI_AUTH_PROBE=${TSUKAI_AUTH_PROBE:-true}
+      - TSUKAI_ROOT_PARALLELISM=${TSUKAI_ROOT_PARALLELISM:-2}
       - TSUKAI_BACKEND_URL=${TSUKAI_BACKEND_URL:-http://kioku-backend:8000}
       - TSUKAI_REDIS_URL=${TSUKAI_REDIS_URL:-redis://kioku-redis:6379/0}
       - TSUKAI_WORKSPACE_DIR=/data/workspaces

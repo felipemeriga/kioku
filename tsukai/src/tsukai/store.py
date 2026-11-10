@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.sql import visitors
 from sqlalchemy.sql.selectable import CompoundSelect, Select
 
-from .config import NATIVE_VERSION, heavy_maintenance
+from .config import NATIVE_VERSION, heavy_maintenance, validate_root_parallelism
 from .protocol import TERMINAL, JobRequest
 from .tables import acks, attempts, events, jobs, locks, metadata, sessions, tombstones
 
@@ -65,7 +65,15 @@ def is_interactive_job(request):
 
 
 class Store:
-    def __init__(self, url: str, workspace_dir="/data/workspaces", database_ca_file=None):
+    def __init__(
+        self,
+        url: str,
+        workspace_dir="/data/workspaces",
+        database_ca_file=None,
+        *,
+        root_parallelism=2,
+    ):
+        self.root_parallelism = validate_root_parallelism(root_parallelism)
         url = make_url(url)
         options = {"pool_pre_ping": True}
         if url.drivername == "postgresql+asyncpg":
@@ -460,7 +468,7 @@ class Store:
             await self._terminal(conn, job, "failed", error={"code": "queue_timeout"})
         return len(expired)
 
-    async def dispatch(self, worker_id, capacity=3):
+    async def dispatch(self, worker_id, capacity=None):
         """Reap and claim atomically with one shared-lock transaction per tick."""
         if not await self.dispatch_needed():
             return []
@@ -468,7 +476,9 @@ class Store:
             await self._expire_queued(conn)
             await self._recover(conn)
             claimed = []
-            for _ in range(max(0, min(capacity, 3))):
+            maximum = self.root_parallelism + 1  # One independent metadata-child lane.
+            capacity = maximum if capacity is None else min(capacity, maximum)
+            for _ in range(max(0, capacity)):
                 claim = await self._claim(conn, worker_id)
                 if claim is None:
                     break
@@ -607,7 +617,7 @@ class Store:
                 continue
             child = job["profile"] == "metadata_child"
             if (child and active.count("metadata_child") >= 1) or (
-                not child and sum(p != "metadata_child" for p in active) >= 2
+                not child and sum(p != "metadata_child" for p in active) >= self.root_parallelism
             ):
                 continue
             if job["caller"] == "mihari" and any(row["caller"] == "mihari" for row in active_rows):

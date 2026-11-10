@@ -154,7 +154,7 @@ class Scheduler:
                             spool.unlink(missing_ok=True)
                     last_prune = time.monotonic()
                 capacity = (
-                    max(0, 3 - len(self.tasks))
+                    max(0, self.settings.root_parallelism + 1 - len(self.tasks))
                     if self.auth_state == "ready" and time.monotonic() >= self.quota_until
                     else 0
                 )

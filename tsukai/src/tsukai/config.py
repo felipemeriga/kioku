@@ -6,6 +6,19 @@ from dataclasses import dataclass, field
 NATIVE_VERSION = "2.1.318"
 
 
+def validate_root_parallelism(value):
+    if type(value) is not int or not 1 <= value <= 4:
+        raise ValueError("TSUKAI_ROOT_PARALLELISM must be an integer from 1 to 4")
+    return value
+
+
+def configured_root_parallelism():
+    value = os.getenv("TSUKAI_ROOT_PARALLELISM", "2")
+    if value not in {"1", "2", "3", "4"}:
+        raise ValueError("TSUKAI_ROOT_PARALLELISM must be an integer from 1 to 4")
+    return int(value)
+
+
 def heavy_maintenance(request):
     return (
         request.caller == "mihari"
@@ -48,6 +61,10 @@ class Settings:
     drain_seconds: float = 120
     spool_bytes: int = 16 * 1024 * 1024
     subscriber_bytes: int = 1024 * 1024
+    root_parallelism: int = field(default_factory=configured_root_parallelism)
+
+    def __post_init__(self):
+        validate_root_parallelism(self.root_parallelism)
 
     def validate(self):
         if not self.database_url.startswith("postgresql+asyncpg://"):
