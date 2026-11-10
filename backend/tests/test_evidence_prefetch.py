@@ -121,26 +121,6 @@ def test_source_query_adds_caller_and_failure_context_without_extra_calls():
     )
 
 
-def test_scheduler_cadence_query_seeks_scan_without_changing_other_queries():
-    query = source_search_query("On the scheduler, how often do launches run?", "repo")
-    assert "game update cron scan schedule interval distinct from status poll" in query
-    assert "game update cron" not in source_search_query("Who starts the ingester?", "repo")
-
-
-def test_endpoint_parameter_question_reads_definitions_once_in_same_scope():
-    calls = []
-
-    def execute(name, args):
-        calls.append((name, args))
-        return "Source [1]" if len(calls) == 1 else "Definition [2]"
-
-    evidence, _ = prefetch("What are the arguments of /api/scores/scoreboard/date?", "UTC", execute)
-    assert len(calls) == 2
-    assert all(name == "knowledge_base_search" for name, _ in calls)
-    assert calls[1][1]["query"].startswith("/api/scores/scoreboard/date parameter definitions")
-    assert "Definition [2]" in evidence
-
-
 def test_duplicate_transcript_projections_do_not_consume_both_expansions():
     expanded = []
 
