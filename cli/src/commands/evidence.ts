@@ -274,6 +274,7 @@ export async function evidenceWorker(
       0,
     );
   const attempted = new Set<string>();
+  let incompleteCapture = false;
   await withEvidenceLock(
     join(state, "worker.lock"),
     async () => {
@@ -358,10 +359,14 @@ export async function evidenceWorker(
               let priorOffset = -1;
               let finalManifest;
               let complete = false;
+              let synced;
+              let uploadDeferred = false;
               while (Date.now() < deadline) {
                 const m = await captureSource(root, folder, source, {
+                  maxBytes: 16 * 1024 * 1024,
                   endOffset: matching?.job.observed_size || undefined,
-                  verifyPrefix: matching?.job.event !== "PostToolUse",
+                  verifyPrefix:
+                    priorOffset < 0 && matching?.job.event !== "PostToolUse",
                   progress: matching?.job.event === "PostToolUse",
                   finalizeJournal: matching?.job.event === "Stop",
                   end:
@@ -377,34 +382,52 @@ export async function evidenceWorker(
                       matching.job.observed_size
                     : m.coverage?.pending_bytes === 0) &&
                   !m.gaps.some((g) => g.code === "source_unreadable");
+                // Publish each immutable checkpoint. A growing native transcript
+                // may never fit in one worker budget, but its captured prefix
+                // must still become visible remotely before the next hook.
+                if (!uploadDeferred) {
+                  try {
+                    synced = await syncEvidence(
+                      root,
+                      folder,
+                      source,
+                      m,
+                      force,
+                      deadline,
+                    );
+                  } catch {
+                    // Upload state already records its retry policy. Keep
+                    // preserving local bytes even while the API is offline.
+                    uploadDeferred = true;
+                  }
+                }
                 if (
                   complete ||
                   (m.coverage?.captured_through ?? -1) === priorOffset ||
                   m.gaps.some((g) => g.code === "source_unreadable") ||
+                  synced?.blocked ||
                   matching?.job.event === "PostToolUse"
                 )
                   break;
                 priorOffset = m.coverage?.captured_through ?? -1;
               }
-              if (finalManifest) {
-                const synced = await syncEvidence(
-                  root,
-                  folder,
-                  source,
-                  finalManifest,
-                  force,
-                  deadline,
-                );
-                if (
-                  complete &&
-                  matching &&
-                  synced.manifest_hash ===
-                    hash(JSON.stringify(finalManifest)) &&
-                  readJson<Job | null>(matching.path, null)?.token ===
-                    matching.job.token
-                )
-                  rmSync(matching.path, { force: true });
-              }
+              if (
+                !complete &&
+                finalManifest &&
+                matching &&
+                !uploadDeferred &&
+                !synced?.blocked
+              )
+                incompleteCapture = true;
+              if (
+                complete &&
+                finalManifest &&
+                matching &&
+                synced?.manifest_hash === hash(JSON.stringify(finalManifest)) &&
+                readJson<Job | null>(matching.path, null)?.token ===
+                  matching.job.token
+              )
+                rmSync(matching.path, { force: true });
             } catch (error) {
               const code =
                 error instanceof Error &&
@@ -451,6 +474,7 @@ export async function evidenceWorker(
           ["retry_pending", "backend_unsupported"].includes(sync.blocked || ""),
       )
       .map((sync) => sync.retry_at!);
+    if (incompleteCapture) retryTimes.push(Date.now() + 1000);
     if (retryTimes.length)
       (options.scheduleRetry || spawnEvidenceWorker)(
         root,

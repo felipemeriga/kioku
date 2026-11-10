@@ -180,7 +180,21 @@ export async function syncEvidence(
           const outstanding = manifest.objects.filter(
             (o) => !state.acknowledged.includes(o.id),
           );
-          const objects = outstanding.slice(0, batchLimit);
+          // A large session can contain hundreds of small segments. Bound each
+          // transaction by bytes as well as count so one slow upload does not
+          // consume the entire worker lease before any prefix is committed.
+          const objects: typeof outstanding = [];
+          let batchBytes = 0;
+          for (const object of outstanding) {
+            if (objects.length >= batchLimit) break;
+            if (
+              objects.length &&
+              batchBytes + object.byte_length > 8 * 1024 * 1024
+            )
+              break;
+            objects.push(object);
+            batchBytes += object.byte_length;
+          }
           if (objects.some((o) => o.byte_length > maximum)) {
             state.blocked = "blocked_size_limit";
             writeJson(statePath, state);
@@ -200,7 +214,9 @@ export async function syncEvidence(
             name: `count:${count}`,
           }));
           const links =
-            outstanding.length <= batchLimit ? pendingLinks.slice(0, 256) : [];
+            outstanding.length <= objects.length
+              ? pendingLinks.slice(0, 256)
+              : [];
           const gaps = pendingGaps.slice(0, 256);
           const id = hash(
             JSON.stringify([
@@ -249,7 +265,9 @@ export async function syncEvidence(
                 )
                   throw new Error("evidence_local_integrity_failed");
                 await request(
-                  `/batches/${encodeURIComponent(id)}/objects/${encodeURIComponent(object.id)}`,
+                  `/batches/${encodeURIComponent(
+                    id,
+                  )}/objects/${encodeURIComponent(object.id)}`,
                   {
                     method: "PUT",
                     headers: { "Content-Type": "application/octet-stream" },
@@ -285,7 +303,7 @@ export async function syncEvidence(
               ]),
             ];
             const finished =
-              outstanding.length <= batchLimit &&
+              outstanding.length <= objects.length &&
               pendingLinks.length <= links.length;
             state.attempts = 0;
             delete state.blocked;
@@ -319,9 +337,9 @@ export async function syncEvidence(
           http && [401, 403, 404, 410, 413, 422].includes(http.status)
             ? `http_${http.status}`
             : error instanceof Error &&
-                error.message === "evidence_local_integrity_failed"
-              ? error.message
-              : "retry_pending";
+              error.message === "evidence_local_integrity_failed"
+            ? error.message
+            : "retry_pending";
         state.retry_at =
           Date.now() +
           Math.max(
