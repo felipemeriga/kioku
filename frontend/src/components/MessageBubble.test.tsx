@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { screen, fireEvent } from "@testing-library/react";
+import { screen, fireEvent, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "../test/renderWithProviders";
 import MessageBubble from "./MessageBubble";
 import type { Citation } from "../lib/api";
@@ -10,7 +11,7 @@ describe("MessageBubble", () => {
       <>
         <MessageBubble role="user" content="Question" />
         <MessageBubble role="assistant" content="Answer" />
-      </>,
+      </>
     );
     for (const role of ["user", "assistant"]) {
       const surface = screen.getByTestId(`${role}-message-surface`);
@@ -26,7 +27,7 @@ describe("MessageBubble", () => {
 
   it("renders assistant message with markdown", () => {
     renderWithProviders(
-      <MessageBubble role="assistant" content="**bold text**" />,
+      <MessageBubble role="assistant" content="**bold text**" />
     );
     expect(screen.getByText("bold text")).toBeInTheDocument();
   });
@@ -69,7 +70,7 @@ describe("MessageBubble citations", () => {
         role="assistant"
         content="Foo [1] bar [2]."
         citations={[docCite, codeCite]}
-      />,
+      />
     );
     expect(screen.getAllByTestId("citation-chip")).toHaveLength(2);
     expect(screen.getByTestId("citation-sources")).toBeInTheDocument();
@@ -82,7 +83,7 @@ describe("MessageBubble citations", () => {
         role="assistant"
         content={"See [1].\n\n```\narr[1] = x\n```\n"}
         citations={[docCite]}
-      />,
+      />
     );
     // Only the prose [1] becomes a chip; the one inside the code fence does not.
     expect(screen.getAllByTestId("citation-chip")).toHaveLength(1);
@@ -97,7 +98,7 @@ describe("MessageBubble citations", () => {
         content="Foo [1]."
         citations={[docCite]}
         onOpenDocument={onOpenDocument}
-      />,
+      />
     );
     fireEvent.click(screen.getByTestId("citation-chip"));
     expect(onOpenDocument).toHaveBeenCalledWith("notes.pdf", "f1");
@@ -110,20 +111,20 @@ describe("MessageBubble citations", () => {
         role="assistant"
         content="Foo [2]."
         citations={[codeCite]}
-      />,
+      />
     );
     fireEvent.click(screen.getByTestId("citation-chip"));
     expect(open).toHaveBeenCalledWith(
       "https://github.com/org/repo/blob/main/pkg/x.py#L10",
       "_blank",
-      "noopener,noreferrer",
+      "noopener,noreferrer"
     );
     open.mockRestore();
   });
 
   it("shows no footer when the message has no citations", () => {
     renderWithProviders(
-      <MessageBubble role="assistant" content="Just text, no refs." />,
+      <MessageBubble role="assistant" content="Just text, no refs." />
     );
     expect(screen.queryByTestId("citation-sources")).toBeNull();
   });
@@ -138,7 +139,7 @@ describe("bounded source previews", () => {
         content="See [1]."
         citations={[docCite]}
         onOpenDocument={open}
-      />,
+      />
     );
     const marker = screen.getByTestId("citation-chip");
     expect(marker.tagName).toBe("BUTTON");
@@ -157,18 +158,18 @@ describe("bounded source previews", () => {
 
   it("shows short plain-text snippets instead of raw fences and repeated whitespace", async () => {
     const excerpt = `\`\`\`typescript\nconst sample = \`safe\`;\n${"value   ".repeat(
-      100,
+      100
     )}\n\`\`\``;
     const { container } = renderWithProviders(
       <MessageBubble
         role="assistant"
         content="See [1]."
         citations={[{ ...docCite, excerpt }]}
-      />,
+      />
     );
     const marker = screen.getByTestId("citation-chip");
     vi.spyOn(marker, "getBoundingClientRect").mockReturnValue(
-      new DOMRect(100, 200, 20, 20),
+      new DOMRect(100, 200, 20, 20)
     );
     fireEvent.mouseOver(marker);
     const tooltip = await screen.findByRole("tooltip");
@@ -197,15 +198,15 @@ describe("bounded source previews", () => {
           },
         ]}
         onOpenDocument={open}
-      />,
+      />
     );
     fireEvent.click(screen.getByTestId("citation-chip"));
     expect(open).not.toHaveBeenCalled();
     expect(await screen.findByRole("dialog")).toHaveTextContent(
-      "Retrieved source",
+      "Retrieved source"
     );
     expect(screen.getByTestId("source-excerpt-text")).toHaveTextContent(
-      "A verified retrieved excerpt.",
+      "A verified retrieved excerpt."
     );
   });
 
@@ -215,14 +216,14 @@ describe("bounded source previews", () => {
         role="assistant"
         content="See [2]."
         citations={[{ ...codeCite, url: null }]}
-      />,
+      />
     );
     fireEvent.click(screen.getByTestId("citation-source"));
     expect(await screen.findByRole("dialog")).toHaveTextContent(
-      "Retrieved code excerpt",
+      "Retrieved code excerpt"
     );
     expect(screen.getByTestId("source-excerpt-text")).toHaveTextContent(
-      "def foo(): ...",
+      "def foo(): ..."
     );
   });
 
@@ -232,23 +233,62 @@ describe("bounded source previews", () => {
       <MessageBubble
         role="assistant"
         content={`${longUrl}\n\n\`inline-${"value".repeat(
-          80,
+          80
         )}\`\n\n\`\`\`text\n${longUrl}\n\`\`\``}
-      />,
+      />
     );
     const pre = container.querySelector("pre")!;
     expect(getComputedStyle(pre).maxWidth).toBe("100%");
     expect(getComputedStyle(pre).overflowX).toBe("auto");
     expect(getComputedStyle(pre).whiteSpace).toBe("pre");
     expect(
-      getComputedStyle(screen.getByTestId("assistant-message-surface"))
-        .minWidth,
+      getComputedStyle(screen.getByTestId("assistant-message-surface")).minWidth
     ).toBe("0px");
   });
 });
 
 describe("compact source list", () => {
-  it("renders nineteen sources as nineteen normal list rows without card excerpts", () => {
+  it("keeps short bibliographies visible and supports keyboard collapse and expansion", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <MessageBubble
+        role="assistant"
+        content="Answer [1] [2]."
+        citations={[docCite, codeCite]}
+      />
+    );
+    const toggle = screen.getByRole("button", { name: "References (2)" });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    toggle.focus();
+    await user.keyboard("{Enter}");
+    await waitFor(() =>
+      expect(screen.queryByRole("list", { name: "References" })).toBeNull()
+    );
+    expect(toggle).toHaveFocus();
+    await user.keyboard(" ");
+    expect(
+      screen.getByRole("list", { name: "References" })
+    ).toBeInTheDocument();
+    expect(screen.getAllByTestId("citation-source")).toHaveLength(2);
+  });
+
+  it("explains the bibliography through an accessible tooltip", async () => {
+    renderWithProviders(
+      <MessageBubble
+        role="assistant"
+        content="Answer [1]."
+        citations={[docCite]}
+      />
+    );
+    const toggle = screen.getByRole("button", { name: "References (1)" });
+    fireEvent.mouseOver(toggle);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "Sources cited in this answer. Select a reference to view the original evidence."
+    );
+    expect(toggle).toHaveAccessibleName("References (1)");
+  });
+
+  it("collapses long reference lists and expands all nineteen bibliography rows", () => {
     const citations = Array.from({ length: 19 }, (_, i) => ({
       ...codeCite,
       number: i + 1,
@@ -259,9 +299,18 @@ describe("compact source list", () => {
         role="assistant"
         content={citations.map((c) => `[${c.number}]`).join(" ")}
         citations={citations}
-      />,
+      />
     );
-    expect(screen.getByRole("list", { name: "Sources" })).toBeInTheDocument();
+    const toggle = screen.getByRole("button", { name: "References (19)" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("list", { name: "References" })).toBeNull();
+    expect(screen.getAllByTestId("citation-chip")).toHaveLength(19);
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    const references = screen.getByRole("list", { name: "References" });
+    expect(
+      document.getElementById(toggle.getAttribute("aria-controls")!)
+    ).toContainElement(references);
     expect(screen.getAllByRole("listitem")).toHaveLength(19);
     expect(screen.getAllByTestId("citation-source")).toHaveLength(19);
     expect(document.querySelector(".source-card")).toBeNull();
@@ -285,7 +334,7 @@ describe("compact source list", () => {
               "[repo: org/repo] [file: very/deep/path/config.md] [lines: 12-24] A `verified` fact.",
           },
         ]}
-      />,
+      />
     );
     const row = screen.getByTestId("citation-source");
     expect(row).toHaveTextContent("config.md");
@@ -293,13 +342,13 @@ describe("compact source list", () => {
     expect(row.textContent).not.toContain("[repo:");
     const marker = screen.getByTestId("citation-chip");
     vi.spyOn(marker, "getBoundingClientRect").mockReturnValue(
-      new DOMRect(100, 200, 20, 20),
+      new DOMRect(100, 200, 20, 20)
     );
     fireEvent.mouseOver(marker);
     const tooltip = await screen.findByRole("tooltip");
     expect(tooltip).toHaveTextContent("very/deep/path/config.md");
     expect(screen.getByTestId("citation-preview")).toHaveTextContent(
-      "A verified fact.",
+      "A verified fact."
     );
     expect(tooltip.textContent).not.toMatch(/\[(?:repo|file|lines):/);
     fireEvent.click(row);
@@ -322,7 +371,7 @@ it("cleans actual space-delimited retrieval metadata and Code wrappers", async (
             "[repo kioku] [file frontend/src/api.ts:10-20] [symbol request()] A verified fact.",
         },
       ]}
-    />,
+    />
   );
   const row = screen.getByTestId("citation-source");
   expect(row).toHaveTextContent("api.ts");
@@ -330,13 +379,13 @@ it("cleans actual space-delimited retrieval metadata and Code wrappers", async (
   expect(row.textContent).not.toMatch(/\[(?:Code|repo|file|symbol)/);
   const marker = screen.getByTestId("citation-chip");
   vi.spyOn(marker, "getBoundingClientRect").mockReturnValue(
-    new DOMRect(100, 200, 20, 20),
+    new DOMRect(100, 200, 20, 20)
   );
   fireEvent.mouseOver(marker);
   const tooltip = await screen.findByRole("tooltip");
   expect(tooltip).toHaveTextContent("frontend/src/api.ts");
   expect(screen.getByTestId("citation-preview")).toHaveTextContent(
-    "A verified fact.",
+    "A verified fact."
   );
   expect(tooltip.textContent).not.toMatch(/\[(?:Code|repo|file|symbol)/);
 });
@@ -354,14 +403,14 @@ it("uses the filename from a raw Code wrapper when file metadata is absent", () 
           excerpt: "A fact.",
         },
       ]}
-    />,
+    />
   );
   expect(screen.getByTestId("citation-source")).toHaveTextContent("api.ts");
   expect(screen.getByTestId("citation-source")).toHaveTextContent(
-    "Lines 10-20",
+    "Lines 10-20"
   );
   expect(screen.getByTestId("citation-source").textContent).not.toContain(
-    "request()",
+    "request()"
   );
 });
 
@@ -380,11 +429,11 @@ it.each([
         timing_only: true,
         timings: { total_seconds: seconds as number },
       }}
-    />,
+    />
   );
   expect(screen.getByText(`Completed in ${label}`)).toBeInTheDocument();
   expect(
-    screen.queryByRole("button", { name: "Inspect response" }),
+    screen.queryByRole("button", { name: "Inspect response" })
   ).not.toBeInTheDocument();
 });
 
@@ -407,11 +456,11 @@ it("preserves Rust code indentation and literals in citation previews", async ()
           excerpt: `[repo c360-lead]\n\`\`\`rust\n${code}\n\`\`\``,
         },
       ]}
-    />,
+    />
   );
   const marker = screen.getByTestId("citation-chip");
   vi.spyOn(marker, "getBoundingClientRect").mockReturnValue(
-    new DOMRect(100, 200, 20, 20),
+    new DOMRect(100, 200, 20, 20)
   );
   fireEvent.mouseOver(marker);
   await screen.findByRole("tooltip");
@@ -436,7 +485,7 @@ describe("archived memory citations", () => {
           { ...docCite, source: "Agent history / repo / session / event", url },
         ]}
         onOpenDocument={onOpenDocument}
-      />,
+      />
     );
     fireEvent.click(screen.getByTestId("citation-chip"));
     expect(open).toHaveBeenCalledWith(url, "_blank", "noopener,noreferrer");
@@ -454,7 +503,7 @@ describe("archived memory citations", () => {
           { ...docCite, source: "Agent journal / repo / 2026-11-06 / entry" },
         ]}
         onOpenDocument={onOpenDocument}
-      />,
+      />
     );
     fireEvent.click(screen.getByTestId("citation-chip"));
     expect(onOpenDocument).not.toHaveBeenCalled();
