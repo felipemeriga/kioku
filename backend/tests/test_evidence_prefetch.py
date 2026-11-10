@@ -111,9 +111,11 @@ def test_source_query_adds_caller_and_failure_context_without_extra_calls():
         "c360-cx-video-hub-cloud",
     )
     assert "scheduler caller invokes launch function" in caller
+    assert "callee implementation" in caller
     assert "in c360-cx-video-hub-cloud" in caller
     errors = source_search_query("What errors print if it can't start the ingester?", "repo")
     assert "caller logger.error catch cleanup" in errors
+    assert "underlying start function thrown errors" in errors
     assert source_search_query("What did the documentation say?", "repo") == (
         "What did the documentation say?"
     )
