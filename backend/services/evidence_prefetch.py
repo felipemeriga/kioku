@@ -102,6 +102,17 @@ def source_question(question: str) -> bool:
     )
 
 
+def code_only_question(question: str) -> bool:
+    """Questions whose answer must come from current indexed source code."""
+    low = question.lower()
+    return bool(
+        re.search(r"\bhow\s+does\s+the\s+(?:new|current)\s+\w+\s+work\b", low)
+        or ("scheduler" in low and re.search(r"\b(?:how often|interval|cadence)\b", low))
+        or re.search(r"\b(?:who|what|which)\b.*\b(?:starts?|starting|launches?)\b", low)
+        or (re.search(r"\b(?:error|errors|failure|fail)\b", low) and "in the code" in low)
+    )
+
+
 def source_search_query(question: str, repo_name: str | None = None) -> str:
     """Make a single scoped code lookup cover the source the question asks for.
 
@@ -116,6 +127,8 @@ def source_search_query(question: str, repo_name: str | None = None) -> str:
     if re.search(r"\b(?:new|current)\s+\w+\s+work", low):
         query = re.sub(r"\bnew\s+", "", query, flags=re.I)
         query += " current source code implementation"
+    if "scheduler" in low and re.search(r"\b(?:how often|interval|cadence)\b", low):
+        query += " cron schedule interval constant minutes"
     if re.search(r"\b(?:who|what|which)\b.*\b(?:start|starts|starting|launch)\b", low):
         query += " scheduler caller invokes launch function"
     if re.search(r"\b(?:error|failure|fail|can't)\b", low) and re.search(
@@ -144,7 +157,10 @@ def prefetch(question, user_timezone, execute, *, filename=None, folders=(), rep
         return json.dumps({"source": "none", "reason": "User requested no tool use."}), calls
     if filename or not history_question(question):
         query = source_search_query(question, repo_name)
-        return run("knowledge_base_search", {"query": query}), calls
+        arguments = {"query": query}
+        if not filename and code_only_question(question):
+            arguments["code_only"] = True
+        return run("knowledge_base_search", arguments), calls
 
     filters = date_filters(question, user_timezone)
     args = {"query": question, "timezone": user_timezone, "order": "relevance", **filters}

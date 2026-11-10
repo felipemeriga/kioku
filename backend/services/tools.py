@@ -338,16 +338,19 @@ def execute_tool(
         )
     if tool_name == "knowledge_base_search":
         query = tool_input["query"]
-        embedding = embed_query(query)
+        code_only = tool_input.get("code_only") is True
+        embedding = [] if code_only else embed_query(query)
         results = search_documents(
             embedding,
             query_text=query,
             user_id=user_id,
+            top_k=8 if code_only else 5,
             fast_mode=fast_mode,
             folder_ids=scope_folder_ids,
             source_filename=scope_filename,
             created_after=tool_input.get("created_after"),
             created_before=tool_input.get("created_before"),
+            code_only=code_only,
         )
         if full_debug and results:
             sb = get_supabase()
