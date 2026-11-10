@@ -1,8 +1,9 @@
-import { Children, isValidElement, useMemo, useState } from "react";
+import { Children, isValidElement, useId, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import {
   Box,
   Button,
+  Collapse,
   Typography,
   Tooltip,
   Dialog,
@@ -22,6 +23,7 @@ import {
 } from "../lib/api";
 import { useQuery } from "@tanstack/react-query";
 import { codeCitationPreview } from "./codeCitationPreview";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import { useToast } from "./ToastProvider";
 import InspectDialog from "./InspectDialog";
@@ -46,7 +48,7 @@ function citationDetails(c: Citation) {
   const field = (name: string) =>
     metadata
       .match(
-        new RegExp(`\\[${name}(?:\\s*[:=]\\s*|\\s+)([^\\]]+)\\]`, "i"),
+        new RegExp(`\\[${name}(?:\\s*[:=]\\s*|\\s+)([^\\]]+)\\]`, "i")
       )?.[1]
       ?.trim();
   const raw =
@@ -95,7 +97,7 @@ function citationPreview(value: string): string {
     .replace(/\[Code\s*:\s*[^\]]*\]/gi, " ")
     .replace(
       /\[(?:repo|file|lines?|symbol|source_type)(?:\s*[:=]\s*|\s+)[^\]]*\]/gi,
-      " ",
+      " "
     )
     .replace(/(^|\n)[ \t]*(?:`{3,}|~{3,})[\w+-]*[ \t]*(?:\r?\n|$)/g, "$1")
     .replace(/`+|~{3,}/g, "")
@@ -112,7 +114,7 @@ function claimText(children: ReactNode): string {
         ? child
         : isValidElement<{ children?: ReactNode }>(child)
         ? claimText(child.props.children)
-        : "",
+        : ""
     )
     .join(" ");
 }
@@ -142,7 +144,7 @@ function CitationChip({
   const chunk = debug?.retrieval?.find(
     (source) =>
       source.source === c.source &&
-      (!c.folder_id || source.folder_id === c.folder_id),
+      (!c.folder_id || source.folder_id === c.folder_id)
   );
   const tool = chunk?.query
     ? debug?.tool_calls?.find(
@@ -150,7 +152,7 @@ function CitationChip({
           call.artifact_id &&
           (call.query ??
             (call.input as { query?: string } | undefined)?.query) ===
-            chunk.query,
+            chunk.query
       )
     : undefined;
   const job = debug?.execution?.job_id;
@@ -169,7 +171,7 @@ function CitationChip({
     ? trace.sources.find(
         (source) =>
           source.source === c.source &&
-          (!c.folder_id || source.folder_id === c.folder_id),
+          (!c.folder_id || source.folder_id === c.folder_id)
       )
     : undefined;
   const preview = full?.content || chunk?.content || c.excerpt;
@@ -366,7 +368,7 @@ function splitCitations(
   cited: Map<number, Citation>,
   onClick: (c: Citation) => void,
   claim: string,
-  debug?: DebugTrace,
+  debug?: DebugTrace
 ): ReactNode {
   const parts: ReactNode[] = [];
   let last = 0;
@@ -383,7 +385,7 @@ function splitCitations(
         onClick={onClick}
         claim={claim}
         debug={debug}
-      />,
+      />
     );
     last = idx + m[0].length;
   }
@@ -399,13 +401,13 @@ function renderWithCitations(
   children: ReactNode,
   cited: Map<number, Citation>,
   onClick: (c: Citation) => void,
-  debug?: DebugTrace,
+  debug?: DebugTrace
 ): ReactNode {
   const claim = claimText(children);
   return Children.map(children, (child) =>
     typeof child === "string"
       ? splitCitations(child, cited, onClick, claim, debug)
-      : child,
+      : child
   );
 }
 
@@ -420,6 +422,10 @@ export default function MessageBubble({
   const isUser = role === "user";
   const [inspectOpen, setInspectOpen] = useState(false);
   const [excerptSource, setExcerptSource] = useState<Citation | null>(null);
+  const [referencesExpanded, setReferencesExpanded] = useState<boolean | null>(
+    null
+  );
+  const referencesId = useId();
 
   const handleCitationClick = useMemo(
     () => (c: Citation) => {
@@ -428,7 +434,7 @@ export default function MessageBubble({
       if (
         c.url &&
         /^\/folders\/[0-9a-f-]{36}\/agent-sessions\/[0-9a-f-]{36}\?event=[0-9a-f]{64}$/.test(
-          c.url,
+          c.url
         )
       ) {
         window.open(c.url, "_blank", "noopener,noreferrer");
@@ -447,7 +453,7 @@ export default function MessageBubble({
         setExcerptSource(c);
       }
     },
-    [onOpenDocument],
+    [onOpenDocument]
   );
 
   // Markdown renderers: always wrap tables; when citations exist, also linkify
@@ -489,6 +495,7 @@ export default function MessageBubble({
       .filter((c) => used.has(c.number))
       .sort((a, b) => a.number - b.number);
   }, [citations, content]);
+  const showReferences = referencesExpanded ?? footerSources.length <= 3;
 
   return (
     <Box
@@ -674,121 +681,171 @@ export default function MessageBubble({
           </CornerCard>
         )}
         {!isUser && footerSources.length > 0 && (
-          <Box
-            component="ul"
-            aria-label="Sources"
-            className="source-list"
-            data-testid="citation-sources"
-            sx={{
-              display: "block",
-              p: 0,
-              mb: 0,
-              mt: "14px",
-              width: "100%",
-              minWidth: 0,
-              maxWidth: "100%",
-            }}
-          >
-            {footerSources.map((c) => {
-              const details = citationDetails(c);
-              return (
-                <Box
-                  component="li"
-                  key={c.number}
-                  sx={{ listStyle: "none", minWidth: 0 }}
-                >
-                  <Box
-                    component="button"
-                    type="button"
-                    className="source-list-row"
-                    data-testid="citation-source"
-                    aria-label={`Open source ${c.number}: ${citationLabel(c)}`}
-                    onClick={() => handleCitationClick(c)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        handleCitationClick(c);
-                      }
-                    }}
+          <Box sx={{ width: "100%", minWidth: 0, mt: "14px" }}>
+            <Tooltip
+              arrow
+              describeChild
+              title="Sources cited in this answer. Select a reference to view the original evidence."
+            >
+              <Button
+                id={`${referencesId}-toggle`}
+                aria-controls={`${referencesId}-list`}
+                aria-label={`References (${footerSources.length})`}
+                aria-expanded={showReferences}
+                onClick={() => setReferencesExpanded(!showReferences)}
+                endIcon={
+                  <ExpandMoreIcon
                     sx={{
-                      display: "flex",
-                      alignItems: "baseline",
-                      gap: 1,
-                      width: "100%",
-                      minWidth: 0,
-                      textAlign: "left",
-                      cursor: "pointer",
-                      p: "6px 0",
-                      color: brand.text,
-                      bgcolor: "transparent",
-                      border: 0,
-                      borderBottom: `1px solid ${brand.line}`,
-                      fontFamily: fonts.body,
-                      "&:hover .source-list-title": { color: brand.cyan },
-                      "&:focus-visible": {
-                        outline: `2px solid ${brand.cyan}`,
-                        outlineOffset: 2,
-                      },
+                      transform: showReferences ? "rotate(180deg)" : "none",
                     }}
-                  >
-                    <Box
-                      component="span"
-                      sx={{
-                        color: brand.cyan,
-                        fontFamily: fonts.mono,
-                        fontSize: 11,
-                        minWidth: 22,
-                        flexShrink: 0,
-                      }}
-                    >
-                      {c.number}.
-                    </Box>
-                    <Box
-                      component="span"
-                      sx={{
-                        minWidth: 0,
-                        flex: 1,
-                        display: "flex",
-                        alignItems: "baseline",
-                        flexWrap: "wrap",
-                        columnGap: 1,
-                      }}
-                    >
-                      <Typography
-                        component="span"
-                        className="source-list-title"
-                        sx={{
-                          fontSize: 13,
-                          fontWeight: 500,
-                          overflowWrap: "anywhere",
-                        }}
-                      >
-                        {details.title}
-                      </Typography>
-                      <Typography
-                        component="span"
-                        className="source-list-meta"
-                        sx={{
-                          color: brand.muted,
-                          fontSize: 12,
-                          overflowWrap: "anywhere",
-                        }}
-                      >
-                        {[
-                          details.repo,
-                          c.source_type === "code" ? "Code" : "Document",
-                          details.lineRange
-                            ? `Lines ${details.lineRange}`
-                            : null,
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </Typography>
-                    </Box>
-                  </Box>
+                  />
+                }
+                sx={{
+                  color: brand.muted,
+                  fontSize: 13,
+                  fontWeight: 500,
+                  textTransform: "none",
+                  minHeight: 36,
+                  px: 0.5,
+                  gap: 0.75,
+                  "&:hover": {
+                    color: brand.cyan,
+                    bgcolor: alpha(brand.cyan, 0.06),
+                  },
+                  "&:focus-visible": {
+                    outline: `2px solid ${brand.cyan}`,
+                    outlineOffset: 2,
+                  },
+                }}
+              >
+                References
+                <Box component="span" sx={{ color: brand.dim, fontSize: 12 }}>
+                  ({footerSources.length})
                 </Box>
-              );
-            })}
+              </Button>
+            </Tooltip>
+            <Box id={`${referencesId}-list`}>
+              <Collapse in={showReferences} timeout={0} unmountOnExit>
+                <Box
+                  component="ul"
+                  aria-label="References"
+                  className="source-list"
+                  data-testid="citation-sources"
+                  sx={{
+                    display: "block",
+                    p: 0,
+                    mb: 0,
+                    mt: 0.5,
+                    width: "100%",
+                    minWidth: 0,
+                    maxWidth: "100%",
+                  }}
+                >
+                  {footerSources.map((c) => {
+                    const details = citationDetails(c);
+                    return (
+                      <Box
+                        component="li"
+                        key={c.number}
+                        sx={{ listStyle: "none", minWidth: 0 }}
+                      >
+                        <Box
+                          component="button"
+                          type="button"
+                          className="source-list-row"
+                          data-testid="citation-source"
+                          aria-label={`Open source ${c.number}: ${citationLabel(
+                            c
+                          )}`}
+                          onClick={() => handleCitationClick(c)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              handleCitationClick(c);
+                            }
+                          }}
+                          sx={{
+                            display: "flex",
+                            alignItems: "baseline",
+                            gap: 1,
+                            width: "100%",
+                            minWidth: 0,
+                            textAlign: "left",
+                            cursor: "pointer",
+                            p: "6px 0",
+                            color: brand.text,
+                            bgcolor: "transparent",
+                            border: 0,
+                            borderBottom: `1px solid ${brand.line}`,
+                            fontFamily: fonts.body,
+                            "&:hover .source-list-title": { color: brand.cyan },
+                            "&:focus-visible": {
+                              outline: `2px solid ${brand.cyan}`,
+                              outlineOffset: 2,
+                            },
+                          }}
+                        >
+                          <Box
+                            component="span"
+                            sx={{
+                              color: brand.cyan,
+                              fontFamily: fonts.mono,
+                              fontSize: 11,
+                              minWidth: 22,
+                              flexShrink: 0,
+                            }}
+                          >
+                            {c.number}.
+                          </Box>
+                          <Box
+                            component="span"
+                            sx={{
+                              minWidth: 0,
+                              flex: 1,
+                              display: "flex",
+                              alignItems: "baseline",
+                              flexWrap: "wrap",
+                              columnGap: 1,
+                            }}
+                          >
+                            <Typography
+                              component="span"
+                              className="source-list-title"
+                              sx={{
+                                fontSize: 13,
+                                fontWeight: 500,
+                                overflowWrap: "anywhere",
+                              }}
+                            >
+                              {details.title}
+                            </Typography>
+                            <Typography
+                              component="span"
+                              className="source-list-meta"
+                              sx={{
+                                color: brand.muted,
+                                fontSize: 12,
+                                overflowWrap: "anywhere",
+                              }}
+                            >
+                              {[
+                                details.repo,
+                                c.source_type === "code" ? "Code" : "Document",
+                                details.lineRange
+                                  ? `Lines ${details.lineRange}`
+                                  : null,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </Typography>
+                          </Box>
+                        </Box>
+                      </Box>
+                    );
+                  })}
+                </Box>
+              </Collapse>
+            </Box>
           </Box>
         )}
         {!isUser && (
@@ -809,7 +866,7 @@ export default function MessageBubble({
                   {debug.timings.total_seconds < 60
                     ? `${debug.timings.total_seconds.toFixed(1)}s`
                     : `${Math.floor(
-                        debug.timings.total_seconds / 60,
+                        debug.timings.total_seconds / 60
                       )}m ${Math.floor(debug.timings.total_seconds % 60)}s`}
                 </Typography>
               )}
@@ -828,7 +885,7 @@ export default function MessageBubble({
                   .writeText(content)
                   .then(() => toast.showSuccess("Answer copied."))
                   .catch((err) =>
-                    toast.showError(err, "Couldn’t copy answer."),
+                    toast.showError(err, "Couldn’t copy answer.")
                   );
               }}
             >
