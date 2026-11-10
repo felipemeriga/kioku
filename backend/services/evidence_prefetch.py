@@ -123,7 +123,17 @@ def prefetch(question, user_timezone, execute, *, filename=None, folders=()):
             # Let the shared authority resolver return not-found/ambiguous;
             # a named repo outside this scope must not become a global search.
             args["folder"] = repository[1]
-    overview = bool(
+    dated_issue_overview = bool(
+        filters
+        and re.search(
+            r"\b(?:what|which)\s+(?:were\s+the\s+)?(?:issues|problems|incidents)\b"
+            r".*\b(?:we|i)\b",
+            question,
+            re.I,
+        )
+        and not re.search(r"\bwith\s+\S+", question, re.I)
+    )
+    overview = dated_issue_overview or bool(
         re.search(
             r"\b(?:what did we work|what have we worked|group.*(?:day|repository)"
             r"|work.*(?:this|last) (?:week|month))",
