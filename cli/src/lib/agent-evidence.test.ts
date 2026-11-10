@@ -1368,6 +1368,10 @@ test("an old missing source clears its job only after the gap is published", asy
     await evidenceWorker(f.root, true, { scheduleRetry: () => {} });
     assert.equal(readdirSync(pendingDir).length, 0);
     assert.equal(commits, 1);
+    const archivedRevision = readManifest(f.root, source)!.revision;
+    await evidenceWorker(f.root, true, { scheduleRetry: () => {} });
+    assert.equal(readManifest(f.root, source)!.revision, archivedRevision);
+    assert.equal(commits, 1);
   } finally {
     if (oldHome === undefined) delete process.env.CODEX_HOME;
     else process.env.CODEX_HOME = oldHome;
