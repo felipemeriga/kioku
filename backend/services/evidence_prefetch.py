@@ -18,7 +18,9 @@ not establish absence across the whole period. For current code behavior, check 
 before relying on dated notes. If asked what starts a service, trace its caller; treat "who" in
 a code question as a component or function unless the user asks for a person or team. For an
 exact cadence, endpoint, parameter, error message, or comparison, use a targeted tool call
-when the supplied excerpt lacks the requested detail. Return a complete standalone answer."""
+when the supplied excerpt lacks the requested detail. For a dated issue recap, check every
+session-day group in the supplied inventory and include each distinct issue; a short answer
+should not silently skip a session. Return a complete standalone answer."""
 
 
 def history_question(question):
