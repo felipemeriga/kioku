@@ -887,6 +887,79 @@ class Store:
                 .values(state="needs_rebuild", updated_at=time.time())
             )
 
+    async def _finish_successful_chat(self, conn, job, attempt, result, diagnostic):
+        """Persist successful chat bookkeeping under the existing fenced transaction."""
+        now = time.time()
+        usage = result["usage"]
+        finished_attempt = (
+            update(attempts)
+            .where(attempts.c.id == attempt["id"], attempts.c.job_id == job["id"])
+            .values(
+                status="completed",
+                finished_at=now,
+                first_event_at=attempt.get("first_event_at"),
+                first_text_at=attempt.get("first_text_at"),
+                error=None,
+                usage=usage,
+                diagnostic=diagnostic,
+            )
+            .returning(attempts.c.id)
+            .cte("finished_attempt")
+        )
+        refreshed_session = (
+            update(sessions)
+            .where(
+                sessions.c.owner_id == job["owner_id"],
+                sessions.c.conversation_id == job["conversation_id"],
+                select(finished_attempt.c.id).exists(),
+            )
+            .values(
+                state="ready",
+                last_cost=usage.get("native_total_cost_usd"),
+                last_counters=usage.get("native_counters"),
+                updated_at=now,
+            )
+            .cte("refreshed_session")
+        )
+        # Terminal state and event sequence update the job exactly once. All
+        # dependent DML shares this statement and the caller's advisory lock;
+        # an event failure rolls back the session, attempt, job and lock release.
+        completed_job = (
+            update(jobs)
+            .where(jobs.c.id == job["id"], select(finished_attempt.c.id).exists())
+            .values(
+                status="completed",
+                result=result,
+                error=None,
+                next_seq=jobs.c.next_seq + 1,
+                updated_at=now,
+            )
+            .returning(jobs.c.id, (jobs.c.next_seq - 1).label("seq"))
+            .cte("completed_job")
+        )
+        released_locks = (
+            delete(locks)
+            .where(locks.c.job_id == job["id"], select(completed_job.c.id).exists())
+            .cte("released_locks")
+        )
+        statement = (
+            insert(events)
+            .from_select(
+                ["job_id", "seq", "attempt_id", "type", "data", "created_at"],
+                select(
+                    completed_job.c.id,
+                    completed_job.c.seq,
+                    literal(attempt["id"], type_=events.c.attempt_id.type),
+                    literal("job.completed", type_=events.c.type.type),
+                    literal({"result": result, "error": None}, type_=events.c.data.type),
+                    literal(now, type_=events.c.created_at.type),
+                ).select_from(completed_job),
+            )
+            .add_cte(refreshed_session, released_locks)
+            .returning(events.c.seq)
+        )
+        (await conn.execute(statement)).scalar_one()
+
     async def finish(self, attempt, status, result=None, error=None, retry=False, diagnostic=None):
         if result is not None:
             result = {**result, "attempt_id": attempt["id"]}
@@ -899,6 +972,17 @@ class Store:
                     {"code": "cancelled", "usage_complete": False},
                     False,
                 )
+            if (
+                conn.dialect.name == "postgresql"
+                and job["profile"] == "chat"
+                and job["conversation_id"]
+                and status == "completed"
+                and result
+                and error is None
+                and not retry
+            ):
+                await self._finish_successful_chat(conn, job, attempt, result, diagnostic)
+                return
             await conn.execute(
                 update(attempts)
                 .where(attempts.c.id == attempt["id"])
