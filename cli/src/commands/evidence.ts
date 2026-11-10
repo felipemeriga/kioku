@@ -41,6 +41,15 @@ interface Job {
   enqueued_at: string;
   observed_size: number;
 }
+function tailFlushAt(job: Job, lastCapture?: string): number {
+  // A fresh hook must not restart the clock for bytes already waiting locally.
+  return (
+    Math.min(
+      Date.parse(job.enqueued_at),
+      Date.parse(lastCapture || job.enqueued_at),
+    ) + 60_000
+  );
+}
 function repoRoot(cwd: string): string | null {
   try {
     return execFileSync("git", ["rev-parse", "--show-toplevel"], {
@@ -334,7 +343,7 @@ export async function evidenceWorker(
               checkpoint.event === "PostToolUse" &&
               remaining > 0 &&
               remaining < SEGMENT_TARGET &&
-              Date.now() < Date.parse(checkpoint.enqueued_at) + 60_000
+              Date.now() < tailFlushAt(checkpoint, existing?.captured_at)
             )
               continue;
             await captureSource(root, folder, source, {
@@ -343,7 +352,7 @@ export async function evidenceWorker(
               endOffset: checkpoint.observed_size || undefined,
               progress:
                 checkpoint.event === "PostToolUse" &&
-                Date.now() < Date.parse(checkpoint.enqueued_at) + 60_000,
+                Date.now() < tailFlushAt(checkpoint, existing?.captured_at),
               finalizeJournal: checkpoint.event === "Stop",
               end: ["SessionEnd", "SubagentStop"].includes(checkpoint.event),
             });
@@ -420,7 +429,10 @@ export async function evidenceWorker(
                   continue;
                 }
                 const remaining = matching.job.observed_size - covered;
-                const settleAt = Date.parse(matching.job.enqueued_at) + 60_000;
+                const settleAt = tailFlushAt(
+                  matching.job,
+                  existing?.captured_at,
+                );
                 if (
                   existing &&
                   remaining > 0 &&
@@ -463,7 +475,11 @@ export async function evidenceWorker(
                     priorOffset < 0 && matching?.job.event !== "PostToolUse",
                   progress:
                     matching?.job.event === "PostToolUse" &&
-                    Date.now() < Date.parse(matching.job.enqueued_at) + 60_000,
+                    Date.now() <
+                      tailFlushAt(
+                        matching.job,
+                        readManifest(root, source)?.captured_at,
+                      ),
                   finalizeJournal: matching?.job.event === "Stop",
                   end:
                     matching?.job.event === "SessionEnd" ||

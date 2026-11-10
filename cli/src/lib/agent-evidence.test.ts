@@ -1200,7 +1200,7 @@ test("a long checkpoint publishes its captured prefix before the worker budget e
   }
 });
 
-test("a small active tail waits without empty uploads, then flushes after one minute", async () => {
+test("fresh hooks do not postpone a small tail beyond the last capture deadline", async () => {
   const f = fixture();
   const oldHome = process.env.CODEX_HOME;
   const oldConfig = process.env.XDG_CONFIG_HOME;
@@ -1273,6 +1273,13 @@ test("a small active tail waits without empty uploads, then flushes after one mi
     assert.equal(scheduled.length, 1);
     assert.ok(scheduled[0] > now + 50_000);
     now += 61_000;
+    const pendingDir = join(f.root, ".kioku/memory/.evidence-state/pending");
+    const pendingPath = join(pendingDir, readdirSync(pendingDir)[0]);
+    const queued = readJson<{ enqueued_at: string }>(pendingPath, {
+      enqueued_at: "",
+    });
+    queued.enqueued_at = new Date(now - 30_000).toISOString();
+    writeJson(pendingPath, queued);
     await evidenceWorker(f.root, true, { scheduleRetry: () => {} });
     assert.equal(readManifest(f.root, source)!.coverage!.pending_bytes, 0);
     assert.ok(commits > 1);
