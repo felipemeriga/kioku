@@ -346,7 +346,7 @@ def prepare_turn(
             evidence,
         )
         if on_progress:
-            on_progress("analyzing", "Project sources ready")
+            on_progress("analyzing", "Search completed")
     if mode != "plain" and folders:
         # A concurrent candidate for the same logical turn must never share evidence.
         candidate_id = str(uuid4())
@@ -387,7 +387,12 @@ def prepare_turn(
 
         def retrieve(name, arguments):
             if on_progress and not timings:
-                on_progress("searching", "Checking project sources")
+                detail = (
+                    "Searching agent history"
+                    if name == "search_agent_history"
+                    else "Checking project sources"
+                )
+                on_progress("searching", detail)
             began = datetime.now(timezone.utc).isoformat()
             value = execute_tool(
                 name,
@@ -454,7 +459,7 @@ def prepare_turn(
             evidence,
         )
         if calls and on_progress:
-            on_progress("analyzing", "Project sources ready")
+            on_progress("analyzing", "Search completed")
         request["prompt"] = native_chat_prompt(
             content=content,
             history=history,
