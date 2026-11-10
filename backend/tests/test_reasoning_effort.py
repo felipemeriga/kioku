@@ -96,6 +96,7 @@ def test_legacy_deep_and_explicit_overrides_survive_both_routes(
         TestClient(app) as http,
         patch("routes.chat.get_supabase", return_value=db),
         patch("routes.chat.engine_for", return_value=engine),
+        patch("services.ai.models.resolve_native_model", return_value="resolved-haiku"),
         patch("routes.chat.stream_rag_response", return_value=iter([])) as api_stream,
         patch("services.ai.chat.prepare_turn", return_value={"id": "turn"}) as prepare,
         patch("services.ai.chat.stream_turn", return_value=iter([])),

@@ -49,6 +49,30 @@ describe("ThinkingBar", () => {
     expect(screen.getByText(/Generating/)).toBeInTheDocument();
   });
 
+  it("moves the active step as actual stream stages arrive", () => {
+    const view = renderWithProviders(
+      <ThinkingBar
+        stage={{ stage: "thinking", detail: "Preparing your answer" }}
+      />,
+    );
+    const active = () => view.container.querySelector('[aria-current="step"]');
+    expect(active()).toHaveTextContent("Thinking");
+    view.rerender(
+      <ThinkingBar
+        stage={{ stage: "searching", detail: "Checking project sources" }}
+      />,
+    );
+    expect(active()).toHaveTextContent("Searching");
+    view.rerender(
+      <ThinkingBar
+        stage={{ stage: "analyzing", detail: "Project sources ready" }}
+      />,
+    );
+    expect(active()).toHaveTextContent("Analyzing");
+    view.rerender(<ThinkingBar stage={{ stage: "generating" }} />);
+    expect(active()).toHaveTextContent("Generating");
+  });
+
   it("does not render a doc-count detail when there are no docs", () => {
     renderWithProviders(<ThinkingBar stage={{ stage: "searching" }} />);
     // Active tab (探索) shows just its English label, no " · N docs".

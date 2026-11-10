@@ -77,20 +77,47 @@ it("handles cancellation received from GET replay without another POST", async (
   expect(fetcher.mock.calls[1][0]).toBe("/api/chat/jobs/job/events?after=1");
 });
 
-it("renders a cancelled saved turn humanly before replaying any events", async () => {
+it("preserves a preparation validation status sent after SSE begins", async () => {
   const fetcher = vi
     .fn<typeof fetch>()
     .mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          id: "turn",
-          job_id: "job",
-          conversation_id: "conversation",
-          state: "cancelled",
-          error_code: "cancelled",
-        }),
+      response(
+        event({ stage: "thinking", detail: "Preparing your answer" }) +
+          event({ error: "Turn idempotency conflict", error_status: 409 }),
       ),
     );
+  const frames = vi.fn();
+  await expect(
+    runChatTransport({
+      payload: { turn_id: "turn" },
+      headers,
+      fetcher,
+      pause,
+      onFrame: frames,
+    }),
+  ).rejects.toMatchObject({
+    status: 409,
+    message: "Turn idempotency conflict",
+  });
+  expect(frames).toHaveBeenCalledWith({
+    stage: "thinking",
+    detail: "Preparing your answer",
+  });
+  expect(fetcher).toHaveBeenCalledTimes(1);
+});
+
+it("renders a cancelled saved turn humanly before replaying any events", async () => {
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        id: "turn",
+        job_id: "job",
+        conversation_id: "conversation",
+        state: "cancelled",
+        error_code: "cancelled",
+      }),
+    ),
+  );
   await expect(
     runChatTransport({
       payload: {},
@@ -142,6 +169,45 @@ it.each([
 );
 
 describe("durable native chat transport", () => {
+  it("repeats the same stable-id POST if the preparation stream drops before admission", async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        response(event({ stage: "thinking", native_preparing: true })),
+      )
+      .mockResolvedValueOnce(new Response("{}", { status: 404 }))
+      .mockResolvedValueOnce(new Response("{}", { status: 404 }))
+      .mockResolvedValueOnce(new Response("{}", { status: 404 }))
+      .mockResolvedValueOnce(new Response("{}", { status: 404 }))
+      .mockResolvedValueOnce(new Response("{}", { status: 404 }))
+      .mockResolvedValueOnce(
+        response(
+          event({ job_id: "job", event_id: 1, replace: "saved", done: true }),
+        ),
+      );
+    const frames = vi.fn();
+    await runChatTransport({
+      payload: { turn_id: "stable" },
+      headers,
+      fetcher,
+      pause,
+      onFrame: frames,
+    });
+    expect(fetcher.mock.calls.map((call) => call[1]?.method)).toEqual([
+      "POST",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "POST",
+    ]);
+    expect(fetcher.mock.calls.at(-1)?.[1]?.body).toBe(
+      JSON.stringify({ turn_id: "stable" }),
+    );
+    expect(frames.mock.calls.at(-1)?.[0].done).toBe(true);
+  });
+
   it("reconnects after last processed event and deduplicates deltas before canonical replacement", async () => {
     const fetcher = vi
       .fn<typeof fetch>()

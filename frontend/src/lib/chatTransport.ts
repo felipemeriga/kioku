@@ -42,10 +42,10 @@ function chatFailure(error: unknown, status: number, explicitCode?: unknown) {
     typeof explicitCode === "string"
       ? explicitCode
       : typeof nestedCode === "string"
-        ? nestedCode
-        : typeof error === "string" && Object.hasOwn(nativeMessages, error)
-          ? error
-          : undefined;
+      ? nestedCode
+      : typeof error === "string" && Object.hasOwn(nativeMessages, error)
+      ? error
+      : undefined;
   let message =
     code && Object.hasOwn(nativeMessages, code)
       ? nativeMessages[code]
@@ -72,8 +72,8 @@ function terminalFailure(turn: { error_code?: unknown; state?: string }) {
     (turn.state === "cancelled"
       ? "cancelled"
       : turn.state === "uncertain"
-        ? "execution_uncertain"
-        : undefined);
+      ? "execution_uncertain"
+      : undefined);
   return chatFailure(undefined, 409, code);
 }
 
@@ -95,6 +95,7 @@ export async function runChatTransport(options: {
   let first = true;
   const turnId = options.resume?.turn_id ?? options.payload.turn_id;
   let knownNative = false;
+  let nativePreparing = false;
 
   async function recover(): Promise<void> {
     if (jobId) return;
@@ -126,6 +127,13 @@ export async function runChatTransport(options: {
           response.status,
         );
       await pause(250 * (attempt + 1));
+    }
+    // The first SSE frame can arrive before the durable turn is admitted.
+    // Repeating only this stable-id native POST is safe: preparation isolates
+    // concurrent candidates and admission accepts one immutable request.
+    if (nativePreparing && !options.resume) {
+      first = true;
+      return;
     }
     throw new ChatTransportError(
       "Connection lost. Reload the conversation to check its saved answer.",
@@ -179,10 +187,10 @@ export async function runChatTransport(options: {
             typeof body.detail?.code === "string"
               ? body.detail.code
               : typeof body.error?.code === "string"
-                ? body.error.code
-                : typeof body.error_code === "string"
-                  ? body.error_code
-                  : undefined;
+              ? body.error.code
+              : typeof body.error_code === "string"
+              ? body.error_code
+              : undefined;
           detail = body.detail ?? body.error;
         } catch {
           /* Preserve HTTP status for non-JSON proxy errors. */
@@ -221,6 +229,10 @@ export async function runChatTransport(options: {
               jobId = frame.job_id;
               knownNative = true;
             }
+            if (frame.native_preparing === true) {
+              nativePreparing = true;
+              knownNative = true;
+            }
             const sequence =
               typeof frame.event_id === "number" ? frame.event_id : undefined;
             if (sequence !== undefined && sequence <= cursor && !frame.done)
@@ -257,5 +269,12 @@ export async function runChatTransport(options: {
 }
 
 function dataRecoveryStatus(frame: ChatFrame): number {
+  if (
+    typeof frame.error_status === "number" &&
+    Number.isInteger(frame.error_status) &&
+    frame.error_status >= 400 &&
+    frame.error_status <= 599
+  )
+    return frame.error_status;
   return frame.recovery_required ? 409 : 500;
 }

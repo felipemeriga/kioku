@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
-from services.ai.chat import prepare_turn, publish_turn
+from services.ai.chat import prepare_turn, publish_turn, stream_preparing_turn, stream_turn
 from services.ai.client import ExecutionError, ExecutionResult
 from services.ai.evidence import materialize_bootstrap
 from services.ai.scope import ExecutionScope
@@ -205,6 +205,7 @@ def test_preparation_retrieves_current_scoped_evidence_and_plain_stays_unchanged
         return SimpleNamespace(execute=lambda: SimpleNamespace(data={"request": body["p_request"]}))
 
     db.rpc.side_effect = rpc
+    progress = []
     with (
         patch("services.ai.chat.get_supabase_thread_safe", return_value=db),
         patch("services.ai.chat.descendant_folder_ids", return_value=["folder"]),
@@ -220,7 +221,9 @@ def test_preparation_retrieves_current_scoped_evidence_and_plain_stays_unchanged
             mode=mode,
             folder_id="folder",
             filename="guide.md",
+            on_progress=lambda stage, detail: progress.append((stage, detail)),
         )
+    assert [stage for stage, _detail in progress] == ["searching", "analyzing"]
     search.assert_called_once()
     assert search.call_args.kwargs["fast_mode"] is True
     assert search.call_args.kwargs["scope_folder_ids"] == ["folder"]
@@ -240,6 +243,77 @@ def test_preparation_retrieves_current_scoped_evidence_and_plain_stays_unchanged
         assert trace.call_args.args[4]["native_tool_use_id"] is None
         assert "no native tool call" in trace.call_args.args[4]["native_tool_use_id_availability"]
     assert turn["request"]["profile"] == ("completion" if mode == "plain" else "chat")
+
+
+def test_native_preparation_streams_real_progress_before_execution():
+    from threading import Event
+
+    release = Event()
+
+    def prepare(progress):
+        progress("searching", "Checking project sources")
+        assert release.wait(2)
+        progress("analyzing", "Project sources ready")
+        return {"id": "turn"}
+
+    with (
+        patch("services.ai.chat.wake_reconciliation") as wake,
+        patch(
+            "services.ai.chat.stream_turn", return_value=iter(['data: {"done": true}\n\n'])
+        ) as stream,
+    ):
+        frames = stream_preparing_turn(prepare)
+        assert json.loads(next(frames)[6:])["stage"] == "thinking"
+        assert json.loads(next(frames)[6:])["stage"] == "searching"
+        release.set()
+        assert json.loads(next(frames)[6:])["stage"] == "analyzing"
+        assert json.loads(next(frames)[6:])["done"] is True
+        wake.assert_called_once()
+        stream.assert_called_once_with({"id": "turn"})
+
+
+def test_native_preparation_preserves_validation_error_status_in_sse():
+    def prepare(_progress):
+        raise HTTPException(409, "Turn idempotency conflict")
+
+    frames = stream_preparing_turn(prepare)
+    assert json.loads(next(frames)[6:])["stage"] == "thinking"
+    assert json.loads(next(frames)[6:]) == {
+        "error": "Turn idempotency conflict",
+        "error_status": 409,
+    }
+
+
+def test_prefetched_execution_keeps_analyzing_stage_until_text_or_new_tool():
+    turn = {
+        "id": "turn",
+        "job_id": "job",
+        "owner_id": "owner",
+        "request": {
+            "operation": "rag_agent",
+            "profile": "chat",
+            "metadata": {"prefetched_evidence": True},
+        },
+    }
+    client = MagicMock()
+    client.events.return_value = iter(
+        [
+            {"seq": 1, "type": "job.queued", "data": {}},
+            {"seq": 2, "type": "attempt.started", "data": {}},
+            {"seq": 3, "type": "text.delta", "data": {"text": "answer"}},
+        ]
+    )
+    with (
+        patch("services.ai.chat.submit_turn", return_value=turn),
+        patch("services.ai.chat.turn_scope", return_value=ExecutionScope("owner")),
+        patch("services.ai.chat.client_for", return_value=client),
+    ):
+        frames = [json.loads(frame.split("data: ", 1)[1]) for frame in stream_turn(turn)]
+    assert [frame["stage"] for frame in frames if "stage" in frame] == [
+        "analyzing",
+        "analyzing",
+        "generating",
+    ]
 
 
 def test_zero_native_tools_can_publish_only_current_bootstrap_citation():
