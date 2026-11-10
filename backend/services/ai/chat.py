@@ -71,15 +71,58 @@ def native_chat_prompt(*, content, history, turn_id, time_context, evidence):
     )
 
 
-def owned_turn(owner_id: str, *, turn_id: str | None = None, job_id: str | None = None) -> dict:
+_TOOL_AUTHORITY_COLUMNS = (
+    "id,owner_id,conversation_id,job_id,"
+    "operation:request->>operation,profile:request->>profile,"
+    "folder_ids:request->folder_ids,tool_allowlist:request->tool_allowlist,"
+    "intent:request->metadata->intent"
+)
+
+
+def owned_turn(
+    owner_id: str,
+    *,
+    turn_id: str | None = None,
+    job_id: str | None = None,
+    authority_only: bool = False,
+) -> dict:
     query = (
-        get_supabase_thread_safe().table("tsukai_chat_turns").select("*").eq("owner_id", owner_id)
+        get_supabase_thread_safe()
+        .table("tsukai_chat_turns")
+        .select(_TOOL_AUTHORITY_COLUMNS if authority_only else "*")
+        .eq("owner_id", owner_id)
     )
     query = query.eq("id", turn_id) if turn_id else query.eq("job_id", job_id)
     rows = query.limit(1).execute().data or []
     if not rows:
         raise HTTPException(404, "Execution not found")
-    return rows[0]
+    turn = rows[0]
+    if not authority_only:
+        return turn
+    # MCP authentication reads fresh ownership and scope on every request, but
+    # never needs the prepared prompt, system instructions or original evidence.
+    # PostgREST JSON projections keep those large/private values out of this read.
+    if (
+        not isinstance(turn.get("operation"), str)
+        or not isinstance(turn.get("profile"), str)
+        or not isinstance(turn.get("intent"), dict)
+        or any(
+            not isinstance(turn.get(key), list)
+            or any(not isinstance(value, str) for value in turn[key])
+            for key in ("folder_ids", "tool_allowlist")
+        )
+    ):
+        raise HTTPException(403, "Invalid native tool authority")
+    return {
+        **{key: turn[key] for key in ("id", "owner_id", "conversation_id", "job_id")},
+        "request": {
+            "operation": turn["operation"],
+            "profile": turn["profile"],
+            "folder_ids": turn["folder_ids"],
+            "tool_allowlist": turn["tool_allowlist"],
+            "metadata": {"intent": turn["intent"]},
+        },
+    }
 
 
 def turn_scope(turn: dict) -> ExecutionScope:
