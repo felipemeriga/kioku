@@ -180,6 +180,35 @@ def test_overview_prefetch_pages_days_and_retains_remaining_coverage():
     assert pages[-1]["activity"]["has_more"] is True
 
 
+def test_dated_issue_recap_reads_the_whole_day_within_its_repository_scope():
+    calls = []
+
+    def execute(name, args):
+        calls.append((name, args))
+        return json.dumps({"matches": [], "activity": {"days": [], "has_more": False}})
+
+    prefetch(
+        "What issues did we have in c360-lead on November 6, 2026?",
+        "America/Sao_Paulo",
+        execute,
+        folders=[{"id": "owned", "name": "c360-lead"}],
+    )
+    assert calls == [
+        (
+            "search_agent_history",
+            {
+                "query": "",
+                "timezone": "America/Sao_Paulo",
+                "order": "chronological",
+                "from_date": "2026-11-06",
+                "through_date": "2026-11-06",
+                "folder": "owned",
+                "projection": "overview",
+            },
+        )
+    ]
+
+
 def test_no_tools_request_does_not_silently_retrieve_documents():
     def execute(*_):
         raise AssertionError("Unexpected retrieval")
