@@ -51,7 +51,8 @@ NATIVE_CHAT_PROMPT = SYSTEM_PROMPT + (
     "shells, web tools outside Kioku, or claim native memory proves repository facts. "
     "For current code behavior, prefer indexed source to dated notes; trace callers "
     "when asked what starts a service. For an exact cadence, endpoint, parameter, "
-    "error, or comparison, search again if supplied evidence lacks the detail."
+    "error, or comparison, search again if supplied evidence lacks the detail. "
+    "For dated history recaps, cover each session-day group in the returned inventory."
 )
 NATIVE_CHAT_MAX_TOKENS = 6000
 NATIVE_CHAT_MAX_TURNS = 8
