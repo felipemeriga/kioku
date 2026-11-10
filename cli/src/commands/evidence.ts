@@ -383,6 +383,7 @@ export async function evidenceWorker(
             try {
               const existingManifest = readManifest(root, source);
               if (
+                matching &&
                 !existsSync(source.path) &&
                 existingManifest?.gaps.some(
                   (gap) => gap.code === "source_unreadable",
@@ -392,9 +393,17 @@ export async function evidenceWorker(
                   join(sessionDir(root, source), ".sync.json"),
                   {},
                 );
+                const gapPublished =
+                  sync.manifest_hash === hash(JSON.stringify(existingManifest));
                 if (
-                  sync.manifest_hash !== hash(JSON.stringify(existingManifest))
+                  gapPublished &&
+                  Date.now() - Date.parse(matching.job.enqueued_at) >=
+                    24 * 60 * 60 * 1000
                 ) {
+                  rmSync(matching.path, { force: true });
+                  continue;
+                }
+                if (!gapPublished) {
                   try {
                     await syncEvidence(
                       root,
