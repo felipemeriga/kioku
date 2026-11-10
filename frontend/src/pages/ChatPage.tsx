@@ -95,7 +95,7 @@ export default function ChatPage() {
       revealTick.current = time;
       const next = Math.min(
         streamingRef.current.length,
-        revealedRef.current.length + Math.max(1, Math.ceil(elapsed * 2.4))
+        revealedRef.current.length + Math.max(1, Math.ceil(elapsed * 0.65))
       );
       revealedRef.current = streamingRef.current.slice(0, next);
       setStreamingContent(revealedRef.current);
@@ -118,7 +118,7 @@ export default function ChatPage() {
       revealedRef.current = streamingRef.current;
       setStreamingContent(streamingRef.current);
       done();
-    }, Math.min(900, Math.ceil(remaining / 2.4)));
+    }, Math.min(1600, Math.ceil(remaining / 0.65)));
   };
   useEffect(() => () => stopReveal(), []);
   const activeJob = useRef<string | null>(null);
