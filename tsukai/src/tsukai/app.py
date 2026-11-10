@@ -37,7 +37,11 @@ def create_app(settings=None, store=None, native=None):
     if store is None:
         # Defer production configuration validation to startup, so tooling can import.
         store = (
-            Store(settings.database_url, workspace_dir=settings.workspace_dir)
+            Store(
+                settings.database_url,
+                workspace_dir=settings.workspace_dir,
+                root_parallelism=settings.root_parallelism,
+            )
             if settings.database_url
             else None
         )
