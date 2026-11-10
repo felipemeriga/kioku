@@ -5,7 +5,12 @@ from datetime import datetime, timezone
 
 import pytest
 
-from services.evidence_prefetch import date_filters, history_question, prefetch
+from services.evidence_prefetch import (
+    date_filters,
+    history_question,
+    prefetch,
+    source_search_query,
+)
 
 NOW = datetime(2026, 11, 9, 2, tzinfo=timezone.utc)  # Still Sunday in São Paulo.
 
@@ -72,6 +77,46 @@ def test_document_scope_cannot_expand_into_history():
     evidence, _ = prefetch("What did we try?", "UTC", execute, filename="only-this.pdf")
     assert calls == ["knowledge_base_search"]
     assert evidence == "Document evidence [1]"
+
+
+def test_vague_current_code_question_uses_scoped_source_query_once():
+    calls = []
+
+    def execute(name, args):
+        calls.append((name, args))
+        return "Current source [1]"
+
+    evidence, _ = prefetch(
+        "How does the new guardrails work?",
+        "UTC",
+        execute,
+        repo_name="c360-lead",
+    )
+    assert evidence == "Current source [1]"
+    assert calls == [
+        (
+            "knowledge_base_search",
+            {
+                "query": (
+                    "How does the guardrails work? current source code implementation in c360-lead"
+                )
+            },
+        )
+    ]
+
+
+def test_source_query_adds_caller_and_failure_context_without_extra_calls():
+    caller = source_search_query(
+        "Who is responsible for starting the SES ingester in the backend-services code?",
+        "c360-cx-video-hub-cloud",
+    )
+    assert "scheduler caller invokes launch function" in caller
+    assert "in c360-cx-video-hub-cloud" in caller
+    errors = source_search_query("What errors print if it can't start the ingester?", "repo")
+    assert "caller logger.error catch cleanup" in errors
+    assert source_search_query("What did the documentation say?", "repo") == (
+        "What did the documentation say?"
+    )
 
 
 def test_duplicate_transcript_projections_do_not_consume_both_expansions():
