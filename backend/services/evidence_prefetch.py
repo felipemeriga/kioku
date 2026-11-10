@@ -122,6 +122,8 @@ def source_search_query(question: str, repo_name: str | None = None) -> str:
         r"\b(?:start|starting|launch)\b", low
     ):
         query += " caller logger.error catch cleanup underlying start function thrown errors"
+    if "scheduler" in low and re.search(r"\b(?:how often|interval|cadence)\b", low):
+        query += " game update cron scan schedule interval distinct from status poll"
     if repo_name and repo_name.lower() not in low:
         query += f" in {repo_name}"
     return query
@@ -144,7 +146,21 @@ def prefetch(question, user_timezone, execute, *, filename=None, folders=(), rep
         return json.dumps({"source": "none", "reason": "User requested no tool use."}), calls
     if filename or not history_question(question):
         query = source_search_query(question, repo_name)
-        return run("knowledge_base_search", {"query": query}), calls
+        first = run("knowledge_base_search", {"query": query})
+        if not filename and re.search(r"\b(?:arguments|parameters|query params)\b", question, re.I):
+            endpoint = re.search(r"/[a-z0-9_/-]+", question, re.I)
+            if endpoint:
+                definitions = run(
+                    "knowledge_base_search",
+                    {
+                        "query": (
+                            f"{endpoint.group()} parameter definitions schema required "
+                            "type default allowed values"
+                        )
+                    },
+                )
+                return f"Endpoint evidence:\n{first}\nParameter definitions:\n{definitions}", calls
+        return first, calls
 
     filters = date_filters(question, user_timezone)
     args = {"query": question, "timezone": user_timezone, "order": "relevance", **filters}
