@@ -20,7 +20,9 @@ a code question as a component or function unless the user asks for a person or 
 exact cadence, endpoint, parameter, error message, or comparison, use a targeted tool call
 when the supplied excerpt lacks the requested detail. For a dated issue recap, check every
 session-day group in the supplied inventory and include each distinct issue; a short answer
-should not silently skip a session. Return a complete standalone answer."""
+should not silently skip a session. When a code graph result identifies a file and line but
+the search excerpt lacks the implementation, use code_graph_lookup source for that exact line.
+Return a complete standalone answer."""
 
 
 def history_question(question):

@@ -97,6 +97,7 @@ TOOL_DEFINITIONS = [
             "  • references — who calls / references a symbol (call sites)\n"
             "  • impact — transitive callers, i.e. blast radius of changing a symbol\n"
             "  • outline — every symbol under a file or directory path\n"
+            "  • source — read indexed code at an exact file and line returned by the graph\n"
             "Examples: 'where is update_phase defined', 'who calls createGameCameras', "
             "'what breaks if I change embed_query', 'outline the ses/ingester folder'."
         ),
@@ -105,11 +106,12 @@ TOOL_DEFINITIONS = [
             "properties": {
                 "operation": {
                     "type": "string",
-                    "enum": ["definition", "references", "impact", "outline"],
+                    "enum": ["definition", "references", "impact", "outline", "source"],
                     "description": (
                         "definition = where a symbol is defined; references = who "
                         "calls/uses it; impact = transitive callers (blast radius); "
-                        "outline = all symbols under a file/directory path."
+                        "outline = all symbols under a file/directory path; "
+                        "source = read indexed code at an exact file and line."
                     ),
                 },
                 "symbol": {
@@ -122,7 +124,16 @@ TOOL_DEFINITIONS = [
                 },
                 "path": {
                     "type": "string",
-                    "description": "File or directory path prefix for the outline operation.",
+                    "description": (
+                        "File or directory prefix for outline; exact repository-relative "
+                        "file path for source."
+                    ),
+                },
+                "line": {
+                    "type": "integer",
+                    "description": (
+                        "Positive source line from a definition or search result (source only)."
+                    ),
                 },
             },
             "required": ["operation"],
@@ -163,6 +174,8 @@ def _code_graph_lookup(
     scope_filename: str | None = None,
     *,
     user_id: str | None = None,
+    citations: CitationRegistry | None = None,
+    debug_retrieval: list | None = None,
 ) -> str:
     """Query the code graph across every repo in scope. Symbols/edges are
     per-folder, so we fan out over the scope folders and label each hit with
@@ -177,6 +190,79 @@ def _code_graph_lookup(
         return f"The '{op}' operation needs a 'symbol'."
     if op == "outline" and not path:
         return "The 'outline' operation needs a 'path'."
+    if op == "source":
+        line = tool_input.get("line")
+        if (
+            user_id is None
+            or not path
+            or len(path) > 300
+            or path.startswith("/")
+            or "\\" in path
+            or any(part in ("", ".", "..") for part in path.split("/"))
+            or type(line) is not int
+            or not 1 <= line <= 10_000_000
+        ):
+            return "The 'source' operation needs a repository-relative file path and positive line."
+        if scope_filename and path != scope_filename:
+            return "That file is outside this turn's selected-file scope."
+        sb = get_supabase()
+        rows = (
+            sb.table("code_chunks")
+            .select("id,folder_id,file,symbol,start_line,end_line,content,file_hash,created_at")
+            .eq("user_id", user_id)
+            .in_("folder_id", folders)
+            .eq("file", path)
+            .lte("start_line", line)
+            .gte("end_line", line)
+            .order("start_line")
+            .limit(8)
+            .execute()
+            .data
+            or []
+        )
+        if not rows:
+            return f"No indexed source covers {path}:{line} in the repositories in scope."
+        names = _folder_names(sb, folders)
+        results = [
+            {
+                "source_type": "code",
+                "content": row["content"],
+                "metadata": {
+                    "folder_id": row["folder_id"],
+                    "source_id": row["id"],
+                    "source_filename": f"{path}:{row['start_line']}-{row['end_line']}",
+                    "code_symbol": row.get("symbol"),
+                    "revision_id": row.get("file_hash"),
+                },
+            }
+            for row in rows
+        ]
+        batch = getattr(citations, "register_many", None) if citations is not None else None
+        numbers = batch(results) if callable(batch) else None
+        if debug_retrieval is not None:
+            debug_retrieval.extend(
+                {
+                    "source": result["metadata"]["source_filename"],
+                    "source_type": "code",
+                    "content": result["content"],
+                    "folder_id": result["metadata"]["folder_id"],
+                }
+                for result in results
+            )
+        parts = []
+        for index, (row, result) in enumerate(zip(rows, results)):
+            number = (
+                numbers[index]
+                if numbers is not None
+                else (citations.register(result) if citations is not None else None)
+            )
+            label = f"[{number}] " if number is not None else ""
+            parts.append(
+                f"{label}Code: [{names.get(row['folder_id'], row['folder_id'])}] "
+                f"{result['metadata']['source_filename']} — {row.get('symbol') or 'source'}\n"
+                f"{row['content']}"
+            )
+        return "\n\n---\n\n".join(parts)[:16_000]
 
     sb = get_supabase()
     names = _folder_names(sb, folders)
@@ -482,7 +568,14 @@ def execute_tool(
         return "\n\n---\n\n".join(parts)
 
     if tool_name == "code_graph_lookup":
-        return _code_graph_lookup(tool_input, scope_folder_ids, scope_filename, user_id=user_id)
+        return _code_graph_lookup(
+            tool_input,
+            scope_folder_ids,
+            scope_filename,
+            user_id=user_id,
+            citations=citations,
+            debug_retrieval=debug_retrieval,
+        )
 
     if tool_name == "recent_changes":
         return _recent_changes(user_id, scope_folder_ids)
