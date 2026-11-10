@@ -318,6 +318,19 @@ class Store:
         )
         return dict((await conn.execute(statement)).mappings().one())
 
+    @staticmethod
+    async def _trace_queue_stage(stage, operation):
+        """Identify slow queue steps without exposing SQL or request contents."""
+        started = time.monotonic()
+        try:
+            return await operation
+        finally:
+            elapsed = time.monotonic() - started
+            if elapsed >= 1:
+                logging.getLogger("uvicorn.error").warning(
+                    "native_queue_stage stage=%s elapsed_seconds=%.6f", stage, elapsed
+                )
+
     async def admit(self, request: JobRequest, queue_capacity=100, request_sha256=None):
         payload = request.model_dump(mode="json")
         digest = hashlib.sha256(
@@ -326,7 +339,9 @@ class Store:
         now = time.time()
         async with self.transaction("admit") as conn:
             snapshot = (
-                await self._admission_snapshot(conn, request)
+                await self._trace_queue_stage(
+                    "admit.snapshot", self._admission_snapshot(conn, request)
+                )
                 if conn.dialect.name == "postgresql"
                 else None
             )
@@ -466,34 +481,43 @@ class Store:
                             updated_at=now,
                         )
                     )
-            await conn.execute(
-                insert(jobs).values(
-                    id=job_id,
-                    owner_id=request.owner_id,
-                    caller=request.caller,
-                    idempotency_key=request.idempotency_key,
-                    payload_hash=digest,
-                    request_sha256=request_sha256 or digest,
-                    request=payload,
-                    status="queued",
-                    profile=request.profile,
-                    conversation_id=request.conversation_id,
-                    attempt_count=0,
-                    next_seq=1,
-                    created_at=now,
-                    updated_at=now,
-                    # A burst's third root must be able to wait for either occupied
-                    # 300s root slot, with 30s scheduling grace. Keep the queue bounded
-                    # without increasing native concurrency or the execution limit.
-                    queue_deadline=now + (330 if is_interactive_job(payload) else 1800),
-                    cancel_requested=False,
-                )
+            await self._trace_queue_stage(
+                "admit.insert_job",
+                conn.execute(
+                    insert(jobs).values(
+                        id=job_id,
+                        owner_id=request.owner_id,
+                        caller=request.caller,
+                        idempotency_key=request.idempotency_key,
+                        payload_hash=digest,
+                        request_sha256=request_sha256 or digest,
+                        request=payload,
+                        status="queued",
+                        profile=request.profile,
+                        conversation_id=request.conversation_id,
+                        attempt_count=0,
+                        next_seq=1,
+                        created_at=now,
+                        updated_at=now,
+                        # A burst's third root must be able to wait for either occupied
+                        # 300s root slot, with 30s scheduling grace. Keep the queue bounded
+                        # without increasing native concurrency or the execution limit.
+                        queue_deadline=now + (330 if is_interactive_job(payload) else 1800),
+                        cancel_requested=False,
+                    )
+                ),
             )
             if request.conversation_id:
-                await conn.execute(
-                    insert(locks).values(key=key, job_id=job_id, lease_until=now + 30)
+                await self._trace_queue_stage(
+                    "admit.insert_lock",
+                    conn.execute(
+                        insert(locks).values(key=key, job_id=job_id, lease_until=now + 30)
+                    ),
                 )
-            await self._event(conn, job_id, "job.queued", {"profile": request.profile})
+            await self._trace_queue_stage(
+                "admit.queued_event",
+                self._event(conn, job_id, "job.queued", {"profile": request.profile}),
+            )
         return await self.get(job_id)
 
     async def get(self, job_id):
@@ -540,13 +564,15 @@ class Store:
         if not await self.dispatch_needed():
             return []
         async with self.transaction("dispatch") as conn:
-            await self._expire_queued(conn)
-            await self._recover(conn)
+            await self._trace_queue_stage("dispatch.expire", self._expire_queued(conn))
+            await self._trace_queue_stage("dispatch.recover", self._recover(conn))
             claimed = []
             maximum = self.root_parallelism + 1  # One independent metadata-child lane.
             capacity = maximum if capacity is None else min(capacity, maximum)
             for _ in range(max(0, capacity)):
-                claim = await self._claim(conn, worker_id)
+                claim = await self._trace_queue_stage(
+                    "dispatch.claim", self._claim(conn, worker_id)
+                )
                 if claim is None:
                     break
                 claimed.append(claim)
