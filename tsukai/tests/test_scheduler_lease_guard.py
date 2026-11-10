@@ -220,3 +220,31 @@ async def test_publisher_fence_stops_active_native_before_local_lease_expiry(tmp
     await asyncio.wait_for(value.execute(current), 1)
     value.native.stop.assert_awaited()
     assert value.store.finish.call_args.args[1] == "cancelled"
+
+
+async def test_cancel_racing_completed_append_failure_consumes_private_exception(
+    tmp_path, monkeypatch, caplog
+):
+    consumed = []
+
+    class ObservedTask(asyncio.Task):
+        def exception(self):
+            consumed.append(True)
+            return super().exception()
+
+    value = scheduler(tmp_path, append=AsyncMock(side_effect=RuntimeError("private SQL marker")))
+
+    async def interrupted_wait(operations, **_kwargs):
+        while not all(operation.done() for operation in operations):
+            await asyncio.sleep(0)
+        # Cancellation wins before append_with_lease can inspect result().
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(asyncio, "create_task", lambda operation: ObservedTask(operation))
+    monkeypatch.setattr(asyncio, "wait", interrupted_wait)
+    with pytest.raises(asyncio.CancelledError):
+        await value.append_with_lease(
+            {"lease_until": time.time() + 60}, "text.delta", {"text": "fixture"}
+        )
+    assert consumed == [True]
+    assert "private SQL marker" not in caplog.text
