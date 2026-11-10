@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import ssl
 import time
@@ -32,6 +33,8 @@ from sqlalchemy.sql.selectable import CompoundSelect, Select
 from .config import NATIVE_VERSION, heavy_maintenance
 from .protocol import TERMINAL, JobRequest
 from .tables import acks, attempts, events, jobs, locks, metadata, sessions, tombstones
+
+TRANSACTION_WARN_SECONDS = 5
 
 
 class Conflict(Exception):
@@ -132,14 +135,78 @@ class Store:
             await conn.run_sync(metadata.create_all)
 
     @asynccontextmanager
-    async def transaction(self):
-        # Advisory transaction lock coordinates replicas and all admission/lease updates.
-        # No native IO occurs under this lock. SQLite is fixture-only.
-        async with self._local_lock:
-            async with self.engine.begin() as conn:
-                if conn.dialect.name == "postgresql":
-                    await conn.execute(text("SELECT pg_advisory_xact_lock(831740221)"))
-                yield conn
+    async def transaction(self, operation="transaction", *, job_id=None, attempt_id=None):
+        # Preserve the same locking/commit semantics; report stalled authority IO
+        # without ever logging SQL, parameters, credentials or provider content.
+        started = phase_started = time.monotonic()
+        phase = "local_lock"
+        durations = {}
+        logger = logging.getLogger("uvicorn.error")
+        loop = asyncio.get_running_loop()
+
+        def report(outcome, error_type=None, sqlstate=None):
+            logger.warning(
+                "native_transaction outcome=%s operation=%s job_id=%s attempt_id=%s "
+                "phase=%s phase_seconds=%.6f elapsed_seconds=%.6f "
+                "local_lock_seconds=%.6f connection_begin_seconds=%.6f "
+                "advisory_lock_seconds=%.6f body_seconds=%.6f commit_seconds=%.6f "
+                "error_type=%s sqlstate=%s",
+                outcome,
+                operation,
+                job_id,
+                attempt_id,
+                phase,
+                time.monotonic() - phase_started,
+                time.monotonic() - started,
+                durations.get("local_lock", 0),
+                durations.get("connection_begin", 0),
+                durations.get("advisory_lock", 0),
+                durations.get("body", 0),
+                durations.get("commit", 0),
+                error_type,
+                sqlstate,
+            )
+
+        def stalled():
+            report("waiting")
+
+        timer = loop.call_later(TRANSACTION_WARN_SECONDS, stalled)
+
+        def advance(next_phase):
+            nonlocal phase, phase_started, timer
+            durations[phase] = time.monotonic() - phase_started
+            phase, phase_started = next_phase, time.monotonic()
+            timer.cancel()
+            timer = loop.call_later(TRANSACTION_WARN_SECONDS, stalled)
+
+        try:
+            async with self._local_lock:
+                advance("connection_begin")
+                async with self.engine.begin() as conn:
+                    try:
+                        advance("advisory_lock")
+                        if conn.dialect.name == "postgresql":
+                            await conn.execute(text("SELECT pg_advisory_xact_lock(831740221)"))
+                        advance("body")
+                        yield conn
+                    except BaseException:
+                        advance("rollback")
+                        raise
+                    else:
+                        advance("commit")
+                durations["commit"] = time.monotonic() - phase_started
+            if time.monotonic() - started >= TRANSACTION_WARN_SECONDS:
+                report("committed")
+        except BaseException as exc:
+            sqlstate = getattr(exc, "sqlstate", None) or getattr(
+                getattr(exc, "orig", None), "sqlstate", None
+            )
+            if not isinstance(sqlstate, str) or len(sqlstate) != 5 or not sqlstate.isalnum():
+                sqlstate = None
+            report("failed", type(exc).__name__, sqlstate)
+            raise
+        finally:
+            timer.cancel()
 
     async def ping(self):
         async with self.read_connection() as conn:
@@ -249,7 +316,7 @@ class Store:
             json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
         ).hexdigest()
         now = time.time()
-        async with self.transaction() as conn:
+        async with self.transaction("admit") as conn:
             snapshot = (
                 await self._admission_snapshot(conn, request)
                 if conn.dialect.name == "postgresql"
@@ -441,7 +508,7 @@ class Store:
             return [dict(r) for r in rows.mappings()]
 
     async def expire_queued(self):
-        async with self.transaction() as conn:
+        async with self.transaction("expire_queued") as conn:
             return await self._expire_queued(conn)
 
     async def _expire_queued(self, conn):
@@ -464,7 +531,7 @@ class Store:
         """Reap and claim atomically with one shared-lock transaction per tick."""
         if not await self.dispatch_needed():
             return []
-        async with self.transaction() as conn:
+        async with self.transaction("dispatch") as conn:
             await self._expire_queued(conn)
             await self._recover(conn)
             claimed = []
@@ -501,7 +568,7 @@ class Store:
             )
 
     async def claim(self, worker_id, only_job_id=None):
-        async with self.transaction() as conn:
+        async with self.transaction("claim") as conn:
             return await self._claim(conn, worker_id, only_job_id)
 
     async def _claim(self, conn, worker_id, only_job_id=None):
@@ -794,7 +861,9 @@ class Store:
         return job
 
     async def heartbeat(self, attempt):
-        async with self.transaction() as conn:
+        async with self.transaction(
+            "heartbeat", job_id=attempt["job_id"], attempt_id=attempt["id"]
+        ) as conn:
             job = await self._owned(conn, attempt)
             lease_until = time.time() + 30
             await conn.execute(
@@ -813,7 +882,9 @@ class Store:
         return cancelled
 
     async def append(self, attempt, kind, data):
-        async with self.transaction() as conn:
+        async with self.transaction(
+            "append", job_id=attempt["job_id"], attempt_id=attempt["id"]
+        ) as conn:
             await self._owned(conn, attempt)
             if conn.dialect.name == "postgresql":
                 # Preserve the same fenced/advisory-locked transaction. Dependent
@@ -963,7 +1034,9 @@ class Store:
     async def finish(self, attempt, status, result=None, error=None, retry=False, diagnostic=None):
         if result is not None:
             result = {**result, "attempt_id": attempt["id"]}
-        async with self.transaction() as conn:
+        async with self.transaction(
+            "finish", job_id=attempt["job_id"], attempt_id=attempt["id"]
+        ) as conn:
             job = await self._owned(conn, attempt)
             if job["cancel_requested"]:
                 status, result, error, retry = (
@@ -1037,7 +1110,7 @@ class Store:
             await self._terminal(conn, job, status, result, error, attempt["id"])
 
     async def recover(self):
-        async with self.transaction() as conn:
+        async with self.transaction("recover") as conn:
             return await self._recover(conn)
 
     async def _recover(self, conn):
@@ -1077,7 +1150,7 @@ class Store:
         return len(expired)
 
     async def cancel(self, job_id):
-        async with self.transaction() as conn:
+        async with self.transaction("cancel") as conn:
             job = (await conn.execute(select(jobs).where(jobs.c.id == job_id))).mappings().one()
             if job["status"] in TERMINAL:
                 return
@@ -1116,7 +1189,7 @@ class Store:
             ]
 
     async def acknowledge(self, job_id, consumer, reference):
-        async with self.transaction() as conn:
+        async with self.transaction("acknowledge") as conn:
             job = (await conn.execute(select(jobs).where(jobs.c.id == job_id))).mappings().one()
             if job["status"] != "completed":
                 raise Conflict("result_not_completed")
@@ -1266,7 +1339,7 @@ class Store:
         owner_hash = self.hash_id(owner_id)
         scope_hash = self.hash_id(conversation_id) if conversation_id is not None else "*"
         key = self.hash_id(owner_hash + ":" + scope_hash)
-        async with self.transaction() as conn:
+        async with self.transaction("begin_deletion") as conn:
             existing = (
                 (await conn.execute(select(tombstones).where(tombstones.c.id == key)))
                 .mappings()
@@ -1379,7 +1452,7 @@ class Store:
             return uncertain is None or time.time() > uncertain + remote_grace + 5
 
     async def complete_deletion(self, record):
-        async with self.transaction() as conn:
+        async with self.transaction("complete_deletion") as conn:
             active = (
                 await conn.execute(
                     select(jobs.c.id).where(
@@ -1510,7 +1583,7 @@ class Store:
         await self.tool_events(job_id, attempt_id, [(kind, data)])
 
     async def tool_events(self, job_id, attempt_id, items):
-        async with self.transaction() as conn:
+        async with self.transaction("tool_events", job_id=job_id, attempt_id=attempt_id) as conn:
             attempt = (
                 (
                     await conn.execute(
@@ -1558,7 +1631,7 @@ class Store:
                 await self._event(conn, job_id, kind, data, attempt_id)
 
     async def prune(self):
-        async with self.transaction() as conn:
+        async with self.transaction("prune") as conn:
             cutoff = time.time() - 30 * 86400
             await conn.execute(
                 update(attempts).where(attempts.c.finished_at < cutoff).values(diagnostic=None)
