@@ -252,7 +252,12 @@ test("attachments are private-root bounded, missing files retry without new line
       f.source.path,
       line(
         "b",
-        `Full output saved to: ${join(f.root, "parent", "tool-results", "escape")}\n`,
+        `Full output saved to: ${join(
+          f.root,
+          "parent",
+          "tool-results",
+          "escape",
+        )}\n`,
       ),
     );
     const escaped = await captureSource(f.root, "folder", f.source, {
@@ -301,7 +306,15 @@ test("live locks serialize and two processes recover one dead owner safely", asy
         new URL("./agent-evidence.js", import.meta.url),
       ),
       log = join(f.root, "order");
-    const code = `import {withEvidenceLock} from ${JSON.stringify(new URL("file://" + module).href)};import {appendFileSync} from 'node:fs';await withEvidenceLock(${JSON.stringify(lock)},async()=>{appendFileSync(${JSON.stringify(log)},'start\\n');await new Promise(r=>setTimeout(r,60));appendFileSync(${JSON.stringify(log)},'end\\n');});`;
+    const code = `import {withEvidenceLock} from ${JSON.stringify(
+      new URL("file://" + module).href,
+    )};import {appendFileSync} from 'node:fs';await withEvidenceLock(${JSON.stringify(
+      lock,
+    )},async()=>{appendFileSync(${JSON.stringify(
+      log,
+    )},'start\\n');await new Promise(r=>setTimeout(r,60));appendFileSync(${JSON.stringify(
+      log,
+    )},'end\\n');});`;
     await Promise.all(
       Array.from(
         { length: 2 },
@@ -662,7 +675,9 @@ test("installation upload limiter permits at most four simultaneous processes", 
   const f = fixture(),
     log = join(f.root, "slots.log");
   const moduleUrl = new URL("./agent-evidence-sync.js", import.meta.url).href;
-  const code = `import {withEvidenceUploadSlot} from ${JSON.stringify(moduleUrl)};import {appendFileSync} from 'node:fs';await withEvidenceUploadSlot(async()=>{appendFileSync(process.env.SLOT_LOG,'start\\n');await new Promise(r=>setTimeout(r,100));appendFileSync(process.env.SLOT_LOG,'end\\n');});`;
+  const code = `import {withEvidenceUploadSlot} from ${JSON.stringify(
+    moduleUrl,
+  )};import {appendFileSync} from 'node:fs';await withEvidenceUploadSlot(async()=>{appendFileSync(process.env.SLOT_LOG,'start\\n');await new Promise(r=>setTimeout(r,100));appendFileSync(process.env.SLOT_LOG,'end\\n');});`;
   try {
     await Promise.all(
       Array.from(
@@ -1073,6 +1088,109 @@ test("permanent authorization failures keep the outbox without autonomous retry"
       1,
     );
   } finally {
+    if (oldHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = oldHome;
+    if (oldConfig === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = oldConfig;
+    await remote.close();
+    f.cleanup();
+  }
+});
+
+test("a long checkpoint publishes its captured prefix before the worker budget expires", async () => {
+  const f = fixture();
+  const oldHome = process.env.CODEX_HOME;
+  const oldConfig = process.env.XDG_CONFIG_HOME;
+  const originalNow = Date.now;
+  let now = originalNow();
+  process.env.CODEX_HOME = join(f.root, "home");
+  process.env.XDG_CONFIG_HOME = join(f.root, "config");
+  const native = join(process.env.CODEX_HOME, "sessions");
+  mkdirSync(native, { recursive: true });
+  const source: Source = {
+    agent: "codex",
+    session: "long-session",
+    root: "long-session",
+    path: join(native, "long-session.jsonl"),
+  };
+  const record = Buffer.from(
+    JSON.stringify({
+      type: "event_msg",
+      payload: { type: "user_message", message: "x".repeat(1024 * 1024) },
+    }) + "\n",
+  );
+  writeFileSync(source.path, Buffer.concat(Array(40).fill(record)));
+  let publishedPrefix = 0;
+  const scheduled: number[] = [];
+  const remote = await server((req, res, bytes) => {
+    res.setHeader("Content-Type", "application/json");
+    if (req.url!.endsWith("/capabilities")) {
+      res.end(
+        JSON.stringify({
+          enabled: true,
+          schema: 1,
+          max_object_bytes: 67108864,
+          max_batch_objects: 256,
+        }),
+      );
+    } else if (req.url!.endsWith("/batches")) {
+      const batch = JSON.parse(bytes.toString());
+      publishedPrefix = Math.max(
+        ...batch.objects.map(
+          (object: { source_end: number }) => object.source_end,
+        ),
+      );
+      res.end(
+        JSON.stringify({
+          session_id: "remote-long-session",
+          revision: 0,
+          missing_objects: batch.objects.map(
+            (object: { id: string }) => object.id,
+          ),
+        }),
+      );
+    } else if (req.method === "PUT") {
+      res.end("{}");
+    } else {
+      res.end(
+        JSON.stringify({
+          status: "accepted",
+          session_id: "remote-long-session",
+          revision: 1,
+        }),
+      );
+      now += 91_000;
+    }
+  });
+  try {
+    config(f.root, remote.url);
+    await dispatchEvidence(f.root, "codex", {
+      session_id: source.session,
+      transcript_path: source.path,
+      hook_event_name: "Stop",
+    });
+    Date.now = () => now;
+    await evidenceWorker(f.root, true, {
+      scheduleRetry: (_root, at) => scheduled.push(at),
+    });
+    assert.ok(publishedPrefix > 0);
+    assert.ok(publishedPrefix < readFileSync(source.path).length);
+    assert.equal(
+      readJson<{ revision: number }>(
+        join(sessionDir(f.root, source), ".sync.json"),
+        {
+          revision: 0,
+        },
+      ).revision,
+      1,
+    );
+    assert.equal(
+      readdirSync(join(f.root, ".kioku/memory/.evidence-state/pending")).length,
+      1,
+    );
+    assert.equal(scheduled.length, 1);
+  } finally {
+    Date.now = originalNow;
     if (oldHome === undefined) delete process.env.CODEX_HOME;
     else process.env.CODEX_HOME = oldHome;
     if (oldConfig === undefined) delete process.env.XDG_CONFIG_HOME;
