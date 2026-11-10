@@ -10,6 +10,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import sys
 import time
 import uuid
@@ -81,8 +82,11 @@ def validate_manifest(manifest):
                 or len(content) > 100_000
             ):
                 raise ValueError("Case content must contain 1..100000 characters")
-            if case.get("model", "haiku") not in {"haiku", "sonnet", "opus"}:
-                raise ValueError("Unsupported model")
+            model = case.get("model", "haiku")
+            if not isinstance(model, str) or not re.fullmatch(
+                r"[a-z0-9][a-z0-9.-]{0,159}", model
+            ):
+                raise ValueError("Use a valid catalog model alias or model ID")
             if case.get("mode", "agentic") != "agentic":
                 raise ValueError("This latency cohort measures agentic chat only")
             if case.get("reasoning_effort", "low") not in {"low", "medium", "high"}:
@@ -91,6 +95,57 @@ def validate_manifest(manifest):
                 uuid.UUID(case["scope_folder_id"])
             ZoneInfo(case.get("timezone", "America/Sao_Paulo"))
     return chains
+
+
+def validate_catalog_models(chains, catalog):
+    """Mirror the web picker: new models use resolved IDs, never invented aliases."""
+    if (
+        not isinstance(catalog, dict)
+        or catalog.get("engine") != "tsukai"
+        or catalog.get("stale") is not False
+        or not isinstance(catalog.get("models"), list)
+    ):
+        raise ValueError(
+            "Fresh native model catalog required before any conversation POST"
+        )
+    controls = catalog.get("request_controls", {}).get("reasoning_effort", [])
+    resolved = {}
+    for chain in chains:
+        for case in chain["turns"]:
+            model = case.get("model", "haiku")
+            selected = next(
+                (
+                    row
+                    for row in catalog["models"]
+                    if isinstance(row, dict)
+                    and (row.get("resolvedModel") == model or row.get("value") == model)
+                ),
+                None,
+            )
+            if (
+                selected is None
+                or selected.get("selectable") is not True
+                or selected.get("requires_usage_credits") is not False
+            ):
+                raise ValueError(
+                    "Requested model is not selectable subscription-only catalog data"
+                )
+            effort = case.get("reasoning_effort", "low")
+            if effort not in controls or effort not in selected.get(
+                "supportedEffortLevels", []
+            ):
+                raise ValueError(
+                    "Requested effort is unsupported by the current model catalog"
+                )
+            canonical = selected.get("resolvedModel")
+            if not isinstance(canonical, str) or not re.fullmatch(
+                r"claude-[a-z0-9][a-z0-9.-]{0,150}", canonical
+            ):
+                raise ValueError("Invalid resolved native model ID in catalog")
+            # Preserve the frozen legacy payloads. Other picker choices send the
+            # actual resolved ID, as the web client does (e.g. Opus/Fable).
+            resolved[case["id"]] = model if model in {"haiku", "sonnet"} else canonical
+    return resolved
 
 
 async def sse_frames(response):
@@ -107,7 +162,9 @@ async def sse_frames(response):
         yield json.loads("\n".join(lines))
 
 
-async def measure_turn(client, conversation_id, case, *, resumed, admit, trace=None):
+async def measure_turn(
+    client, conversation_id, case, *, resumed, admit, trace=None, payload_model=None
+):
     result = {
         "id": case["id"],
         "conversation_id": conversation_id,
@@ -117,6 +174,8 @@ async def measure_turn(client, conversation_id, case, *, resumed, admit, trace=N
         "frames": [],
         "answer": "",
         "success": False,
+        "requested_alias": case.get("model", "haiku"),
+        "actual_payload_model": payload_model or case.get("model", "haiku"),
         "started_at": datetime.now().astimezone().isoformat(),
     }
     emit = trace or (lambda _event: None)
@@ -138,7 +197,7 @@ async def measure_turn(client, conversation_id, case, *, resumed, admit, trace=N
         "conversation_id": conversation_id,
         "turn_id": result["turn_id"],
         "content": case["content"],
-        "model": case.get("model", "haiku"),
+        "model": result["actual_payload_model"],
         "mode": case.get("mode", "agentic"),
         "reasoning_effort": case.get("reasoning_effort", "low"),
         "debug": False,
@@ -274,7 +333,9 @@ async def run(args, *, transport=None):
         preflight = await client.get("/api/chat/models")
         if preflight.status_code != 200:
             raise ValueError(f"Auth/catalog preflight HTTP {preflight.status_code}")
-        private_json(output / "model-catalog.json", preflight.json())
+        catalog = preflight.json()
+        private_json(output / "model-catalog.json", catalog)
+        resolved_models = validate_catalog_models(chains, catalog)
         semaphore = asyncio.Semaphore(args.workers)
         results = []
 
@@ -301,6 +362,7 @@ async def run(args, *, transport=None):
                         conversation_id,
                         case,
                         resumed=position > 0,
+                        payload_model=resolved_models[case["id"]],
                         admit=lambda: budget_error(guard),
                         trace=lambda event, path=trace_path: append_event(path, event),
                     )

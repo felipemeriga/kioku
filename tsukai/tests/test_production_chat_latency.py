@@ -19,6 +19,60 @@ latency = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(latency)
 
 
+def catalog():
+    return {
+        "engine": "tsukai",
+        "stale": False,
+        "request_controls": {"reasoning_effort": ["low", "medium", "high"]},
+        "models": [
+            {
+                "value": alias,
+                "resolvedModel": "claude-" + alias + "-5-5",
+                "selectable": True,
+                "requires_usage_credits": False,
+                "supportedEffortLevels": ["low", "medium", "high"],
+            }
+            for alias in ("haiku", "sonnet", "opus", "fable")
+        ],
+    }
+
+
+@pytest.mark.parametrize("reason", ["missing", "stale", "credits", "unselectable", "effort"])
+def test_catalog_rejects_unavailable_model_before_conversation_creation(reason):
+    value = catalog()
+    if reason == "missing":
+        value["models"] = []
+    elif reason == "stale":
+        value["stale"] = True
+    elif reason == "credits":
+        value["models"][2]["requires_usage_credits"] = True
+    elif reason == "unselectable":
+        value["models"][2]["selectable"] = False
+    else:
+        value["models"][2]["supportedEffortLevels"] = ["high"]
+    with pytest.raises(ValueError):
+        latency.validate_catalog_models(
+            [{"turns": [{"id": "opus", "model": "claude-opus-5-5", "reasoning_effort": "low"}]}],
+            value,
+        )
+
+
+def test_catalog_maps_nonlegacy_aliases_and_preserves_legacy_payloads():
+    chains = [
+        {"turns": [{"id": name, "model": name} for name in ("haiku", "sonnet", "opus", "fable")]}
+    ]
+    assert latency.validate_catalog_models(chains, catalog()) == {
+        "haiku": "haiku",
+        "sonnet": "sonnet",
+        "opus": "claude-opus-5-5",
+        "fable": "claude-fable-5-5",
+    }
+    with pytest.raises(ValueError, match="not selectable"):
+        latency.validate_catalog_models(
+            [{"turns": [{"id": "unknown", "model": "claude-unknown-model"}]}], catalog()
+        )
+
+
 @pytest.mark.asyncio
 async def test_exact_web_payload_replace_and_publication():
     calls = []
@@ -157,7 +211,8 @@ def test_forbids_original_conversation_and_invalid_input():
 
 
 @pytest.mark.asyncio
-async def test_full_runner_fresh_then_resume_private_artifacts(tmp_path):
+@pytest.mark.parametrize("model", ["haiku", "sonnet", "opus", "claude-opus-5-5"])
+async def test_full_runner_fresh_then_resume_private_artifacts(tmp_path, model):
     auth = tmp_path / "auth.json"
     auth.write_text(
         json.dumps({"access_token": "PRIVATE_TOKEN", "api_base": "https://test.invalid"})
@@ -183,8 +238,8 @@ async def test_full_runner_fresh_then_resume_private_artifacts(tmp_path):
                     {
                         "id": "real",
                         "turns": [
-                            {"id": "one", "content": "First"},
-                            {"id": "two", "content": "Follow up"},
+                            {"id": "one", "content": "First", "model": model},
+                            {"id": "two", "content": "Follow up", "model": model},
                         ],
                     }
                 ]
@@ -197,7 +252,7 @@ async def test_full_runner_fresh_then_resume_private_artifacts(tmp_path):
 
     def handler(request):
         if request.url.path == "/api/chat/models":
-            return httpx.Response(200, json={})
+            return httpx.Response(200, json=catalog())
         if request.url.path == "/api/conversations" and request.method == "POST":
             return httpx.Response(200, json={"id": "benchmark-only"})
         if request.method == "PATCH":
@@ -205,6 +260,7 @@ async def test_full_runner_fresh_then_resume_private_artifacts(tmp_path):
             return httpx.Response(200, json={})
         if request.url.path == "/api/chat":
             payload = json.loads(request.content)
+            assert payload["model"] == ("claude-opus-5-5" if model == "opus" else model)
             message_id = f"message-{len(messages)}"
             turn[payload["turn_id"]] = message_id
             messages.append({"id": message_id, "role": "assistant", "content": "answer"})
@@ -234,6 +290,9 @@ async def test_full_runner_fresh_then_resume_private_artifacts(tmp_path):
     assert summary["successful"] == 2
     rows = [json.loads(path.read_text()) for path in sorted(output.glob("case-*.json"))]
     assert [row["context"] for row in rows] == ["fresh", "resumed"]
+    for row in rows:
+        assert row["requested_alias"] == model
+        assert row["actual_payload_model"] == ("claude-opus-5-5" if model == "opus" else model)
     for artifact in output.iterdir():
         assert artifact.stat().st_mode & 0o777 == 0o600
         assert "PRIVATE_TOKEN" not in artifact.read_text()
