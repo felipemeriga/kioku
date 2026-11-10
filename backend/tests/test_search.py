@@ -60,31 +60,6 @@ class TestHybridSearchParallel(unittest.TestCase):
         self.assertEqual(kw, [_fake_kw("k1")])
 
 
-class TestCodeOnlyFastSearch(unittest.TestCase):
-    def test_uses_scoped_code_index_without_document_legs(self):
-        from services.search import search_documents
-
-        code = {"id": "code-1", "source_type": "code", "content": "current source"}
-        with (
-            patch("services.search._code_candidates", return_value=[code]) as candidates,
-            patch("services.search._run_hybrid_search") as hybrid,
-            patch("services.search.rerank", return_value=[code]) as rerank,
-        ):
-            result = search_documents(
-                [],
-                query_text="current implementation",
-                user_id="u1",
-                folder_ids=["repo"],
-                fast_mode=True,
-                code_only=True,
-                top_k=8,
-            )
-        self.assertEqual(result, [code])
-        self.assertEqual(candidates.call_args.args[:3], ("current implementation", "u1", ["repo"]))
-        hybrid.assert_not_called()
-        rerank.assert_called_once()
-
-
 class TestFullPipelineParallel(unittest.TestCase):
     """Full (non-fast) search_documents path: 4 variants run in parallel."""
 

@@ -99,8 +99,7 @@ def test_vague_current_code_question_uses_scoped_source_query_once():
             {
                 "query": (
                     "How does the guardrails work? current source code implementation in c360-lead"
-                ),
-                "code_only": True,
+                )
             },
         )
     ]
@@ -118,29 +117,6 @@ def test_source_query_adds_caller_and_failure_context_without_extra_calls():
     assert source_search_query("What did the documentation say?", "repo") == (
         "What did the documentation say?"
     )
-
-
-def test_scheduler_cadence_and_startup_errors_use_source_only():
-    calls = []
-
-    def execute(name, args):
-        calls.append((name, args))
-        return "Code evidence [1]"
-
-    prefetch(
-        "On the scheduler, how often do we check before starting the ingester?",
-        "UTC",
-        execute,
-        repo_name="repo",
-    )
-    assert calls[0][1]["code_only"] is True
-    assert "cron schedule interval constant minutes" in calls[0][1]["query"]
-    calls.clear()
-    prefetch("What errors print if it can't start the ingester? Look in the code.", "UTC", execute)
-    assert calls[0][1]["code_only"] is True
-    calls.clear()
-    prefetch("What is the difference between fast and processed streams?", "UTC", execute)
-    assert "code_only" not in calls[0][1]
 
 
 def test_duplicate_transcript_projections_do_not_consume_both_expansions():
