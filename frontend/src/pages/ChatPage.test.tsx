@@ -169,7 +169,7 @@ it("reveals a large answer frame progressively while preserving its full content
   act(() => frames.shift()?.(16));
   const visible = screen.getByTestId("streaming-answer").textContent || "";
   expect(visible.length).toBeGreaterThan(0);
-  expect(visible.length).toBeLessThan(answer.length);
+  expect(visible.length).toBeLessThan(30);
   expect(answer.startsWith(visible)).toBe(true);
 });
 
