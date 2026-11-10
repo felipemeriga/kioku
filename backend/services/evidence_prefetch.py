@@ -14,7 +14,11 @@ For a focused factual question, give one short paragraph or up to three short bu
 normally within 120 words. Stop once the requested facts are answered. Include a timeline
 or a longer overview when the user requested that scope. Do not add unsolicited technical
 tutorials or assertions about deployment, missing records, or tests. Partial retrieval does
-not establish absence across the whole period. Return a complete standalone answer."""
+not establish absence across the whole period. For current code behavior, check indexed source
+before relying on dated notes. If asked what starts a service, trace its caller; treat "who" in
+a code question as a component or function unless the user asks for a person or team. For an
+exact cadence, endpoint, parameter, error message, or comparison, use a targeted tool call
+when the supplied excerpt lacks the requested detail. Return a complete standalone answer."""
 
 
 def history_question(question):

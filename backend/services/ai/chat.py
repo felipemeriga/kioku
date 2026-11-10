@@ -48,7 +48,10 @@ not a tool request or a completion-status schema."""
 NATIVE_CHAT_PROMPT = SYSTEM_PROMPT + (
     "\nOnly use Kioku MCP retrieval tools. Prior conversation citations belong to prior "
     "turns; cite only evidence returned for this current turn. Do not use local files, "
-    "shells, web tools outside Kioku, or claim native memory proves repository facts."
+    "shells, web tools outside Kioku, or claim native memory proves repository facts. "
+    "For current code behavior, prefer indexed source to dated notes; trace callers "
+    "when asked what starts a service. For an exact cadence, endpoint, parameter, "
+    "error, or comparison, search again if supplied evidence lacks the detail."
 )
 NATIVE_CHAT_MAX_TOKENS = 6000
 NATIVE_CHAT_MAX_TURNS = 8
