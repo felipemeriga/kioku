@@ -117,11 +117,11 @@ def source_search_query(question: str, repo_name: str | None = None) -> str:
         query = re.sub(r"\bnew\s+", "", query, flags=re.I)
         query += " current source code implementation"
     if re.search(r"\b(?:who|what|which)\b.*\b(?:start|starts|starting|launch)\b", low):
-        query += " scheduler caller invokes launch function"
+        query += " scheduler caller invokes launch function callee implementation"
     if re.search(r"\b(?:error|failure|fail|can't)\b", low) and re.search(
         r"\b(?:start|starting|launch)\b", low
     ):
-        query += " caller logger.error catch cleanup"
+        query += " caller logger.error catch cleanup underlying start function thrown errors"
     if repo_name and repo_name.lower() not in low:
         query += f" in {repo_name}"
     return query
