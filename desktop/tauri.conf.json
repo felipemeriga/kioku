@@ -4,20 +4,32 @@
   "version": "0.1.0",
   "identifier": "com.merigafy.kioku.alpha",
   "app": {
-    "windows": [{
-      "title": "Kioku",
-      "url": "https://kioku.merigafy.com",
-      "width": 1280,
-      "height": 850,
-      "minWidth": 800,
-      "minHeight": 600
-    }],
-    "security": { "capabilities": [] }
+    "windows": [
+      {
+        "title": "Kioku",
+        "url": "https://kioku.merigafy.com",
+        "width": 1280,
+        "height": 850,
+        "minWidth": 800,
+        "minHeight": 600,
+        "create": false
+      }
+    ],
+    "security": {
+      "capabilities": []
+    }
   },
   "bundle": {
     "active": true,
-    "targets": ["app"],
-    "icon": ["icons/icon.png"],
-    "macOS": { "minimumSystemVersion": "12.0", "signingIdentity": "-" }
+    "targets": [
+      "app"
+    ],
+    "icon": [
+      "icons/icon.png"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "12.0",
+      "signingIdentity": "-"
+    }
   }
 }
