@@ -36,3 +36,4 @@ docs/
 backend/eval/eval-results/
 
 /desktop/target/
+/desktop/gen/
