@@ -34,3 +34,5 @@ docs/
 
 # Eval reports (generated)
 backend/eval/eval-results/
+
+/desktop/target/

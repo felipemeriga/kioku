@@ -1,0 +1,23 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Kioku Alpha",
+  "version": "0.1.0",
+  "identifier": "com.merigafy.kioku.alpha",
+  "app": {
+    "windows": [{
+      "title": "Kioku",
+      "url": "https://kioku.merigafy.com",
+      "width": 1280,
+      "height": 850,
+      "minWidth": 800,
+      "minHeight": 600
+    }],
+    "security": { "capabilities": [] }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app"],
+    "icon": ["icons/icon.png"],
+    "macOS": { "minimumSystemVersion": "12.0", "signingIdentity": "-" }
+  }
+}
