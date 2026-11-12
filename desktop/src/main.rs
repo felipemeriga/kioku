@@ -96,7 +96,6 @@ fn main() {
             }
         })
         .setup(|app| {
-            updates::start(app.handle().clone());
             let handle = app.handle().clone();
             let launch = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)?
@@ -119,6 +118,7 @@ fn main() {
                     tauri::webview::NewWindowResponse::Deny
                 })
                 .build()?;
+            updates::start(app.handle().clone());
             Ok(())
         })
         .run(tauri::generate_context!())

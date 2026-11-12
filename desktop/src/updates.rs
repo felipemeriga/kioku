@@ -1,4 +1,5 @@
 use std::{sync::Mutex, time::Duration};
+use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
 static NOTIFIED: Mutex<Option<String>> = Mutex::new(None);
@@ -41,6 +42,9 @@ pub fn check(app: tauri::AppHandle, manual: bool) {
             let response = client.get(RELEASES).send()?.error_for_status()?.text()?;
             Ok(latest(&response)?)
         })();
+        let Some(window) = app.get_webview_window("main") else {
+            return;
+        };
         match result {
             Ok(Some(next)) if version(&next) > version(env!("CARGO_PKG_VERSION")) => {
                 let Ok(mut notified) = NOTIFIED.lock() else {
@@ -52,7 +56,7 @@ pub fn check(app: tauri::AppHandle, manual: bool) {
                 *notified = Some(next.clone());
                 drop(notified);
                 app.dialog().message(format!("Kioku {next} is available. You have {}. Open the download page?", env!("CARGO_PKG_VERSION")))
-                    .title("Update available").buttons(MessageDialogButtons::OkCancel).show(move |accepted| {
+                    .parent(&window).title("Update available").buttons(MessageDialogButtons::OkCancel).show(move |accepted| {
                         if accepted {
                             let _ = std::process::Command::new("/usr/bin/open")
                                 .arg(format!("https://github.com/felipemeriga/kioku/releases/tag/desktop-v{next}")).spawn();
@@ -62,12 +66,14 @@ pub fn check(app: tauri::AppHandle, manual: bool) {
             Ok(None) if manual => {
                 app.dialog()
                     .message("No desktop release is published yet. Try again later.")
+                    .parent(&window)
                     .title("Kioku updates")
                     .show(|_| {});
             }
             Ok(_) if manual => {
                 app.dialog()
                     .message("You are using the latest published desktop version.")
+                    .parent(&window)
                     .title("Kioku updates")
                     .show(|_| {});
             }
@@ -76,6 +82,7 @@ pub fn check(app: tauri::AppHandle, manual: bool) {
                     .message(
                         "Could not check for updates. Check your connection and try again later.",
                     )
+                    .parent(&window)
                     .title("Update check unavailable")
                     .kind(MessageDialogKind::Warning)
                     .show(|_| {});
