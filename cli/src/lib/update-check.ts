@@ -51,7 +51,7 @@ function writeCache(c: Cache): void {
  * anything the user is waiting on.
  */
 export async function checkForUpdate(currentVersion: string): Promise<void> {
-  if (process.env.KIOKU_NO_UPDATE_CHECK) return;
+  if (!process.stdout.isTTY || process.env.KIOKU_NO_UPDATE_CHECK) return;
   const latest = await latestVersion();
   maybeNotify(currentVersion, latest);
 }
