@@ -248,3 +248,18 @@ it("links repeated source files by exact chunk location", () => {
     "https://github.com/org/repo/blob/main/schema.proto#L10-L15",
   );
 });
+
+it("opens journal chunks as evidence rather than uploaded filenames", () => {
+  const onOpenCitation = vi.fn();
+  const onOpenDocument = vi.fn();
+  const source = "Agent journal / kioku / session / 2026-11-11 entries";
+  renderWithProviders(
+    <InspectDialog open onClose={vi.fn()}
+      trace={{ reasoning: [], tool_calls: [], retrieval: [{ source, source_type: "document", content: "Recorded journal evidence" }] }}
+      onOpenCitation={onOpenCitation} onOpenDocument={onOpenDocument} />,
+  );
+  fireEvent.click(screen.getByRole("tab", { name: "Chunks (1)" }));
+  fireEvent.click(screen.getByRole("button", { name: source }));
+  expect(onOpenDocument).not.toHaveBeenCalled();
+  expect(onOpenCitation).toHaveBeenCalledWith(expect.objectContaining({source, excerpt: "Recorded journal evidence"}));
+});

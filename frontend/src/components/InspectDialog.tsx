@@ -25,6 +25,7 @@ interface InspectDialogProps {
   onClose: () => void;
   trace: DebugTrace;
   citations?: Citation[];
+  onOpenCitation?: (citation: Citation) => void;
   onOpenDocument?: (filename: string, folderId?: string | null) => void;
 }
 
@@ -36,6 +37,7 @@ export default function InspectDialog({
   trace,
   citations = [],
   onOpenDocument,
+  onOpenCitation,
 }: InspectDialogProps) {
   const [tab, setTab] = useState(0);
   const [artifacts, setArtifacts] = useState<Record<string, string>>({});
@@ -374,6 +376,24 @@ export default function InspectDialog({
                   target="_blank"
                   rel="noopener noreferrer"
                   sx={{ color: brand.cyan }}
+                >
+                  {filename}
+                </Link>
+              ) : c.source.startsWith("Agent journal /") && onOpenCitation ? (
+                <Link
+                  component="button"
+                  onClick={() => {
+                    onClose();
+                    onOpenCitation({
+                      ...citation,
+                      number: citation?.number ?? 0,
+                      source: c.source,
+                      source_type: "document",
+                      folder_id: c.folder_id ?? citation?.folder_id,
+                      excerpt: c.content,
+                    });
+                  }}
+                  sx={{ color: brand.cyan, textAlign: "left", font: "inherit" }}
                 >
                   {filename}
                 </Link>
