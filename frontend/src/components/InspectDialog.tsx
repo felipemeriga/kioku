@@ -388,7 +388,7 @@ export default function InspectDialog({
                       ...citation,
                       number: citation?.number ?? 0,
                       source: c.source,
-                      source_type: c.source_type,
+                      source_type: "document",
                       folder_id: c.folder_id ?? citation?.folder_id,
                       excerpt: c.content,
                     });
