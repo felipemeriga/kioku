@@ -111,7 +111,11 @@ pub fn check(app: tauri::AppHandle, manual: bool) {
                 };
                 let installed = tauri::async_runtime::block_on(async {
                     let endpoint = format!("https://github.com/felipemeriga/kioku/releases/download/desktop-v{next}/latest.json").parse().unwrap();
-                    let updater = app.updater_builder().endpoints(vec![endpoint])?.build()?;
+                    let updater = app
+                        .updater_builder()
+                        .endpoints(vec![endpoint])?
+                        .timeout(Duration::from_secs(120))
+                        .build()?;
                     if let Some(update) = updater.check().await? {
                         if update.version != next {
                             return Err(tauri_plugin_updater::Error::Io(std::io::Error::other(
