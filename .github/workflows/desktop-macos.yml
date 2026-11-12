@@ -34,6 +34,7 @@ jobs:
       - name: Check Rust
         run: |
           cargo fmt --manifest-path desktop/Cargo.toml --check
+          cargo test --locked --manifest-path desktop/Cargo.toml
           cargo clippy --locked --manifest-path desktop/Cargo.toml -- -D warnings
       - name: Build app and DMG
         run: ./desktop/build-macos.sh
@@ -48,3 +49,38 @@ jobs:
           path: |
             desktop/target/release/bundle/*.app.zip
             desktop/target/release/bundle/dmg/*.dmg
+
+  publish:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: Kioku-Alpha-macOS-*
+          path: desktop-artifacts
+      - name: Publish versioned desktop installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(python3 -c 'import json; print(json.load(open("desktop/tauri.conf.json"))["version"])')
+          tag="desktop-v$version"
+          if gh release view "$tag" --json isDraft > /tmp/desktop-release.json 2>/dev/null; then
+            if python3 -c 'import json,sys; sys.exit(0 if not json.load(open("/tmp/desktop-release.json"))["isDraft"] else 1)'; then
+              echo "Version already published; preserving immutable release."
+              exit 0
+            fi
+          else
+            gh release create "$tag" --target "$GITHUB_SHA" --draft --title "Kioku Desktop $version" --notes "macOS alpha for Apple Silicon and Intel. Download the matching DMG. This alpha uses ad-hoc signing; Apple notarization is not configured."
+          fi
+          mapfile -d '' files < <(find desktop-artifacts -type f \( -name '*.dmg' -o -name '*.app.zip' \) -print0)
+          test "${#files[@]}" -eq 4
+          gh release upload "$tag" "${files[@]}" --clobber
+          gh release edit "$tag" --draft=false --latest=false

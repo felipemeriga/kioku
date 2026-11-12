@@ -1,5 +1,5 @@
 /**
- * Non-blocking npm-registry check. Runs at most once per 24h and prints
+ * Non-blocking npm-registry check. Runs at most once per 6h and prints
  * a subtle "update available" line at the bottom of stdout AFTER the
  * main command has finished. Zero delay on hot path.
  */
@@ -12,7 +12,7 @@ import kleur from "kleur";
 declare const KIOKU_STANDALONE: boolean;
 const standalone = typeof KIOKU_STANDALONE !== "undefined" && KIOKU_STANDALONE;
 
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const PKG_NAME = "@felipemeriga/kioku";
 
 interface Cache {
@@ -136,4 +136,13 @@ function compareSemver(a: string, b: string): number {
     if (d !== 0) return d;
   }
   return 0;
+}
+
+/** Keep interactive home sessions informed without holding the process open. */
+export function startUpdateChecks(currentVersion: string): () => void {
+  if (!process.stdout.isTTY || process.env.KIOKU_NO_UPDATE_CHECK) return () => {};
+  void checkForUpdate(currentVersion);
+  const timer = setInterval(() => void checkForUpdate(currentVersion), CACHE_TTL_MS);
+  timer.unref();
+  return () => clearInterval(timer);
 }
