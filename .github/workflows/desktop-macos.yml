@@ -28,16 +28,40 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop -> target
+      - name: Check signed release manifest logic
+        run: |
+          python3 -m unittest discover -s desktop -p 'test_*.py'
+          node --test desktop/window.test.cjs
       - name: Check Rust
         run: |
           cargo fmt --manifest-path desktop/Cargo.toml --check
           cargo test --locked --manifest-path desktop/Cargo.toml
           cargo clippy --locked --manifest-path desktop/Cargo.toml -- -D warnings
       - name: Build app and DMG
-        run: ./desktop/build-macos.sh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            if [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF" = refs/heads/main ]; then
+              echo "Missing production updater signing key" >&2
+              exit 1
+            fi
+            npx --yes @tauri-apps/cli@2.12.4 signer generate --ci -p '' -w "$RUNNER_TEMP/update-test.key" > "$RUNNER_TEMP/key-generation.log"
+            export TAURI_SIGNING_PRIVATE_KEY="$(cat "$RUNNER_TEMP/update-test.key")"
+          fi
+          ./desktop/build-macos.sh
+          cp "desktop/target/release/bundle/macos/Kioku Alpha.app.tar.gz" "desktop/target/release/bundle/Kioku-Alpha-${{ matrix.arch }}.app.tar.gz"
+          cp "desktop/target/release/bundle/macos/Kioku Alpha.app.tar.gz.sig" "desktop/target/release/bundle/Kioku-Alpha-${{ matrix.arch }}.app.tar.gz.sig"
       - name: Verify app signature and archive
         run: |
           codesign --verify --deep --strict "desktop/target/release/bundle/macos/Kioku Alpha.app"
@@ -47,6 +71,7 @@ jobs:
           name: Kioku-Alpha-macOS-${{ matrix.arch }}
           if-no-files-found: error
           path: |
+            desktop/target/release/bundle/*.app.tar.gz*
             desktop/target/release/bundle/*.app.zip
             desktop/target/release/bundle/dmg/*.dmg
 
@@ -64,6 +89,10 @@ jobs:
         with:
           pattern: Kioku-Alpha-macOS-*
           path: desktop-artifacts
+      - name: Install signature verifier
+        run: sudo apt-get update && sudo apt-get install -y minisign
+      - name: Verify signatures and generate update manifest
+        run: python3 desktop/publish.py desktop-artifacts
       - name: Publish versioned desktop installers
         env:
           GH_TOKEN: ${{ github.token }}
@@ -80,7 +109,7 @@ jobs:
           else
             gh release create "$tag" --target "$GITHUB_SHA" --draft --title "Kioku Desktop $version" --notes "macOS alpha for Apple Silicon and Intel. Download the matching DMG. This alpha uses ad-hoc signing; Apple notarization is not configured."
           fi
-          mapfile -d '' files < <(find desktop-artifacts -type f \( -name '*.dmg' -o -name '*.app.zip' \) -print0)
-          test "${#files[@]}" -eq 4
+          mapfile -d '' files < <(find desktop-artifacts -type f \( -name '*.dmg' -o -name '*.app.zip' -o -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' -o -name 'latest.json' \) -print0)
+          test "${#files[@]}" -eq 9
           gh release upload "$tag" "${files[@]}" --clobber
           gh release edit "$tag" --draft=false --latest=false
