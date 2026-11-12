@@ -22,6 +22,7 @@ import { readConfig } from "./lib/config.js";
 import {
   availableUpdate,
   checkForUpdate,
+  startUpdateChecks,
   isStandalone
 } from "./lib/update-check.js";
 import { VERSION } from "./lib/version.js";
@@ -453,7 +454,12 @@ if (process.argv.length <= 2) {
   if (isInteractive()) {
     (async () => {
       const { runHome } = await import("./commands/home.js");
-      await runHome();
+      const stopUpdates = startUpdateChecks(VERSION);
+      try {
+        await runHome();
+      } finally {
+        stopUpdates();
+      }
       process.exit(0);
     })();
   } else {

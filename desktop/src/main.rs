@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod updates;
+
 use std::{io::Write, time::Duration};
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
@@ -73,9 +75,20 @@ fn main() {
                 tauri::menu::MenuItem::with_id(app, "reload", "Reload", true, Some("CmdOrCtrl+R"))?;
             let navigation = tauri::menu::Submenu::with_items(app, "Navigation", true, &[&reload])?;
             menu.append(&navigation)?;
+            let updates = tauri::menu::MenuItem::with_id(
+                app,
+                "updates",
+                "Check for Updates…",
+                true,
+                None::<&str>,
+            )?;
+            navigation.append(&updates)?;
             Ok(menu)
         })
         .on_menu_event(|app, event| {
+            if event.id().as_ref() == "updates" {
+                updates::check(app.clone(), true);
+            }
             if event.id().as_ref() == "reload" {
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.reload();
@@ -105,6 +118,7 @@ fn main() {
                     tauri::webview::NewWindowResponse::Deny
                 })
                 .build()?;
+            updates::start(app.handle().clone());
             Ok(())
         })
         .run(tauri::generate_context!())
