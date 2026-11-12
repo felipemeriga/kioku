@@ -1,0 +1,50 @@
+name: macOS Desktop
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["desktop/**", ".github/workflows/desktop-macos.yml"]
+  pull_request:
+    paths: ["desktop/**", ".github/workflows/desktop-macos.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-15, arch: arm64 }
+          - { os: macos-15-intel, arch: x64 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Check Rust
+        run: |
+          cargo fmt --manifest-path desktop/Cargo.toml --check
+          cargo clippy --locked --manifest-path desktop/Cargo.toml -- -D warnings
+      - name: Build app and DMG
+        run: ./desktop/build-macos.sh
+      - name: Verify app signature and archive
+        run: |
+          codesign --verify --deep --strict "desktop/target/release/bundle/macos/Kioku Alpha.app"
+          ditto -c -k --sequesterRsrc --keepParent "desktop/target/release/bundle/macos/Kioku Alpha.app" "desktop/target/release/bundle/Kioku-Alpha-${{ matrix.arch }}.app.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Kioku-Alpha-macOS-${{ matrix.arch }}
+          if-no-files-found: error
+          path: |
+            desktop/target/release/bundle/*.app.zip
+            desktop/target/release/bundle/dmg/*.dmg

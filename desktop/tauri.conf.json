@@ -22,9 +22,11 @@
   "bundle": {
     "active": true,
     "targets": [
-      "app"
+      "app",
+      "dmg"
     ],
     "icon": [
+      "icons/icon.icns",
       "icons/icon.png"
     ],
     "macOS": {
