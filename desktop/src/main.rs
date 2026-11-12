@@ -67,9 +67,30 @@ fn download(app: tauri::AppHandle, url: tauri::Url) {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .menu(|app| {
+            let menu = tauri::menu::Menu::default(app)?;
+            let reload =
+                tauri::menu::MenuItem::with_id(app, "reload", "Reload", true, Some("CmdOrCtrl+R"))?;
+            let navigation = tauri::menu::Submenu::with_items(app, "Navigation", true, &[&reload])?;
+            menu.append(&navigation)?;
+            Ok(menu)
+        })
+        .on_menu_event(|app, event| {
+            if event.id().as_ref() == "reload" {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.reload();
+                }
+            }
+        })
         .setup(|app| {
             let handle = app.handle().clone();
-            tauri::WebviewWindowBuilder::from_config(app, &app.config().app.windows[0])?
+            let launch = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_millis();
+            let url = format!("https://kioku.merigafy.com/?desktop_launch={launch}").parse()?;
+            let mut config = app.config().app.windows[0].clone();
+            config.url = tauri::WebviewUrl::External(url);
+            tauri::WebviewWindowBuilder::from_config(app, &config)?
                 .on_new_window(move |url, _| {
                     if url.scheme() == "https"
                         && url.host_str() == Some("xsovdaetdlgtqwesrbse.supabase.co")
