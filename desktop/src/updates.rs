@@ -133,7 +133,7 @@ pub fn check(app: tauri::AppHandle, manual: bool) {
                         Ok(false)
                     }
                 });
-                let _ = progress.close();
+                let _ = progress.destroy();
                 match installed {
                     Ok(true) => app.restart(),
                     Ok(false) => {
