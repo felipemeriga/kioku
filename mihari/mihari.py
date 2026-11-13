@@ -1375,11 +1375,18 @@ def refresh_repo_reports(repo: dict) -> None:
         parts = line.split("\x1f", 2)
         if len(parts) == 3:
             sha, at, subject = parts
+            # The squash/merge body records final fixes that a title alone
+            # cannot reconcile against earlier journal review findings.
+            message = subject
+            if len(commits) < 150:
+                code, body, _ = run_git(["show", "-s", "--format=%B", sha], env, cwd=str(clone))
+                if code == 0 and body.strip():
+                    message = body.strip()
             commits.append(
                 {
                     "sha": sha,
                     "at": at,
-                    "text": "Commit on principal branch: " + subject[:1450],
+                    "text": "Commit on principal branch: " + message[:1450],
                     "url": f"{base}/commit/{sha}" if base else None,
                 }
             )

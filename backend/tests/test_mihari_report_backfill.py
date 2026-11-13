@@ -45,6 +45,8 @@ def test_worker_reads_old_period_selected_from_agent_activity(monkeypatch, worke
         if args[0] == "rev-parse":
             return 0, "a" * 40, ""
         if args[0] == "show":
+            if "--format=%B" in args:
+                return 0, "Earlier merged change (#8)\n\nFix review recovery boundaries.", ""
             return 0, "2026-11-13T10:00:00+00:00", ""
         assert "--first-parent" in args
         assert "--since=2024-01-08T00:00:00+00:00" in args
@@ -76,6 +78,7 @@ def test_worker_reads_old_period_selected_from_agent_activity(monkeypatch, worke
     assert submitted[0]["period_start"] == "2024-01-08"
     assert submitted[0]["report_kind"] == "weekly"
     assert submitted[0]["commits"][0]["at"].startswith("2024-01-10")
+    assert "Fix review recovery boundaries." in submitted[0]["commits"][0]["text"]
     assert not any("100 days" in str(command) for command in commands)
 
 
