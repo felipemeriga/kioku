@@ -12,9 +12,9 @@ from pydantic import AwareDatetime, TypeAdapter
 
 TIMESTAMP = TypeAdapter(AwareDatetime)
 
-# A fresh identity keeps exhausted 300-second preparations from poisoning
-# report retries after the runner adopts its heavy-maintenance budget.
-POLICY = 4
+# Timeline sources follow principal-branch transitions, excluding commits
+# introduced only through the second parent of a merge.
+POLICY = 5
 LEGACY_REPORT_SHAPE = {
     "title": "",
     "summary": "",
@@ -244,6 +244,8 @@ def next_report_period(sb, owner, folder, payload, now=None):
 
 def capture_report(sb, owner, folder, payload, now=None):
     """Choose one due period. Preparation never mutates the last good report."""
+    if payload.get("git_history_mode") == "legacy":
+        return None, "report worker upgrade required for principal-branch history"
     now = now or datetime.now(timezone.utc)
     tz = payload.get("timezone", "UTC")
     today = now.astimezone(ZoneInfo(tz)).date()

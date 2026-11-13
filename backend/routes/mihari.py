@@ -108,6 +108,7 @@ class ReportRefreshRequest(BaseModel):
     commits: list[ReportCommit] = Field(default_factory=list, max_length=1000)
     pull_requests: list[ReportPull] = Field(default_factory=list, max_length=200)
     github_coverage: str = Field(default="unavailable", max_length=100)
+    git_history_mode: str = Field(default="legacy", pattern=r"^(legacy|first_parent)$")
     head_at: datetime | None = None
     report_kind: str | None = Field(default=None, pattern=r"^(weekly|monthly)$")
     period_start: date | None = None

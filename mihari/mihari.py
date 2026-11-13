@@ -1354,6 +1354,7 @@ def refresh_repo_reports(repo: dict) -> None:
     code, history, _ = run_git(
         [
             "log",
+            "--first-parent",
             f"--since={period['after']}",
             f"--until={period['before']}",
             "-1000",
@@ -1425,6 +1426,7 @@ def refresh_repo_reports(repo: dict) -> None:
             "commits": commits,
             "pull_requests": pulls,
             "github_coverage": coverage,
+            "git_history_mode": "first_parent",
         },
         timeout=180,
     )
