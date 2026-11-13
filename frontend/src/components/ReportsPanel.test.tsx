@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { renderWithProviders } from "../test/renderWithProviders";
 import { apiFetch } from "../lib/api";
@@ -524,7 +524,13 @@ describe("Chronological report reading", () => {
       await screen.findByRole("button", { name: "Newer" })
     ).not.toBeDisabled();
   });
+  afterEach(() => vi.restoreAllMocks());
   it("shows a styled settings error while keeping the report readable", async () => {
+    const resolved = new Intl.DateTimeFormat().resolvedOptions();
+    vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockReturnValue({
+      ...resolved,
+      timeZone: "America/Sao_Paulo",
+    });
     const regular = vi.mocked(apiFetch).getMockImplementation()!;
     vi.mocked(apiFetch).mockImplementation((path, options) => {
       if (options?.method === "PUT")
