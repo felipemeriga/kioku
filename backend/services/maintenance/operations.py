@@ -10,9 +10,11 @@ import re
 from copy import deepcopy
 
 from services.period_reports import (
+    LEGACY_REPORT_GUIDE,
     REPORT_GUIDE,
     REPORT_SHAPE,
     report_quote_choices,
+    report_shape,
     validate_report,
 )
 
@@ -200,6 +202,8 @@ def build_request(snapshot):
     if op not in OPERATIONS:
         raise ValueError("unsupported maintenance operation")
     shape = deepcopy(SHAPES.get(op))
+    if op == "reports":
+        shape = deepcopy(report_shape(snapshot))
     if op == "reground":
         selected = snapshot["input"].get("selected", ["architecture", "overview"])
         if not selected or any(k not in ("architecture", "overview") for k in selected):
@@ -216,7 +220,8 @@ def build_request(snapshot):
         path_schema["description"] = "One representative source path from the supplied evidence."
         path_schema["enum"] = sorted(_architecture_paths(snapshot)) or ["__no_source_available__"]
     evidence_choices = None
-    if op == "reports":
+    chronological = op == "reports" and snapshot["input"].get("format_version") == 2
+    if op == "reports" and not chronological:
         ids = [source["id"] for source in snapshot["input"].get("sources", [])]
         props = schema["properties"]
         props["title"].update(minLength=3, maxLength=160)
@@ -236,6 +241,54 @@ def build_request(snapshot):
         item["evidence_quote"]["enum"] = sorted(
             {quote["id"] for values in evidence_choices.values() for quote in values}
         ) or ["__no_source_available__"]
+    if chronological:
+        ids = [source["id"] for source in snapshot["input"]["sources"]]
+        evidence_choices = report_quote_choices(snapshot["input"]["sources"])
+        quote_ids = [quote["id"] for choices in evidence_choices.values() for quote in choices]
+        schema["$defs"] = {
+            "report_source": {"type": "string", "enum": ids or ["__no_source_available__"]},
+            "report_quote": {"type": "string", "enum": quote_ids or ["__no_source_available__"]},
+        }
+
+        def citations(node):
+            if not isinstance(node, dict):
+                return
+            for key, child in list(node.items()):
+                if key in ("source_ids", "summary_source_ids"):
+                    child.update(minItems=1, maxItems=12, uniqueItems=True)
+                    child["items"] = {"$ref": "#/$defs/report_source"}
+                elif key == "evidence_quote":
+                    node[key] = {"$ref": "#/$defs/report_quote"}
+                else:
+                    citations(child)
+
+        citations(schema["properties"])
+        props = schema["properties"]
+        props["title"].update(minLength=3, maxLength=160)
+        props["summary"].update(minLength=20, maxLength=420)
+        props["outcomes"].update(maxItems=3)
+        props["outcomes"]["items"]["properties"]["text"].update(minLength=10, maxLength=180)
+        props["topics"].update(minItems=1, maxItems=6)
+        topic = props["topics"]["items"]["properties"]
+        topic["id"].update(pattern=r"^[a-z0-9-]{3,64}$")
+        topic["title"].update(minLength=3, maxLength=100)
+        topic["subtitle"].update(maxLength=180)
+        topic["updates"].update(minItems=1, maxItems=12)
+        update = topic["updates"]["items"]["properties"]
+        update["date"]["enum"] = sorted(
+            {
+                s["date"]
+                for s in snapshot["input"]["sources"]
+                if snapshot["input"]["period_start"] <= s["date"] <= snapshot["input"]["period_end"]
+            }
+        )
+        update["title"].update(minLength=3, maxLength=120)
+        update["text"].update(minLength=10, maxLength=500)
+        update["detail"].update(maxLength=700)
+        state = topic["final_state"]["properties"]
+        state["status"].update(minLength=3, maxLength=64)
+        state["items"].update(minItems=1, maxItems=3)
+        state["items"]["items"]["properties"]["text"].update(minLength=10, maxLength=500)
     if op == "learnings":
         evidence_choices = _source_quotes(snapshot["input"]["new_entries"])
         updates = schema["properties"]["updates"]
@@ -261,7 +314,7 @@ def build_request(snapshot):
         fields["source_ids"]["items"]["enum"] = [
             entry["id"] for entry in snapshot["input"]["new_entries"]
         ] or ["__no_source_available__"]
-    max_tokens = 6000 if op == "reports" else 2400
+    max_tokens = 8000 if chronological else 6000 if op == "reports" else 2400
     if op in ("reground", "documentation"):
         max_tokens = min(
             12000, max(4000, (len(canonical(snapshot.get("current"))) + 2) // 3 + 1024)
@@ -274,7 +327,7 @@ def build_request(snapshot):
             "schema. If evidence is missing, return the standardized needs_input "
             "outcome; never invent facts."
         ),
-        "prompt": GUIDES[op]
+        "prompt": (LEGACY_REPORT_GUIDE if op == "reports" and not chronological else GUIDES[op])
         + (
             (
                 "\nSelect an evidence_quote ID from evidence_choices for a cited source ID. "
@@ -341,6 +394,8 @@ def validate_result(snapshot, raw):
         value = value["data"]
     op = snapshot["operation"]
     shape = SHAPES.get(op)
+    if op == "reports":
+        shape = report_shape(snapshot)
     if op == "reground":
         shape = {
             k: SHAPES[k] for k in snapshot["input"].get("selected", ["architecture", "overview"])
@@ -441,9 +496,12 @@ def validate_result(snapshot, raw):
 
 def completion_schema(data_schema):
     """Native output is an explicit outcome union, never an interactive question."""
+    data_schema = deepcopy(data_schema)
+    definitions = data_schema.pop("$defs", None)
     missing = {"type": "array", "items": shape_schema({"field": "", "reason": ""})}
     failure = shape_schema({"code": "", "message": ""})
     return {
+        **({"$defs": definitions} if definitions else {}),
         "type": "object",
         "properties": {
             "schema_version": {"const": 1},
