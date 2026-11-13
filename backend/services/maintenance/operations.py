@@ -211,6 +211,22 @@ def build_request(snapshot):
         path_schema["description"] = "One representative source path from the supplied evidence."
         path_schema["enum"] = sorted(_architecture_paths(snapshot)) or ["__no_source_available__"]
     evidence_choices = None
+    if op == "reports":
+        ids = [source["id"] for source in snapshot["input"].get("sources", [])]
+        props = schema["properties"]
+        props["title"].update(minLength=3, maxLength=160)
+        props["summary"].update(minLength=20, maxLength=1200)
+        props["summary_source_ids"].update(minItems=1, maxItems=12)
+        props["summary_source_ids"]["items"]["enum"] = ids or ["__no_source_available__"]
+        props["sections"].update(minItems=1, maxItems=6)
+        section = props["sections"]["items"]["properties"]
+        section["heading"].update(minLength=3, maxLength=100)
+        section["items"].update(minItems=1, maxItems=8)
+        item = section["items"]["items"]["properties"]
+        item["text"].update(minLength=10, maxLength=1000)
+        item["source_ids"].update(minItems=1, maxItems=12)
+        item["source_ids"]["items"]["enum"] = ids or ["__no_source_available__"]
+        item["evidence_quote"].update(minLength=12, maxLength=250)
     if op == "learnings":
         evidence_choices = _learning_quotes(snapshot)
         updates = schema["properties"]["updates"]

@@ -59,10 +59,10 @@ def digest(value):
     ).hexdigest()
 
 
-def report_rows(sb, owner, folder, kind, tz, limit=100):
+def report_rows(sb, owner, folder, kind, tz, limit=16):
     return (
         sb.table("repo_period_reports")
-        .select("*")
+        .select("id,period_start,period_end,revision,source_digest,generated_at,content")
         .eq("user_id", owner)
         .eq("folder_id", folder)
         .eq("kind", kind)
@@ -149,6 +149,12 @@ def capture_report(sb, owner, folder, payload, now=None):
             stamps += [iso(row["event_at"]) for row in events]
             stamps += [iso(row["at"]) for row in [*commits, *pulls]]
             cutoff = min(now, max(stamps) + timedelta(microseconds=1))
+        # Retain a chronological spread rather than silently dropping the last days.
+        journal_total = len(entries)
+        if len(entries) > 80:
+            entries = [entries[round(i * (len(entries) - 1) / 79)] for i in range(80)]
+        commit_total, pull_total = len(commits), len(pulls)
+        commits, pulls = commits[:150], pulls[:100]
         sources = []
         for row in entries:
             sources.append(
@@ -160,7 +166,7 @@ def capture_report(sb, owner, folder, payload, now=None):
                     "agent": row["agent"],
                     "entry_id": row["entry_id"],
                     "journal_date": row.get("journal_date"),
-                    "text": row["body"][:3000],
+                    "text": row["body"][:2000],
                 }
             )
         # Load a bounded selection from the actual immutable originals, not reconstructed prose.
@@ -190,7 +196,7 @@ def capture_report(sb, owner, folder, payload, now=None):
                     "date": c["at"][:10],
                     "sha": c["sha"],
                     "url": c.get("url"),
-                    "text": c["text"][:1600],
+                    "text": c["text"][:500],
                 }
             )
         for p in pulls:
@@ -200,13 +206,17 @@ def capture_report(sb, owner, folder, payload, now=None):
                     "kind": "github_pull_request",
                     "date": p["at"][:10],
                     "url": p["url"],
-                    "text": p["text"][:1600],
+                    "text": p["text"][:500],
                 }
             )
         weekly = []
         if kind == "monthly":
             weekly = [
-                {"period_start": r["period_start"], "content": r["content"]}
+                {
+                    "period_start": r["period_start"],
+                    "title": r["content"]["title"],
+                    "summary": r["content"]["summary"],
+                }
                 for r in stored["weekly"].values()
                 if start.isoformat() <= r["period_start"] <= end.isoformat()
             ]
@@ -238,6 +248,11 @@ def capture_report(sb, owner, folder, payload, now=None):
                 "coverage": {
                     "journal_entries": snapshot.get("entry_count", len(entries)),
                     "journal_entries_included": len(entries),
+                    "indexed_entries_available": journal_total,
+                    "git_commits": commit_total,
+                    "git_commits_included": len(commits),
+                    "pull_requests": pull_total,
+                    "pull_requests_included": len(pulls),
                     "original_events_included": len(events),
                     "original_events": snapshot.get("event_count", len(events)),
                     "github": payload.get("github_coverage", "unavailable"),
@@ -387,7 +402,9 @@ def read_report_reference(sb, owner, ref, char_limit):
     body = render_report(value["content"])
     start = ref["start"]
     more = start + char_limit < len(body)
-    sources = value["sources"]
+    source_offset = ref.get("source_offset", 0)
+    source_page = value["sources"][source_offset : source_offset + 8]
+    sources = [{**source, "text": source["text"][:500]} for source in source_page]
     for source in sources:
         if source["kind"] == "original":
             source["reference"] = encode_reference(
@@ -412,9 +429,15 @@ def read_report_reference(sb, owner, ref, char_limit):
                 "revision": ref["revision"],
                 "cutoff": value["cutoff"],
                 "generated_at": value["generated_at"],
-                "excerpt": body[start : start + char_limit],
+                "excerpt": body[start : start + char_limit] if "source_offset" not in ref else "",
                 "coverage": value["coverage"],
                 "sources": sources,
+                "source_count": len(value["sources"]),
+                "next_sources_reference": encode_reference(
+                    {**ref, "source_offset": source_offset + 8}
+                )
+                if source_offset + 8 < len(value["sources"])
+                else None,
                 "next_reference": encode_reference({**ref, "start": start + char_limit})
                 if more
                 else None,

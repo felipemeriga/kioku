@@ -141,7 +141,12 @@ def test_retries_preserve_identical_snapshot_and_successful_day_is_not_regenerat
     )
     assert first == later
     assert first["report"]["status"] == "draft"
-    old = {**first["report"], "generated_at": "2026-11-13T11:01:00Z", "revision": 1, "content": {}}
+    old = {
+        **first["report"],
+        "generated_at": "2026-11-13T11:01:00Z",
+        "revision": 1,
+        "content": {"title": "Earlier review", "summary": "A proposal is recorded."},
+    }
     db = DB(rows, [old])
     # The first weekly period is skipped before querying its source objects.
     next_report, _ = capture_report(
@@ -161,3 +166,93 @@ def test_report_context_is_optional_and_session_queries_do_not_load_reports():
         == []
     )
     assert report_context(None, "u", ["f"], "a", "b", "UTC", session="s") == []
+
+
+def test_report_routes_validate_forms_and_hide_foreign_repository(monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from auth import get_current_user
+    from routes import reports as routes
+
+    app = FastAPI()
+    app.include_router(routes.router)
+    app.dependency_overrides[get_current_user] = lambda: "owner"
+
+    class Foreign:
+        def table(self, name):
+            assert name == "folders"
+            return Query([])
+
+    monkeypatch.setattr(routes, "get_supabase_thread_safe", lambda: Foreign())
+    client = TestClient(app)
+    folder = "11111111-1111-4111-8111-111111111111"
+    assert client.get(f"/api/folders/{folder}/reports").status_code == 404
+    assert client.get(f"/api/folders/{folder}/reports?kind=yearly").status_code == 422
+    assert client.get(f"/api/folders/{folder}/reports?offset=-1").status_code == 422
+    assert client.get(f"/api/folders/{folder}/reports?limit=101").status_code == 422
+    assert client.get("/api/folders/not-a-uuid/reports").status_code == 422
+    assert client.get(f"/api/folders/{folder}/reports/{folder}?revision=0").status_code == 422
+    assert (
+        client.put(
+            f"/api/folders/{folder}/report-settings", json={"timezone": "invalid"}
+        ).status_code
+        == 422
+    )
+    assert (
+        client.put(
+            f"/api/folders/{folder}/report-settings", json={"timezone": "UTC", "user_id": "other"}
+        ).status_code
+        == 422
+    )
+
+
+def test_report_references_are_reauthorized_and_expansion_keeps_source_pages_bounded(monkeypatch):
+    from fastapi import HTTPException
+
+    from services import agent_memory
+    from services.agent_memory import encode_reference, read_memory
+    from services.period_reports import read_report_reference
+
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "fixture-signing-key")
+    ref = {
+        "v": 1,
+        "kind": "period_report",
+        "owner": "owner",
+        "folder": "repo",
+        "report": "report-id",
+        "revision": 1,
+        "start": 0,
+    }
+    monkeypatch.setattr(
+        agent_memory, "folders_in_scope", lambda *_: [{"id": "other-repo", "name": "Other"}]
+    )
+    with pytest.raises(HTTPException) as exc:
+        read_memory(None, "owner", ["other-repo"], encode_reference(ref))
+    assert exc.value.status_code == 404
+    _, content = report_fixture()
+
+    class Stored:
+        def table(self, name):
+            if name == "repo_period_reports":
+                return Query(
+                    [{"id": "report-id", "folder_id": "repo", "kind": "weekly", "timezone": "UTC"}]
+                )
+            return Query(
+                [
+                    {
+                        "content": content,
+                        "sources": [
+                            {"id": str(i), "kind": "journal", "text": "x" * 3000} for i in range(30)
+                        ],
+                        "cutoff": "2026-11-13T10:00:00Z",
+                        "generated_at": "2026-11-13T10:01:00Z",
+                        "coverage": {},
+                    }
+                ]
+            )
+
+    value = read_report_reference(Stored(), "owner", ref, 1000)["period_reports"][0]
+    assert len(value["sources"]) == 8
+    assert max(len(s["text"]) for s in value["sources"]) <= 500
+    assert value["next_sources_reference"]

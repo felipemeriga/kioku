@@ -69,6 +69,7 @@ def refresh_learnings(body: LearningRefreshRequest, request: Request):
 
 
 class ReportCommit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     sha: str = Field(pattern=r"^[a-f0-9]{40,64}$")
     at: datetime
     text: str = Field(min_length=1, max_length=1600)
@@ -76,6 +77,7 @@ class ReportCommit(BaseModel):
 
 
 class ReportPull(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     number: int = Field(ge=1)
     at: datetime
     text: str = Field(min_length=1, max_length=1600)
@@ -98,7 +100,9 @@ class ReportRefreshRequest(BaseModel):
             raise ValueError("Invalid timezone") from exc
         return value
 
-    folder_id: str = Field(pattern=r"^[a-fA-F0-9-]{36}$")
+    folder_id: str = Field(
+        pattern=r"^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$"
+    )
     head_sha: str = Field(pattern=r"^[a-f0-9]{40,64}$")
     timezone: str = Field(default="UTC", min_length=1, max_length=64)
     commits: list[ReportCommit] = Field(default_factory=list, max_length=1000)
