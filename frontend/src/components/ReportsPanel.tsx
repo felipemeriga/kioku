@@ -279,7 +279,7 @@ export default function ReportsPanel({
               Use my timezone
             </Button>
           )}
-          <Tooltip title="Mihari updates the current week daily and the current month weekly when sources change. Completed periods retain their revisions. Dates use this repository’s report timezone.">
+          <Tooltip title="New commits on the watched branch trigger reviews of the current week and month. Otherwise, Mihari updates weekly reports daily and monthly reports weekly when sources change. Reviews are queued; previous revisions remain available. Dates use this repository’s report timezone.">
             <IconButton size="small" aria-label="About report updates">
               <InfoOutlinedIcon fontSize="small" />
             </IconButton>

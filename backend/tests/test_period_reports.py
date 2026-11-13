@@ -175,11 +175,16 @@ class DB:
         assert name == "period_report_sources"
         assert args["p_user"] == "owner" and args["p_folder"] == "repo"
         self.calls += 1
+        entries = [
+            row
+            for row in self.entries
+            if iso(args["p_after"]) <= iso(row["captured_at"]) < iso(args["p_before"])
+        ]
         return Query(
             {
-                "entries": self.entries,
+                "entries": entries,
                 "events": [],
-                "entry_count": len(self.entries),
+                "entry_count": len(entries),
                 "event_count": 0,
             }
         )
@@ -227,6 +232,122 @@ def test_retries_preserve_identical_snapshot_and_successful_day_is_not_regenerat
     )
     assert revised["report"]["kind"] == "weekly"
     assert revised["report"]["expected_revision"] == 1
+
+
+def active_report_fixture():
+    rows = [
+        {
+            "entry_id": "e",
+            "session_id": "s",
+            "agent": "codex",
+            "captured_at": "2026-11-13T10:00:00Z",
+            "body": "The earlier implementation was reverted.",
+        }
+    ]
+    payload = {"head_sha": "a" * 40, "timezone": "UTC"}
+
+    def saved(snapshot, hour):
+        return {
+            **snapshot["report"],
+            "generated_at": f"2026-11-13T{hour}:01:00Z",
+            "revision": 1,
+            "content": {"title": "Review", "summary": "Recorded work."},
+        }
+
+    weekly, _ = capture_report(
+        DB(rows), "owner", "repo", payload, datetime(2026, 11, 13, 11, tzinfo=timezone.utc)
+    )
+    week = saved(weekly, "11")
+    monthly, _ = capture_report(
+        DB(rows, [week]), "owner", "repo", payload, datetime(2026, 11, 13, 12, tzinfo=timezone.utc)
+    )
+    return rows, payload, week, saved(monthly, "12"), saved
+
+
+def test_new_main_head_reviews_both_current_reports_despite_schedule_throttle():
+    rows, payload, week, month, saved = active_report_fixture()
+    payload["head_sha"] = "b" * 40
+    weekly, _ = capture_report(
+        DB(rows, [week, month]),
+        "owner",
+        "repo",
+        payload,
+        datetime(2026, 11, 13, 13, tzinfo=timezone.utc),
+    )
+    assert weekly["report"]["kind"] == "weekly"
+    assert weekly["report"]["coverage"]["head_sha"] == "b" * 40
+    assert weekly["report"]["source_digest"] != week["source_digest"]
+    week = saved(weekly, "13")
+    monthly, _ = capture_report(
+        DB(rows, [week, month]),
+        "owner",
+        "repo",
+        payload,
+        datetime(2026, 11, 13, 14, tzinfo=timezone.utc),
+    )
+    assert monthly["report"]["kind"] == "monthly"
+    assert monthly["report"]["coverage"]["head_sha"] == "b" * 40
+    month = saved(monthly, "14")
+    unchanged, _ = capture_report(
+        DB(rows, [week, month]),
+        "owner",
+        "repo",
+        payload,
+        datetime(2026, 11, 13, 15, tzinfo=timezone.utc),
+    )
+    assert unchanged is None
+
+
+def test_frequent_merges_prioritize_monthly_when_weekly_was_just_reviewed():
+    rows, payload, week, month, saved = active_report_fixture()
+    payload["head_sha"] = "b" * 40
+    weekly, _ = capture_report(
+        DB(rows, [week, month]),
+        "owner",
+        "repo",
+        payload,
+        datetime(2026, 11, 13, 13, tzinfo=timezone.utc),
+    )
+    week = saved(weekly, "13")
+    payload["head_sha"] = "c" * 40
+    next_review, _ = capture_report(
+        DB(rows, [week, month]),
+        "owner",
+        "repo",
+        payload,
+        datetime(2026, 11, 13, 14, tzinfo=timezone.utc),
+    )
+    assert next_review["report"]["kind"] == "monthly"
+
+
+def test_new_head_does_not_rebuild_completed_periods_with_identical_evidence():
+    rows, payload, _, _, _ = active_report_fixture()
+    month = {
+        "kind": "monthly",
+        "period_start": "2026-11-01",
+        "generated_at": "2026-11-16T10:00:00Z",
+        "coverage": {"policy": POLICY, "head_sha": payload["head_sha"]},
+    }
+    final, _ = capture_report(
+        DB(rows, [month]), "owner", "repo", payload, datetime(2026, 11, 16, 11, tzinfo=timezone.utc)
+    )
+    assert final["report"]["kind"] == "weekly" and final["report"]["status"] == "final"
+    previous = {
+        **final["report"],
+        "generated_at": "2026-11-16T11:01:00Z",
+        "revision": 1,
+        "content": {},
+    }
+    payload["head_sha"] = "b" * 40
+    month["coverage"]["head_sha"] = payload["head_sha"]
+    result, _ = capture_report(
+        DB(rows, [month, previous]),
+        "owner",
+        "repo",
+        payload,
+        datetime(2026, 11, 16, 12, tzinfo=timezone.utc),
+    )
+    assert result is None
 
 
 def test_same_day_reversal_keeps_precise_source_order():
