@@ -1,7 +1,7 @@
 .readable-content {
   min-width: 0;
   color: #faf7ff;
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.75;
   overflow-wrap: anywhere;
 }
@@ -12,7 +12,7 @@
   margin-bottom: 0;
 }
 .readable-content p {
-  margin: 8px 0 12px;
+  margin: 10px 0 16px;
 }
 .readable-content h1,
 .readable-content h2,
@@ -20,7 +20,7 @@
 .readable-content h4 {
   font-weight: 600;
   line-height: 1.45;
-  margin: 22px 0 10px;
+  margin: 26px 0 12px;
 }
 .readable-content h1 {
   font-size: 21px;
@@ -38,7 +38,7 @@
   margin: 8px 0 14px;
 }
 .readable-content li {
-  margin: 5px 0;
+  margin: 7px 0;
 }
 .readable-content a {
   color: #00f0ff;
@@ -50,6 +50,8 @@
   background: #221035;
   padding: 1px 4px;
   border-radius: 3px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }
 .readable-content blockquote {
   border-left: 2px solid #654b83;

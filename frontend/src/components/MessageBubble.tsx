@@ -589,9 +589,16 @@ export default function MessageBubble({
             </Typography>
             <Box
               sx={{
-                "& p": { m: 0, mb: 1, "&:last-child": { mb: 0 } },
-                "& ul, & ol": { my: 0.5, pl: 2.5 },
-                "& li": { mb: 0.25 },
+                "& p": { m: 0, mb: 1.75, "&:last-child": { mb: 0 } },
+                "& ul, & ol": { my: 1.5, pl: 3 },
+                "& li": { mb: 0.75 },
+                "& li > p": { mb: 0.75 },
+                "& h1, & h2, & h3, & h4": {
+                  mt: 3,
+                  mb: 1.25,
+                  lineHeight: 1.4,
+                  textWrap: "pretty",
+                },
                 minWidth: 0,
                 width: "100%",
                 maxWidth: "100%",
