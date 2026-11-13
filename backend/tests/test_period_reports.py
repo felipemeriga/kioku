@@ -563,3 +563,20 @@ def test_legacy_worker_cannot_publish_new_principal_timeline_policy():
     snapshot, reason = capture_report(None, "owner", "repo", {"git_history_mode": "legacy"})
     assert snapshot is None
     assert "worker upgrade required" in reason
+
+
+def test_snapshot_preserves_final_merge_fixes_beyond_the_commit_subject():
+    message = "Commit on principal branch: tracking fixes (#484)\n\n" + "Earlier context. " * 35
+    message += "Preserve recovery boundaries and clear cross-game tracking backlog."
+    snapshot, _ = capture_report(
+        DB([]),
+        "owner",
+        "repo",
+        {
+            "head_sha": "a" * 40,
+            "timezone": "UTC",
+            "commits": [{"sha": "a" * 40, "at": "2026-11-13T10:00:00Z", "text": message}],
+        },
+        datetime(2026, 11, 13, 11, tzinfo=timezone.utc),
+    )
+    assert snapshot["input"]["sources"][0]["text"] == message

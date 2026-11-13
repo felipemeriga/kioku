@@ -199,3 +199,13 @@ def test_quote_origin_resolution_keeps_scope_exact_text_and_count_guards(failure
         ]
     with pytest.raises(ValueError):
         validate_report(snapshot, value)
+
+
+def test_merge_body_is_evidence_without_becoming_the_timeline_heading():
+    snapshot, value = fixture()
+    snapshot["input"]["sources"][2]["text"] += (
+        "\n\nPreserve recovery boundaries across puck recovery.\nFix shutdown boundaries."
+    )
+    result = validate_report(snapshot, value)
+    assert result["merges"][0]["title"] == "isolate live consumer groups (#485)"
+    assert "Preserve recovery" in snapshot["input"]["sources"][2]["text"]
