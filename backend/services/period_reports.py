@@ -101,6 +101,8 @@ REPORT_GUIDE = (
     "A principal-branch commit confirms code presence, not "
     "deployment or successful runtime behavior. Distinguish observation dates from incident dates. "
     "Later unsupported claims do not override stronger evidence. Explicitly reconcile reverts. "
+    "State measurements as observed: zero recorded errors does not rule out an entire causal "
+    "mechanism. Do not double-count overlapping groups when summarizing test/replay totals. "
     "Cite source IDs on the overview and every outcome, update and final-state item. Select an "
     "evidence_quote ID from a cited source's supplied choices; do not rewrite quotes. "
     "Use at most six topics, twelve updates per topic, three final-state items. Keep update text "
