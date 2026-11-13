@@ -6,6 +6,10 @@ from calendar import monthrange
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+from pydantic import AwareDatetime, TypeAdapter
+
+TIMESTAMP = TypeAdapter(AwareDatetime)
+
 POLICY = 1
 REPORT_SHAPE = {
     "title": "",
@@ -54,7 +58,9 @@ def instants(start, end, tz):
 
 
 def iso(value):
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    # PostgREST trims trailing fractional zeros; Python 3.10's parser only
+    # accepts three or six digits. Validate RFC3339 independently of runtime.
+    return TIMESTAMP.validate_python(value)
 
 
 def digest(value):
