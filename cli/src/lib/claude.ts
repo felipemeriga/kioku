@@ -548,9 +548,8 @@ The SessionStart hook fetches your briefing automatically.
 
 If you want to reload the briefing manually:
 
-- \`get_folder_briefing()\` — 6-section briefing for this repo
-  (overview, architecture, how_it_runs, deployment, activity,
-   documentation)
+- \`get_folder_briefing()\` — five-section briefing for this repo
+  (introduction, components, how it runs, deployment, activity)
 - \`get_folder_orientation()\` — broader context for this repo's
   folder subtree
 - \`list_folders_in_scope()\` — see what folders exist under this
@@ -646,8 +645,7 @@ sections survive automatic regeneration.
 
 If a briefing feels thin, this repo's kioku folder may have no uploaded docs.
 Suggest the user add documents or connect Notion in the web UI, then re-run
-\`kioku init --force\` — generation folds that ecosystem context into the
-briefing and the detailed doc, so it spans the whole ecosystem, not just code.
+\`kioku init --force\` — generation uses that reference context to ground the concise briefing.
 
 ${MARKER_END}
 `;

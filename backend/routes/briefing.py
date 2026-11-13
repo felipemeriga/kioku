@@ -28,6 +28,7 @@ from pydantic import BaseModel, Field
 from auth import get_current_user
 from db.client import get_supabase_thread_safe as get_supabase
 from services.folder_summary.briefing_schema import (
+    ACTIVE_SECTION_KEYS,
     BRIEFING_SCHEMA_VERSION,
     SECTION_KEYS,
     empty_briefing,
@@ -69,7 +70,11 @@ def _current_briefing(sb, folder_id: str, user_id: str) -> dict:
     content_sections = (latest.get("content") or {}).get("sections") or {}
     top_sections = latest.get("sections") or {}
     merged = {**top_sections, **content_sections}
-    return {key: merged[key] for key in SECTION_KEYS if key in merged} or empty_briefing()
+    return {
+        key: value
+        for key, value in (merged or empty_briefing()).items()
+        if key in ACTIVE_SECTION_KEYS
+    }
 
 
 @router.get("/{folder_id}/briefing/schema")
@@ -87,7 +92,7 @@ def briefing_schema():
         "sections": {
             "overview": {
                 "shape": {"purpose": "str", "description": "str"},
-                "notes": "One sentence + a 2-4 sentence what/why.",
+                "notes": "Introduction: purpose plus up to three description sentences.",
             },
             "architecture": {
                 "shape": {
@@ -95,7 +100,7 @@ def briefing_schema():
                     "components": [{"name": "str", "role": "str", "path": "str"}],
                     "data_flow": "str",
                 },
-                "notes": "How the system fits together — subsystems, boundaries, data flow.",
+                "notes": "Components: concise roles, one key path each, and a short flow.",
             },
             "how_it_runs": {
                 "shape": {"requirements": ["str"], "local_dev": "str (multi-line ok)"},
@@ -121,10 +126,9 @@ def briefing_schema():
             "activity": {
                 "shape": {"summary": "str", "highlights": ["str"]},
                 "notes": (
-                    "A substantial, useful digest of recent work distilled from git "
-                    "history (roughly the last ~30-50 commits or ~2-3 months). "
-                    "`summary` = a 4-8 sentence narrative of the themes and direction "
-                    "of recent work. `highlights` = 5-10 concrete bullets, each a "
+                    "A compact digest of recent merged work distilled from git history. "
+                    "`summary` = two or three short sentences. "
+                    "`highlights` = at most five concrete bullets, each a "
                     "notable change/feature/fix with a bit of context (what and why, "
                     "reference PR numbers when visible). Group related commits into "
                     "themes; do NOT paste a raw commit list. Don't pin — it goes stale."
@@ -200,13 +204,13 @@ def _index_status(
     reviews = (fresh or {}).get("section_reviews") or {}
     briefing_reviews = [
         reviews[name]
-        for name in ("architecture", "overview", "documentation")
+        for name in ("architecture", "overview")
         if isinstance(reviews.get(name), dict) and reviews[name].get("reviewed_at")
     ]
     review_shas = {item.get("head_sha") for item in briefing_reviews}
     briefing_reviewed_at = (
         min(item["reviewed_at"] for item in briefing_reviews)
-        if len(briefing_reviews) == 3 and len(review_shas) == 1
+        if len(briefing_reviews) == 2 and len(review_shas) == 1
         else None
     )
     return {
@@ -320,7 +324,7 @@ def trigger_refresh(
 def clear_briefing(folder_id: str, user_id: str = Depends(get_current_user)):
     """Clear the entire briefing + detailed doc for a repo folder so it
     regenerates from scratch. Deletes every folder_summaries row for the folder
-    and the stored repo_documentation. After this, `needs_generation` flips back
+    while retaining separately authored documentation. After this, `needs_generation` flips back
     to True and the next `kioku init` (or session start) regenerates everything.
     """
     sb = get_supabase()
@@ -332,16 +336,6 @@ def clear_briefing(folder_id: str, user_id: str = Depends(get_current_user)):
         .eq("user_id", user_id)
         .execute()
     )
-    try:
-        (
-            sb.table("repo_documentation")
-            .delete()
-            .eq("folder_id", folder_id)
-            .eq("user_id", user_id)
-            .execute()
-        )
-    except Exception:  # noqa: BLE001 — table may not be migrated yet
-        pass
     return {"ok": True}
 
 

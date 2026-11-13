@@ -25,102 +25,52 @@ export function generateInstruction(
   sectionOrder: string[],
   folder?: string,
 ): string {
-  const activeSections = sectionOrder.filter(
-    (section) => section !== "preferences",
+  const keys = [
+    "overview",
+    "architecture",
+    "how_it_runs",
+    "deployment",
+    "activity",
+  ];
+  const activeSections = keys.filter((section) =>
+    sectionOrder.includes(section),
   );
-  // A single MCP key can span several repos (the Codex surface uses one global
-  // key scoped to the whole root), so every WRITE must name THIS repo. `folder`
-  // is this repo's folder id/name; thread it into the write calls below.
   const f = folder ? `, folder="${folder}"` : "";
   const folderNote = folder
-    ? [
-        "",
-        `IMPORTANT: your MCP key may span several repos, so pass folder="${folder}"`,
-        "on every write call below (replace_folder_briefing, save_repo_documentation)",
-        "so the briefing lands on THIS repo and not a sibling.",
-      ]
-    : [];
+    ? `Pass folder="${folder}" on every write so it lands on THIS repository.`
+    : "";
   return [
-    "Generate practical Kioku knowledge for THIS repository: a descriptive",
-    "briefing for session starts and a focused architecture/operations document.",
-    "Ground both in real code. Help a developer understand and work in this",
-    "repo quickly; do not write an exhaustive research report.",
-    ...folderNote,
-    "",
-    "Do this:",
-    "1. Call the `get_folder_briefing_schema` MCP tool to get the exact expected",
-    "   shape + authoring notes for each section.",
-    "2. Call the `read_folder_documents` MCP tool once. Use uploaded documents",
-    "   only where they clarify this repo's behavior or a direct interface it",
-    "   implements. Prefer current source when docs conflict. Do not expand into",
-    "   a tour of parent-folder systems or reproduce documents wholesale.",
-    "3. Explore entry points, owned components, data flow, run commands, and",
-    "   deployment. Find code with Kioku `code_search` (semantic search), graph",
-    "   tools (`outline`, `find_definition`, `find_references`, `impact_of`),",
-    "   or your normal local search/grep tool (such as `rg`). Use whichever",
-    "   gives the clearest path; you do not need to call every tool. When a",
-    "   result is missing, stale, contradictory, or uncertain, compare it with",
-    "   current local source using grep or another independent search method.",
-    "   For a large repo, parallelize distinct areas, then synthesize briefly.",
-    `4. Write these ${activeSections.length} descriptive sections, grounded in the`,
-    `   actual code with REAL file paths, following the schema shapes: ${activeSections.join(
-      ", ",
-    )}.`,
-    "   Keep each section focused on what a developer needs at session start:",
-    "   purpose, responsibilities, key paths, and actionable commands. Explain",
-    "   why the important pieces matter instead of merely naming them.",
-    "   Give architecture a concrete component map and data flow; give",
-    "   deployment the real environments and release path. Inspect tracked",
-    "   `.github/workflows/` files, release scripts, and deploy manifests before",
-    "   writing deployment or CI claims. State verified triggers, jobs, image",
-    "   build/publish steps, and deploy targets with their source paths. If the",
-    "   repository has no evidence for a step, omit it; do not infer a pipeline.",
-    "   Use short, readable prose; avoid repeating the same fact across sections.",
-    "   In `how_it_runs`, be useful to a developer opening this repo for the",
-    "   first time. Explain prerequisites and why they matter; give the real",
-    "   setup, start, and test commands for every distinct supported run mode",
-    "   (for example local development, containers, CLI, workers, and tests)",
-    "   and the order they run. Use short headed paragraphs, not a compressed",
-    "   semicolon-separated command dump. For a large repo, cover the important",
-    "   run modes and packages without repeating every script. Do not invent",
-    "   commands or secret values; state when the repo does not document a step.",
-    "5. ALSO fill the `activity` section so the web UI shows it — make it",
-    "   genuinely useful, not a one-liner. Read a good chunk of history",
-    "   (`git log` for roughly the last ~30-50 commits or ~2-3 months) and write:",
-    "     - `summary` = a 4-8 sentence NARRATIVE of the themes and direction of",
-    "       recent work (what areas are moving, what's being built/fixed/refactored).",
-    "     - `highlights` = 5-10 concrete bullets, each a notable change/feature/fix",
-    "       with a bit of context (what and why; reference PR numbers when visible).",
-    "   Group related commits into themes; do NOT paste a raw commit list. (Claude",
-    "   Code sessions still get live git activity separately — this is the stored",
-    "   web-UI section.)",
-    "6. Save the briefing sections + activity in ONE call to",
-    `   \`replace_folder_briefing(sections=<json>, pin_all=False${f})\` — a JSON object mapping`,
-    "   each section name to its content.",
-    "   These generated sections stay available for Mihari to review and update",
-    "   after new commits. Pin only deliberate manual edits made later.",
-    "7. Then produce a focused markdown architecture/operations document for",
-    "   this repository. Cover its purpose and boundaries, owned subsystems and",
-    "   their responsibilities, main data/control flow, key paths, how to run",
-    "   and test it, deployment/CI, and a few important gotchas. For a large",
-    "   repo aim for about 800–1,200 words; use less for a small repo. Ground",
-    "   architecture and detailed explanations in retrieved code or documents,",
-    "   checking uncertain claims against current source. Explain the important",
-    "   mechanisms without inventorying every module, commit,",
-    "   external service, timestamp, or configuration field. Mention external",
-    "   systems only to explain a direct input/output boundary of this repo.",
-    "   Do not include a scope/evidence diary (branch, HEAD, sources read, tool",
-    "   calls, schema retrieval, caveats about what you did not inspect), long",
-    "   historical comparisons, or speculative ecosystem architecture. Put",
-    "   short source paths beside claims where useful. Save the document with",
-    `   \`save_repo_documentation(content=<the full markdown>, abstract=<a short`,
-    `   3–8 line summary>${f})\`. This is the focused reference document.`,
-    "",
-    "Never invent a fact, command, dependency, or behavior that Kioku or another",
-    "search method did not retrieve and that you cannot verify. Omit unsupported",
-    "claims. Be clear and concise. Do not ask questions; produce and save",
-    "BOTH the briefing (with activity) and the focused documentation.",
-  ].join("\n");
+    "Generate a concise Kioku briefing for THIS repository, grounded in current code.",
+    "Its five sections are Introduction, Components, How it runs, Deployment, and Activity.",
+    folderNote,
+    "1. Call `get_folder_briefing_schema` for the exact shapes and authoring notes.",
+    "2. Call `read_folder_documents` once for relevant authored reference material.",
+    "   Prefer current source when it conflicts with old documentation; do not copy whole documents.",
+    "3. Inspect entry points, owned components, commands, tests and deployment files.",
+    "   Use `code_search` (semantic search), `outline`, `find_definition`, `find_references`,",
+    "   `impact_of`, or your normal local search/grep tool such as `rg`.",
+    "   Choose the clearest source; you do not need to call every tool. If an indexed result",
+    "   is missing, stale or uncertain, compare it with current local source.",
+    `4. Write these sections with real paths: ${activeSections.join(", ")}.`,
+    "   overview: one purpose sentence and at most three short description sentences.",
+    "   architecture: a concise component map, each component's responsibility and key path.",
+    "   Keep its summary and data_flow to one sentence each; avoid a second architecture essay.",
+    "   how_it_runs: prerequisites, setup, start and test commands for each distinct supported run mode.",
+    "   Use short headings, bullets and fenced commands with brief explanations.",
+    "   deployment: inspect `.github/workflows/`, release scripts and deploy manifests before",
+    "   describing environments, triggers, release steps or CI. Keep only essential verified facts.",
+    "   activity: read recent principal-branch git history, then write two or three short",
+    "   sentences and at most five highlights of merged changes. Past investigations belong in History.",
+    "   Avoid repeating facts across sections; aim for 600–900 words for the complete briefing.",
+    "5. Save the sections in ONE call:",
+    `   \`replace_folder_briefing(sections=<json>, pin_all=False${f})\``,
+    "   These generated sections remain available for Mihari maintenance after new commits.",
+    "   Preserve deliberate user edits; do not pin automatically generated content.",
+    "Never invent a fact, command, dependency or behavior. Omit unsupported claims.",
+    "Do not ask questions; produce and save the five-section briefing.",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 /** Resolve the kioku API key + MCP url for this session, agent-neutrally.
@@ -187,9 +137,8 @@ export async function sessionStart(): Promise<void> {
   }
   if (!folderId) return;
 
-  const { readLastSessionAt, stampLastSessionAt } = await import(
-    "../lib/claude.js"
-  );
+  const { readLastSessionAt, stampLastSessionAt } =
+    await import("../lib/claude.js");
   const { composeActivity } = await import("../lib/git-activity.js");
 
   try {
@@ -224,11 +173,13 @@ export async function sessionStart(): Promise<void> {
         console.log(generateInstruction(s.section_order, folderId));
       }
     } else if (s.sections) {
-      // Inject the stable sections + the `documentation` abstract (the full
-      // deep doc stays out of the prompt — fetched on demand via MCP).
+      // Only the concise five-section briefing belongs in startup context.
       for (const key of [
-        ...s.section_order.filter((key) => key !== "preferences"),
-        "documentation",
+        "overview",
+        "architecture",
+        "how_it_runs",
+        "deployment",
+        "activity",
       ]) {
         const sec = s.sections[key];
         if (!sec) continue;
@@ -244,16 +195,6 @@ export async function sessionStart(): Promise<void> {
         )
           continue;
         console.log(`\n## ${key}\n${body}`);
-      }
-      // Deep-doc offer — only once the concise summary already exists, so a
-      // fresh repo isn't asked for an expensive scan on its first session.
-      if (s.doc_needs_generation) {
-        console.log(
-          "\nThis repo's deep documentation is missing or over 30 days old. When you're " +
-            'ready, say "generate the docs" and I\'ll scan the repository — fanning out ' +
-            "subagents across its main areas — write a structured architecture document, " +
-            "and save it via the `save_repo_documentation` MCP tool.",
-        );
       }
     }
 

@@ -132,7 +132,7 @@ describe("StatusPanel", () => {
     expect(await screen.findByText("Briefing")).toBeInTheDocument();
     expect(
       await screen.findByText(
-        /Architecture, overview, and detailed docs reviewed at aaaaaaa/,
+        /Introduction and components reviewed at aaaaaaa/,
       ),
     ).toHaveTextContent("Content changed");
     expect(screen.getByText(/Reviewed/)).toBeInTheDocument();

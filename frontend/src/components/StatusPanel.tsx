@@ -146,7 +146,6 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
   const briefingChangedAt = [
     status?.architecture_at,
     status?.overview_at,
-    status?.detailed_doc_at,
   ].filter((value): value is string => Boolean(value));
   const lastBriefingChange = briefingChangedAt.length
     ? briefingChangedAt.reduce((latest, at) => (at > latest ? at : latest))
@@ -187,10 +186,10 @@ export default function StatusPanel({ folderId }: { folderId: string }) {
       label: "Briefing",
       at: status?.briefing_reviewed_at ?? lastBriefingChange,
       sub: briefingReviewedAtHead
-        ? `Architecture, overview, and detailed docs reviewed at ${status?.briefing_reviewed_sha?.slice(0, 7)} · Content changed ${timeAgo(lastBriefingChange)}`
+        ? `Introduction and components reviewed at ${status?.briefing_reviewed_sha?.slice(0, 7)} · Content changed ${timeAgo(lastBriefingChange)}`
         : status?.briefing_reviewed_sha
           ? `Git is at ${status.head_sha?.slice(0, 7)} · Last reviewed at ${status.briefing_reviewed_sha.slice(0, 7)} · Content changed ${timeAgo(lastBriefingChange)}`
-          : "Architecture, overview, and detailed docs · Awaiting Mihari review",
+          : "Introduction and components · Awaiting Mihari review",
       color: brand.violet2,
       reviewed: briefingReviewedAtHead,
       pending: !briefingReviewedAtHead,

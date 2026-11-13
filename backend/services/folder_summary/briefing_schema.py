@@ -31,6 +31,10 @@ SECTION_KEYS: list[str] = [
 ]
 
 
+# Default orientation; documentation remains a legacy explicit-write surface.
+ACTIVE_SECTION_KEYS = [key for key in SECTION_KEYS if key != "documentation"]
+
+
 def _now_iso() -> str:
     return datetime.now(tz=timezone.utc).isoformat()
 

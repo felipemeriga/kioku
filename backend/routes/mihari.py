@@ -156,9 +156,6 @@ def review_complete(body: ReviewCompleteRequest, request: Request):
     from services.maintenance.execution import native_enabled
 
     if native_enabled(user_id):
-        from services.maintenance.execution import acknowledge_absent_documentation
-
-        acknowledge_absent_documentation(sb, user_id, body.folder_id, body.head_sha)
         passes = (
             sb.table("maintenance_review_passes")
             .select("head_sha,selected,acknowledged")
@@ -172,7 +169,9 @@ def review_complete(body: ReviewCompleteRequest, request: Request):
         if (
             not passes
             or passes[0]["head_sha"] != body.head_sha
-            or not set(passes[0]["selected"]).issubset(passes[0]["acknowledged"])
+            or not (set(passes[0]["selected"]) - {"documentation"}).issubset(
+                passes[0]["acknowledged"]
+            )
         ):
             raise HTTPException(
                 status_code=409, detail="maintenance pass is not fully acknowledged"

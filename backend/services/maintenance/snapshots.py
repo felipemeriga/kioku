@@ -48,15 +48,17 @@ def capture(sb, owner, folder, operation, payload):
     extra = {"expected_reviews": {name: reviews.get(name) for name in expected}}
 
     if operation == "review_plan":
-        expected = sections
-        current = {s: (v or {}).get("content") for s, v in sections.items()}
+        from services.folder_summary.briefing_schema import ACTIVE_SECTION_KEYS
+
+        expected = {s: v for s, v in sections.items() if s in ACTIVE_SECTION_KEYS}
+        current = {s: (v or {}).get("content") for s, v in expected.items()}
     elif operation in ("activity", "how_it_runs", "deployment"):
         current = current.get(operation)
         if current is None:
             return None, "section not present"
         if operation == "how_it_runs" and isinstance(current, str):
             current = {"requirements": [], "local_dev": current}
-    if operation in ("documentation", "review_plan"):
+    if operation == "documentation":
         docs = (
             sb.table("repo_documentation")
             .select("id,content,abstract,generated_at")
@@ -73,8 +75,6 @@ def capture(sb, owner, folder, operation, payload):
             if not docs:
                 return None, "no detailed documentation yet"
             current = docs[0]
-        else:
-            current["documentation"] = docs[0].get("abstract", "") if docs else ""
     if operation == "reground":
         extra["symbols"] = (
             sb.table("repo_symbols")

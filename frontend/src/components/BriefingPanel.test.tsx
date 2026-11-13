@@ -155,7 +155,7 @@ describe("BriefingPanel", () => {
     expect(screen.getByText("Fixed indexing")).toBeInTheDocument();
   });
 
-  it("adds the detailed document to the section navigation when one exists", async () => {
+  it("keeps authored documentation out of the concise briefing navigation", async () => {
     vi.spyOn(api, "fetchBriefing").mockResolvedValue(staleBriefingFixture);
     vi.spyOn(api, "fetchDocumentation").mockResolvedValue({
       documentation: {
@@ -169,10 +169,51 @@ describe("BriefingPanel", () => {
       name: "Briefing sections",
     });
     expect(
-      await within(rail).findByRole("button", {
+      within(rail).queryByRole("button", {
         name: /Detailed documentation/i,
       }),
-    ).toBeInTheDocument();
+    ).not.toBeInTheDocument();
+    expect(api.fetchDocumentation).not.toHaveBeenCalled();
+  });
+
+  it("shows concise introduction and component responsibilities with key paths", async () => {
+    vi.spyOn(api, "fetchBriefing").mockResolvedValue({
+      ...staleBriefingFixture,
+      sections: {
+        ...staleBriefingFixture.sections,
+        overview: {
+          ...staleBriefingFixture.sections.overview,
+          content: {
+            purpose: "Keep repository context.",
+            description: "A concise introduction.",
+          },
+        },
+        architecture: {
+          ...staleBriefingFixture.sections.architecture,
+          content: {
+            summary: "Legacy architecture narrative.",
+            components: [
+              {
+                name: "Worker",
+                role: "Processes **originals**.",
+                path: "backend/worker.py",
+              },
+            ],
+            data_flow: "Hooks send evidence to the worker.",
+          },
+        },
+      },
+    });
+    renderWithProviders(<BriefingPanel folderId="f1" />);
+    await screen.findByText("Keep repository context.");
+    expect(screen.getAllByText("Introduction").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Components").length).toBeGreaterThan(0);
+    expect(screen.getByRole("heading", { name: "Worker" })).toBeInTheDocument();
+    expect(screen.getByText("backend/worker.py")).toBeInTheDocument();
+    const details = screen
+      .getByText("How components connect")
+      .closest("details");
+    expect(details).not.toHaveAttribute("open");
   });
 
   it("renders the briefing title", async () => {

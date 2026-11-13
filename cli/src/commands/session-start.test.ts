@@ -29,3 +29,22 @@ test("initial briefing uses available code search and checks uncertainty", () =>
   assert.match(instruction, /distinct supported run mode/);
   assert.doesNotMatch(instruction, /following the schema shapes:.*preferences/);
 });
+
+test("default briefing never schedules legacy detailed documentation", () => {
+  const instruction = generateInstruction(
+    [
+      "overview",
+      "architecture",
+      "how_it_runs",
+      "deployment",
+      "activity",
+      "documentation",
+    ],
+    "repo-id",
+  );
+  assert.doesNotMatch(
+    instruction,
+    /save_repo_documentation|documentation,|detailed document/,
+  );
+  assert.match(instruction, /activity/);
+});

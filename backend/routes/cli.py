@@ -481,12 +481,12 @@ def scope_info(request: Request):
 # ---------------------------------------------------------------------------
 
 SUMMARY_TTL_DAYS = 7
-DOC_TTL_DAYS = 30
 STABLE_SECTION_ORDER = [
     "overview",
     "architecture",
     "how_it_runs",
     "deployment",
+    "activity",
 ]
 
 
@@ -591,33 +591,14 @@ def folder_summary(request: Request, folder_id: str):
         .data
     )
     generated_at = latest[0]["generated_at"] if latest else None
-    from services.folder_summary.briefing_schema import SECTION_KEYS
+    from services.folder_summary.briefing_schema import ACTIVE_SECTION_KEYS
 
     stored_sections = (latest[0]["content"] or {}).get("sections") if latest else None
     sections = (
-        {key: stored_sections[key] for key in SECTION_KEYS if key in stored_sections}
+        {key: stored_sections[key] for key in ACTIVE_SECTION_KEYS if key in stored_sections}
         if isinstance(stored_sections, dict)
         else None
     )
-
-    # Detailed-doc staleness (30-day clock, independent of the concise 7-day).
-    # Defensive: if the repo_documentation table isn't migrated yet, treat the
-    # doc as needing generation rather than 500-ing the hook.
-    doc_generated_at = None
-    try:
-        doc_row = (
-            sb.table("repo_documentation")
-            .select("generated_at")
-            .eq("folder_id", folder_id)
-            .eq("user_id", user_id)
-            .order("generated_at", desc=True)
-            .limit(1)
-            .execute()
-            .data
-        )
-        doc_generated_at = doc_row[0]["generated_at"] if doc_row else None
-    except Exception:  # noqa: BLE001 — table may not exist pre-migration
-        doc_generated_at = None
 
     # Doc / Notion presence — powers the CLI "seed this folder first" nudge so
     # `kioku init` can suggest adding ecosystem context before generating.
@@ -654,8 +635,8 @@ def folder_summary(request: Request, folder_id: str):
         "generated_at": generated_at,
         "sections": sections,
         "section_order": STABLE_SECTION_ORDER,
-        "doc_needs_generation": _needs_generation(doc_generated_at, ttl_days=DOC_TTL_DAYS),
-        "doc_generated_at": doc_generated_at,
+        "doc_needs_generation": False,
+        "doc_generated_at": None,
         "doc_count": doc_count,
         "has_notion": has_notion,
     }
