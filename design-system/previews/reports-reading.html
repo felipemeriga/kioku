@@ -1,0 +1,2009 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Kioku · Reports reading preview</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --canvas: #090612;
+        --surface: #110b1f;
+        --raised: #1a102a;
+        --line: #3c2d4c;
+        --ink: #f4eff9;
+        --muted: #bdafcb;
+        --pink: #ff009d;
+        --cyan: #00e2ed;
+        --mint: #9bd8ba;
+        --amber: #e2c18c;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--canvas);
+        color: var(--ink);
+        font-size: 15px;
+        line-height: 1.65;
+      }
+      button,
+      select {
+        font: inherit;
+      }
+      button {
+        cursor: pointer;
+        color: inherit;
+        background: none;
+        border: 0;
+      }
+      button:focus-visible,
+      select:focus-visible,
+      summary:focus-visible,
+      a:focus-visible {
+        outline: 2px solid var(--cyan);
+        outline-offset: 4px;
+      }
+      button:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+      a {
+        color: var(--cyan);
+      }
+      svg {
+        width: 18px;
+        height: 18px;
+        stroke: currentColor;
+        stroke-width: 1.6;
+        fill: none;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        flex: none;
+      }
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+      h1 {
+        font-size: 30px;
+        font-weight: 650;
+        line-height: 1.25;
+        letter-spacing: -0.6px;
+      }
+      h2 {
+        font-size: 19px;
+        line-height: 1.4;
+        font-weight: 620;
+      }
+      h3 {
+        font-size: 16px;
+        line-height: 1.45;
+        font-weight: 650;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .small {
+        font-size: 12px;
+      }
+      .topbar {
+        height: 64px;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 28px;
+        gap: 20px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        font-size: 18px;
+        font-weight: 650;
+      }
+      .mark {
+        color: var(--pink);
+        border: 1px solid currentColor;
+        padding: 0 6px;
+        font-size: 25px;
+        line-height: 34px;
+        font-weight: 400;
+      }
+      .preview {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .shell {
+        max-width: 1350px;
+        margin: auto;
+        padding: 34px 38px 72px;
+      }
+      .breadcrumb {
+        font-size: 12px;
+        color: var(--muted);
+        margin-bottom: 24px;
+      }
+      .folder-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: end;
+        gap: 20px;
+      }
+      .folder-head h1 {
+        font-size: 27px;
+      }
+      .repo-tabs {
+        display: flex;
+        gap: 29px;
+        margin: 25px 0 25px;
+        border-bottom: 1px solid var(--line);
+        font-size: 14px;
+      }
+      .repo-tabs span {
+        padding: 10px 0;
+      }
+      .repo-tabs .active {
+        border-bottom: 2px solid var(--pink);
+        color: var(--ink);
+      }
+      .agent-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 20px;
+      }
+      .agent-head h2 {
+        font-size: 20px;
+      }
+      .views {
+        display: flex;
+        gap: 25px;
+        font-size: 14px;
+      }
+      .views .active {
+        color: var(--cyan);
+        border-bottom: 2px solid var(--pink);
+        padding: 8px 0;
+      }
+      .toolbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin: 23px 0 18px;
+        gap: 12px;
+      }
+      .segmented {
+        display: inline-flex;
+        border: 1px solid #634a76;
+        border-radius: 5px;
+        padding: 3px;
+        gap: 3px;
+      }
+      .segmented button {
+        padding: 6px 13px;
+        font-size: 13px;
+        border-radius: 3px;
+      }
+      .segmented button[aria-pressed="true"] {
+        background: #392048;
+      }
+      .segmented button:hover {
+        background: #291a36;
+      }
+      .timezone {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .info {
+        width: 25px;
+        height: 25px;
+        border: 1px solid var(--line);
+        border-radius: 50%;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: 190px minmax(0, 1fr);
+        gap: 22px;
+        align-items: start;
+      }
+      .periods {
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        padding: 9px;
+        position: sticky;
+        top: 18px;
+      }
+      .periods .caption {
+        padding: 7px 10px 13px;
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .period {
+        width: 100%;
+        text-align: left;
+        padding: 13px 11px;
+        border-radius: 3px;
+        border-left: 2px solid transparent;
+        font-size: 13px;
+        display: block;
+        margin-bottom: 5px;
+      }
+      .period.selected {
+        background: #291236;
+        border-left-color: var(--pink);
+      }
+      .period strong,
+      .period span {
+        display: block;
+      }
+      .period span {
+        font-size: 12px;
+        color: var(--muted);
+        margin-top: 3px;
+      }
+      .periods footer {
+        display: flex;
+        justify-content: space-between;
+        padding-top: 8px;
+        border-top: 1px solid var(--line);
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .document {
+        min-width: 0;
+        border: 1px solid #59416b;
+        border-radius: 5px;
+        background: var(--surface);
+      }
+      .report-head {
+        padding: 29px 34px 26px;
+      }
+      .report-meta {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        color: var(--muted);
+        font-size: 12px;
+        margin-bottom: 15px;
+      }
+      .status {
+        border: 1px solid #665378;
+        border-radius: 4px;
+        padding: 2px 8px;
+        font-size: 11px;
+        white-space: nowrap;
+      }
+      .report-head h1 {
+        max-width: 26ch;
+        font-size: 29px;
+        line-height: 1.3;
+      }
+      .standfirst {
+        max-width: 65ch;
+        margin-top: 17px;
+        font-size: 16px;
+        line-height: 1.7;
+        color: #ded5e7;
+      }
+      .outcomes {
+        margin: 18px 0 0;
+        padding-left: 19px;
+        max-width: 67ch;
+        display: grid;
+        gap: 7px;
+        font-size: 14px;
+      }
+      .outcomes li::marker {
+        color: var(--pink);
+      }
+      .report-footnote {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: 12px;
+        margin-top: 23px;
+        padding-top: 18px;
+        border-top: 1px solid var(--line);
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .revision {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .revision select {
+        background: var(--surface);
+        color: var(--ink);
+        border: 1px solid #655078;
+        border-radius: 4px;
+        font-size: 12px;
+        padding: 4px 7px;
+      }
+      .merged {
+        border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+        padding: 18px 34px;
+        display: flex;
+        gap: 18px;
+        align-items: flex-start;
+      }
+      .merged-label {
+        font-size: 12px;
+        min-width: 87px;
+        margin-top: 3px;
+        color: var(--muted);
+      }
+      .pr-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+      }
+      .pr {
+        font-size: 12px;
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        border: 1px solid #466052;
+        border-radius: 4px;
+        padding: 4px 9px;
+        background: #11271f55;
+      }
+      .pr svg {
+        width: 13px;
+        height: 13px;
+        color: var(--mint);
+      }
+      .pr:hover {
+        border-color: var(--mint);
+      }
+      .reading-toolbar {
+        padding: 20px 34px 17px;
+        display: flex;
+        gap: 15px;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid var(--line);
+      }
+      .reading-toolbar .segmented {
+        border: 0;
+        padding: 0;
+      }
+      .reading-toolbar button {
+        font-size: 13px;
+      }
+      .view-note {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .day-nav {
+        display: flex;
+        padding: 16px 34px 0;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .day-nav button {
+        padding: 5px 11px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .day-nav button:hover,
+      .day-nav button.selected {
+        border-color: #bd3a8b;
+        color: var(--ink);
+        background: #2e1028;
+      }
+      .days {
+        padding: 2px 34px 0;
+      }
+      .day {
+        display: grid;
+        grid-template-columns: 86px minmax(0, 1fr);
+        gap: 17px;
+        padding: 27px 0;
+        border-bottom: 1px solid var(--line);
+        scroll-margin-top: 20px;
+      }
+      .day:last-child {
+        border-bottom: 0;
+      }
+      .day-date {
+        font-size: 12px;
+        color: var(--muted);
+        line-height: 1.5;
+        padding-top: 1px;
+      }
+      .day-date strong {
+        display: block;
+        font-size: 17px;
+        color: var(--ink);
+        font-weight: 600;
+        margin-bottom: 2px;
+      }
+      .entry + .entry {
+        margin-top: 24px;
+      }
+      .entry p {
+        max-width: 64ch;
+        font-size: 14px;
+        line-height: 1.75;
+        color: #dacee5;
+        margin-top: 7px;
+      }
+      .entry-top {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-bottom: 7px;
+      }
+      .tag {
+        font-size: 11px;
+        padding: 1px 7px;
+        border: 1px solid #594b6a;
+        border-radius: 3px;
+        color: #d9c8e5;
+        white-space: nowrap;
+      }
+      .tag.merged-tag {
+        color: var(--mint);
+        border-color: #486657;
+        background: #18332855;
+      }
+      .tag.observed {
+        color: var(--cyan);
+        border-color: #32626a;
+        background: #14343b44;
+      }
+      .tag.uncertain {
+        color: var(--amber);
+        border-color: #675742;
+        background: #3b2d1844;
+      }
+      .topic-link {
+        font-size: 11px;
+        color: var(--muted);
+        text-decoration: underline;
+        text-decoration-color: #65536f;
+        text-underline-offset: 3px;
+        padding: 0;
+      }
+      .topic-link:hover {
+        color: var(--cyan);
+      }
+      .source-button {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--muted);
+        padding: 0;
+        margin-top: 18px;
+      }
+      .source-button:hover {
+        color: var(--cyan);
+      }
+      .source-button svg {
+        width: 15px;
+        height: 15px;
+      }
+      .context {
+        margin-top: 12px;
+      }
+      .context summary {
+        font-size: 12px;
+        color: var(--muted);
+        cursor: pointer;
+      }
+      .context p {
+        font-size: 13px;
+        margin: 10px 0 0;
+      }
+      .relationship {
+        border-left: 2px solid #796393;
+        margin-top: 13px;
+        padding-left: 13px;
+        max-width: 64ch;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .relationship strong {
+        color: #e5d6ed;
+        font-weight: 550;
+      }
+      .document-footer {
+        padding: 18px 34px;
+        border-top: 1px solid var(--line);
+        display: flex;
+        justify-content: space-between;
+        gap: 15px;
+        font-size: 12px;
+      }
+      .document-footer button {
+        font-size: 12px;
+        color: var(--pink);
+        padding: 0;
+      }
+      .thread {
+        padding: 28px 34px;
+      }
+      .thread-intro {
+        display: flex;
+        align-items: start;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .thread p {
+        font-size: 14px;
+        line-height: 1.75;
+        max-width: 65ch;
+        color: #dacee5;
+      }
+      .thread-lead {
+        margin-top: 11px;
+      }
+      .steps {
+        margin: 24px 0 24px 8px;
+        border-left: 1px solid #5a486e;
+        padding-left: 23px;
+        display: grid;
+        gap: 25px;
+      }
+      .step {
+        position: relative;
+      }
+      .step:before {
+        content: "";
+        width: 7px;
+        height: 7px;
+        border: 2px solid var(--surface);
+        background: #7c658f;
+        border-radius: 50%;
+        position: absolute;
+        left: -29px;
+        top: 7px;
+        box-shadow: 0 0 0 1px #7c658f;
+      }
+      .step:last-child:before {
+        background: var(--mint);
+        box-shadow: 0 0 0 1px var(--mint);
+      }
+      .step-time {
+        font-size: 12px;
+        color: var(--muted);
+        margin-bottom: 5px;
+      }
+      .step h3 {
+        margin-bottom: 6px;
+      }
+      .thread-state {
+        background: #191427;
+        border-left: 2px solid var(--cyan);
+        padding: 15px 17px;
+        max-width: 68ch;
+      }
+      .thread-state .tag {
+        margin-bottom: 8px;
+      }
+      .thread-state p {
+        font-size: 13px;
+      }
+      .thread-state p + p {
+        margin-top: 8px;
+      }
+      .other-thread {
+        border-top: 1px solid var(--line);
+        margin-top: 28px;
+        padding-top: 22px;
+      }
+      .other-thread summary {
+        cursor: pointer;
+        font-size: 15px;
+        font-weight: 600;
+      }
+      .other-thread p {
+        margin-top: 12px;
+      }
+      .month-weeks {
+        padding: 8px 34px 24px;
+      }
+      .week-group {
+        border-bottom: 1px solid var(--line);
+        padding: 22px 0;
+      }
+      .week-group:last-child {
+        border: 0;
+      }
+      .week-group > summary {
+        cursor: pointer;
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        list-style: none;
+      }
+      .week-group > summary::-webkit-details-marker {
+        display: none;
+      }
+      .week-group > summary:after {
+        content: "+";
+        color: var(--muted);
+        font-size: 20px;
+      }
+      .week-group[open] > summary:after {
+        content: "−";
+      }
+      .week-group > summary strong {
+        font-size: 16px;
+        font-weight: 600;
+        display: block;
+      }
+      .week-group > summary span {
+        font-size: 13px;
+        color: var(--muted);
+        display: block;
+        margin-top: 4px;
+      }
+      .week-group .day {
+        grid-template-columns: 74px minmax(0, 1fr);
+        padding: 22px 0;
+      }
+      .month-explanation {
+        padding: 22px 34px 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .back {
+        color: var(--pink);
+        font-size: 12px;
+        padding: 0;
+        margin-bottom: 21px;
+      }
+      .empty {
+        padding: 28px 34px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+      dialog {
+        background: var(--surface);
+        color: var(--ink);
+        border: 1px solid #6a507e;
+        border-radius: 6px;
+        padding: 0;
+        width: min(540px, calc(100vw - 28px));
+        max-height: 88vh;
+        overflow: auto;
+        box-shadow: 0 15px 80px #0008;
+      }
+      dialog::backdrop {
+        background: #05030bcc;
+        backdrop-filter: blur(3px);
+      }
+      .dialog-head {
+        display: flex;
+        align-items: start;
+        justify-content: space-between;
+        gap: 20px;
+        padding: 23px 25px;
+        border-bottom: 1px solid var(--line);
+      }
+      .dialog-head h2 {
+        font-size: 19px;
+      }
+      .dialog-head button {
+        font-size: 22px;
+        line-height: 1;
+        padding: 3px;
+      }
+      .dialog-body {
+        padding: 0 25px 25px;
+      }
+      .evidence {
+        padding: 21px 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .evidence:last-child {
+        border-bottom: 0;
+      }
+      .evidence p {
+        font-size: 14px;
+        line-height: 1.75;
+        margin: 10px 0;
+      }
+      .evidence .small {
+        color: var(--muted);
+      }
+      .evidence button {
+        font-size: 12px;
+        padding: 0;
+        color: var(--pink);
+        margin-top: 10px;
+      }
+      .toast {
+        position: fixed;
+        bottom: 22px;
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 11px 17px;
+        border: 1px solid #786089;
+        background: #271937;
+        border-radius: 4px;
+        box-shadow: 0 8px 30px #0005;
+        font-size: 13px;
+        z-index: 10;
+        max-width: calc(100vw - 30px);
+      }
+      .toast:empty {
+        display: none;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      @media (max-width: 900px) {
+        .shell {
+          padding: 24px 20px 50px;
+        }
+        .layout {
+          grid-template-columns: 155px minmax(0, 1fr);
+          gap: 15px;
+        }
+        .report-head,
+        .merged,
+        .reading-toolbar,
+        .thread {
+          padding-left: 24px;
+          padding-right: 24px;
+        }
+        .days,
+        .day-nav,
+        .month-weeks {
+          padding-left: 24px;
+          padding-right: 24px;
+        }
+        .view-note {
+          display: none;
+        }
+        .report-head h1 {
+          font-size: 25px;
+        }
+        .standfirst {
+          font-size: 15px;
+        }
+        .day {
+          grid-template-columns: 65px minmax(0, 1fr);
+          gap: 13px;
+        }
+      }
+      @media (max-width: 650px) {
+        .topbar {
+          height: 57px;
+          padding: 0 17px;
+        }
+        .preview {
+          max-width: 160px;
+          text-align: right;
+          font-size: 10px;
+        }
+        .shell {
+          padding: 23px 15px 40px;
+        }
+        .breadcrumb {
+          margin-bottom: 18px;
+        }
+        .folder-head h1 {
+          font-size: 24px;
+        }
+        .repo-tabs {
+          gap: 23px;
+        }
+        .layout {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .periods {
+          position: static;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 7px;
+          overflow: auto;
+        }
+        .periods .caption,
+        .periods footer,
+        .period:not(.selected) {
+          display: none;
+        }
+        .period.selected {
+          margin: 0;
+          padding: 6px 10px;
+          background: none;
+          border: 0;
+        }
+        .period.selected strong {
+          display: inline;
+          font-size: 12px;
+        }
+        .period.selected span {
+          display: inline;
+          margin-left: 8px;
+          font-size: 11px;
+        }
+        .report-head {
+          padding: 23px 20px;
+        }
+        .report-head h1 {
+          font-size: 25px;
+          max-width: none;
+        }
+        .standfirst {
+          font-size: 15px;
+        }
+        .report-meta {
+          font-size: 11px;
+          align-items: start;
+        }
+        .report-footnote {
+          display: block;
+        }
+        .revision {
+          margin-top: 10px;
+        }
+        .merged {
+          display: block;
+          padding: 16px 20px;
+        }
+        .merged-label {
+          margin-bottom: 10px;
+        }
+        .reading-toolbar {
+          padding: 16px 20px;
+        }
+        .day-nav {
+          padding: 16px 20px 0;
+          gap: 6px;
+        }
+        .day-nav button {
+          padding: 4px 8px;
+        }
+        .days {
+          padding: 0 20px;
+        }
+        .day {
+          display: block;
+          padding: 24px 0;
+        }
+        .day-date {
+          display: flex;
+          align-items: baseline;
+          gap: 8px;
+          margin-bottom: 17px;
+        }
+        .day-date strong {
+          font-size: 15px;
+          margin: 0;
+        }
+        .entry + .entry {
+          margin-top: 22px;
+        }
+        .entry p {
+          font-size: 14px;
+        }
+        .thread {
+          padding: 23px 20px;
+        }
+        .thread-intro {
+          display: block;
+        }
+        .thread-intro > .tag {
+          margin-top: 9px;
+          display: inline-flex;
+        }
+        .month-weeks {
+          padding: 0 20px 20px;
+        }
+        .month-weeks .day {
+          display: block;
+        }
+        .document-footer {
+          padding: 17px 20px;
+        }
+        .month-explanation {
+          padding-left: 20px;
+          padding-right: 20px;
+        }
+        .agent-head .muted {
+          max-width: 190px;
+        }
+        .agent-head h2 {
+          font-size: 19px;
+        }
+        .timezone {
+          font-size: 11px;
+        }
+        .dialog-head {
+          padding: 20px;
+        }
+        .dialog-body {
+          padding: 0 20px 20px;
+        }
+      }
+      @media (prefers-reduced-motion: no-preference) {
+        html {
+          scroll-behavior: smooth;
+        }
+      }
+
+      .section-nav {
+        display: flex;
+        gap: 23px;
+        border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+        padding: 13px 34px;
+        font-size: 13px;
+      }
+      .section-nav button {
+        padding: 0;
+        color: var(--muted);
+      }
+      .section-nav button:hover {
+        color: var(--cyan);
+      }
+      .report-part {
+        padding: 28px 34px;
+        border-bottom: 1px solid var(--line);
+        scroll-margin-top: 18px;
+      }
+      .report-part:last-of-type {
+        border-bottom: 0;
+      }
+      .part-heading {
+        display: flex;
+        gap: 13px;
+        align-items: start;
+        margin-bottom: 23px;
+      }
+      .part-number {
+        font-size: 12px;
+        line-height: 26px;
+        width: 26px;
+        text-align: center;
+        border: 1px solid #6b4b79;
+        border-radius: 50%;
+        color: var(--muted);
+        flex: none;
+      }
+      .part-heading h2 {
+        font-size: 20px;
+        margin: 0 0 4px;
+      }
+      .merge-day {
+        display: grid;
+        grid-template-columns: 85px minmax(0, 1fr);
+        gap: 18px;
+        padding: 16px 0;
+        border-top: 1px solid var(--line);
+      }
+      .merge-day:first-child {
+        border-top: 0;
+        padding-top: 0;
+      }
+      .merge-date {
+        font-size: 12px;
+        line-height: 1.5;
+        color: var(--muted);
+      }
+      .merge-date strong {
+        display: block;
+        font-size: 14px;
+        color: var(--ink);
+        font-weight: 550;
+      }
+      .merge-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 11px;
+      }
+      .merge-item {
+        display: flex;
+        align-items: start;
+        gap: 11px;
+        font-size: 13px;
+        line-height: 1.6;
+      }
+      .merge-item svg {
+        color: var(--mint);
+        width: 15px;
+        height: 15px;
+        margin-top: 3px;
+      }
+      .merge-item time {
+        font-size: 11px;
+        color: var(--muted);
+        width: 37px;
+        flex: none;
+        line-height: 23px;
+      }
+      .merge-item button {
+        padding: 0;
+        display: inline;
+        color: var(--cyan);
+        font-size: 13px;
+      }
+      .merge-item .merge-copy {
+        max-width: 58ch;
+      }
+      .merge-day .source-button {
+        margin-top: 14px;
+      }
+      .work-topic {
+        padding: 19px 0;
+        border-top: 1px solid var(--line);
+      }
+      .work-topic:first-child {
+        padding-top: 0;
+        border: 0;
+      }
+      .work-topic > summary {
+        cursor: pointer;
+        list-style: none;
+        display: flex;
+        gap: 16px;
+        justify-content: space-between;
+        align-items: baseline;
+      }
+      .work-topic > summary::-webkit-details-marker {
+        display: none;
+      }
+      .work-topic > summary:after {
+        content: "+";
+        color: var(--muted);
+        font-size: 20px;
+      }
+      .work-topic[open] > summary:after {
+        content: "−";
+      }
+      .work-topic > summary strong {
+        display: block;
+        font-size: 17px;
+        font-weight: 620;
+        line-height: 1.5;
+      }
+      .work-topic > summary span {
+        display: block;
+        font-size: 13px;
+        color: var(--muted);
+        margin-top: 3px;
+      }
+      .topic-days {
+        margin: 21px 0 0 7px;
+        border-left: 1px solid #574368;
+        padding-left: 23px;
+      }
+      .topic-update {
+        position: relative;
+        margin: 0 0 25px;
+      }
+      .topic-update:last-child {
+        margin-bottom: 10px;
+      }
+      .topic-update:before {
+        position: absolute;
+        content: "";
+        left: -28px;
+        top: 6px;
+        width: 7px;
+        height: 7px;
+        border: 1px solid var(--surface);
+        border-radius: 50%;
+        background: #8b6a9e;
+        box-shadow: 0 0 0 1px #8b6a9e;
+      }
+      .update-date {
+        font-size: 12px;
+        color: var(--muted);
+        margin-bottom: 7px;
+      }
+      .topic-update .entry p {
+        font-size: 14px;
+      }
+      .topic-update .entry-top {
+        display: none;
+      }
+      .topic-update h3 {
+        font-size: 15px;
+      }
+      .topic-update .context {
+        margin-top: 9px;
+      }
+      .milestones {
+        list-style: none;
+        padding: 0;
+        margin: 15px 0;
+        display: grid;
+        gap: 8px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .milestones li {
+        display: flex;
+        gap: 13px;
+        line-height: 1.6;
+      }
+      .milestones time {
+        width: 40px;
+        flex: none;
+        color: #d7c9e3;
+        font-variant-numeric: tabular-nums;
+      }
+      .milestones strong {
+        font-weight: 550;
+        color: #ddd0e8;
+      }
+      .topic-week {
+        padding: 15px 0 0;
+      }
+      .topic-week > summary {
+        cursor: pointer;
+        font-size: 14px;
+      }
+      .topic-week p {
+        font-size: 14px;
+        line-height: 1.75;
+        color: #dacee5;
+        max-width: 64ch;
+        margin-top: 10px;
+      }
+      .topic-week .topic-days {
+        margin-bottom: 5px;
+      }
+      .week-merge {
+        padding: 13px 0;
+      }
+      .week-merge > summary {
+        font-size: 15px;
+        cursor: pointer;
+        font-weight: 600;
+        margin-bottom: 13px;
+      }
+      .week-merge .merge-list {
+        margin: 16px 0 0;
+      }
+      .week-merge .merge-item time {
+        width: 61px;
+      }
+      .state-row {
+        display: grid;
+        grid-template-columns: 155px minmax(0, 1fr);
+        gap: 22px;
+        padding: 22px 0;
+        border-top: 1px solid var(--line);
+      }
+      .state-row:first-child {
+        padding-top: 0;
+        border: 0;
+      }
+      .state-row h3 {
+        font-size: 14px;
+      }
+      .state-row .tag {
+        margin-top: 8px;
+        display: inline-flex;
+      }
+      .state-row p {
+        max-width: 64ch;
+        font-size: 14px;
+        line-height: 1.75;
+        color: #dacee5;
+      }
+      .state-row p + p {
+        margin-top: 9px;
+      }
+      .state-row strong {
+        font-weight: 600;
+        color: #f0e7f6;
+      }
+      .state-row .source-button {
+        margin-top: 13px;
+      }
+      .source-button {
+        max-width: 100%;
+      }
+      @media (max-width: 900px) {
+        .report-part {
+          padding: 25px 24px;
+        }
+        .section-nav {
+          padding: 13px 24px;
+        }
+        .state-row {
+          grid-template-columns: 125px minmax(0, 1fr);
+          gap: 18px;
+        }
+      }
+      @media (max-width: 650px) {
+        .section-nav {
+          padding: 13px 20px;
+          gap: 19px;
+        }
+        .section-nav button {
+          font-size: 12px;
+        }
+        .report-part {
+          padding: 24px 20px;
+        }
+        .part-heading {
+          gap: 11px;
+        }
+        .part-heading h2 {
+          font-size: 19px;
+        }
+        .merge-day {
+          display: block;
+          padding: 20px 0;
+        }
+        .merge-date {
+          display: flex;
+          gap: 8px;
+          margin-bottom: 14px;
+        }
+        .merge-item {
+          gap: 8px;
+          font-size: 13px;
+        }
+        .merge-item time {
+          width: 34px;
+        }
+        .state-row {
+          display: block;
+          padding: 22px 0;
+        }
+        .state-row > div:first-child {
+          display: flex;
+          align-items: baseline;
+          gap: 9px;
+          margin-bottom: 12px;
+        }
+        .state-row .tag {
+          margin: 0;
+        }
+        .topic-days {
+          padding-left: 19px;
+          margin-left: 6px;
+        }
+        .topic-update:before {
+          left: -24px;
+        }
+        .milestones li {
+          gap: 10px;
+        }
+        .part-heading p {
+          max-width: 29ch;
+        }
+        .week-merge .merge-item time {
+          width: 58px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <svg aria-hidden="true" style="position: absolute; width: 0; height: 0">
+      <defs>
+        <symbol id="source" viewBox="0 0 24 24">
+          <path d="M8 5h11v15H8zM5 16H3V2h12v2M11 9h5M11 13h5M11 17h3" />
+        </symbol>
+        <symbol id="merge" viewBox="0 0 24 24">
+          <circle cx="6" cy="5" r="2" />
+          <circle cx="6" cy="19" r="2" />
+          <circle cx="18" cy="5" r="2" />
+          <path d="M6 7v10M18 7c0 7-12 3-12 10" />
+        </symbol>
+      </defs>
+    </svg>
+    <header class="topbar">
+      <div class="brand"><span class="mark">記</span> kioku</div>
+      <div class="preview">Design preview · condensed archived examples</div>
+    </header>
+    <main class="shell">
+      <div class="breadcrumb">Documents / cosm / repositories / c360-lead</div>
+      <div class="folder-head"><h1>c360-lead</h1></div>
+      <nav class="repo-tabs" aria-label="Repository">
+        <span>Briefing</span><span>Files</span><span>Status</span
+        ><span class="active">Agents</span>
+      </nav>
+      <div class="agent-head">
+        <div>
+          <h2>Agents</h2>
+          <p class="small muted">Session history and periodic reports.</p>
+        </div>
+        <div class="views">
+          <span class="muted">History</span><span class="active">Reports</span>
+        </div>
+      </div>
+      <div class="toolbar">
+        <div class="segmented" aria-label="Report period">
+          <button id="weekly" aria-pressed="true">Weekly</button
+          ><button id="monthly" aria-pressed="false">Monthly</button>
+        </div>
+        <div class="timezone">
+          America/Sao_Paulo
+          <button class="info" id="about" aria-label="About this report">
+            i
+          </button>
+        </div>
+      </div>
+      <div class="layout">
+        <nav class="periods" aria-label="Report periods">
+          <div class="caption" id="period-caption">Weekly reports</div>
+          <button class="period selected" id="current-period">
+            <strong>November 9–15</strong><span>In progress</span></button
+          ><button class="period" id="previous-period">
+            <strong>November 2–8</strong><span>Completed</span>
+          </button>
+          <footer>
+            <button disabled>Newer</button><button id="older">Older</button>
+          </footer>
+        </nav>
+        <article class="document" id="report">
+          <header class="report-head">
+            <div class="report-meta">
+              <span id="range">Week of November 9, 2026</span
+              ><span class="status">In progress</span>
+            </div>
+            <h1 id="headline">NBA reliability and telemetry</h1>
+            <p class="standfirst" id="overview"></p>
+            <ul class="outcomes" id="outcomes"></ul>
+            <div class="report-footnote">
+              <span
+                >Sources through Nov 13, 2:30 PM
+                <button
+                  class="info"
+                  id="cutoff"
+                  aria-label="What does the cutoff mean?"
+                >
+                  i
+                </button></span
+              ><label class="revision"
+                >Revision
+                <select id="revision" aria-label="Report revision">
+                  <option value="3">3 · latest</option>
+                  <option value="2">2 · earlier</option>
+                </select></label
+              >
+            </div>
+          </header>
+          <nav class="section-nav" aria-label="Report sections">
+            <button data-jump="merge-part">Merges</button
+            ><button data-jump="work-part">Work timeline</button
+            ><button data-jump="state-part">Final state</button>
+          </nav>
+          <section class="report-part" id="merge-part">
+            <div class="part-heading">
+              <span class="part-number">1</span>
+              <div>
+                <h2>Merged to main</h2>
+                <p class="small muted" id="merge-caption">
+                  Principal-branch changes, grouped by day
+                </p>
+              </div>
+            </div>
+            <div id="merged"></div>
+          </section>
+          <section class="report-part" id="work-part">
+            <div class="part-heading">
+              <span class="part-number">2</span>
+              <div>
+                <h2>How the work progressed</h2>
+                <p class="small muted" id="work-caption">
+                  Dated updates, connected within each topic
+                </p>
+              </div>
+            </div>
+            <div id="reading"></div>
+          </section>
+          <section class="report-part" id="state-part">
+            <div class="part-heading">
+              <span class="part-number">3</span>
+              <div>
+                <h2>Final state at cutoff</h2>
+                <p class="small muted">
+                  What landed, what was observed, and what remains uncertain
+                </p>
+              </div>
+            </div>
+            <div id="final-state"></div>
+          </section>
+          <footer class="document-footer">
+            <button id="all-sources">Report sources</button
+            ><button id="history">Open in History</button>
+          </footer>
+        </article>
+      </div>
+    </main>
+    <dialog id="source-dialog" aria-labelledby="dialog-title">
+      <div class="dialog-head">
+        <div>
+          <h2 id="dialog-title">Sources</h2>
+          <p class="small muted" id="dialog-subtitle"></p>
+        </div>
+        <button id="close-dialog" aria-label="Close sources">×</button>
+      </div>
+      <div class="dialog-body" id="dialog-content"></div>
+    </dialog>
+    <div class="toast" role="status" aria-live="polite" id="toast"></div>
+    <script>
+      const sourceIcon = '<svg aria-hidden="true"><use href="#source"/></svg>';
+      const mergeIcon = '<svg aria-hidden="true"><use href="#merge"/></svg>';
+      const days = [
+        {
+          id: "mon",
+          day: "Monday",
+          date: "Nov 9",
+          title: "The shutdown investigation took shape",
+          entries: [
+            {
+              tag: "Investigated",
+              tone: "observed",
+              thread: "nba",
+              topic: "NBA reliability",
+              title: "Traced Final handling and restart behavior",
+              text: "The investigation connected NBA self-cancellation at game end with scheduler behavior. This set the direction for the lifecycle change that followed.",
+              detail:
+                "Source inspection and the reported Kubernetes symptom were inputs to the investigation. They do not independently establish a production fix.",
+            },
+          ],
+        },
+        {
+          id: "tue",
+          day: "Tuesday",
+          date: "Nov 10",
+          title: "The NBA lifecycle change landed",
+          entries: [
+            {
+              tag: "Merged",
+              tone: "merged-tag",
+              thread: "nba",
+              topic: "NBA reliability",
+              title: "PR #480 moved shutdown ownership to the scheduler",
+              text: "The change records Final without immediately cancelling the ingester. The intent was to keep it alive until Kirby or the on-prem scheduler stops it.",
+              detail:
+                "Merged code and passing reported checks establish an implementation milestone. Live behavior belongs to a separate validation step.",
+            },
+          ],
+        },
+        {
+          id: "wed",
+          day: "Wednesday",
+          date: "Nov 11",
+          title: "Cloud recovery work followed",
+          entries: [
+            {
+              tag: "Merged",
+              tone: "merged-tag",
+              thread: "nba",
+              topic: "NBA reliability",
+              title: "PR #482 added cloud stream reconnection",
+              text: "Recovery after stream failures became a follow-on to the lifecycle work. This did not, by itself, establish why the SSE connections were failing.",
+            },
+          ],
+        },
+        {
+          id: "thu",
+          day: "Thursday",
+          date: "Nov 12",
+          title: "The investigation narrowed the evidence",
+          entries: [
+            {
+              tag: "Observed",
+              tone: "observed",
+              thread: "nba",
+              topic: "NBA reliability",
+              title:
+                "Correlated SSE failures with gateway and network evidence",
+              text: "The logs contained unexpected EOF failures and Gravitee request IDs. NAT metrics did not establish a local network cause; attribution remained unresolved.",
+              detail:
+                "The request IDs made the incidents traceable. A failure signature is an observation, not proof that the vendor or the client caused it.",
+            },
+            {
+              tag: "Compared",
+              tone: "observed",
+              thread: "nhl",
+              topic: "NHL telemetry",
+              title: "Compared puck gaps against archived game evidence",
+              text: "Backtests and archive comparisons informed the telemetry work that landed on Friday.",
+            },
+          ],
+        },
+        {
+          id: "fri",
+          day: "Friday",
+          date: "Nov 13",
+          title: "Three PRs landed, including a diagnostic change",
+          entries: [
+            {
+              tag: "Merged",
+              tone: "merged-tag",
+              thread: "nba",
+              topic: "NBA reliability",
+              title: "PR #485 isolated live consumer groups",
+              text: "CGID isolation was added to investigate whether shared consumer groups on our side contributed to the NBA SSE failures.",
+              relationship:
+                "<strong>Continues Thursday’s SSE investigation.</strong> The change is merged; its effect on the failures was not established in the supplied evidence.",
+              detail:
+                "Staging deployment was queued at the example cutoff. That describes deployment state; it does not turn the merged PR back into an open task.",
+            },
+            {
+              tag: "Merged",
+              tone: "merged-tag",
+              thread: "nhl",
+              topic: "NHL telemetry",
+              title: "PR #484 advanced puck-gap telemetry",
+              text: "The telemetry change followed the earlier archive comparisons. The merged milestone and any later runtime observations stay separate.",
+            },
+            {
+              tag: "Merged",
+              tone: "merged-tag",
+              thread: "mdr",
+              topic: "MDR delivery",
+              title: "PR #468 landed the camera-spec update",
+              text: "The camera-spec work reached main. The executable-size investigation also reported a reduction from roughly 500 MB to 30 MB.",
+              detail:
+                "The build-size result and the camera-spec merge are separate outcomes within the MDR work. Neither implies every deployment check was completed.",
+            },
+          ],
+        },
+      ];
+      const evidence = [
+        {
+          kind: "Original conversation",
+          date: "Nov 13 · 1:10 PM",
+          text: "User clarified that the CGID change was intended to test whether shared consumer-group behavior on our side contributed to NBA SSE failures.",
+          action: "Open original",
+        },
+        {
+          kind: "Git commit",
+          date: "Nov 13",
+          text: "PR #485 merged to main at 46d1b0ce. This establishes the code milestone, not the cause of the earlier failures.",
+          action: "Open commit",
+        },
+        {
+          kind: "Journal entry",
+          date: "Nov 13 · 2:30 PM",
+          text: "Staging deployment was queued. Completion was not established at this example cutoff.",
+          action: "Open in History",
+        },
+      ];
+      const state = {
+        period: "weekly",
+        view: "day",
+        thread: "nba",
+        revision: "3",
+      };
+      const $ = (id) => document.getElementById(id);
+      const escapeText = (value) =>
+        String(value).replace(
+          /[&<>"']/g,
+          (c) =>
+            ({
+              "&": "&amp;",
+              "<": "&lt;",
+              ">": "&gt;",
+              '"': "&quot;",
+              "'": "&#39;",
+            }[c])
+        );
+      const sourceButton = (label, count) =>
+        `<button class="source-button" data-sources="${escapeText(
+          label
+        )}">${sourceIcon}Sources (${sourceRecords(label).length})</button>`;
+      function entryHTML(entry) {
+        return `<div class="entry"><div class="entry-top"><span class="tag ${
+          entry.tone
+        }">${entry.tag}</span><button class="topic-link" data-thread="${
+          entry.thread
+        }">${entry.topic}</button></div><h3>${entry.title}</h3><p>${
+          entry.text
+        }</p>${
+          entry.relationship
+            ? `<div class="relationship">${entry.relationship}</div>`
+            : ""
+        }${
+          entry.detail
+            ? `<details class="context"><summary>Context and limits</summary><p>${entry.detail}</p></details>`
+            : ""
+        }</div>`;
+      }
+      function dayHTML(day) {
+        return `<section class="day" id="day-${day.id}" aria-label="${
+          day.day
+        }, ${day.date}"><div class="day-date"><strong>${day.day}</strong>${
+          day.date
+        }</div><div>${day.entries.map(entryHTML).join("")}${sourceButton(
+          `${day.day}, ${day.date}`,
+          day.id === "fri" ? 6 : day.id === "thu" ? 4 : 2
+        )}</div></section>`;
+      }
+      const mergeGroups = [
+        {
+          day: "Monday",
+          date: "Nov 9",
+          items: [
+            ["09:44", "477", "Dependency remediation"],
+            ["12:20", "479", "Empty scoreboard fix"],
+            ["12:35", "478", "Clip default framing"],
+            ["14:41", "450", "Clip regression pipeline"],
+          ],
+        },
+        {
+          day: "Tuesday",
+          date: "Nov 10",
+          items: [
+            ["16:19", "480", "NBA Final lifecycle"],
+            ["16:57", "481", "AMI workflow pin"],
+          ],
+        },
+        {
+          day: "Wednesday",
+          date: "Nov 11",
+          items: [["16:35", "482", "Cloud stream reconnection"]],
+        },
+        {
+          day: "Friday",
+          date: "Nov 13",
+          items: [
+            ["12:22", "468", "MDR camera-spec fan-out"],
+            ["13:55", "484", "Puck-gap telemetry"],
+            ["14:12", "485", "Live consumer-group isolation"],
+          ],
+        },
+      ];
+      function mergeItems(group, monthly) {
+        return `<ul class="merge-list">${group.items
+          .map(
+            ([time, n, title]) =>
+              `<li class="merge-item">${mergeIcon}<time>${
+                monthly ? group.day.slice(0, 3) + " " : ""
+              }${time}</time><div class="merge-copy"><button data-pr="${n}">#${n}</button> ${title}</div></li>`
+          )
+          .join("")}</ul>`;
+      }
+      function mergeTimeline(monthly) {
+        const earlier = {
+          day: "Nov 2–6",
+          items: [
+            ["Nov 2", "465", "SES reconnection continuity"],
+            ["Nov 3", "466", "NBA CCUs and league overrides"],
+            ["Nov 5", "475", "Cargo audit remediation"],
+            ["Nov 6", "476", "Go memory budget"],
+          ],
+        };
+        return monthly
+          ? `<details class="week-merge"><summary>Week of November 2 · selected merges</summary>${mergeItems(
+              earlier,
+              false
+            )}${sourceButton(
+              "Week of November 2 merges",
+              4
+            )}</details><details class="week-merge" open><summary>Week of November 9 · 10 merges</summary>${mergeGroups
+              .map((g) => mergeItems(g, true))
+              .join("")}${sourceButton(
+              "Principal-branch merges",
+              10
+            )}</details>`
+          : mergeGroups
+              .map(
+                (g) =>
+                  `<section class="merge-day"><div class="merge-date"><strong>${
+                    g.day
+                  }</strong>${g.date}</div><div>${mergeItems(
+                    g,
+                    false
+                  )}${sourceButton(
+                    `${g.day} merges`,
+                    g.items.length
+                  )}</div></section>`
+              )
+              .join("");
+      }
+      const topics = [
+        {
+          id: "nba",
+          title: "NBA SSE reliability",
+          subtitle: "Lifecycle changes led to a consumer-group hypothesis",
+          summary:
+            "Lifecycle and recovery changes landed early in the week. Later failure evidence informed PR #485, which isolates consumer groups to investigate a client-side hypothesis.",
+        },
+        {
+          id: "nhl",
+          title: "NHL telemetry",
+          subtitle: "Archive comparisons led to the merged telemetry change",
+          summary:
+            "Archive and replay comparisons informed the puck-gap telemetry work, followed by the PR #484 merge.",
+        },
+        {
+          id: "mdr",
+          title: "MDR delivery",
+          subtitle:
+            "Camera-spec work landed; the build-size result was recorded",
+          summary:
+            "PR #468 reached main. Separately, the build investigation reported a much smaller executable after removing debug symbols.",
+        },
+      ];
+      const fridayMilestones = `<ol class="milestones"><li><time>09:25</time><span><strong>Hypothesis discussed.</strong> Shared consumer groups might contribute to SSE failures.</span></li><li><time>09:31</time><span><strong>PR #485 created.</strong> Isolate by mode and game to investigate.</span></li><li><time>14:12</time><span><strong>Merged to main.</strong> Code landed at 46d1b0ce.</span></li><li><time>14:27</time><span><strong>Staging queued.</strong> Deployment completion was not established at cutoff.</span></li></ol>`;
+      function topicUpdates(topic) {
+        return `<div class="topic-days">${days
+          .map((d) => ({
+            ...d,
+            entries: d.entries.filter((e) => e.thread === topic.id),
+          }))
+          .filter((d) => d.entries.length)
+          .map(
+            (d) =>
+              `<section class="topic-update"><div class="update-date">${
+                d.day
+              }, ${d.date}</div>${d.entries
+                .map(
+                  (e) =>
+                    entryHTML(e) +
+                    (d.id === "fri" && topic.id === "nba"
+                      ? fridayMilestones
+                      : "")
+                )
+                .join("")}</section>`
+          )
+          .join("")}</div>`;
+      }
+      function workTimeline(monthly) {
+        return topics
+          .map(
+            (topic, index) =>
+              `<details class="work-topic" ${
+                index === 0 ? "open" : ""
+              }><summary><div><strong>${topic.title}</strong><span>${
+                topic.subtitle
+              }</span></div></summary>${
+                monthly
+                  ? `${
+                      topic.id === "nba"
+                        ? '<details class="topic-week"><summary>Week of November 2</summary><p>SES reconnection continuity and NBA rollout support reached main through PRs #465 and #466. These were earlier steps in the reliability work.</p></details>'
+                        : ""
+                    }<details class="topic-week" open><summary>Week of November 9</summary><p>${
+                      topic.summary
+                    }</p><details class="context"><summary>Show daily updates</summary>${topicUpdates(
+                      topic
+                    )}</details></details>`
+                  : topicUpdates(topic)
+              }${sourceButton(topic.title, index === 0 ? 7 : 3)}</details>`
+          )
+          .join("");
+      }
+      function finalStates() {
+        return `<section class="state-row"><div><h3>NBA SSE reliability</h3><span class="tag merged-tag">Changes merged</span></div><div><p><strong>Code:</strong> lifecycle, recovery, CGID isolation and logging changes reached main.</p><p><strong>Investigation:</strong> PR #485 was intended to test whether shared consumer groups on our side contributed to the failures. That causal hypothesis remains unconfirmed; the merged PR is not an open task.</p><p class="muted"><strong>Latest recorded step:</strong> staging deployment queued at 14:27. Completion and resulting stream behavior were not established at cutoff.</p>${sourceButton(
+          "NBA SSE reliability",
+          7
+        )}</div></section><section class="state-row"><div><h3>NHL telemetry</h3><span class="tag merged-tag">PR #484 merged</span></div><div><p>Telemetry work reached main after archive comparisons. The recorded comparisons support those test conditions; the merge and the observed results remain separate milestones.</p>${sourceButton(
+          "NHL telemetry",
+          3
+        )}</div></section><section class="state-row"><div><h3>MDR delivery</h3><span class="tag merged-tag">PR #468 merged</span></div><div><p>Camera-spec work reached main. The executable-size investigation separately reported a reduction from roughly 500 MB to 30 MB after removing debug information.</p>${sourceButton(
+          "MDR delivery",
+          3
+        )}</div></section>`;
+      }
+      function render() {
+        const monthly = state.period === "monthly";
+        $("weekly").setAttribute("aria-pressed", !monthly);
+        $("monthly").setAttribute("aria-pressed", monthly);
+        $("period-caption").textContent = monthly
+          ? "Monthly reports"
+          : "Weekly reports";
+        $("current-period").innerHTML = monthly
+          ? "<strong>November 2026</strong><span>In progress</span>"
+          : "<strong>November 9–15</strong><span>In progress</span>";
+        $("previous-period").innerHTML = monthly
+          ? "<strong>October 2026</strong><span>Completed</span>"
+          : "<strong>November 2–8</strong><span>Completed</span>";
+        $("range").textContent = monthly
+          ? "November 1–30, 2026"
+          : "Week of November 9, 2026";
+        $("headline").textContent = monthly
+          ? "How the reliability work evolved"
+          : "NBA reliability and telemetry";
+        $("overview").textContent = monthly
+          ? "NBA work progressed from lifecycle fixes to investigating stream failures. Consumer-group isolation is the latest merged step in that investigation; its effect on the failures remains unverified."
+          : "NBA work moved from lifecycle fixes to investigating stream failures. Consumer-group isolation is now merged as a diagnostic change; its effect on the failures remains unverified.";
+        $("outcomes").innerHTML =
+          "<li>PRs #485, #484 and #468 landed on Friday.</li><li>The merged CGID change tests a consumer-group hypothesis.</li>";
+        $("merge-caption").textContent = monthly
+          ? "Principal-branch changes, grouped by week"
+          : "Principal-branch changes, grouped by day";
+        $("work-caption").textContent = monthly
+          ? "Connected topics, with weekly updates and expandable days"
+          : "Dated updates, connected within each topic";
+        $("merged").innerHTML = mergeTimeline(monthly);
+        $("reading").innerHTML = workTimeline(monthly);
+        $("final-state").innerHTML = finalStates();
+        wireReading();
+      }
+      function wireReading() {
+        document.querySelectorAll("[data-thread]").forEach((b) =>
+          b.addEventListener("click", () => {
+            const topic = topics.find((t) => t.id === b.dataset.thread);
+            if (!topic) return;
+            toast(`This update belongs to ${topic.title}.`);
+          })
+        );
+        document
+          .querySelectorAll("[data-sources]")
+          .forEach((b) =>
+            b.addEventListener("click", () => openSources(b.dataset.sources))
+          );
+        document
+          .querySelectorAll("[data-pr]")
+          .forEach((b) =>
+            b.addEventListener("click", () =>
+              openSources(`PR #${b.dataset.pr}`)
+            )
+          );
+      }
+      function sourceRecords(label) {
+        const commitRecord = (number, title, date) => ({
+          kind: "Archived Git metadata",
+          date,
+          text: `PR #${number}: ${title}. This records a principal-branch milestone; it does not independently prove deployment or runtime behavior.`,
+          action: "Open commit",
+        });
+        if (/NHL|#484/.test(label))
+          return [
+            commitRecord("484", "puck-gap telemetry", "Nov 13 · 13:55 BRT"),
+            {
+              kind: "Archived journal",
+              date: "Nov 12–13",
+              text: "Archive comparisons informed the telemetry implementation. The recorded results apply to their stated game archives and test conditions.",
+              action: "Open in History",
+            },
+          ];
+        if (/MDR|#468/.test(label))
+          return [
+            commitRecord(
+              "468",
+              "MDR camera-spec fan-out",
+              "Nov 13 · 12:22 BRT"
+            ),
+            {
+              kind: "Archived journal",
+              date: "Nov 13",
+              text: "The build-size investigation separately reported a reduction from roughly 500 MB to 30 MB after debug information was removed.",
+              action: "Open in History",
+            },
+          ];
+        if (/NBA|#485/.test(label)) return evidence;
+        if (label === "Week of November 2 merges")
+          return [
+            commitRecord("465", "SES reconnection continuity", "Nov 2"),
+            commitRecord("466", "NBA CCUs and league overrides", "Nov 3"),
+            commitRecord("475", "Cargo audit remediation", "Nov 5"),
+            commitRecord("476", "Go memory budget", "Nov 6"),
+          ];
+        const groups =
+          label.includes("merges") && label !== "Principal-branch merges"
+            ? mergeGroups.filter((g) => label.startsWith(g.day))
+            : mergeGroups;
+        const records = groups.flatMap((g) =>
+          g.items.map(([time, n, title]) =>
+            commitRecord(n, title, `${g.date} · ${time} BRT`)
+          )
+        );
+        const pr = label.match(/^PR #(\d+)$/);
+        if (pr)
+          return records.filter((r) => r.text.startsWith(`PR #${pr[1]}:`));
+        if (label === "Report sources")
+          return [
+            ...records,
+            ...evidence,
+            ...sourceRecords("NHL telemetry").slice(1),
+            ...sourceRecords("MDR delivery").slice(1),
+          ];
+        return records.length ? records : evidence;
+      }
+      function openSources(label) {
+        $("dialog-title").textContent = label;
+        $("dialog-subtitle").textContent =
+          "Condensed archived examples · preview links";
+        $("dialog-content").innerHTML = sourceRecords(label)
+          .map(
+            (e) =>
+              `<section class="evidence"><span class="tag">${escapeText(
+                e.kind
+              )}</span><span class="small"> ${escapeText(
+                e.date
+              )}</span><p>${escapeText(
+                e.text
+              )}</p><button data-source-action="${escapeText(
+                e.action
+              )}">${escapeText(e.action)}</button></section>`
+          )
+          .join("");
+        document
+          .querySelectorAll("[data-source-action]")
+          .forEach((b) =>
+            b.addEventListener("click", () =>
+              toast(
+                `Preview: ${b.dataset.sourceAction} would open the cited record.`
+              )
+            )
+          );
+        $("source-dialog").showModal();
+      }
+      let toastTimer;
+      function toast(text) {
+        clearTimeout(toastTimer);
+        $("toast").textContent = text;
+        toastTimer = setTimeout(() => ($("toast").textContent = ""), 4200);
+      }
+      $("weekly").addEventListener("click", () => {
+        state.period = "weekly";
+        state.view = "day";
+        render();
+      });
+      $("monthly").addEventListener("click", () => {
+        state.period = "monthly";
+        state.view = "day";
+        render();
+      });
+      document.querySelectorAll("[data-jump]").forEach((b) =>
+        b.addEventListener("click", () => {
+          const target = document.getElementById(b.dataset.jump);
+          if (target) target.scrollIntoView({ block: "start" });
+        })
+      );
+      $("close-dialog").addEventListener("click", () =>
+        $("source-dialog").close()
+      );
+      $("all-sources").addEventListener("click", () =>
+        openSources("Report sources")
+      );
+      $("history").addEventListener("click", () =>
+        toast("Preview: open the matching dates in History.")
+      );
+      $("older").addEventListener("click", () =>
+        toast("Preview: load the previous report period.")
+      );
+      $("previous-period").addEventListener("click", () =>
+        toast("Preview: load the previous report period.")
+      );
+      $("about").addEventListener("click", () =>
+        toast(
+          "New main commits trigger review. Reports retain their dated revisions."
+        )
+      );
+      $("cutoff").addEventListener("click", () =>
+        toast(
+          "This report describes evidence available through the displayed time."
+        )
+      );
+      $("revision").addEventListener("change", (event) => {
+        if (!["2", "3"].includes(event.target.value)) return;
+        state.revision = event.target.value;
+        toast(
+          event.target.value === "2"
+            ? "Preview: an earlier revision remains available."
+            : "Showing the latest illustrative revision."
+        );
+      });
+      render();
+    </script>
+  </body>
+</html>
