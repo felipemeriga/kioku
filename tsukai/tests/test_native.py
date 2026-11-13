@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from tsukai.config import Settings
+from tsukai.config import Settings, heavy_maintenance
 from tsukai.native import NativeRunner, native_prompt
 from tsukai.protocol import CompletionEnvelope, JobRequest
 from tsukai.validation import NativeError, validate_result
@@ -341,7 +341,23 @@ async def test_adaptive_only_models_preserve_deep_effort_without_claiming_fixed_
     }
 
 
-async def test_heavy_maintenance_uses_its_separate_wall_budget(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "updates",
+    [
+        {"caller": "backend"},
+        {"profile": "chat"},
+        {"ai_depth": 1},
+        {"operation": "mihari.activity"},
+    ],
+)
+def test_report_wall_budget_is_limited_to_root_background_maintenance(updates):
+    req = request().model_copy(update={"caller": "mihari", "operation": "mihari.reports"})
+    assert heavy_maintenance(req)
+    assert not heavy_maintenance(req.model_copy(update=updates))
+
+
+@pytest.mark.parametrize("operation", ["mihari.documentation", "mihari.reground", "mihari.reports"])
+async def test_heavy_maintenance_uses_its_separate_wall_budget(tmp_path, monkeypatch, operation):
     runner = NativeRunner(settings(tmp_path, wall_seconds=0.001, maintenance_wall_seconds=5))
     req = request(
         response_schema={
@@ -349,7 +365,7 @@ async def test_heavy_maintenance_uses_its_separate_wall_budget(tmp_path, monkeyp
             "properties": {"answer": {"type": "string"}},
             "required": ["answer"],
         }
-    ).model_copy(update={"caller": "mihari", "operation": "mihari.documentation"})
+    ).model_copy(update={"caller": "mihari", "operation": operation})
     import asyncio
 
     original = asyncio.create_subprocess_exec
