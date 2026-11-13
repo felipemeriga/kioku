@@ -2024,7 +2024,7 @@ dependencies = [
 
 [[package]]
 name = "kioku-desktop"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "percent-encoding",
  "reqwest 0.12.28",
