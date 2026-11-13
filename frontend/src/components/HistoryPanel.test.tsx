@@ -190,11 +190,11 @@ async function journalDay() {
   );
 }
 describe("unified History", () => {
-  it("defaults to History+Learnings and merges both activity indices without duplicate session cards", async () => {
+  it("defaults to History+Reports and merges both activity indices without duplicate session cards", async () => {
     renderWithProviders(<LearningsPanel folderId="repo" />);
     expect(screen.getAllByRole("tab").map((x) => x.textContent)).toEqual([
       "History",
-      "Learnings",
+      "Reports",
     ]);
     await journalDay();
     expect(

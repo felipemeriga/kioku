@@ -18,6 +18,7 @@ import { ReadableContent } from "./agent-evidence/ReadableContent";
 import { apiFetch } from "../lib/api";
 import { brand, fonts } from "../theme";
 import "./LearningsPanel.css";
+import ReportsPanel from "./ReportsPanel";
 import { HistorySearchToolbar, HistorySearchResults } from "./HistorySearch";
 import {
   emptyHistoryFilters,
@@ -48,7 +49,7 @@ type JournalReturnState = {
   selectedDate: string | null;
   selectedSession: { date: string; key: string } | null;
   raw: boolean;
-  view: "history" | "journal" | "learnings" | "originals";
+  view: "history" | "journal" | "learnings" | "originals" | "reports";
   scrollOwner?: "container" | "main" | "window";
   listScroll?: number;
   scrollY: number;
@@ -59,7 +60,7 @@ type JournalReturnState = {
 function readJournalReturn(key: string): JournalReturnState | null {
   try {
     const value = JSON.parse(
-      sessionStorage.getItem(key) || "null",
+      sessionStorage.getItem(key) || "null"
     ) as JournalReturnState | null;
     if (
       !value ||
@@ -68,7 +69,9 @@ function readJournalReturn(key: string): JournalReturnState | null {
       value.month < 0 ||
       value.month > 11 ||
       Date.now() - value.savedAt > 600_000 ||
-      !["history", "journal", "learnings", "originals"].includes(value.view)
+      !["history", "journal", "learnings", "originals", "reports"].includes(
+        value.view
+      )
     )
       return null;
     return value;
@@ -83,15 +86,6 @@ type JournalDay = {
   entry_count: number;
   agents: string[];
   approximate?: boolean;
-};
-type Learning = {
-  id: string;
-  topic_key: string;
-  statement: string;
-  status: "reported" | "committed";
-  source_entries: { id: string; date: string; agent: string }[];
-  git_sha: string | null;
-  updated_at: string;
 };
 type Entry = {
   id: string;
@@ -109,7 +103,7 @@ const SESSION_UUID =
 function entriesFromMarkdown(markdown: string): Entry[] {
   const headings = [
     ...markdown.matchAll(
-      /^## (?:Codex|Claude Code) session [^\n]+\n|^#{2,3} (\d\d:\d\d|\d{13}) — ([^\n]+)\n/gm,
+      /^## (?:Codex|Claude Code) session [^\n]+\n|^#{2,3} (\d\d:\d\d|\d{13}) — ([^\n]+)\n/gm
     ),
   ];
   const entries: Entry[] = [];
@@ -118,7 +112,7 @@ function entriesFromMarkdown(markdown: string): Entry[] {
     if (!heading[1]) continue;
     const section = markdown.slice(
       heading.index! + heading[0].length,
-      i + 1 < headings.length ? headings[i + 1].index! : markdown.length,
+      i + 1 < headings.length ? headings[i + 1].index! : markdown.length
     );
     const marker = section.match(/^<!-- kioku-entry: (\{[^\n]+\}) -->\n/m);
     if (!marker) continue;
@@ -160,7 +154,7 @@ function localDay(epochMs: number) {
   const date = new Date(epochMs);
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(
     2,
-    "0",
+    "0"
   )}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
@@ -205,17 +199,20 @@ function HistoryPanel({ folderId }: { folderId: string }) {
     user?.id ?? "anonymous"
   }:${folderId}`;
   const [restored] = useState(() =>
-    user ? readJournalReturn(returnKey) : null,
+    user ? readJournalReturn(returnKey) : null
   );
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  const [view, setView] = useState<"history" | "learnings">(
-    restored?.view === "learnings" ? "learnings" : "history",
+  const [view, setView] = useState<"history" | "reports">(
+    new URLSearchParams(window.location.search).has("report") ||
+      restored?.view === "reports"
+      ? "reports"
+      : "history"
   );
   const [searchFilters, setSearchFilters] = useState<HistoryFilters>(
-    restored?.searchFilters ?? { ...emptyHistoryFilters },
+    restored?.searchFilters ?? { ...emptyHistoryFilters }
   );
   const [searchDetail, setSearchDetail] = useState(
-    restored?.searchDetail ?? false,
+    restored?.searchDetail ?? false
   );
   const searching = hasHistoryFilters(searchFilters) && !searchDetail;
   const [showSearchDates, setShowSearchDates] = useState(false);
@@ -231,13 +228,13 @@ function HistoryPanel({ folderId }: { folderId: string }) {
       else window.scrollTo({ top });
     });
   const [month, setMonth] = useState(
-    () => restored?.month ?? new Date().getMonth(),
+    () => restored?.month ?? new Date().getMonth()
   );
   const [year, setYear] = useState(
-    () => restored?.year ?? new Date().getFullYear(),
+    () => restored?.year ?? new Date().getFullYear()
   );
   const [selectedDate, setSelectedDate] = useState<string | null>(
-    restored?.selectedDate ?? null,
+    restored?.selectedDate ?? null
   );
   const [raw, setRaw] = useState(restored?.raw ?? false);
   const [selectedSession, setSelectedSession] = useState<{
@@ -267,7 +264,7 @@ function HistoryPanel({ folderId }: { folderId: string }) {
           savedAt: Date.now(),
           searchFilters,
           searchDetail,
-        }),
+        })
       );
     } catch {
       /* Optional browser UI storage. */
@@ -298,7 +295,7 @@ function HistoryPanel({ folderId }: { folderId: string }) {
         await apiFetch(
           `/api/folders/${folderId}/learning-days?year=${year}&month=${
             month + 1
-          }&timezone=${encodeURIComponent(timezone)}`,
+          }&timezone=${encodeURIComponent(timezone)}`
         )
       ).json()) as { days: JournalDay[] },
     staleTime: 60_000,
@@ -311,14 +308,14 @@ function HistoryPanel({ folderId }: { folderId: string }) {
     year,
     month,
     timezone,
-    view === "history",
+    view === "history"
   );
   const dayMap = useMemo(() => {
     const map = new Map(
       (daysQuery.data?.days ?? []).map((day) => [
         day.journal_date,
         { ...day, event_count: 0, session_count: 0 },
-      ]),
+      ])
     );
     for (const day of originalDays.data?.days ?? []) {
       const journal = map.get(day.date);
@@ -341,7 +338,7 @@ function HistoryPanel({ folderId }: { folderId: string }) {
     user?.id,
     activeDate,
     timezone,
-    view === "history" && !historyUnsupported(originalDays.error),
+    view === "history" && !historyUnsupported(originalDays.error)
   );
   const dayQuery = useQuery({
     queryKey: ["learning-day", folderId, user?.id, activeDate, timezone],
@@ -349,8 +346,8 @@ function HistoryPanel({ folderId }: { folderId: string }) {
       (await (
         await apiFetch(
           `/api/folders/${folderId}/learning-days/${activeDate}?timezone=${encodeURIComponent(
-            timezone,
-          )}`,
+            timezone
+          )}`
         )
       ).json()) as {
         status: string;
@@ -361,15 +358,6 @@ function HistoryPanel({ folderId }: { folderId: string }) {
     enabled: !!activeDate && view === "history",
     staleTime: 30_000,
     retry: 1,
-  });
-  const learningsQuery = useQuery({
-    queryKey: ["repo-learnings", folderId, user?.id],
-    queryFn: async () =>
-      (await (await apiFetch(`/api/folders/${folderId}/learnings`)).json()) as {
-        learnings: Learning[];
-      },
-    enabled: view === "learnings",
-    staleTime: 30_000,
   });
 
   useEffect(() => {
@@ -411,7 +399,7 @@ function HistoryPanel({ folderId }: { folderId: string }) {
   const count = new Date(year, month + 1, 0).getDate();
   const calendarCells = Array.from(
     { length: firstWeekday + count },
-    (_, i) => i - firstWeekday + 1,
+    (_, i) => i - firstWeekday + 1
   );
   const monthLabel = new Intl.DateTimeFormat("en", {
     month: "long",
@@ -442,18 +430,18 @@ function HistoryPanel({ folderId }: { folderId: string }) {
             });
           return groups;
         }, new Map<string, JournalSession>())
-        .values(),
+        .values()
     );
   const sessions = unionHistorySessions(
     journalSessions,
-    originalSessions.data?.pages.flatMap((page) => page.sessions ?? []) ?? [],
+    originalSessions.data?.pages.flatMap((page) => page.sessions ?? []) ?? []
   );
   const activeSession =
     selectedSession?.date === activeDate
       ? sessions.find(
           (session) =>
             session.hasJournal &&
-            `${session.agent}:${session.session_id}` === selectedSession.key,
+            `${session.agent}:${session.session_id}` === selectedSession.key
         )
       : undefined;
   const visibleEntries = activeSession
@@ -477,25 +465,33 @@ function HistoryPanel({ folderId }: { folderId: string }) {
     setSelectedSession(null);
     setRaw(false);
   };
-  const openSource = async (day: string, entryId: string) => {
+  const openSource = async (day: string, entryId?: string) => {
     let viewerDay = day;
-    try {
-      const response = await apiFetch(
-        `/api/folders/${folderId}/learning-days/${day}`,
-      );
-      const source = (await response.json()) as { markdown?: string };
-      const entry = entriesFromMarkdown(source.markdown ?? "").find(
-        (item) => item.id === entryId,
-      );
-      if (entry) viewerDay = localDay(entry.time);
-    } catch {
-      /* The original source day remains navigable if lookup fails. */
+    let targetEntry: Entry | undefined;
+    if (entryId) {
+      try {
+        const response = await apiFetch(
+          `/api/folders/${folderId}/learning-days/${day}`
+        );
+        const source = (await response.json()) as { markdown?: string };
+        targetEntry = entriesFromMarkdown(source.markdown ?? "").find(
+          (item) => item.id === entryId
+        );
+        if (targetEntry) viewerDay = localDay(targetEntry.time);
+      } catch {
+        /* Keep the source day navigable if the entry lookup fails. */
+      }
     }
     const [y, m] = viewerDay.split("-").map(Number);
     setYear(y);
     setMonth(m - 1);
     setSelectedDate(viewerDay);
-    setSelectedSession(null);
+    setSelectedSession(
+      targetEntry ? { date: viewerDay, key: targetEntry.sessionKey } : null
+    );
+    setPendingEntry(targetEntry?.id ?? null);
+    setSearchFilters({ ...emptyHistoryFilters });
+    setSearchDetail(false);
     setRaw(false);
     setView("history");
   };
@@ -517,7 +513,7 @@ function HistoryPanel({ folderId }: { folderId: string }) {
             Agents
           </Typography>
           <Typography sx={{ color: brand.muted, fontSize: 14 }}>
-            Session history and repository learnings.
+            Session history and periodic reports.
           </Typography>
         </Box>
         <Tabs
@@ -530,7 +526,7 @@ function HistoryPanel({ folderId }: { folderId: string }) {
           }}
         >
           <Tab value="history" label="History" />
-          <Tab value="learnings" label="Learnings" />
+          <Tab value="reports" label="Reports" />
         </Tabs>
       </Stack>
 
@@ -618,7 +614,7 @@ function HistoryPanel({ folderId }: { folderId: string }) {
                       if (date < 1) return <span key={`blank-${index}`} />;
                       const key = `${year}-${String(month + 1).padStart(
                         2,
-                        "0",
+                        "0"
                       )}-${String(date).padStart(2, "0")}`;
                       const day = dayMap.get(key);
                       return (
@@ -753,7 +749,7 @@ function HistoryPanel({ folderId }: { folderId: string }) {
 
                   {dayQuery.isError &&
                     originalSessions.data?.pages.some(
-                      (page) => page.sessions.length,
+                      (page) => page.sessions.length
                     ) && (
                       <Alert
                         severity="warning"
@@ -784,8 +780,8 @@ function HistoryPanel({ folderId }: { folderId: string }) {
                           {dayQuery.data?.status === "ok"
                             ? entries.length
                             : dayMap.get(activeDate)?.approximate
-                              ? `At least ${dayMap.get(activeDate)?.entry_count}`
-                              : dayMap.get(activeDate)?.entry_count}{" "}
+                            ? `At least ${dayMap.get(activeDate)?.entry_count}`
+                            : dayMap.get(activeDate)?.entry_count}{" "}
                           journal entries · {sessions.length}
                           {originalSessions.hasNextPage ? "+" : ""} sessions ·{" "}
                           {timezone}
@@ -813,7 +809,7 @@ function HistoryPanel({ folderId }: { folderId: string }) {
                     </Stack>
                   ) : dayQuery.isError &&
                     !originalSessions.data?.pages.some(
-                      (page) => page.sessions.length,
+                      (page) => page.sessions.length
                     ) ? (
                     <Alert
                       severity="error"
@@ -846,7 +842,7 @@ function HistoryPanel({ folderId }: { folderId: string }) {
                           <article
                             key={historyIdentity(
                               session.agent,
-                              session.session_id,
+                              session.session_id
                             )}
                             className="learnings-session-card"
                             onClick={(event) => {
@@ -855,7 +851,7 @@ function HistoryPanel({ folderId }: { folderId: string }) {
                                 event.defaultPrevented ||
                                 !(event.target instanceof Element) ||
                                 event.target.closest(
-                                  "a, button, input, select, textarea, [role='button']",
+                                  "a, button, input, select, textarea, [role='button']"
                                 )
                               )
                                 return;
@@ -864,10 +860,10 @@ function HistoryPanel({ folderId }: { folderId: string }) {
                                 selection &&
                                 !selection.isCollapsed &&
                                 event.currentTarget.contains(
-                                  selection.anchorNode,
+                                  selection.anchorNode
                                 ) &&
                                 event.currentTarget.contains(
-                                  selection.focusNode,
+                                  selection.focusNode
                                 )
                               )
                                 return;
@@ -876,7 +872,7 @@ function HistoryPanel({ folderId }: { folderId: string }) {
                                 date: activeDate,
                                 key: historyIdentity(
                                   session.agent,
-                                  session.session_id,
+                                  session.session_id
                                 ),
                               });
                             }}
@@ -890,7 +886,7 @@ function HistoryPanel({ folderId }: { folderId: string }) {
                                   date: activeDate,
                                   key: historyIdentity(
                                     session.agent,
-                                    session.session_id,
+                                    session.session_id
                                   ),
                                 });
                               }}
@@ -941,7 +937,7 @@ function HistoryPanel({ folderId }: { folderId: string }) {
                           <article
                             key={historyIdentity(
                               session.agent,
-                              session.session_id,
+                              session.session_id
                             )}
                             className="learnings-session-card history-original-only"
                           >
@@ -979,15 +975,15 @@ function HistoryPanel({ folderId }: { folderId: string }) {
                                     folderId,
                                     session.originals!,
                                     activeDate!,
-                                    timezone,
-                                  ),
+                                    timezone
+                                  )
                                 )
                               }
                             >
                               View originals
                             </Button>
                           </article>
-                        ),
+                        )
                       )}
                       {originalSessions.hasNextPage && (
                         <Button
@@ -1095,8 +1091,8 @@ function HistoryPanel({ folderId }: { folderId: string }) {
                                       folderId,
                                       activeSession.originals!,
                                       activeDate!,
-                                      timezone,
-                                    ),
+                                      timezone
+                                    )
                                   )
                                 }
                               >
@@ -1121,88 +1117,11 @@ function HistoryPanel({ folderId }: { folderId: string }) {
           </Box>
         </>
       ) : (
-        <Box className="learnings-current">
-          <Typography sx={{ color: brand.muted, mb: 2, maxWidth: 680 }}>
-            These conclusions are maintained from new journal entries. Agent
-            reports are identified until a matching commit is found on the
-            principal branch.
-          </Typography>
-          {learningsQuery.isLoading ? (
-            <Stack direction="row" gap={1} alignItems="center">
-              <CircularProgress size={18} />
-              Reviewing learnings…
-            </Stack>
-          ) : learningsQuery.isError ? (
-            <Alert severity="error">Could not load learnings.</Alert>
-          ) : !learningsQuery.data?.learnings.length ? (
-            <Box className="learnings-empty">
-              <Typography sx={{ fontWeight: 650 }}>No learnings yet</Typography>
-              <Typography sx={{ color: brand.muted }}>
-                Mihari will review new journal entries on its next pass.
-              </Typography>
-            </Box>
-          ) : (
-            <Stack gap={1.5}>
-              {learningsQuery.data.learnings.map((learning) => (
-                <article key={learning.id} className="learnings-card">
-                  <Stack
-                    direction="row"
-                    justifyContent="space-between"
-                    gap={2}
-                    alignItems="flex-start"
-                  >
-                    <Typography
-                      sx={{ fontSize: 16, lineHeight: 1.6, maxWidth: "75ch" }}
-                    >
-                      {learning.statement}
-                    </Typography>
-                    <Chip
-                      size="small"
-                      label={
-                        learning.status === "committed"
-                          ? "On main"
-                          : "Agent report"
-                      }
-                      color={
-                        learning.status === "committed" ? "success" : "warning"
-                      }
-                      variant="outlined"
-                    />
-                  </Stack>
-                  <Stack
-                    direction="row"
-                    gap={1}
-                    flexWrap="wrap"
-                    sx={{ mt: 1.5 }}
-                  >
-                    {learning.source_entries.map((source) => (
-                      <Button
-                        key={source.id}
-                        size="small"
-                        onClick={() => void openSource(source.date, source.id)}
-                      >
-                        {source.date} ·{" "}
-                        {source.agent === "codex" ? "Codex" : "Claude"}
-                      </Button>
-                    ))}
-                    {learning.git_sha && (
-                      <Typography
-                        sx={{
-                          color: brand.muted,
-                          fontFamily: fonts.mono,
-                          fontSize: 12,
-                          alignSelf: "center",
-                        }}
-                      >
-                        Commit {learning.git_sha.slice(0, 8)}
-                      </Typography>
-                    )}
-                  </Stack>
-                </article>
-              ))}
-            </Stack>
-          )}
-        </Box>
+        <ReportsPanel
+          folderId={folderId}
+          onOpenHistory={(day, entryId) => void openSource(day, entryId)}
+          onOpenEvidence={setEvidenceLocation}
+        />
       )}
       <EvidenceDrawer
         location={evidenceLocation}
