@@ -59,7 +59,6 @@ import DocumentViewerDrawer from "../components/DocumentViewerDrawer";
 import MoveDialog from "../components/MoveDialog";
 import IngestionDrawer from "../components/IngestionDrawer";
 import BriefingPanel from "../components/BriefingPanel";
-import DocumentationPanel from "../components/DocumentationPanel";
 import StatusPanel from "../components/StatusPanel";
 import LearningsPanel from "../components/LearningsPanel";
 import FolderIntegrationsDialog from "../components/FolderIntegrationsDialog";
@@ -932,10 +931,7 @@ export default function DocumentsPage() {
               placed BELOW the folder grid so subfolders sit at the top. Non-repo
               folders have no summary/briefing — only repos do now. */}
         {currentFolderIsRepo && folderTab === "briefing" && currentFolderId && (
-          <>
-            <BriefingPanel folderId={currentFolderId} />
-            <DocumentationPanel folderId={currentFolderId} />
-          </>
+          <BriefingPanel folderId={currentFolderId} />
         )}
 
         {currentFolderIsRepo && folderTab === "status" && currentFolderId && (
