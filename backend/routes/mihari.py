@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 
 from anthropic import BadRequestError
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from db.client import get_supabase_thread_safe as get_supabase
 from services.crypto import decrypt_secret, encrypt_secret
@@ -66,6 +66,57 @@ class LearningRefreshRequest(BaseModel):
 @router.post("/learnings")
 def refresh_learnings(body: LearningRefreshRequest, request: Request):
     return _run_maintenance(body, request, "learnings")
+
+
+class ReportCommit(BaseModel):
+    sha: str = Field(pattern=r"^[a-f0-9]{40,64}$")
+    at: datetime
+    text: str = Field(min_length=1, max_length=1600)
+    url: str | None = Field(default=None, max_length=500)
+
+
+class ReportPull(BaseModel):
+    number: int = Field(ge=1)
+    at: datetime
+    text: str = Field(min_length=1, max_length=1600)
+    url: str = Field(
+        max_length=500, pattern=r"^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[0-9]+$"
+    )
+
+
+class ReportRefreshRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("timezone")
+    @classmethod
+    def report_zone(cls, value):
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError("Invalid timezone") from exc
+        return value
+
+    folder_id: str = Field(pattern=r"^[a-fA-F0-9-]{36}$")
+    head_sha: str = Field(pattern=r"^[a-f0-9]{40,64}$")
+    timezone: str = Field(default="UTC", min_length=1, max_length=64)
+    commits: list[ReportCommit] = Field(default_factory=list, max_length=1000)
+    pull_requests: list[ReportPull] = Field(default_factory=list, max_length=200)
+    github_coverage: str = Field(default="unavailable", max_length=100)
+
+
+@router.post("/reports")
+def refresh_reports(body: ReportRefreshRequest, request: Request):
+    from zoneinfo import ZoneInfo
+
+    try:
+        ZoneInfo(body.timezone)
+    except (ValueError, KeyError) as exc:
+        raise HTTPException(status_code=422, detail="Invalid timezone") from exc
+    if any(item.at.tzinfo is None for item in [*body.commits, *body.pull_requests]):
+        raise HTTPException(status_code=422, detail="Evidence timestamps require timezone")
+    return _run_maintenance(body, request, "reports")
 
 
 class ReviewPlanRequest(BaseModel):
@@ -440,7 +491,7 @@ def _run_maintenance(body, request, operation):
     try:
         if native_enabled(owner):
             raise HTTPException(status_code=409, detail="direct maintenance execution required")
-        payload = body.model_dump()
+        payload = body.model_dump(mode="json")
         payload["head_sha"] = payload.get("head_sha") or "legacy"
         if operation == "learnings":
             total = {"ok": True, "processed_entries": 0, "updated_learnings": 0}
@@ -485,6 +536,7 @@ def prepare_maintenance(body: MaintenancePrepareRequest, request: Request):
         "reground": RegroundRequest,
         "documentation": DocumentationRefreshRequest,
         "learnings": LearningRefreshRequest,
+        "reports": ReportRefreshRequest,
     }
     if body.operation not in models:
         raise HTTPException(status_code=422, detail="invalid maintenance operation")
@@ -493,7 +545,13 @@ def prepare_maintenance(body: MaintenancePrepareRequest, request: Request):
         owner, sb = _authorized_maintenance(request, parsed.folder_id)
         if not native_enabled(owner):
             return {"ok": True, "engine": "api"}
-        payload = parsed.model_dump()
+        if body.operation == "reports":
+            from zoneinfo import ZoneInfo
+
+            ZoneInfo(parsed.timezone)
+            if any(item.at.tzinfo is None for item in [*parsed.commits, *parsed.pull_requests]):
+                raise ValueError("Evidence timestamps require timezone")
+        payload = parsed.model_dump(mode="json")
         head = payload.get("head_sha", "")
         if not re.fullmatch(r"[0-9a-f]{40,64}", head):
             raise HTTPException(status_code=422, detail="native maintenance requires HEAD")

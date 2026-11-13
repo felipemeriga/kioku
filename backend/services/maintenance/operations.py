@@ -9,6 +9,8 @@ import json
 import re
 from copy import deepcopy
 
+from services.period_reports import REPORT_GUIDE, REPORT_SHAPE, validate_report
+
 SECTIONS = ("overview", "architecture", "how_it_runs", "deployment", "activity", "documentation")
 OPERATIONS = (
     "review_plan",
@@ -18,8 +20,11 @@ OPERATIONS = (
     "reground",
     "documentation",
     "learnings",
+    "reports",
 )
+
 SHAPES = {
+    "reports": REPORT_SHAPE,
     "activity": {"summary": "", "highlights": [""]},
     "overview": {"purpose": "", "description": ""},
     "architecture": {
@@ -45,6 +50,7 @@ SHAPES = {
     },
 }
 GUIDES = {
+    "reports": REPORT_GUIDE,
     "review_plan": (
         "Select every area whose durable facts change. Routine fixes belong in "
         "activity unless architecture, operating commands, deployment or detailed "
@@ -230,7 +236,7 @@ def build_request(snapshot):
         fields["source_ids"]["items"]["enum"] = [
             entry["id"] for entry in snapshot["input"]["new_entries"]
         ] or ["__no_source_available__"]
-    max_tokens = 2400
+    max_tokens = 6000 if op == "reports" else 2400
     if op in ("reground", "documentation"):
         max_tokens = min(
             12000, max(4000, (len(canonical(snapshot.get("current"))) + 2) // 3 + 1024)
@@ -307,6 +313,8 @@ def validate_result(snapshot, raw):
         }
     if not _shape(value, shape):
         raise ValueError("maintenance result changed required shape or types")
+    if op == "reports":
+        return validate_report(snapshot, value)
     current = snapshot.get("current")
     if op == "review_plan":
         if any(k not in SECTIONS for k in value["selected"]):

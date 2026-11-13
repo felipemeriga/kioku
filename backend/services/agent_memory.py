@@ -15,6 +15,7 @@ from fastapi import HTTPException
 
 from services.agent_evidence import EvidenceStore, rpc
 from services.agent_evidence_parser import project_record
+from services.period_reports import report_context
 
 STOP = set(
     (
@@ -498,6 +499,9 @@ def search_memory(
         matches.sort(key=lambda r: (r["recorded_at"] or "", r["session_id"], r["event_id"]))
     return {
         **result,
+        "period_reports": report_context(sb, user_id, list(scope), after, before, tz, session)
+        if not query and not as_of and offset == 0
+        else [],
         "search_terms": matching_terms,
         "matching_mode": mode,
         "unmatched_identifiers": result.get("unmatched_identifiers", []),
@@ -552,6 +556,10 @@ def read_memory(sb, user_id, allowed, reference, before=1, after=1, char_limit=8
     folders = folders_in_scope(sb, user_id, allowed)
     if ref["owner"] != user_id or ref["folder"] not in {r["id"] for r in folders}:
         invalid("memory_reference_not_found", 404)
+    if ref.get("kind") == "period_report":
+        from services.period_reports import read_report_reference
+
+        return read_report_reference(sb, user_id, ref, char_limit)
     if ref.get("kind") == "journal_day":
         return read_journal_day(sb, user_id, folders, ref, char_limit)
     UUID(ref["session"])

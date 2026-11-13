@@ -97,11 +97,11 @@ def publication_response(publication):
     }
 
 
-def apply_result(sb, preparation, owner, job_id, value):
+def apply_result(sb, preparation, owner, job_id, value, operation=None):
     """The only publication boundary: SQL checks revisions under the folder lock."""
     publication = (
         sb.rpc(
-            "apply_maintenance_result",
+            "apply_period_report_result" if operation == "reports" else "apply_maintenance_result",
             {
                 "p_preparation": preparation,
                 "p_user": owner,
@@ -549,7 +549,7 @@ def prepare(sb, owner, folder, operation, payload):
             "reason": reason,
             "updated_learnings": promoted,
         }
-    if operation != "learnings":
+    if operation not in ("learnings", "reports"):
         freshness = (
             sb.table("repo_freshness")
             .select("section_reviews")
@@ -780,7 +780,7 @@ def publish(sb, owner, folder, preparation, job_id):
                 "id", preparation
             ).eq("user_id", owner).execute()
             raise ValueError("invalid_result:" + str(exc)) from exc
-        publication = apply_result(sb, preparation, owner, job_id, value)
+        publication = apply_result(sb, preparation, owner, job_id, value, row.get("operation"))
         published = True
         acknowledge_publication(sb, {**row, "execution_job_id": job_id}, client)
         return publication
@@ -853,7 +853,7 @@ def execute_api(sb, owner, folder, operation, payload):
             "request": {},
         }
     ).execute()
-    publication = apply_result(sb, preparation, owner, "api:" + preparation, value)
+    publication = apply_result(sb, preparation, owner, "api:" + preparation, value, operation)
     if operation == "learnings":
         publication["updated_learnings"] = publication.get("updated_learnings", 0) + promoted
     return publication

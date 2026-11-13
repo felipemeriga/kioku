@@ -4,6 +4,10 @@ from services.folder_summary.briefing_schema import snapshot_sections
 
 
 def capture(sb, owner, folder, operation, payload):
+    if operation == "reports":
+        from services.period_reports import capture_report
+
+        return capture_report(sb, owner, folder, payload)
     from services.folder_summary.repo import get_latest_summary
 
     if operation == "activity" and not payload.get("commits"):

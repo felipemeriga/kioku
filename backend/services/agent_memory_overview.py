@@ -8,6 +8,7 @@ from dateutil.parser import isoparse
 
 from services.agent_evidence import rpc
 from services.agent_memory import journal_activity
+from services.period_reports import report_context
 
 
 def overview(sb, user_id, folders, after, before, tz, session):
@@ -59,6 +60,7 @@ def overview(sb, user_id, folders, after, before, tz, session):
     return {
         "status": "ok",
         "projection": "overview",
+        "period_reports": report_context(sb, user_id, list(scope), after, before, tz, session),
         "matches": [],
         "scope": [{"id": k, "name": v} for k, v in scope.items()],
         "time_scope": {"after": after, "before_exclusive": before, "timezone": tz},
