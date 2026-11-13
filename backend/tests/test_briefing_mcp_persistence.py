@@ -74,3 +74,29 @@ async def test_registered_mcp_briefing_read_uses_current_schema_snapshot():
     finally:
         mcp_server._current_user_id.reset(user_token)
         mcp_server._current_scope_folder_id.reset(scope_token)
+
+
+@pytest.mark.parametrize("nested", [True, False])
+def test_orientation_omits_retired_documentation_from_both_context_copies(nested):
+    sections = empty_briefing()
+    sections["documentation"] = new_section("Legacy large document abstract")
+    content = {"sections": sections} if nested else sections
+    row = {"kind": "briefing", "content": content, "sections": sections}
+    sb = MagicMock()
+    query = sb.table.return_value.select.return_value.eq.return_value.eq.return_value
+    query.order.return_value.limit.return_value.execute.return_value.data = [row]
+    query.in_.return_value.order.return_value.limit.return_value.execute.return_value.data = []
+    user_token = mcp_server._current_user_id.set("owner")
+    scope_token = mcp_server._current_scope_folder_id.set("repo")
+    try:
+        with (
+            patch("mcp_server.get_supabase", return_value=sb),
+            patch("mcp_server.resolve_focus_folder", return_value=("repo", "Repository")),
+        ):
+            payload = json.loads(mcp_server.get_folder_orientation(folder="repo"))
+        assert "documentation" not in payload["briefing"]["sections"]
+        assert "Legacy large document abstract" not in json.dumps(payload)
+        assert len(payload["briefing"]["sections"]) == 5
+    finally:
+        mcp_server._current_user_id.reset(user_token)
+        mcp_server._current_scope_folder_id.reset(scope_token)
