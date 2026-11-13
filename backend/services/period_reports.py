@@ -10,7 +10,7 @@ from pydantic import AwareDatetime, TypeAdapter
 
 TIMESTAMP = TypeAdapter(AwareDatetime)
 
-POLICY = 1
+POLICY = 2
 REPORT_SHAPE = {
     "title": "",
     "summary": "",
@@ -29,6 +29,12 @@ REPORT_GUIDE = (
     "A principal-branch commit confirms code presence, not deployment or runtime success. "
     "PR states require supplied GitHub metadata; otherwise say unavailable. Distinguish dates of "
     "observations from dates of incidents. Preserve contradictions and unresolved results. "
+    "Reconcile each topic chronologically using observed_at, including within the same day. "
+    "Lead with its latest supported state at the cutoff. If a later source reverts, corrects, "
+    "or supersedes earlier work, explicitly describe that reversal and cite both sources. "
+    "Do not list superseded proposals or resolved issues as current open work. A newer journal "
+    "claim does not override stronger Git or runtime evidence without support; "
+    "qualify uncertainty. "
     "A prior weekly report is orientation, not independent evidence; cite its underlying sources. "
     "Source coverage is bounded: never claim complete verification or invent missing activity. "
     "Prefer three to five substantive findings; do not repeat the same fact across sections. "
@@ -72,7 +78,7 @@ def digest(value):
 def report_rows(sb, owner, folder, kind, tz, limit=16):
     return (
         sb.table("repo_period_reports")
-        .select("id,period_start,period_end,revision,source_digest,generated_at,content")
+        .select("id,period_start,period_end,revision,source_digest,generated_at,content,coverage")
         .eq("user_id", owner)
         .eq("folder_id", folder)
         .eq("kind", kind)
@@ -108,7 +114,7 @@ def capture_report(sb, owner, folder, payload, now=None):
     for kind, start, end in candidates:
         old = stored[kind].get(start.isoformat())
         closed = today > end
-        if old and not closed:
+        if old and not closed and old.get("coverage", {}).get("policy") == POLICY:
             generated = iso(old["generated_at"]).astimezone(ZoneInfo(tz)).date()
             if kind == "weekly" and generated == today:
                 continue
@@ -172,6 +178,7 @@ def capture_report(sb, owner, folder, payload, now=None):
                     "id": "journal:" + row["entry_id"],
                     "kind": "journal",
                     "date": iso(row["captured_at"]).astimezone(ZoneInfo(tz)).date().isoformat(),
+                    "observed_at": iso(row["captured_at"]).isoformat(),
                     "session_id": row["session_id"],
                     "agent": row["agent"],
                     "entry_id": row["entry_id"],
@@ -190,6 +197,7 @@ def capture_report(sb, owner, folder, payload, now=None):
                     "id": "original:" + event["event_id"],
                     "kind": "original",
                     "date": iso(event["event_at"]).astimezone(ZoneInfo(tz)).date().isoformat(),
+                    "observed_at": iso(event["event_at"]).isoformat(),
                     "session_id": event["session_id"],
                     "event_id": event["event_id"],
                     "role": event["role"],
@@ -203,7 +211,8 @@ def capture_report(sb, owner, folder, payload, now=None):
                 {
                     "id": "commit:" + c["sha"],
                     "kind": "git_commit",
-                    "date": c["at"][:10],
+                    "date": iso(c["at"]).astimezone(ZoneInfo(tz)).date().isoformat(),
+                    "observed_at": iso(c["at"]).isoformat(),
                     "sha": c["sha"],
                     "url": c.get("url"),
                     "text": c["text"][:500],
@@ -214,11 +223,13 @@ def capture_report(sb, owner, folder, payload, now=None):
                 {
                     "id": "pull:" + str(p["number"]),
                     "kind": "github_pull_request",
-                    "date": p["at"][:10],
+                    "date": iso(p["at"]).astimezone(ZoneInfo(tz)).date().isoformat(),
+                    "observed_at": iso(p["at"]).isoformat(),
                     "url": p["url"],
                     "text": p["text"][:500],
                 }
             )
+        sources.sort(key=lambda source: (iso(source["observed_at"]), source["id"]))
         weekly = []
         if kind == "monthly":
             weekly = [
@@ -256,6 +267,7 @@ def capture_report(sb, owner, folder, payload, now=None):
                 "source_digest": fingerprint,
                 "expected_revision": old["revision"] if old else 0,
                 "coverage": {
+                    "policy": POLICY,
                     "journal_entries": snapshot.get("entry_count", len(entries)),
                     "journal_entries_included": len(entries),
                     "indexed_entries_available": journal_total,

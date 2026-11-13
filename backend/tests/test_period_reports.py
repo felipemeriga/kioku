@@ -10,7 +10,14 @@ from pydantic import ValidationError
 from routes.mihari import ReportRefreshRequest
 from routes.reports import ReportSettings
 from services.maintenance.operations import build_request, validate_result
-from services.period_reports import calendar_period, capture_report, instants, iso, report_context
+from services.period_reports import (
+    POLICY,
+    calendar_period,
+    capture_report,
+    instants,
+    iso,
+    report_context,
+)
 
 
 @pytest.mark.parametrize("fraction", ["", ".2", ".22", ".220", ".2201", ".22012", ".220123"])
@@ -92,6 +99,19 @@ def test_report_cannot_invent_source_or_quote_or_publish_partial_envelope():
         )
 
 
+def test_report_quotes_are_schema_constrained_without_changing_punctuation():
+    snap, _ = report_fixture()
+    snap["input"]["sources"][0]["text"] = "- Kept the gap’s clock.\n- Later reverted the change."
+    request = build_request(snap)
+    quote = request["schema"]["properties"]["sections"]["items"]["properties"]["items"]["items"][
+        "properties"
+    ]["evidence_quote"]
+    assert "Kept the gap's clock." not in quote["enum"]
+    assert all(value in snap["input"]["sources"][0]["text"] for value in quote["enum"])
+    assert any("gap’s" in value for value in quote["enum"])
+    assert "evidence_choices" in request["prompt"]
+
+
 @pytest.mark.parametrize("zone", ["../../etc/passwd", "Mars/Olympus", "", "x" * 65])
 def test_invalid_timezone_rejected_in_ui_and_maintenance(zone):
     with pytest.raises(ValidationError):
@@ -155,6 +175,8 @@ def test_retries_preserve_identical_snapshot_and_successful_day_is_not_regenerat
     )
     assert first == later
     assert first["report"]["status"] == "draft"
+    assert first["report"]["coverage"]["policy"] == POLICY
+    assert first["input"]["sources"][0]["observed_at"] == "2026-11-13T10:00:00+00:00"
     old = {
         **first["report"],
         "generated_at": "2026-11-13T11:01:00Z",
@@ -168,6 +190,43 @@ def test_retries_preserve_identical_snapshot_and_successful_day_is_not_regenerat
     )
     assert next_report["report"]["kind"] == "monthly"
     assert db.calls == 1
+    old["coverage"] = {**old["coverage"], "policy": POLICY - 1}
+    old["source_digest"] = "previous-policy-fingerprint"
+    revised, _ = capture_report(
+        DB(rows, [old]), "owner", "repo", body, datetime(2026, 11, 13, 12, tzinfo=timezone.utc)
+    )
+    assert revised["report"]["kind"] == "weekly"
+    assert revised["report"]["expected_revision"] == 1
+
+
+def test_same_day_reversal_keeps_precise_source_order():
+    rows = [
+        {
+            "entry_id": "revert",
+            "session_id": "s",
+            "agent": "codex",
+            "captured_at": "2026-11-13T15:00:00Z",
+            "body": "Reverted the earlier change after a regression.",
+        },
+        {
+            "entry_id": "implement",
+            "session_id": "s",
+            "agent": "codex",
+            "captured_at": "2026-11-13T10:00:00Z",
+            "body": "Implemented the new cache policy.",
+        },
+    ]
+    snap, _ = capture_report(
+        DB(rows),
+        "owner",
+        "repo",
+        {"head_sha": "a" * 40},
+        datetime(2026, 11, 13, 16, tzinfo=timezone.utc),
+    )
+    assert [source["id"] for source in snap["input"]["sources"]] == [
+        "journal:implement",
+        "journal:revert",
+    ]
 
 
 def test_report_context_is_optional_and_session_queries_do_not_load_reports():

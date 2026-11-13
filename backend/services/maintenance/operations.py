@@ -172,10 +172,10 @@ def _architecture_paths(snapshot):
     return paths
 
 
-def _learning_quotes(snapshot):
+def _source_quotes(entries):
     """Bounded, exact source excerpts for schema-constrained evidence selection."""
     choices = {}
-    for entry in snapshot["input"]["new_entries"]:
+    for entry in entries:
         text = entry["text"][:18000]
         excerpts = []
         for line in text.splitlines():
@@ -227,8 +227,12 @@ def build_request(snapshot):
         item["source_ids"].update(minItems=1, maxItems=12)
         item["source_ids"]["items"]["enum"] = ids or ["__no_source_available__"]
         item["evidence_quote"].update(minLength=12, maxLength=250)
+        evidence_choices = _source_quotes(snapshot["input"].get("sources", []))
+        item["evidence_quote"]["enum"] = sorted(
+            {quote for values in evidence_choices.values() for quote in values}
+        ) or ["__no_source_available__"]
     if op == "learnings":
-        evidence_choices = _learning_quotes(snapshot)
+        evidence_choices = _source_quotes(snapshot["input"]["new_entries"])
         updates = schema["properties"]["updates"]
         updates["maxItems"] = 4
         fields = updates["items"]["properties"]
@@ -268,8 +272,13 @@ def build_request(snapshot):
         "prompt": GUIDES[op]
         + (
             "\nChoose evidence_quote verbatim from evidence_choices for a cited source ID. "
-            "If none supports a durable learning, return an empty updates array. "
-            "Never paraphrase these quotes.\nEvidence choices: " + canonical(evidence_choices)
+            + (
+                "If none supports a durable learning, return an empty updates array. "
+                if op == "learnings"
+                else "Omit findings without a supporting excerpt. "
+            )
+            + "Never paraphrase these quotes.\nEvidence choices: "
+            + canonical(evidence_choices)
             if evidence_choices is not None
             else ""
         )
