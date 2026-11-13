@@ -9,7 +9,12 @@ import json
 import re
 from copy import deepcopy
 
-from services.period_reports import REPORT_GUIDE, REPORT_SHAPE, validate_report
+from services.period_reports import (
+    REPORT_GUIDE,
+    REPORT_SHAPE,
+    report_quote_choices,
+    validate_report,
+)
 
 SECTIONS = ("overview", "architecture", "how_it_runs", "deployment", "activity", "documentation")
 OPERATIONS = (
@@ -226,10 +231,10 @@ def build_request(snapshot):
         item["text"].update(minLength=10, maxLength=1000)
         item["source_ids"].update(minItems=1, maxItems=12)
         item["source_ids"]["items"]["enum"] = ids or ["__no_source_available__"]
-        item["evidence_quote"].update(minLength=12, maxLength=250)
-        evidence_choices = _source_quotes(snapshot["input"].get("sources", []))
+        item["evidence_quote"].update(minLength=1, maxLength=32)
+        evidence_choices = report_quote_choices(snapshot["input"].get("sources", []))
         item["evidence_quote"]["enum"] = sorted(
-            {quote for values in evidence_choices.values() for quote in values}
+            {quote["id"] for values in evidence_choices.values() for quote in values}
         ) or ["__no_source_available__"]
     if op == "learnings":
         evidence_choices = _source_quotes(snapshot["input"]["new_entries"])
@@ -271,7 +276,11 @@ def build_request(snapshot):
         ),
         "prompt": GUIDES[op]
         + (
-            "\nChoose evidence_quote verbatim from evidence_choices for a cited source ID. "
+            (
+                "\nSelect an evidence_quote ID from evidence_choices for a cited source ID. "
+                if op == "reports"
+                else "\nChoose evidence_quote verbatim from evidence_choices for a cited source. "
+            )
             + (
                 "If none supports a durable learning, return an empty updates array. "
                 if op == "learnings"

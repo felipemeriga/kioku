@@ -2,7 +2,9 @@
 
 import hashlib
 import json
+import re
 from calendar import monthrange
+from copy import deepcopy
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -23,8 +25,8 @@ REPORT_GUIDE = (
     "Write a useful dated repository review, not a concatenation of session summaries. "
     "Weekly: progress/outcomes, decisions, still open. Monthly: how work evolved across weeks, "
     "recurring themes, corrections and carryover. Use only supplied sources and exact source IDs. "
-    "Every summary and item must cite supporting sources. Each item needs one exact contiguous "
-    "supporting evidence_quote of 12-250 characters from a cited source's text. "
+    "Every summary and item must cite supporting sources. For evidence_quote select the ID "
+    "of a supplied exact excerpt belonging to a cited source, rather than rewriting its text. "
     "Journal claims are reported work, never independently verified. Commands are not results. "
     "A principal-branch commit confirms code presence, not deployment or runtime success. "
     "PR states require supplied GitHub metadata; otherwise say unavailable. Distinguish dates of "
@@ -285,7 +287,32 @@ def capture_report(sb, owner, folder, payload, now=None):
     return None, "reports are current or no period activity"
 
 
+def report_quote_choices(sources):
+    """Compact model choices; publication resolves IDs to unchanged original excerpts."""
+    choices = {}
+    count = 0
+    for source in sources:
+        excerpts = []
+        for line in source["text"].splitlines():
+            for sentence in re.split(r"(?<=[.!?])\s+", line):
+                for start in range(0, len(sentence), 250):
+                    text = sentence[start : start + 250].strip()
+                    if 12 <= len(text) <= 250 and text not in excerpts:
+                        excerpts.append(text)
+        choices[source["id"]] = []
+        for text in excerpts[:6]:
+            choices[source["id"]].append({"id": f"q{count}", "text": text})
+            count += 1
+    return choices
+
+
 def validate_report(snapshot, value):
+    value = deepcopy(value)
+    quotes = {
+        quote["id"]: (source, quote["text"])
+        for source, choices in report_quote_choices(snapshot["input"]["sources"]).items()
+        for quote in choices
+    }
     sources = {s["id"]: s for s in snapshot["input"]["sources"]}
     if (
         not 3 <= len(value["title"].strip()) <= 160
@@ -310,6 +337,11 @@ def validate_report(snapshot, value):
             raise ValueError("Invalid report section")
         for item in section["items"]:
             cited(item["source_ids"])
+            if item["evidence_quote"] in quotes:
+                source, text = quotes[item["evidence_quote"]]
+                if source not in item["source_ids"]:
+                    raise ValueError("Report quote belongs to an uncited source")
+                item["evidence_quote"] = text
             if not 10 <= len(item["text"]) <= 1000 or not 12 <= len(item["evidence_quote"]) <= 250:
                 raise ValueError("Invalid report item")
             if not any(item["evidence_quote"] in sources[i]["text"] for i in item["source_ids"]):
