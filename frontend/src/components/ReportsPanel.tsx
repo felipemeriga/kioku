@@ -1,30 +1,23 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
   Box,
   Button,
-  Chip,
   CircularProgress,
-  Drawer,
-  FormControl,
-  IconButton,
-  InputLabel,
-  MenuItem,
-  Select,
+  Dialog,
   Stack,
-  ToggleButton,
-  ToggleButtonGroup,
   Tooltip,
-  Typography,
 } from "@mui/material";
-import CloseIcon from "@mui/icons-material/Close";
-import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
-import SourceOutlinedIcon from "@mui/icons-material/SourceOutlined";
 import { apiFetch } from "../lib/api";
 import { useAuth } from "../hooks/useAuth";
 import { ReadableContent } from "./agent-evidence/ReadableContent";
 import type { EvidenceLocation } from "../lib/agentEvidenceApi";
+import ReportTimeline, {
+  ReportSourcesButton,
+  type ReportContent,
+  type TimelineReportContent,
+} from "./ReportTimeline";
 import "./ReportsPanel.css";
 
 type Source = {
@@ -58,26 +51,51 @@ type ReportSummary = {
   };
 };
 type Report = ReportSummary & {
-  content: {
-    title: string;
-    summary: string;
-    summary_source_ids: string[];
-    sections: {
-      heading: string;
-      items: { text: string; source_ids: string[]; evidence_quote: string }[];
-    }[];
-  };
+  content: ReportContent;
   sources: Source[];
 };
+const isTimelineReport = (
+  content: ReportContent
+): content is TimelineReportContent => content.format_version === 2;
 function periodLabel(report: ReportSummary) {
-  const date = new Date(`${report.period_start}T12:00:00Z`);
-  return report.kind === "monthly"
-    ? date.toLocaleDateString(undefined, {
+  const start = new Date(`${report.period_start}T12:00:00Z`);
+  const end = new Date(`${report.period_end}T12:00:00Z`);
+  if (report.kind === "monthly")
+    return start.toLocaleDateString("en-US", {
+      month: "long",
+      year: "numeric",
+      timeZone: "UTC",
+    });
+  const first = start.toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+  const last = end.toLocaleDateString("en-US", {
+    ...(start.getUTCMonth() !== end.getUTCMonth()
+      ? { month: "short" as const }
+      : {}),
+    day: "numeric",
+    timeZone: "UTC",
+  });
+  return `${first}–${last}`;
+}
+function reportRange(report: ReportSummary) {
+  return report.kind === "weekly"
+    ? `Week of ${new Date(
+        `${report.period_start}T12:00:00Z`
+      ).toLocaleDateString("en-US", {
         month: "long",
+        day: "numeric",
         year: "numeric",
         timeZone: "UTC",
-      })
-    : `${report.period_start} – ${report.period_end}`;
+      })}`
+    : `${new Date(`${report.period_start}T12:00:00Z`).toLocaleDateString(
+        "en-US",
+        { month: "long", day: "numeric", timeZone: "UTC" }
+      )}–${new Date(`${report.period_end}T12:00:00Z`).getUTCDate()}, ${new Date(
+        `${report.period_start}T12:00:00Z`
+      ).getUTCFullYear()}`;
 }
 function dateLabel(value: string, timezone: string) {
   return new Date(value).toLocaleString(undefined, {
@@ -147,7 +165,11 @@ export default function ReportsPanel({
   const [kind, setKind] = useState(initial.kind);
   const [selected, setSelected] = useState(initial.selected);
   const [revision, setRevision] = useState(initial.revision);
-  const [sources, setSources] = useState<Source[] | null>(null);
+  const [sources, setSources] = useState<{
+    title: string;
+    items: Source[];
+  } | null>(null);
+  const sourceTitleId = useId();
   const [offset, setOffset] = useState(initial.offset);
   useEffect(() => {
     try {
@@ -204,8 +226,12 @@ export default function ReportsPanel({
   const report = detail.data?.report;
   const zone = list.data?.timezone ?? "UTC";
   const localZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  const showSources = (ids: string[]) =>
-    setSources(report?.sources.filter((s) => ids.includes(s.id)) ?? []);
+  const showSources = (ids: string[], title = "Supporting evidence") =>
+    setSources({
+      title,
+      items: report?.sources.filter((s) => ids.includes(s.id)) ?? [],
+    });
+  const sourceIds = new Set(report?.sources.map((source) => source.id) ?? []);
   const openSource = (source: Source) => {
     setSources(null);
     if (source.kind === "original" && source.session_id)
@@ -242,50 +268,67 @@ export default function ReportsPanel({
       setSaving(false);
     }
   };
+  const changeKind = (next: "weekly" | "monthly") => {
+    setKind(next);
+    setSelected(null);
+    setRevision(null);
+    setOffset(0);
+    setSources(null);
+  };
+  const chooseReport = (next: string) => {
+    if (!list.data?.reports.some((item) => item.id === next)) return;
+    setSelected(next);
+    setRevision(null);
+    setSources(null);
+  };
+  const paginate = (direction: -1 | 1) => {
+    setOffset(Math.min(1000, Math.max(0, offset + direction * 50)));
+    setSelected(null);
+    setRevision(null);
+    setSources(null);
+  };
   return (
     <Box className="reports-panel">
-      <Stack
-        direction={{ xs: "column", sm: "row" }}
-        gap={2}
-        justifyContent="space-between"
-        alignItems={{ xs: "flex-start", sm: "center" }}
-        sx={{ mb: 2 }}
-      >
-        <ToggleButtonGroup
-          exclusive
-          size="small"
-          value={kind}
-          aria-label="Report period"
-          onChange={(_, value: "weekly" | "monthly" | null) => {
-            if (value) {
-              setKind(value);
-              setSelected(null);
-              setRevision(null);
-              setOffset(0);
-            }
-          }}
-        >
-          <ToggleButton value="weekly">Weekly</ToggleButton>
-          <ToggleButton value="monthly">Monthly</ToggleButton>
-        </ToggleButtonGroup>
-        <Stack direction="row" gap={1} alignItems="center">
-          <Typography variant="caption">{zone}</Typography>
+      <div className="reports-toolbar">
+        <div className="reports-segmented" aria-label="Report period">
+          <button
+            type="button"
+            aria-pressed={kind === "weekly"}
+            onClick={() => changeKind("weekly")}
+          >
+            Weekly
+          </button>
+          <button
+            type="button"
+            aria-pressed={kind === "monthly"}
+            onClick={() => changeKind("monthly")}
+          >
+            Monthly
+          </button>
+        </div>
+        <div className="reports-timezone">
+          <span>{zone}</span>
           {localZone !== zone && (
-            <Button
-              size="small"
+            <button
+              type="button"
+              className="reports-text-action"
               disabled={saving}
               onClick={() => void changeZone(localZone)}
             >
               Use my timezone
-            </Button>
+            </button>
           )}
-          <Tooltip title="New commits on the watched branch trigger reviews of the current week and month. Otherwise, Mihari updates weekly reports daily and monthly reports weekly when sources change. Reviews are queued; previous revisions remain available. Dates use this repository’s report timezone.">
-            <IconButton size="small" aria-label="About report updates">
-              <InfoOutlinedIcon fontSize="small" />
-            </IconButton>
+          <Tooltip title="New commits on the watched branch trigger reviews of the current week and month. Otherwise, weekly reports update daily and monthly reports weekly when sources change. Reviews are queued; previous revisions remain available.">
+            <button
+              type="button"
+              className="reports-info"
+              aria-label="About report updates"
+            >
+              i
+            </button>
           </Tooltip>
-        </Stack>
-      </Stack>
+        </div>
+      </div>
       {settingsError && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {settingsError}
@@ -305,62 +348,72 @@ export default function ReportsPanel({
         </Alert>
       ) : !list.data?.reports.length && !selected ? (
         <Box className="reports-empty">
-          <Typography variant="h6">No {kind} reports yet</Typography>
-          <Typography color="text.secondary">
-            Mihari creates reports from recorded activity on its next pass.
-          </Typography>
-          <Button sx={{ mt: 1 }} onClick={() => void list.refetch()}>
-            Check again
-          </Button>
+          <h3>No {kind} reports yet</h3>
+          <p>Mihari creates reports from recorded activity on its next pass.</p>
+          <Button onClick={() => void list.refetch()}>Check again</Button>
         </Box>
       ) : (
         <div className="reports-layout">
           <nav className="reports-periods" aria-label={`${kind} reports`}>
-            <Typography sx={{ fontWeight: 650, p: 1.5 }}>
-              {kind === "weekly" ? "Weekly briefings" : "Monthly briefings"}
-            </Typography>
+            <div className="reports-period-caption">
+              {kind === "weekly" ? "Weekly reports" : "Monthly reports"}
+            </div>
+            <select
+              className="reports-mobile-period"
+              aria-label="Choose report period"
+              value={
+                list.data?.reports.some((item) => item.id === id) ? id : ""
+              }
+              onChange={(event) => chooseReport(event.target.value)}
+            >
+              <option value="" disabled>
+                Choose a period
+              </option>
+              {list.data?.reports.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {periodLabel(item)}
+                </option>
+              ))}
+            </select>
             {list.data?.reports.map((item) => (
               <button
+                type="button"
                 key={item.id}
-                className={id === item.id ? "selected" : ""}
+                className={`reports-period${id === item.id ? " selected" : ""}`}
                 aria-current={id === item.id ? "true" : undefined}
-                onClick={() => {
-                  setSelected(item.id);
-                  setRevision(null);
-                }}
+                onClick={() => chooseReport(item.id)}
               >
                 <strong>{periodLabel(item)}</strong>
                 <span>
-                  {item.status === "draft" ? "In progress" : "Completed period"}
+                  {item.status === "draft" ? "In progress" : "Completed"}
                 </span>
               </button>
             ))}
-            <Stack direction="row" justifyContent="space-between">
-              <Button
+            <footer>
+              <button
+                type="button"
                 disabled={offset === 0}
-                onClick={() => {
-                  setOffset(Math.max(0, offset - 50));
-                  setSelected(null);
-                  setRevision(null);
-                }}
+                onClick={() => paginate(-1)}
               >
                 Newer
-              </Button>
-              <Button
+              </button>
+              <button
+                type="button"
                 disabled={!list.data?.has_more || offset >= 1000}
-                onClick={() => {
-                  setOffset(Math.min(1000, offset + 50));
-                  setSelected(null);
-                  setRevision(null);
-                }}
+                onClick={() => paginate(1)}
               >
                 Older
-              </Button>
-            </Stack>
+              </button>
+            </footer>
           </nav>
           <article className="reports-document" aria-label="Selected report">
             {detail.isLoading ? (
-              <Stack direction="row" gap={1} role="status">
+              <Stack
+                direction="row"
+                gap={1}
+                className="reports-document-state"
+                role="status"
+              >
                 <CircularProgress size={18} />
                 Loading report…
               </Stack>
@@ -376,149 +429,164 @@ export default function ReportsPanel({
             ) : (
               report && (
                 <>
-                  <header>
-                    <Typography color="text.secondary" variant="body2">
-                      {report.kind === "weekly" ? "Weekly" : "Monthly"} briefing
-                      · {periodLabel(report)}
-                    </Typography>
-                    <Typography
-                      component="h3"
-                      variant="h4"
-                      sx={{
-                        fontSize: { xs: 24, md: 30 },
-                        mt: 2,
-                        fontWeight: 650,
-                      }}
-                    >
-                      {report.content.title}
-                    </Typography>
-                    <ReadableContent text={report.content.summary} />
-                    <Button
-                      size="small"
-                      onClick={() =>
-                        showSources(report.content.summary_source_ids)
-                      }
-                    >
-                      Summary sources
-                    </Button>
-                    <Stack
-                      direction="row"
-                      flexWrap="wrap"
-                      gap={1}
-                      sx={{ mt: 2 }}
-                    >
-                      <Chip
-                        size="small"
-                        label={
-                          report.status === "draft"
-                            ? "In progress"
-                            : "Completed period"
-                        }
-                        variant="outlined"
-                      />
-                      <Typography
-                        variant="caption"
-                        sx={{ alignSelf: "center" }}
-                      >
+                  <header className="reports-report-head">
+                    <div className="reports-report-meta">
+                      <span>{reportRange(report)}</span>
+                      <span className="reports-status">
+                        {report.status === "draft"
+                          ? "In progress"
+                          : "Completed period"}
+                      </span>
+                    </div>
+                    <h3>{report.content.title}</h3>
+                    {isTimelineReport(report.content) ? (
+                      <>
+                        <div className="reports-standfirst">
+                          <ReadableContent text={report.content.summary} />
+                        </div>
+                        {!!report.content.outcomes.length && (
+                          <ul className="reports-outcomes">
+                            {report.content.outcomes.map((outcome, index) => (
+                              <li key={index}>
+                                <ReadableContent text={outcome.text} />
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </>
+                    ) : (
+                      <details className="reports-legacy-overview">
+                        <summary>Overview</summary>
+                        <div className="reports-standfirst">
+                          <ReadableContent text={report.content.summary} />
+                        </div>
+                        <button
+                          type="button"
+                          className="reports-text-action"
+                          onClick={() =>
+                            showSources(
+                              report.content.summary_source_ids,
+                              "Summary sources"
+                            )
+                          }
+                        >
+                          Summary sources
+                        </button>
+                      </details>
+                    )}
+                    <div className="reports-report-footnote">
+                      <span>
                         Sources through{" "}
-                        {dateLabel(report.cutoff, report.timezone)} ·{" "}
-                        {report.timezone}
-                      </Typography>
-                    </Stack>
-                    <Stack
-                      direction="row"
-                      gap={2}
-                      flexWrap="wrap"
-                      alignItems="center"
-                      sx={{ mt: 2 }}
-                    >
-                      <Typography variant="caption" color="text.secondary">
-                        Updated{" "}
-                        {dateLabel(report.generated_at, report.timezone)}
-                      </Typography>
-                      <FormControl size="small" sx={{ minWidth: 145 }}>
-                        <InputLabel id="report-version-label">
-                          Revision
-                        </InputLabel>
-                        <Select
-                          labelId="report-version-label"
-                          label="Revision"
+                        {new Date(report.cutoff).toLocaleString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          hour: "numeric",
+                          minute: "2-digit",
+                          timeZone: report.timezone,
+                        })}{" "}
+                        <Tooltip title="This report describes evidence available through the displayed time. Later changes appear in a subsequent revision.">
+                          <button
+                            type="button"
+                            className="reports-info"
+                            aria-label="What does the cutoff mean?"
+                          >
+                            i
+                          </button>
+                        </Tooltip>
+                      </span>
+                      <label className="reports-revision">
+                        Revision{" "}
+                        <select
+                          aria-label="Revision"
                           value={report.revision}
-                          onChange={(e) => {
-                            const next = Number(e.target.value);
-                            if (Number.isSafeInteger(next) && next > 0)
-                              setRevision(next);
+                          onChange={(event) => {
+                            const value = Number(event.target.value);
+                            if (
+                              Number.isSafeInteger(value) &&
+                              value > 0 &&
+                              detail.data?.revisions.some(
+                                (item) => item.revision === value
+                              )
+                            )
+                              setRevision(value);
                           }}
                         >
-                          {detail.data?.revisions.map((v) => (
-                            <MenuItem key={v.revision} value={v.revision}>
-                              Revision {v.revision}
-                            </MenuItem>
+                          {detail.data?.revisions.map((item, index) => (
+                            <option key={item.revision} value={item.revision}>
+                              {item.revision}
+                              {index === 0 ? " · latest" : " · earlier"}
+                            </option>
                           ))}
-                        </Select>
-                      </FormControl>
-                    </Stack>
+                        </select>
+                      </label>
+                    </div>
                   </header>
-                  {report.content.sections.map((section, index) => (
-                    <section key={index} className="reports-section">
-                      <Typography
-                        component="h4"
-                        variant="h6"
-                        sx={{ fontSize: 18, mb: 2 }}
-                      >
-                        {section.heading}
-                      </Typography>
-                      {section.items.map((item, n) => (
-                        <Box key={n} sx={{ mb: 2.5 }}>
-                          <ReadableContent text={item.text} />
-                        </Box>
+                  {isTimelineReport(report.content) ? (
+                    <ReportTimeline
+                      key={`${report.id}:${report.revision}`}
+                      content={report.content}
+                      kind={report.kind}
+                      timezone={report.timezone}
+                      sourceIds={sourceIds}
+                      onOpenSources={showSources}
+                    />
+                  ) : (
+                    <div className="reports-legacy-content">
+                      {report.content.sections.map((section, index) => (
+                        <section key={index} className="reports-legacy-section">
+                          <h4>{section.heading}</h4>
+                          {section.items.map((item, n) => (
+                            <ReadableContent key={n} text={item.text} />
+                          ))}
+                          <ReportSourcesButton
+                            ids={section.items.flatMap(
+                              (item) => item.source_ids
+                            )}
+                            label={section.heading}
+                            sourceIds={sourceIds}
+                            onOpen={showSources}
+                          />
+                        </section>
                       ))}
-                      <Button
-                        size="small"
-                        color="inherit"
-                        startIcon={<SourceOutlinedIcon fontSize="small" />}
-                        aria-label={`Sources for ${section.heading}`}
-                        sx={{ px: 0, color: "text.secondary" }}
+                    </div>
+                  )}
+                  <footer className="reports-document-footer">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSources({
+                          title: "Report sources",
+                          items: report.sources,
+                        })
+                      }
+                    >
+                      Report sources
+                    </button>
+                    <div>
+                      <button
+                        type="button"
                         onClick={() =>
-                          showSources(
-                            section.items.flatMap((item) => item.source_ids)
+                          onOpenHistory(
+                            report.sources.find(
+                              (source) => source.kind === "journal"
+                            )?.date ?? report.period_start
                           )
                         }
                       >
-                        Sources (
-                        {
-                          new Set(
-                            section.items.flatMap((item) => item.source_ids)
-                          ).size
-                        }
-                        )
-                      </Button>
-                    </section>
-                  ))}
-                  <footer>
-                    <Button onClick={() => setSources(report.sources)}>
-                      Supporting sources
-                    </Button>
-                    <Button
-                      onClick={() =>
-                        onOpenHistory(
-                          report.sources.find((s) => s.kind === "journal")
-                            ?.date ?? report.period_start
-                        )
-                      }
-                    >
-                      Open in History
-                    </Button>
-                    <Tooltip
-                      title={`Journal entries included: ${report.coverage.journal_entries_included}/${report.coverage.journal_entries}. Original results sampled: ${report.coverage.original_events_included}/${report.coverage.original_events}. GitHub: ${report.coverage.github}. Agent reports and Git commits do not prove deployment.`}
-                    >
-                      <IconButton
-                        aria-label="Report source coverage"
-                        size="small"
+                        Open in History
+                      </button>
+                      <Tooltip
+                        title={`Journal entries included: ${report.coverage.journal_entries_included}/${report.coverage.journal_entries}. Original results sampled: ${report.coverage.original_events_included}/${report.coverage.original_events}. GitHub: ${report.coverage.github}.`}
                       >
-                        <InfoOutlinedIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
+                        <button
+                          type="button"
+                          className="reports-info"
+                          aria-label="Report source coverage"
+                        >
+                          i
+                        </button>
+                      </Tooltip>
+                    </div>
                   </footer>
                 </>
               )
@@ -526,60 +594,65 @@ export default function ReportsPanel({
           </article>
         </div>
       )}
-      <Drawer
-        anchor="right"
+      <Dialog
+        className="reports-source-dialog"
         open={sources !== null}
         onClose={() => setSources(null)}
-        PaperProps={{
-          sx: { width: { xs: "100%", sm: 560 }, maxWidth: "100vw", p: 3 },
-        }}
+        aria-labelledby={sourceTitleId}
+        maxWidth={false}
+        slotProps={{ paper: { className: "reports-source-modal" } }}
       >
-        <Stack
-          direction="row"
-          alignItems="center"
-          justifyContent="space-between"
-        >
-          <Typography variant="h6">Supporting evidence</Typography>
-          <IconButton
+        <div className="reports-dialog-head">
+          <h4 id={sourceTitleId}>{sources?.title ?? "Supporting evidence"}</h4>
+          <button
+            type="button"
             aria-label="Close evidence"
             onClick={() => setSources(null)}
           >
-            <CloseIcon />
-          </IconButton>
-        </Stack>
-        {sources?.map((source) => (
-          <Box key={source.id} className="reports-source">
-            <Chip
-              size="small"
-              label={source.kind.replaceAll("_", " ")}
-              variant="outlined"
-            />
-            <Typography variant="caption" sx={{ ml: 1 }}>
-              {source.observed_at
-                ? dateLabel(source.observed_at, report?.timezone || zone)
-                : source.date}
-            </Typography>
-            <ReadableContent text={source.text} />
-            {source.url &&
-            /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/(commit|pull)\/[a-f0-9]+$/.test(
-              source.url
-            ) ? (
-              <Button
-                component="a"
-                href={source.url}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Open on GitHub
-              </Button>
-            ) : (
-              <Button onClick={() => openSource(source)}>
-                Open {source.kind === "original" ? "original" : "in History"}
-              </Button>
-            )}
-          </Box>
-        ))}
-      </Drawer>
+            ×
+          </button>
+        </div>
+        <div className="reports-dialog-body">
+          {sources?.items.map((source) => (
+            <section key={source.id} className="reports-source">
+              <span className="reports-tag">
+                {source.kind.replaceAll("_", " ")}
+              </span>
+              <span className="reports-source-date">
+                {source.observed_at
+                  ? dateLabel(source.observed_at, report?.timezone || zone)
+                  : source.date}
+              </span>
+              <ReadableContent text={source.text} />
+              {source.url &&
+              /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/(commit|pull)\/[a-f0-9]+$/.test(
+                source.url
+              ) ? (
+                <a
+                  className="reports-source-action"
+                  href={source.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Open on GitHub
+                </a>
+              ) : ["original", "journal"].includes(source.kind) ? (
+                <button
+                  type="button"
+                  className="reports-source-action"
+                  onClick={() => openSource(source)}
+                >
+                  Open {source.kind === "original" ? "original" : "in History"}
+                </button>
+              ) : (
+                <p className="reports-source-unavailable">
+                  Source link unavailable.
+                </p>
+              )}
+            </section>
+          ))}
+        </div>
+      </Dialog>
     </Box>
   );
 }
