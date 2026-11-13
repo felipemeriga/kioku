@@ -81,7 +81,7 @@ SECTION_PATH_RULES: dict[str, list[str]] = {
     ],
 }
 CURRENT_BRIEFING_SECTIONS = frozenset(
-    {"overview", "architecture", "how_it_runs", "deployment", "activity", "documentation"}
+    {"overview", "architecture", "how_it_runs", "deployment", "activity"}
 )
 
 
@@ -986,30 +986,6 @@ def review_new_commits(clone: Path, repo: dict, old_sha: str | None, head: str, 
     holistic = sorted(selected & {"architecture", "overview"})
     if holistic:
         maybe_reground_holistic(clone, repo, env, force=True, selected_sections=holistic)
-    if "documentation" in selected:
-        current_paths = list(dict.fromkeys([*paths.splitlines(), "README.md"]))[:12]
-        files = []
-        for path in current_paths:
-            source = clone / path
-            try:
-                if source.is_file() and source.stat().st_size < 100_000:
-                    files.append(
-                        {"path": path, "content": source.read_text(errors="replace")[:2500]}
-                    )
-            except OSError:
-                continue
-        r = maintenance_post(
-            f"{API_URL}/api/mihari/documentation",
-            headers=headers,
-            json={
-                "folder_id": repo["folder_id"],
-                "head_sha": head,
-                "files": files,
-                "patch": patch[:12000],
-            },
-            timeout=240,
-        )
-        r.raise_for_status()
     if reviewed:
         r = maintenance_control_post(
             f"{API_URL}/api/mihari/review-complete",

@@ -535,7 +535,7 @@ def prepared_response(owner, folder, record):
 def prepare(sb, owner, folder, operation, payload):
     reconcile_usage(sb, owner, folder)
     reconcile_acknowledgements(sb, owner, folder)
-    if operation in ("review_plan", "documentation"):
+    if operation == "documentation":
         acknowledge_absent_documentation(sb, owner, folder, payload["head_sha"])
     snapshot, reason = capture_pending(sb, owner, folder, operation, payload)
     if snapshot is None:

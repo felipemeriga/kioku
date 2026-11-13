@@ -75,12 +75,11 @@ def test_learning_requires_exact_quote_and_sha_in_cited_source():
             validate_result(snap, {"updates": [{**update, **mutation}]})
 
 
-def test_reground_cannot_invent_component_paths_or_erase_detail():
+def test_reground_can_shorten_legacy_detail_but_cannot_invent_component_paths():
     snap = snapshot("reground", {"architecture": {"summary": "Detailed" * 100}})
     snap["input"]["selected"] = ["architecture"]
     output = {"architecture": {"summary": "API", "components": [], "data_flow": "Calls handler"}}
-    with pytest.raises(ValueError, match="lost detailed"):
-        validate_result(snap, output)
+    assert validate_result(snap, output) == output
     snap["current"] = {}
     output["architecture"]["components"] = [
         {"name": "API", "role": "Calls", "path": "imaginary.py"}
@@ -117,16 +116,14 @@ def test_native_outcome_schema_accepts_missing_input_without_publishing():
         validate_result(snapshot("activity"), needs_input)
 
 
-def test_review_plan_excludes_never_created_documentation_but_keeps_existing_guide():
+def test_review_plan_excludes_documentation_even_when_a_guide_exists():
     snap = snapshot("review_plan")
     snap["documentation_revision"] = None
     assert validate_result(snap, {"selected": ["documentation", "how_it_runs"]}) == {
         "selected": ["activity", "how_it_runs"]
     }
     snap["documentation_revision"] = "existing-document-id"
-    assert validate_result(snap, {"selected": ["documentation"]}) == {
-        "selected": ["activity", "documentation"]
-    }
+    assert validate_result(snap, {"selected": ["documentation"]}) == {"selected": ["activity"]}
 
 
 def test_learning_generation_schema_enforces_quote_bounds_and_source_ids():
@@ -149,7 +146,7 @@ def test_learning_generation_schema_enforces_quote_bounds_and_source_ids():
             validate({"updates": [{**update, **mutation}]}, schema)
 
 
-@pytest.mark.parametrize("operation", ["documentation", "reground"])
+@pytest.mark.parametrize("operation", ["documentation"])
 def test_large_existing_guides_get_a_bounded_preservation_budget(operation):
     small = snapshot(operation, {"content": "Small guide"})
     large = snapshot(operation, {"content": "Verified existing detail. " * 1000})
@@ -325,3 +322,10 @@ def test_learning_commit_schema_requires_verbatim_full_source_hash():
     assert field["enum"] == [None]
     validate(None, field)
     assert "never expand" in request["prompt"]
+
+
+def test_reground_budget_stays_concise_with_legacy_essays():
+    assert (
+        build_request(snapshot("reground", {"content": "Legacy essay. " * 10000}))["max_tokens"]
+        == 4000
+    )

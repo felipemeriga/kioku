@@ -988,17 +988,17 @@ def get_folder_briefing_schema() -> str:
     when you learn something the user hasn't captured yet.
     """
     from services.folder_summary.briefing_schema import (
+        ACTIVE_SECTION_KEYS,
         BRIEFING_SCHEMA_VERSION,
-        SECTION_KEYS,
     )
 
     schema = {
         "version": BRIEFING_SCHEMA_VERSION,
-        "sections": SECTION_KEYS,
+        "sections": ACTIVE_SECTION_KEYS,
         "notes": {
-            "overview": "One sentence purpose + 2-4 sentence description.",
+            "overview": "Introduction: one purpose sentence + up to three short sentences.",
             "architecture": (
-                "How the system fits together. summary (str), components "
+                "Components: concise summary (str), responsibilities and key paths in components "
                 "(list of {name, role, path}), data_flow (str)."
             ),
             "how_it_runs": (
@@ -1011,12 +1011,8 @@ def get_folder_briefing_schema() -> str:
                 "and deployment files; omit claims without repository evidence."
             ),
             "activity": (
-                "Injected LIVE from the local git clone by the CLI each session "
-                "(branch, recent commits, working state). Do NOT author or pin it here."
-            ),
-            "documentation": (
-                "Short abstract of the deep architecture doc. Authored via the "
-                "save_repo_documentation tool (which also stores the full doc), not here."
+                "Two or three short sentences and up to five highlights of recent merged work. "
+                "Local git activity is also injected live. Do not pin generated activity."
             ),
         },
     }
@@ -1051,7 +1047,11 @@ def get_folder_briefing(folder: str | None = None) -> str:
         return "Error: Not authenticated. Provide a valid API key."
     if not _current_scope_folder_id.get():
         return "Error: No folder scope on this API key."
-    from services.folder_summary.briefing_schema import empty_briefing, snapshot_sections
+    from services.folder_summary.briefing_schema import (
+        ACTIVE_SECTION_KEYS,
+        empty_briefing,
+        snapshot_sections,
+    )
     from services.folder_summary.repo import (
         get_folder,
         get_latest_summary,
@@ -1100,7 +1100,11 @@ def get_folder_briefing(folder: str | None = None) -> str:
     payload = {
         "folder": folder_row.get("name"),
         "freshness_warning": freshness_warning,
-        "sections": sections or empty_briefing(),
+        "sections": {
+            key: value
+            for key, value in (sections or empty_briefing()).items()
+            if key in ACTIVE_SECTION_KEYS
+        },
         "last_generated_at": (latest or {}).get("generated_at"),
         "hint": (
             "This briefing is your session-start context. If you learn "
@@ -1447,8 +1451,7 @@ def read_folder_documents(folder: str | None = None) -> str:
 
     intro = (
         f"# Documents for '{resolved_name}'\n"
-        "Fold the relevant details below into the briefing sections and the "
-        "detailed documentation."
+        "Use relevant details to ground the concise briefing sections."
     )
     footer = ""
     if state["truncated"]:

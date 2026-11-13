@@ -110,7 +110,7 @@ def test_review_plan_can_choose_activity_only_and_still_review_full_briefing(mon
     )
     assert response.status_code == 200
     assert response.json()["selected"] == ["activity"]
-    assert set(response.json()["reviewed"]) == {"architecture", "overview", "documentation"}
+    assert set(response.json()["reviewed"]) == {"architecture", "overview"}
 
 
 def test_review_plan_rejects_invalid_model_reply_without_expensive_fallback(monkeypatch):
@@ -230,7 +230,7 @@ def test_documentation_refresh_collects_streamed_response(monkeypatch):
     assert saved[0]["operation"] == "documentation"
 
 
-def test_native_review_complete_inspects_absent_doc_without_claiming_creation(monkeypatch):
+def test_native_review_complete_skips_retired_documentation_work(monkeypatch):
     from services.maintenance import execution
 
     state = {
@@ -272,4 +272,4 @@ def test_native_review_complete_inspects_absent_doc_without_claiming_creation(mo
     )
     assert response.status_code == 200
     assert "updated" not in response.json()
-    assert inspections == ["authoritative absence"]
+    assert inspections == []

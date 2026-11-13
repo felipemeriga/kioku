@@ -529,7 +529,7 @@ export async function init(cwd: string, opts: InitOptions = {}): Promise<void> {
 
   // Step 9: generate the briefing NOW by opening Claude Code here with the
   // generation as its first task. The user waits once while it scans the repo
-  // (briefing + activity + the detailed doc), then keeps coding in a session
+  // (the concise five-section briefing), then keeps coding in a session
   // that already has the summary. No detached background process — it adds no
   // value for this very first session, which is exactly when you want the
   // briefing ready.
