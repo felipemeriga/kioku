@@ -632,9 +632,17 @@
 .reports-state-row h5 {
   font-size: 14px;
 }
+.reports-state-row > div {
+  min-width: 0;
+}
 .reports-state-row .reports-tag {
   margin-top: 8px;
   display: inline-flex;
+  max-width: 100%;
+  box-sizing: border-box;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
 }
 .reports-state-row p {
   max-width: 64ch;
@@ -706,6 +714,7 @@
   }
   .reports-state-row > div:first-child {
     display: flex;
+    flex-wrap: wrap;
     align-items: baseline;
     gap: 9px;
     margin-bottom: 12px;
