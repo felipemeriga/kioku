@@ -1462,7 +1462,7 @@
               title: "Traced Final handling and restart behavior",
               text: "The investigation connected NBA self-cancellation at game end with scheduler behavior. This set the direction for the lifecycle change that followed.",
               detail:
-                "Source inspection and the reported Kubernetes symptom were inputs to the investigation. They do not independently establish a production fix.",
+                "Source inspection connected the Final handler to scheduler behavior; the Kubernetes symptom was reported by the user.",
             },
           ],
         },
@@ -1480,7 +1480,7 @@
               title: "PR #480 moved shutdown ownership to the scheduler",
               text: "The change records Final without immediately cancelling the ingester. The intent was to keep it alive until Kirby or the on-prem scheduler stops it.",
               detail:
-                "Merged code and passing reported checks establish an implementation milestone. Live behavior belongs to a separate validation step.",
+                "The change keeps shutdown ownership with Kirby or the on-prem scheduler.",
             },
           ],
         },
@@ -1515,7 +1515,7 @@
                 "Correlated SSE failures with gateway and network evidence",
               text: "The logs contained unexpected EOF failures and Gravitee request IDs. NAT metrics did not establish a local network cause; attribution remained unresolved.",
               detail:
-                "The request IDs made the incidents traceable. A failure signature is an observation, not proof that the vendor or the client caused it.",
+                "The request IDs made the incidents traceable across the gateway and network observations.",
             },
             {
               tag: "Compared",
@@ -1543,7 +1543,7 @@
               relationship:
                 "<strong>Continues Thursday’s SSE investigation.</strong> The change is merged; its effect on the failures was not established in the supplied evidence.",
               detail:
-                "Staging deployment was queued at the example cutoff. That describes deployment state; it does not turn the merged PR back into an open task.",
+                "The staging workflow was queued at 14:27. Deployment completion was not recorded at cutoff.",
             },
             {
               tag: "Merged",
@@ -1561,7 +1561,7 @@
               title: "PR #468 landed the camera-spec update",
               text: "The camera-spec work reached main. The executable-size investigation also reported a reduction from roughly 500 MB to 30 MB.",
               detail:
-                "The build-size result and the camera-spec merge are separate outcomes within the MDR work. Neither implies every deployment check was completed.",
+                "The build-size investigation traced the large executable to debug information retained in the release profile.",
             },
           ],
         },
@@ -1570,19 +1570,19 @@
         {
           kind: "Archived journal",
           date: "Nov 13 · 09:25 BRT",
-          text: "The journal records the user’s API key + CGID explanation and the hypothesis that shared consumer groups could contribute to the failures. CGID isolation was intended to investigate that client-side hypothesis; causality was not established.",
+          text: "The journal records the user’s API key + CGID hypothesis and the proposal to isolate games with deterministic consumer groups while preserving restart continuity.",
           action: "Open in History",
         },
         {
           kind: "Archived Git metadata",
           date: "Nov 13 · 14:12 BRT",
-          text: "PR #485 merged to main at 46d1b0ce. This establishes the code milestone, not the cause of the earlier failures.",
+          text: "PR #485 merged to main at 46d1b0ce, with ses-ingester version 4.1.7.",
           action: "Open commit",
         },
         {
           kind: "Archived journal",
           date: "Nov 13 · 14:27 BRT",
-          text: "Staging deployment was queued. Completion was not established at this example cutoff.",
+          text: "Staging merge 57d3df3d was pushed. Deployment workflow 43473008126 was queued; completion was not recorded at cutoff.",
           action: "Open in History",
         },
       ];
@@ -1791,10 +1791,10 @@
           .join("");
       }
       function finalStates() {
-        return `<section class="state-row"><div><h3>NBA SSE reliability</h3><span class="tag merged-tag">Changes merged</span></div><div><p><strong>Code:</strong> lifecycle, recovery, CGID isolation and logging changes reached main.</p><p><strong>Investigation:</strong> PR #485 was intended to test whether shared consumer groups on our side contributed to the failures. That causal hypothesis remains unconfirmed; the merged PR is not an open task.</p><p class="muted"><strong>Latest recorded step:</strong> staging deployment queued at 14:27. Completion and resulting stream behavior were not established at cutoff.</p>${sourceButton(
+        return `<section class="state-row"><div><h3>NBA SSE reliability</h3><span class="tag merged-tag">Changes merged</span></div><div><p><strong>Code:</strong> lifecycle, recovery, CGID isolation and logging changes reached main.</p><p><strong>Investigation:</strong> PR #485 was intended to test whether shared consumer groups on our side contributed to the failures. Whether consumer-group isolation changes the SSE failure pattern remains unconfirmed.</p><p class="muted"><strong>Latest recorded step:</strong> staging deployment queued at 14:27. Completion and resulting stream behavior were not established at cutoff.</p>${sourceButton(
           "NBA SSE reliability",
           7
-        )}</div></section><section class="state-row"><div><h3>NHL telemetry</h3><span class="tag merged-tag">PR #484 merged</span></div><div><p>Telemetry work reached main after archive comparisons. The recorded comparisons support those test conditions; the merge and the observed results remain separate milestones.</p>${sourceButton(
+        )}</div></section><section class="state-row"><div><h3>NHL telemetry</h3><span class="tag merged-tag">PR #484 merged</span></div><div><p>Puck-gap telemetry reached main through PR #484, following the earlier archive comparisons.</p>${sourceButton(
           "NHL telemetry",
           3
         )}</div></section><section class="state-row"><div><h3>MDR delivery</h3><span class="tag merged-tag">PR #468 merged</span></div><div><p>Camera-spec work reached main. The executable-size investigation separately reported a reduction from roughly 500 MB to 30 MB after removing debug information.</p>${sourceButton(
@@ -1862,7 +1862,7 @@
         const commitRecord = (number, title, date) => ({
           kind: "Archived Git metadata",
           date,
-          text: `PR #${number}: ${title}. This records a principal-branch milestone; it does not independently prove deployment or runtime behavior.`,
+          text: `PR #${number}: ${title}. `,
           action: "Open commit",
         });
         if (/NHL|#484/.test(label))
@@ -1871,7 +1871,7 @@
             {
               kind: "Archived journal",
               date: "Nov 12–13",
-              text: "Archive comparisons informed the telemetry implementation. The recorded results apply to their stated game archives and test conditions.",
+              text: "Archive comparisons informed the puck-gap telemetry implementation.",
               action: "Open in History",
             },
           ];
