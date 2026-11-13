@@ -85,7 +85,7 @@ pub fn check(app: tauri::AppHandle, manual: bool) {
                 }
                 let html = "<html><meta name='color-scheme' content='dark'><body style='margin:0;background:#0c0914;color:#eee;font:16px system-ui;padding:28px'><h2 style='color:#ff1493'>Updating Kioku</h2><p id='progress'>Preparing signed update…</p><p style='color:#aaa;font-size:13px'>Kioku will restart when installation finishes.</p></body></html>";
                 let page = format!(
-                    "data:text/html,{}",
+                    "data:text/html;charset=utf-8,{}",
                     percent_encoding::utf8_percent_encode(html, percent_encoding::NON_ALPHANUMERIC)
                 );
                 let progress = match tauri::WebviewWindowBuilder::new(
