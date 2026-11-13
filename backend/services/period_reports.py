@@ -85,7 +85,8 @@ REPORT_GUIDE = (
     "Connect diagnostic PRs to the investigation they support, rather than treating merged changes "
     "and unresolved causes as unrelated topics. Preserve initial purpose, later implementation, "
     "merges, reversals and final observations. Use exact supplied dates; never invent activity on "
-    "idle days. Weekly updates are day by day; monthly milestones span weeks. "
+    "idle days. Weekly updates are day by day. Monthly: consolidate each topic to one update "
+    "per active ISO week (at most six), dated on an actual source day within that week. "
     "The final state must reconcile the latest supported evidence at cutoff. Merged code can be "
     "complete while its effect on an investigation remains uncertain. A missing verification is "
     "not automatically an open task: only describe planned follow-ups when explicitly recorded. "
@@ -113,6 +114,13 @@ REPORT_GUIDE = (
 
 def report_shape(snapshot):
     return REPORT_SHAPE if snapshot["input"].get("format_version") == 2 else LEGACY_REPORT_SHAPE
+
+
+def report_update_limit(snapshot):
+    weekly_month = snapshot["input"]["kind"] == "monthly" and (
+        snapshot.get("report", {}).get("coverage", {}).get("policy", 0) >= 5
+    )
+    return 6 if weekly_month else 12
 
 
 def calendar_period(kind, anchor):
@@ -545,7 +553,7 @@ def validate_report(snapshot, value):
             topic_ids.add(topic["id"])
             if not 3 <= len(topic["title"]) <= 100 or len(topic["subtitle"]) > 180:
                 raise ValueError("Invalid report topic text")
-            if not 1 <= len(topic["updates"]) <= 12:
+            if not 1 <= len(topic["updates"]) <= report_update_limit(snapshot):
                 raise ValueError("Invalid report topic updates")
             for update in topic["updates"]:
                 finding(update, 500)

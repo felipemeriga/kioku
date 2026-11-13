@@ -154,3 +154,17 @@ def test_shared_source_definitions_bound_large_native_schema():
     ]
     schema = completion_schema(build_request(snapshot)["schema"])
     assert len(json.dumps(schema).encode()) < 100000
+
+
+@pytest.mark.parametrize("policy,maximum", [(4, 12), (5, 6)])
+def test_monthly_week_milestones_are_bounded_without_breaking_prepared_legacy_jobs(policy, maximum):
+    snapshot, value = fixture()
+    snapshot["input"].update(kind="monthly", period_start="2026-11-01", period_end="2026-11-30")
+    snapshot["report"] = {"coverage": {"policy": policy}}
+    schema = build_request(snapshot)["schema"]
+    assert schema["properties"]["topics"]["items"]["properties"]["updates"]["maxItems"] == maximum
+    value["topics"][0]["updates"] = [deepcopy(value["topics"][0]["updates"][0])] * (maximum + 1)
+    with pytest.raises(ValueError, match="topic updates"):
+        from services.period_reports import validate_report
+
+        validate_report(snapshot, value)

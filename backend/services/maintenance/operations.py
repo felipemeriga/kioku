@@ -15,6 +15,7 @@ from services.period_reports import (
     REPORT_SHAPE,
     report_quote_choices,
     report_shape,
+    report_update_limit,
     validate_report,
 )
 
@@ -298,7 +299,7 @@ def build_request(snapshot):
         topic["id"].update(pattern=r"^[a-z0-9-]{3,64}$")
         topic["title"].update(minLength=3, maxLength=100)
         topic["subtitle"].update(maxLength=180)
-        topic["updates"].update(minItems=1, maxItems=12)
+        topic["updates"].update(minItems=1, maxItems=report_update_limit(snapshot))
         update = topic["updates"]["items"]["properties"]
         update["date"]["enum"] = sorted(
             {
