@@ -121,8 +121,11 @@ def test_report_quotes_are_schema_constrained_without_changing_punctuation():
     result["sections"][0]["items"][0]["evidence_quote"] = report_quote_choices(
         snap["input"]["sources"]
     )["other"][0]["id"]
-    with pytest.raises(ValueError, match="uncited source"):
-        validate_result(snap, result)
+    normalized = validate_result(snap, result)
+    assert normalized["sections"][0]["items"][0]["source_ids"][0] == "other"
+    assert normalized["sections"][0]["items"][0]["evidence_quote"] == (
+        "This is an uncited source excerpt."
+    )
     assert "evidence_choices" in request["prompt"]
 
 

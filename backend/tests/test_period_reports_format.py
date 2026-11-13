@@ -7,7 +7,7 @@ import jsonschema
 import pytest
 
 from services.maintenance.operations import build_request, completion_schema, validate_result
-from services.period_reports import render_report, report_quote_choices
+from services.period_reports import render_report, report_quote_choices, validate_report
 
 
 def fixture():
@@ -167,4 +167,35 @@ def test_monthly_week_milestones_are_bounded_without_breaking_prepared_legacy_jo
     with pytest.raises(ValueError, match="topic updates"):
         from services.period_reports import validate_report
 
+        validate_report(snapshot, value)
+
+
+def test_quote_id_resolves_its_real_origin_without_rewriting_native_evidence():
+    snapshot, value = fixture()
+    item = value["outcomes"][0]
+    item["source_ids"] = ["journal:intent"]
+    original = deepcopy(value)
+    result = validate_report(snapshot, value)
+    assert result["outcomes"][0]["source_ids"] == ["journal:result", "journal:intent"]
+    assert result["outcomes"][0]["evidence_quote"] in snapshot["input"]["sources"][1]["text"]
+    assert value == original
+
+
+@pytest.mark.parametrize("failure", ["unknown_source", "unsupported_literal", "citation_bound"])
+def test_quote_origin_resolution_keeps_scope_exact_text_and_count_guards(failure):
+    snapshot, value = fixture()
+    item = value["outcomes"][0]
+    if failure == "unknown_source":
+        item["source_ids"] = ["foreign:source"]
+    elif failure == "unsupported_literal":
+        item["evidence_quote"] = "An invented supporting excerpt that does not exist."
+    else:
+        for i in range(10):
+            snapshot["input"]["sources"].append(
+                {**snapshot["input"]["sources"][0], "id": f"journal:context-{i}"}
+            )
+        item["source_ids"] = [
+            s["id"] for s in snapshot["input"]["sources"] if s["id"] != "journal:result"
+        ]
+    with pytest.raises(ValueError):
         validate_report(snapshot, value)

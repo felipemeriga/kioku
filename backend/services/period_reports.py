@@ -530,7 +530,11 @@ def validate_report(snapshot, value):
         if item["evidence_quote"] in quotes:
             source, text = quotes[item["evidence_quote"]]
             if source not in item["source_ids"]:
-                raise ValueError("Report quote belongs to an uncited source")
+                if len(item["source_ids"]) == 12:
+                    raise ValueError("Report quote origin exceeds the citation bound")
+                # Quote IDs are server-owned provenance. Preserve declared
+                # context while making the exact quoted origin explicit.
+                item["source_ids"] = [source, *item["source_ids"]]
             item["evidence_quote"] = text
         if not 10 <= len(item["text"]) <= maximum or not 12 <= len(item["evidence_quote"]) <= 250:
             raise ValueError("Invalid report item")
