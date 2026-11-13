@@ -1120,7 +1120,7 @@ function HistoryPanel({ folderId }: { folderId: string }) {
         <ReportsPanel
           folderId={folderId}
           onOpenHistory={(day, entryId) => void openSource(day, entryId)}
-          onOpenEvidence={setEvidenceLocation}
+          onOpenEvidence={openEvidence}
         />
       )}
       <EvidenceDrawer

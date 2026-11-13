@@ -73,6 +73,7 @@ function mount() {
 describe("ReportsPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    sessionStorage.clear();
     window.history.replaceState({}, "", "/");
     vi.mocked(apiFetch).mockImplementation(async (path) => {
       const url = String(path);
@@ -168,6 +169,26 @@ describe("ReportsPanel", () => {
     );
     expect(apiFetch).not.toHaveBeenCalledWith(
       expect.stringContaining("revision=-2")
+    );
+  });
+  it("restores the period after leaving and returning to Reports", async () => {
+    const props = {
+      folderId: "repo",
+      onOpenHistory: vi.fn(),
+      onOpenEvidence: vi.fn(),
+    };
+    const first = renderWithProviders(<ReportsPanel {...props} />);
+    await screen.findByText("Player memory investigation");
+    fireEvent.click(screen.getByRole("button", { name: "Monthly" }));
+    await screen.findByText("No monthly reports yet");
+    first.unmount();
+    renderWithProviders(<ReportsPanel {...props} />);
+    expect(
+      await screen.findByText("No monthly reports yet")
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Monthly" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
     );
   });
 });

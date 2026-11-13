@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
@@ -96,25 +96,73 @@ export default function ReportsPanel({
 }) {
   const { user } = useAuth();
   const client = useQueryClient();
-  const [kind, setKind] = useState<"weekly" | "monthly">(() =>
-    new URLSearchParams(window.location.search).get("report_kind") === "monthly"
-      ? "monthly"
-      : "weekly"
-  );
-  const [selected, setSelected] = useState<string | null>(() => {
-    const value = new URLSearchParams(window.location.search).get("report");
-    return value && UUID.test(value) ? value : null;
+  const stateKey = `kioku.report-return:${user?.id ?? "anonymous"}:${folderId}`;
+  const [initial] = useState(() => {
+    const defaults = {
+      kind: "weekly" as "weekly" | "monthly",
+      selected: null as string | null,
+      revision: null as number | null,
+      offset: 0,
+    };
+    const params = new URLSearchParams(window.location.search);
+    const requested = params.get("report");
+    if (requested && UUID.test(requested)) {
+      const value = Number(params.get("report_revision"));
+      return {
+        kind:
+          params.get("report_kind") === "monthly"
+            ? ("monthly" as const)
+            : ("weekly" as const),
+        selected: requested,
+        revision:
+          Number.isSafeInteger(value) && value > 0 && value < 1000000
+            ? value
+            : null,
+        offset: 0,
+      };
+    }
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(stateKey) ?? "null") as
+        | (typeof defaults & { savedAt: number })
+        | null;
+      if (
+        saved &&
+        Date.now() - saved.savedAt < 600000 &&
+        ["weekly", "monthly"].includes(saved.kind) &&
+        (saved.selected === null || UUID.test(saved.selected)) &&
+        (saved.revision === null ||
+          (Number.isSafeInteger(saved.revision) && saved.revision > 0)) &&
+        Number.isSafeInteger(saved.offset) &&
+        saved.offset >= 0 &&
+        saved.offset <= 1000
+      )
+        return saved;
+    } catch {
+      /* Optional UI state must never prevent opening Reports. */
+    }
+    return defaults;
   });
-  const [revision, setRevision] = useState<number | null>(() => {
-    const value = Number(
-      new URLSearchParams(window.location.search).get("report_revision")
-    );
-    return Number.isSafeInteger(value) && value > 0 && value < 1000000
-      ? value
-      : null;
-  });
+  const [kind, setKind] = useState(initial.kind);
+  const [selected, setSelected] = useState(initial.selected);
+  const [revision, setRevision] = useState(initial.revision);
   const [sources, setSources] = useState<Source[] | null>(null);
-  const [offset, setOffset] = useState(0);
+  const [offset, setOffset] = useState(initial.offset);
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(
+        stateKey,
+        JSON.stringify({
+          kind,
+          selected,
+          revision,
+          offset,
+          savedAt: Date.now(),
+        })
+      );
+    } catch {
+      /* Storage can be disabled. */
+    }
+  }, [stateKey, kind, selected, revision, offset]);
   const [settingsError, setSettingsError] = useState("");
   const [saving, setSaving] = useState(false);
   const listKey = ["period-reports", user?.id, folderId, kind, offset];
@@ -297,9 +345,9 @@ export default function ReportsPanel({
                 Newer
               </Button>
               <Button
-                disabled={!list.data?.has_more}
+                disabled={!list.data?.has_more || offset >= 1000}
                 onClick={() => {
-                  setOffset(offset + 50);
+                  setOffset(Math.min(1000, offset + 50));
                   setSelected(null);
                   setRevision(null);
                 }}
