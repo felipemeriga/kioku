@@ -776,6 +776,7 @@ function OverviewContent({ section }: { section: BriefingSection }) {
 // ── Architecture (02) ───────────────────────────────────────────────────
 
 function ArchitectureContent({ section }: { section: BriefingSection }) {
+  const [showAll, setShowAll] = useState(false);
   const content = section.content;
   if (!content || typeof content !== "object" || Array.isArray(content))
     return <SectionReader content={content} />;
@@ -794,52 +795,88 @@ function ArchitectureContent({ section }: { section: BriefingSection }) {
       <Box
         sx={{
           display: "grid",
-          gridTemplateColumns: {
-            xs: "minmax(0, 1fr)",
-            xl: "repeat(2, minmax(0, 1fr))",
-          },
+          gridTemplateColumns:
+            "repeat(auto-fit, minmax(min(100%, 320px), 1fr))",
           gap: 2,
         }}
       >
-        {components.map((component, index) => (
-          <Box
-            key={index}
-            component="article"
-            sx={{
-              border: `1px solid ${brand.line}`,
-              borderRadius: 1,
-              p: 2.25,
-              minWidth: 0,
-              bgcolor: brand.surface2,
-            }}
-          >
-            <Typography
-              component="h3"
-              sx={{ fontWeight: 650, fontSize: 17, mb: 1 }}
+        {(showAll ? components : components.slice(0, 6)).map(
+          (component, index) => (
+            <Box
+              key={index}
+              component="article"
+              sx={{
+                border: `1px solid ${brand.line}`,
+                borderRadius: 1,
+                p: 2.25,
+                minWidth: 0,
+                bgcolor: brand.surface2,
+              }}
             >
-              {component.name}
-            </Typography>
-            {typeof component.role === "string" && (
-              <BriefingMarkdown content={component.role} />
-            )}
-            {typeof component.path === "string" && (
-              <Box
-                component="code"
+              <Typography
+                component="h3"
                 sx={{
-                  display: "block",
-                  mt: 1.5,
-                  fontFamily: fonts.mono,
-                  fontSize: 12,
-                  color: brand.cyan,
+                  fontWeight: 650,
+                  fontSize: 17,
+                  mb: 1,
                   overflowWrap: "anywhere",
                 }}
               >
-                {component.path}
-              </Box>
-            )}
-          </Box>
-        ))}
+                {component.name}
+              </Typography>
+              {typeof component.role === "string" &&
+                (component.role.length > 500 ? (
+                  <Box
+                    component="details"
+                    sx={{
+                      "& summary": {
+                        cursor: "pointer",
+                        color: brand.muted,
+                        py: 0.5,
+                      },
+                      "&[open] summary": { mb: 1 },
+                    }}
+                  >
+                    <summary>Responsibility and details</summary>
+                    <BriefingMarkdown content={component.role} />
+                  </Box>
+                ) : (
+                  <BriefingMarkdown content={component.role} />
+                ))}
+              {typeof component.path === "string" && (
+                <Box
+                  component="code"
+                  sx={{
+                    display: "block",
+                    mt: 1.5,
+                    fontFamily: fonts.mono,
+                    fontSize: 12,
+                    color: brand.cyan,
+                    overflowWrap: "anywhere",
+                  }}
+                >
+                  {component.path}
+                </Box>
+              )}
+            </Box>
+          ),
+        )}
       </Box>
+      {components.length > 6 && (
+        <Button
+          aria-expanded={showAll}
+          onClick={() => setShowAll((value) => !value)}
+          sx={{
+            alignSelf: "flex-start",
+            color: brand.cyan,
+            textTransform: "none",
+          }}
+        >
+          {showAll
+            ? "Show fewer components"
+            : `Show all ${components.length} components`}
+        </Button>
+      )}
       {Boolean(summary || record.data_flow) && (
         <Box
           component="details"
@@ -1093,6 +1130,9 @@ function BriefingMarkdown({
   return (
     <Box
       sx={{
+        minWidth: 0,
+        maxWidth: "100%",
+        "& .readable-content": { fontSize: "inherit", lineHeight: "inherit" },
         fontFamily: fonts.body,
         fontSize: "0.94rem",
         color: brand.text,
@@ -1133,6 +1173,8 @@ function BriefingMarkdown({
           fontSize: "0.82rem",
         },
         "& :not(pre) > code": {
+          whiteSpace: "normal",
+          overflowWrap: "anywhere",
           color: brand.cyan,
           fontFamily: fonts.mono,
           fontSize: "0.84em",

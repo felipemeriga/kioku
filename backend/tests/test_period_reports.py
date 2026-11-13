@@ -554,3 +554,9 @@ def test_report_references_are_reauthorized_and_expansion_keeps_source_pages_bou
     assert len(value["sources"]) == 8
     assert max(len(s["text"]) for s in value["sources"]) <= 500
     assert value["next_sources_reference"]
+
+
+def test_legacy_worker_cannot_publish_new_principal_timeline_policy():
+    snapshot, reason = capture_report(None, "owner", "repo", {"git_history_mode": "legacy"})
+    assert snapshot is None
+    assert "worker upgrade required" in reason

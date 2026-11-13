@@ -12,9 +12,9 @@ from pydantic import AwareDatetime, TypeAdapter
 
 TIMESTAMP = TypeAdapter(AwareDatetime)
 
-# A fresh identity keeps exhausted 300-second preparations from poisoning
-# report retries after the runner adopts its heavy-maintenance budget.
-POLICY = 4
+# Timeline sources follow principal-branch transitions, excluding commits
+# introduced only through the second parent of a merge.
+POLICY = 5
 LEGACY_REPORT_SHAPE = {
     "title": "",
     "summary": "",
@@ -85,15 +85,25 @@ REPORT_GUIDE = (
     "Connect diagnostic PRs to the investigation they support, rather than treating merged changes "
     "and unresolved causes as unrelated topics. Preserve initial purpose, later implementation, "
     "merges, reversals and final observations. Use exact supplied dates; never invent activity on "
-    "idle days. Weekly updates are day by day; monthly milestones span weeks. "
+    "idle days. Weekly updates are day by day. Monthly: consolidate each topic to one update "
+    "per active ISO week (at most six), dated on an actual source day within that week. "
     "The final state must reconcile the latest supported evidence at cutoff. Merged code can be "
     "complete while its effect on an investigation remains uncertain. A missing verification is "
     "not automatically an open task: only describe planned follow-ups when explicitly recorded. "
+    "A PR recorded as opened earlier does not prove it is still open at cutoff, especially "
+    "when it belongs to another repository. Without later state evidence, say its later status "
+    "was not verified; do not assert it was not merged or deployed. Review findings from before "
+    "a later merge are historical findings, not proof they remain unfixed. Reconcile them with "
+    "the full supplied merge message; without post-merge verification, qualify their current "
+    "status instead of carrying them forward as open defects. Keep final_state.status "
+    "a short label; put qualifications and supporting details in its items. "
     "Do not repeat findings across topics or create generic warnings/recommendations. "
     "Journal entries are reported work. Commands show intent, not successful execution. "
     "A principal-branch commit confirms code presence, not "
     "deployment or successful runtime behavior. Distinguish observation dates from incident dates. "
     "Later unsupported claims do not override stronger evidence. Explicitly reconcile reverts. "
+    "State measurements as observed: zero recorded errors does not rule out an entire causal "
+    "mechanism. Do not double-count overlapping groups when summarizing test/replay totals. "
     "Cite source IDs on the overview and every outcome, update and final-state item. Select an "
     "evidence_quote ID from a cited source's supplied choices; do not rewrite quotes. "
     "Use at most six topics, twelve updates per topic, three final-state items. Keep update text "
@@ -104,6 +114,13 @@ REPORT_GUIDE = (
 
 def report_shape(snapshot):
     return REPORT_SHAPE if snapshot["input"].get("format_version") == 2 else LEGACY_REPORT_SHAPE
+
+
+def report_update_limit(snapshot):
+    weekly_month = snapshot["input"]["kind"] == "monthly" and (
+        snapshot.get("report", {}).get("coverage", {}).get("policy", 0) >= 5
+    )
+    return 6 if weekly_month else 12
 
 
 def calendar_period(kind, anchor):
@@ -244,6 +261,8 @@ def next_report_period(sb, owner, folder, payload, now=None):
 
 def capture_report(sb, owner, folder, payload, now=None):
     """Choose one due period. Preparation never mutates the last good report."""
+    if payload.get("git_history_mode") == "legacy":
+        return None, "report worker upgrade required for principal-branch history"
     now = now or datetime.now(timezone.utc)
     tz = payload.get("timezone", "UTC")
     today = now.astimezone(ZoneInfo(tz)).date()
@@ -534,7 +553,7 @@ def validate_report(snapshot, value):
             topic_ids.add(topic["id"])
             if not 3 <= len(topic["title"]) <= 100 or len(topic["subtitle"]) > 180:
                 raise ValueError("Invalid report topic text")
-            if not 1 <= len(topic["updates"]) <= 12:
+            if not 1 <= len(topic["updates"]) <= report_update_limit(snapshot):
                 raise ValueError("Invalid report topic updates")
             for update in topic["updates"]:
                 finding(update, 500)

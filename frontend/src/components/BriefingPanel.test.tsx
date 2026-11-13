@@ -216,6 +216,50 @@ describe("BriefingPanel", () => {
     expect(details).not.toHaveAttribute("open");
   });
 
+  it("keeps large legacy component inventories readable without losing their full content", async () => {
+    const fullRole =
+      "A long responsibility with complete source detail. ".repeat(16) +
+      "Final preserved detail.";
+    vi.spyOn(api, "fetchBriefing").mockResolvedValue({
+      ...staleBriefingFixture,
+      sections: {
+        ...staleBriefingFixture.sections,
+        architecture: {
+          ...staleBriefingFixture.sections.architecture,
+          content: {
+            components: Array.from({ length: 16 }, (_, index) => ({
+              name: `Legacy component ${index + 1}`,
+              role: index === 0 ? fullRole : "A concise responsibility.",
+              path: `backend/component-${index + 1}.py`,
+            })),
+          },
+        },
+      },
+    });
+    renderWithProviders(<BriefingPanel folderId="f1" />);
+    await screen.findByRole("heading", { name: "Legacy component 1" });
+    expect(
+      screen.queryByRole("heading", { name: "Legacy component 7" }),
+    ).not.toBeInTheDocument();
+    const responsibility = screen
+      .getByText("Responsibility and details")
+      .closest("details")!;
+    expect(responsibility).not.toHaveAttribute("open");
+    expect(responsibility.textContent).toContain("Final preserved detail.");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show all 16 components" }),
+    );
+    expect(
+      screen.getByRole("heading", { name: "Legacy component 16" }),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show fewer components" }),
+    );
+    expect(
+      screen.queryByRole("heading", { name: "Legacy component 16" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("renders the briefing title", async () => {
     vi.spyOn(api, "fetchBriefing").mockResolvedValue(staleBriefingFixture);
     renderWithProviders(<BriefingPanel folderId="f1" />);
