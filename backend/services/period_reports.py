@@ -27,6 +27,10 @@ REPORT_GUIDE = (
     "observations from dates of incidents. Preserve contradictions and unresolved results. "
     "A prior weekly report is orientation, not independent evidence; cite its underlying sources. "
     "Source coverage is bounded: never claim complete verification or invent missing activity. "
+    "Prefer three to five substantive findings; do not repeat the same fact across sections. "
+    "Do not invent hypothetical risks or future experiments absent from the sources. "
+    "Do not manufacture contradictions between differently scoped measurements or metrics. "
+    "Unavailable integrations are coverage limits, not newly invented work items. "
     "Keep prose concise and useful, with no generic recommendations. Maximum six sections, "
     "eight items each, summary 1200 characters, each item 1000 characters."
 )
