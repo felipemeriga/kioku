@@ -20,7 +20,7 @@ jobs:
           - { os: macos-15, arch: arm64 }
           - { os: macos-15-intel, arch: x64 }
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
@@ -48,9 +48,23 @@ jobs:
           cargo clippy --release --locked --manifest-path desktop/Cargo.toml -- -D warnings
       - name: Build app and DMG
         env:
+          KIOKU_DESKTOP_PRODUCTION: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'true' || 'false' }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+          APPLE_CERTIFICATE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          APPLE_API_KEY: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.APPLE_API_KEY || '' }}
+          APPLE_API_ISSUER: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.APPLE_API_ISSUER || '' }}
+          APPLE_API_KEY_P8: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.APPLE_API_KEY_P8 || '' }}
         run: |
+          if [ "$KIOKU_DESKTOP_PRODUCTION" = true ]; then
+            APPLE_API_KEY_PATH="$(python3 desktop/apple_signing.py prepare)"
+            export APPLE_API_KEY_PATH
+            test -n "$APPLE_API_KEY_PATH"
+          else
+            unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_API_KEY APPLE_API_ISSUER APPLE_API_KEY_P8
+          fi
           if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
             if [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF" = refs/heads/main ]; then
               echo "Missing production updater signing key" >&2
@@ -60,8 +74,14 @@ jobs:
             export TAURI_SIGNING_PRIVATE_KEY="$(cat "$RUNNER_TEMP/update-test.key")"
           fi
           ./desktop/build-macos.sh
+          if [ "$KIOKU_DESKTOP_PRODUCTION" = true ]; then
+            python3 desktop/apple_signing.py verify
+          fi
           cp "desktop/target/release/bundle/macos/Kioku Alpha.app.tar.gz" "desktop/target/release/bundle/Kioku-Alpha-${{ matrix.arch }}.app.tar.gz"
           cp "desktop/target/release/bundle/macos/Kioku Alpha.app.tar.gz.sig" "desktop/target/release/bundle/Kioku-Alpha-${{ matrix.arch }}.app.tar.gz.sig"
+      - name: Remove temporary Apple credentials
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: python3 desktop/apple_signing.py cleanup
       - name: Verify app signature and archive
         run: |
           codesign --verify --deep --strict "desktop/target/release/bundle/macos/Kioku Alpha.app"
@@ -107,7 +127,7 @@ jobs:
               exit 0
             fi
           else
-            gh release create "$tag" --target "$GITHUB_SHA" --draft --title "Kioku Desktop $version" --notes "macOS alpha for Apple Silicon and Intel. Download the matching DMG. This alpha uses ad-hoc signing; Apple notarization is not configured."
+            gh release create "$tag" --target "$GITHUB_SHA" --draft --title "Kioku Desktop $version" --notes "macOS for Apple Silicon and Intel. Signed with Developer ID Application (team KFCS65DU8T), hardened runtime enabled, and app/DMG notarized by Apple. Download the matching DMG."
           fi
           mapfile -d '' files < <(find desktop-artifacts -type f \( -name '*.dmg' -o -name '*.app.zip' -o -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' -o -name 'latest.json' \) -print0)
           test "${#files[@]}" -eq 9
