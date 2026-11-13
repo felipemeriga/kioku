@@ -4,6 +4,7 @@ import json
 from copy import deepcopy
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 import pytest
 from pydantic import ValidationError
@@ -162,6 +163,9 @@ class Query:
     def execute(self):
         return SimpleNamespace(data=self.data)
 
+    def range(self, start, end):
+        return Query(self.data[start : end + 1])
+
 
 class DB:
     def __init__(self, entries, existing=None):
@@ -172,7 +176,19 @@ class DB:
         return Query(self.existing)
 
     def rpc(self, name, args):
-        assert name == "period_report_sources"
+        if name == "period_report_activity":
+            periods = {}
+            for row in self.entries:
+                day = iso(row["captured_at"]).astimezone(ZoneInfo(args["p_timezone"])).date()
+                for kind in ("weekly", "monthly"):
+                    start, _ = calendar_period(kind, day)
+                    key = (kind, start.isoformat())
+                    period = periods.setdefault(
+                        key, {"kind": kind, "period_start": key[1], "activity_signature": ""}
+                    )
+                    period["activity_signature"] += row["entry_id"] + row["body"]
+            return Query(list(periods.values()))
+        assert name == "period_report_source_snapshot"
         assert args["p_user"] == "owner" and args["p_folder"] == "repo"
         self.calls += 1
         entries = [
@@ -378,6 +394,64 @@ def test_same_day_reversal_keeps_precise_source_order():
         "journal:implement",
         "journal:revert",
     ]
+
+
+def test_backfill_discovers_all_active_weeks_without_empty_calendar_weeks():
+    from services.period_reports import report_candidates
+
+    rows = [
+        {
+            "entry_id": str(year),
+            "session_id": "s",
+            "agent": "codex",
+            "captured_at": f"{year}-01-10T12:00:00Z",
+            "body": "Recorded development work.",
+        }
+        for year in (2022, 2024, 2026)
+    ]
+    candidates, _ = report_candidates(
+        DB(rows),
+        "owner",
+        "repo",
+        {"head_sha": "a" * 40},
+        datetime(2026, 11, 13, tzinfo=timezone.utc),
+    )
+    weeks = [candidate for candidate in candidates if candidate["kind"] == "weekly"]
+    assert [week["period_start"] for week in weeks] == ["2026-01-05", "2024-01-08", "2022-01-10"]
+    oldest, _ = capture_report(
+        DB(rows),
+        "owner",
+        "repo",
+        {"head_sha": "a" * 40, "report_kind": "weekly", "period_start": "2022-01-10"},
+        datetime(2026, 11, 13, tzinfo=timezone.utc),
+    )
+    assert oldest["report"]["status"] == "final"
+    assert oldest["input"]["sources"][0]["id"] == "journal:2022"
+
+
+def test_report_metadata_pagination_does_not_forget_older_published_weeks():
+    from services.period_reports import report_rows
+
+    rows = [{"id": str(n)} for n in range(451)]
+    result = report_rows(DB([], rows), "owner", "repo", "weekly", "UTC")
+    assert len(result) == 451 and result[-1]["id"] == "450"
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"report_kind": "weekly"},
+        {"report_kind": "yearly", "period_start": "2026-11-09"},
+        {"report_kind": "weekly", "period_start": "2026-11-10"},
+        {"report_kind": "monthly", "period_start": "2026-11-02"},
+        {"head_at": "2026-11-13T10:00:00"},
+    ],
+)
+def test_report_plan_rejects_invalid_or_incomplete_periods(fields):
+    with pytest.raises(ValidationError):
+        ReportRefreshRequest(
+            folder_id="11111111-1111-4111-8111-111111111111", head_sha="a" * 40, **fields
+        )
 
 
 def test_report_context_is_optional_and_session_queries_do_not_load_reports():

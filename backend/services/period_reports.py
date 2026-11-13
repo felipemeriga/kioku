@@ -88,7 +88,8 @@ REPORT_GUIDE = (
     "complete while its effect on an investigation remains uncertain. A missing verification is "
     "not automatically an open task: only describe planned follow-ups when explicitly recorded. "
     "Do not repeat findings across topics or create generic warnings/recommendations. "
-    "Journal entries are reported work. A principal-branch commit confirms code presence, not "
+    "Journal entries are reported work. Commands show intent, not successful execution. "
+    "A principal-branch commit confirms code presence, not "
     "deployment or successful runtime behavior. Distinguish observation dates from incident dates. "
     "Later unsupported claims do not override stronger evidence. Explicitly reconcile reverts. "
     "Cite source IDs on the overview and every outcome, update and final-state item. Select an "
@@ -132,19 +133,110 @@ def digest(value):
     ).hexdigest()
 
 
-def report_rows(sb, owner, folder, kind, tz, limit=16):
-    return (
-        sb.table("repo_period_reports")
-        .select("id,period_start,period_end,revision,source_digest,generated_at,content,coverage")
-        .eq("user_id", owner)
-        .eq("folder_id", folder)
-        .eq("kind", kind)
-        .eq("timezone", tz)
-        .order("period_start", desc=True)
-        .limit(limit)
+def report_rows(sb, owner, folder, kind, tz):
+    rows = []
+    while True:
+        page = (
+            sb.table("repo_period_reports")
+            .select("id,period_start,period_end,revision,source_digest,generated_at,coverage")
+            .eq("user_id", owner)
+            .eq("folder_id", folder)
+            .eq("kind", kind)
+            .eq("timezone", tz)
+            .order("period_start", desc=True)
+            .range(len(rows), len(rows) + 199)
+            .execute()
+            .data
+            or []
+        )
+        rows.extend(page)
+        if len(page) < 200:
+            return rows
+
+
+def report_candidates(sb, owner, folder, payload, now=None):
+    """Metadata-only eligibility over every period with archived agent activity."""
+    now = now or datetime.now(timezone.utc)
+    tz = payload.get("timezone", "UTC")
+    today = now.astimezone(ZoneInfo(tz)).date()
+    activity = (
+        sb.rpc("period_report_activity", {"p_user": owner, "p_folder": folder, "p_timezone": tz})
         .execute()
         .data
         or []
+    )
+    inventory = {(row["kind"], row["period_start"]): row for row in activity}
+    stored = {
+        kind: {row["period_start"]: row for row in report_rows(sb, owner, folder, kind, tz)}
+        for kind in ("weekly", "monthly")
+    }
+    active = [(kind, *calendar_period(kind, today)) for kind in ("weekly", "monthly")]
+    if all(
+        (old := stored[kind].get(start.isoformat()))
+        and old.get("coverage", {}).get("head_sha") != payload["head_sha"]
+        for kind, start, _ in active
+    ):
+        active.sort(key=lambda value: iso(stored[value[0]][value[1].isoformat()]["generated_at"]))
+    older = sorted(
+        (
+            (kind, *calendar_period(kind, datetime.fromisoformat(start).date()))
+            for kind, start in inventory
+            if datetime.fromisoformat(start).date() <= today
+        ),
+        key=lambda value: (value[1], value[0] == "weekly"),
+        reverse=True,
+    )
+    candidates = []
+    seen = set()
+    for kind, start, end in [*active, *older]:
+        key = (kind, start.isoformat())
+        if key in seen:
+            continue
+        seen.add(key)
+        old = stored[kind].get(key[1])
+        meta = inventory.get(key)
+        after, before = instants(start, end, tz)
+        has_git = any(after <= iso(c["at"]) < before for c in payload.get("commits", []))
+        if payload.get("head_at"):
+            has_git = has_git or after <= iso(payload["head_at"]) < before
+        if not meta and not old and not has_git:
+            continue
+        closed = today > end
+        signature = meta["activity_signature"] if meta else "git-only"
+        if old and old.get("coverage", {}).get("policy") == POLICY:
+            coverage = old.get("coverage", {})
+            head_changed = not closed and coverage.get("head_sha") != payload["head_sha"]
+            if not head_changed:
+                if coverage.get("activity_signature") == signature:
+                    continue
+                if not closed:
+                    generated = iso(old["generated_at"]).astimezone(ZoneInfo(tz)).date()
+                    if (kind == "weekly" and generated == today) or (
+                        kind == "monthly"
+                        and calendar_period("weekly", generated)[0]
+                        == calendar_period("weekly", today)[0]
+                    ):
+                        continue
+        candidates.append(
+            {
+                "kind": kind,
+                "period_start": key[1],
+                "period_end": end.isoformat(),
+                "after": after.isoformat(),
+                "before": before.isoformat(),
+                "activity_signature": signature,
+                "previous": old,
+            }
+        )
+    return candidates, stored
+
+
+def next_report_period(sb, owner, folder, payload, now=None):
+    candidates, _ = report_candidates(sb, owner, folder, payload, now)
+    return (
+        {key: value for key, value in candidates[0].items() if key != "previous"}
+        if candidates
+        else None
     )
 
 
@@ -153,60 +245,39 @@ def capture_report(sb, owner, folder, payload, now=None):
     now = now or datetime.now(timezone.utc)
     tz = payload.get("timezone", "UTC")
     today = now.astimezone(ZoneInfo(tz)).date()
-    candidates = []
-    # Fast first result, then current month and last completed periods, then backfill.
-    for kind, anchor in [
-        ("weekly", today),
-        ("monthly", today),
-        ("weekly", today - timedelta(days=7)),
-        ("monthly", today.replace(day=1) - timedelta(days=1)),
-    ]:
-        candidates.append((kind, *calendar_period(kind, anchor)))
-    for n in range(2, 9):
-        candidates.append(("weekly", *calendar_period("weekly", today - timedelta(weeks=n))))
-    stored = {
-        kind: {r["period_start"]: r for r in report_rows(sb, owner, folder, kind, tz)}
-        for kind in ("weekly", "monthly")
-    }
-    active = candidates[:2]
-    if all(
-        (old := stored[kind].get(start.isoformat()))
-        and old.get("coverage", {}).get("head_sha") != payload["head_sha"]
-        for kind, start, _ in active
-    ):
-        # Frequent merges must not keep the monthly review behind the weekly.
-        active.sort(
-            key=lambda period: iso(stored[period[0]][period[1].isoformat()]["generated_at"])
-        )
-        candidates[:2] = active
-    for kind, start, end in candidates:
-        old = stored[kind].get(start.isoformat())
+    candidates, _ = report_candidates(sb, owner, folder, payload, now)
+    if payload.get("report_kind") and payload.get("period_start"):
+        candidates = [
+            candidate
+            for candidate in candidates
+            if candidate["kind"] == payload["report_kind"]
+            and candidate["period_start"] == payload["period_start"]
+        ]
+    for candidate in candidates:
+        kind = candidate["kind"]
+        start = datetime.fromisoformat(candidate["period_start"]).date()
+        end = datetime.fromisoformat(candidate["period_end"]).date()
+        old = candidate["previous"]
         closed = today > end
-        if (
-            old
-            and not closed
-            and old.get("coverage", {}).get("policy") == POLICY
-            and old.get("coverage", {}).get("head_sha") == payload["head_sha"]
-        ):
-            generated = iso(old["generated_at"]).astimezone(ZoneInfo(tz)).date()
-            if kind == "weekly" and generated == today:
-                continue
-            if (
-                kind == "monthly"
-                and calendar_period("weekly", generated)[0] == calendar_period("weekly", today)[0]
-            ):
-                continue
-        after, before = instants(start, end, tz)
+        after, before = iso(candidate["after"]), iso(candidate["before"])
         cutoff = min(now, before)
+        terms = list(
+            dict.fromkeys(
+                match[1]
+                for commit in payload.get("commits", [])
+                for match in re.finditer(r"#([1-9][0-9]{0,9})\b", commit["text"])
+            )
+        )[:16]
         snapshot = (
             sb.rpc(
-                "period_report_sources",
+                "period_report_source_snapshot",
                 {
                     "p_user": owner,
                     "p_folder": folder,
                     "p_after": after.isoformat(),
                     "p_before": cutoff.isoformat(),
                     "p_timezone": tz,
+                    "p_terms": terms,
                 },
             )
             .execute()
@@ -221,6 +292,7 @@ def capture_report(sb, owner, folder, payload, now=None):
         fingerprint = digest(
             {
                 "policy": POLICY,
+                "activity_signature": candidate["activity_signature"],
                 **({"head_sha": payload["head_sha"]} if not closed else {}),
                 "kind": kind,
                 "start": start.isoformat(),
@@ -242,7 +314,15 @@ def capture_report(sb, owner, folder, payload, now=None):
         # Retain a chronological spread rather than silently dropping the last days.
         journal_total = len(entries)
         if len(entries) > 80:
-            entries = [entries[round(i * (len(entries) - 1) / 79)] for i in range(80)]
+            anchors = [row for row in entries if row.get("context_anchor")][:48]
+            remaining = [row for row in entries if row not in anchors]
+            count = 80 - len(anchors)
+            entries = anchors + [
+                remaining[round(i * (len(remaining) - 1) / max(1, count - 1))] for i in range(count)
+            ]
+            entries.sort(key=lambda row: (iso(row["captured_at"]), row["entry_id"]))
+        if len(events) > 16:
+            events = [events[round(i * (len(events) - 1) / 15)] for i in range(16)]
         commit_total, pull_total = len(commits), len(pulls)
         commits, pulls = commits[:150], pulls[:100]
         sources = []
@@ -306,14 +386,29 @@ def capture_report(sb, owner, folder, payload, now=None):
         sources.sort(key=lambda source: (iso(source["observed_at"]), source["id"]))
         weekly = []
         if kind == "monthly":
+            weekly_rows = (
+                sb.table("repo_period_reports")
+                .select("period_start,content")
+                .eq("user_id", owner)
+                .eq("folder_id", folder)
+                .eq("kind", "weekly")
+                .eq("timezone", tz)
+                .gte("period_start", start.isoformat())
+                .lte("period_start", end.isoformat())
+                .order("period_start")
+                .limit(6)
+                .execute()
+                .data
+                or []
+            )
             weekly = [
                 {
-                    "period_start": r["period_start"],
-                    "title": r["content"]["title"],
-                    "summary": r["content"]["summary"],
+                    "period_start": row["period_start"],
+                    "title": row["content"]["title"],
+                    "summary": row["content"]["summary"],
                 }
-                for r in stored["weekly"].values()
-                if start.isoformat() <= r["period_start"] <= end.isoformat()
+                for row in weekly_rows
+                if row.get("content") and row.get("kind", "weekly") == "weekly"
             ]
         return {
             "operation": "reports",
@@ -344,6 +439,10 @@ def capture_report(sb, owner, folder, payload, now=None):
                 "coverage": {
                     "policy": POLICY,
                     "head_sha": payload["head_sha"],
+                    "activity_signature": candidate["activity_signature"],
+                    "context_anchors_included": sum(
+                        bool(row.get("context_anchor")) for row in entries
+                    ),
                     "journal_entries": snapshot.get("entry_count", len(entries)),
                     "journal_entries_included": len(entries),
                     "indexed_entries_available": journal_total,
@@ -468,6 +567,22 @@ def validate_report(snapshot, value):
                 }
             )
         value["merges"].sort(key=lambda merge: (iso(merge["at"]), merge["sha"]))
+        # Existing open tabs and older MCP instances can still read a new revision.
+        value["sections"] = [
+            {
+                "heading": topic["title"],
+                "items": [
+                    {
+                        "text": f"{update['date']} — {update['title']}: {update['text']}",
+                        "source_ids": update["source_ids"],
+                        "evidence_quote": update["evidence_quote"],
+                    }
+                    for update in topic["updates"]
+                ]
+                + topic["final_state"]["items"],
+            }
+            for topic in value["topics"]
+        ]
         return value
     if not 1 <= len(value["sections"]) <= 6:
         raise ValueError("Invalid report sections")

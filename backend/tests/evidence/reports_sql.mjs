@@ -8,11 +8,16 @@ CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS $$ SELECT nullif(current
 CREATE TABLE folders(id uuid PRIMARY KEY,user_id uuid,kind text);
 CREATE TABLE watched_repos(user_id uuid,folder_id uuid);
 CREATE TABLE agent_journal_search_entries(user_id uuid,folder_id uuid,captured_at timestamptz,session_id text,entry_id text,body text);
+ALTER TABLE agent_journal_search_entries ADD COLUMN journal_date date DEFAULT '2026-11-13';
+CREATE TABLE agent_journal_days(user_id uuid,folder_id uuid,journal_date date,content_sha256 text);
 CREATE TABLE agent_evidence_sessions(id uuid PRIMARY KEY,user_id uuid,root_session_id uuid,deleted_at timestamptz);
 CREATE TABLE agent_evidence_events(user_id uuid,folder_id uuid,session_id uuid,event_at timestamptz,event_id text,displayable boolean,inherited boolean,event_type text);
+ALTER TABLE agent_evidence_events ADD COLUMN object_id text,ADD COLUMN role text DEFAULT 'tool';
+CREATE TABLE agent_evidence_objects(session_id uuid,object_id text,sha256 text);
 CREATE TABLE maintenance_preparations(id uuid PRIMARY KEY,user_id uuid,folder_id uuid,operation text CHECK(operation IN ('activity')),execution_job_id text,publication jsonb,snapshot jsonb,request jsonb);
 CREATE TABLE maintenance_runner_ack_outbox(preparation_id uuid PRIMARY KEY,user_id uuid,folder_id uuid,job_id text);`);
 await db.exec(fs.readFileSync(new URL('../../../supabase/migrations/20261113140000_period_reports.sql', import.meta.url),'utf8'));
+await db.exec(fs.readFileSync(new URL('../../../supabase/migrations/20261113220000_chronological_report_backfill.sql', import.meta.url),'utf8'));
 const u='11111111-1111-4111-8111-111111111111', other='11111111-1111-4111-8111-111111111112', f='22222222-2222-4222-8222-222222222222', prep='33333333-3333-4333-8333-333333333333';
 await db.query('INSERT INTO auth.users VALUES($1),($2)',[u,other]);
 await db.query("INSERT INTO folders VALUES($1,$2,'repo')",[f,u]);
@@ -41,11 +46,11 @@ const tz='33333333-3333-4333-8333-333333333336';
 await prepare(tz,{...snapshot,report:{...snapshot.report,expected_revision:2}});
 await db.query("UPDATE watched_repos SET report_timezone='America/Sao_Paulo'");
 await assert.rejects(publish(tz,'job-timezone'),/timezone changed/);
-await db.query('INSERT INTO agent_journal_search_entries VALUES($1,$2,$3,$4,$5,$6)',[u,f,'2026-11-13T10:00:00Z','session','entry-1','Evidence text']);
-await db.query('INSERT INTO agent_journal_search_entries VALUES($1,$2,$3,$4,$5,$6)',[other,f,'2026-11-13T10:00:00Z','session','entry-other','Private other owner']);
+await db.query('INSERT INTO agent_journal_search_entries(user_id,folder_id,captured_at,session_id,entry_id,body) VALUES($1,$2,$3,$4,$5,$6)',[u,f,'2026-11-13T10:00:00Z','session','entry-1','Evidence text']);
+await db.query('INSERT INTO agent_journal_search_entries(user_id,folder_id,captured_at,session_id,entry_id,body) VALUES($1,$2,$3,$4,$5,$6)',[other,f,'2026-11-13T10:00:00Z','session','entry-other','Private other owner']);
 const src=(await db.query("SELECT period_report_sources($1,$2,'2026-11-13','2026-11-14','UTC') AS value",[u,f])).rows[0].value;
 assert.equal(src.entries.length,1); assert.equal(src.entries[0].entry_id,'entry-1');
-for(const fn of ['apply_period_report_result(uuid,uuid,text,jsonb)','period_report_sources(uuid,uuid,timestamptz,timestamptz,text)']) {
+for(const fn of ['apply_period_report_result(uuid,uuid,text,jsonb)','period_report_sources(uuid,uuid,timestamptz,timestamptz,text)','period_report_activity(uuid,uuid,text)','period_report_source_snapshot(uuid,uuid,timestamptz,timestamptz,text,text[])']) {
  const role=(await db.query("SELECT has_function_privilege('anon',$1,'EXECUTE') AS a,has_function_privilege('authenticated',$1,'EXECUTE') AS b,has_function_privilege('service_role',$1,'EXECUTE') AS s",[fn])).rows[0];
  assert.deepEqual(role,{a:false,b:false,s:true});
 }
@@ -55,5 +60,40 @@ assert.equal((await db.query('SELECT count(*)::int AS n FROM repo_period_reports
 await db.query("SELECT set_config('request.jwt.claim.sub',$1,false)",[u]);
 assert.equal((await db.query('SELECT count(*)::int AS n FROM repo_period_reports')).rows[0].n,1);
 await assert.rejects(db.query("UPDATE repo_period_reports SET status='draft'"),/permission denied/);
+await db.exec('RESET ROLE');
+await db.query('INSERT INTO agent_journal_days VALUES($1,$2,$3,$4)',[u,f,'2026-11-13','day-a']);
+await db.query('INSERT INTO agent_journal_days VALUES($1,$2,$3,$4)',[u,f,'2024-01-08','old-day']);
+await db.query("INSERT INTO agent_journal_search_entries VALUES($1,$2,'2024-01-08T12:00:00Z','old-session','old-entry','Historical agent work','2024-01-08')",[u,f]);
+for(let n=0;n<20;n++) {
+ const body=n===0?'Consumer-group hypothesis explains why we are investigating.':n===2?'Created PR #485 to test the consumer-group hypothesis.':`Later implementation update ${n}.`;
+ await db.query('INSERT INTO agent_journal_search_entries VALUES($1,$2,$3,$4,$5,$6,$7)',[u,f,`2026-11-13T09:${String(n).padStart(2,'0')}:00Z`,'busy-session',`context-${n}`,body,'2026-11-13']);
+}
+const context=(await db.query("SELECT period_report_source_snapshot($1,$2,'2026-11-13','2026-11-14','UTC',ARRAY['485']) AS value",[u,f])).rows[0].value;
+assert.ok(context.entries.some(e=>e.entry_id==='context-0'&&e.context_anchor),'retain the purpose before the first PR mention');
+assert.ok(context.entries.some(e=>e.entry_id==='context-2'&&e.context_anchor),'retain first PR mention');
+assert.ok(context.entries.some(e=>e.entry_id==='context-19'),'retain final update');
+assert.ok(!context.entries.some(e=>e.entry_id==='entry-other'),'context stays owner scoped');
+const root='44444444-4444-4444-8444-444444444444';
+await db.query('INSERT INTO agent_evidence_sessions VALUES($1,$2,$1,NULL)',[root,u]);
+await db.query("INSERT INTO agent_evidence_objects VALUES($1,'archive-object','immutable-sha')",[root]);
+await db.query("INSERT INTO agent_evidence_events VALUES($1,$2,$3,'2022-02-10T12:00:00Z','original-only',true,false,'message','archive-object','assistant')",[u,f,root]);
+const activity=async()=> (await db.query("SELECT period_report_activity($1,$2,'UTC') AS value",[u,f])).rows[0].value;
+let inventory=await activity();
+assert.ok(inventory.some(p=>p.kind==='weekly'&&p.period_start==='2024-01-08'),'discover journal weeks older than eight weeks');
+assert.ok(inventory.some(p=>p.kind==='weekly'&&p.period_start==='2022-02-07'&&p.original_events===1),'discover originals-only weeks');
+const digest=inventory.find(p=>p.kind==='weekly'&&p.period_start==='2026-11-09').activity_signature;
+await db.query("UPDATE agent_journal_days SET content_sha256='day-correction' WHERE user_id=$1 AND journal_date='2026-11-13'",[u]);
+inventory=await activity();
+assert.notEqual(inventory.find(p=>p.kind==='weekly'&&p.period_start==='2026-11-09').activity_signature,digest,'corrected journals invalidate the period');
+await db.query('UPDATE agent_evidence_sessions SET deleted_at=now() WHERE id=$1',[root]);
+assert.ok(!(await activity()).some(p=>p.period_start==='2022-02-07'),'deleted root evidence is excluded');
+await db.query("UPDATE watched_repos SET report_timezone='UTC'");
+const structured='33333333-3333-4333-8333-333333333337';
+const allSources=['overview','outcome','update','final','merge','unused'].map(id=>({id,text:`Source ${id}`}));
+await prepare(structured,{...snapshot,input:{sources:allSources},report:{...snapshot.report,expected_revision:2}});
+const structuredValue={title:'Timeline',summary:'A connected chronological report.',summary_source_ids:['overview'],outcomes:[{source_ids:['outcome']}],topics:[{updates:[{source_ids:['update']}],final_state:{items:[{source_ids:['final']}]}}],merges:[{source_ids:['merge']}]};
+await db.query('SELECT apply_period_report_result($1,$2,$3,$4)',[structured,u,'structured-job',JSON.stringify(structuredValue)]);
+const saved=(await db.query('SELECT sources FROM repo_period_reports')).rows[0].sources;
+assert.deepEqual(saved.map(s=>s.id).sort(),['overview','outcome','update','final','merge'].sort(),'retain every nested chronological citation and exclude unrelated data');
 await db.close();
-console.log('Period report SQL: atomic revisions, retry, stale guard, owner/RLS and service privileges passed.');
+console.log('Period report SQL: revisions, nested citations, all-history activity, context anchors, correction detection and owner/RLS passed.');

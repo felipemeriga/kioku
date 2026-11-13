@@ -1356,8 +1356,35 @@ def refresh_repo_reports(repo: dict) -> None:
     code, head, _ = run_git(["rev-parse", "HEAD"], env, cwd=str(clone))
     if code:
         return
+    code, head_at, _ = run_git(["show", "-s", "--format=%cI", head], env, cwd=str(clone))
+    if code:
+        raise RuntimeError("Report HEAD timestamp unavailable")
+    headers = {"Authorization": f"Bearer {decrypt(repo['api_key_encrypted'])}"}
+    planned = maintenance_control_post(
+        f"{API_URL}/api/mihari/reports/plan",
+        headers=headers,
+        json={
+            "folder_id": repo["folder_id"],
+            "head_sha": head,
+            "head_at": head_at,
+            "timezone": repo.get("report_timezone") or "UTC",
+        },
+        timeout=30,
+    )
+    planned.raise_for_status()
+    period = planned.json().get("period")
+    if not period:
+        return
     code, history, _ = run_git(
-        ["log", "--since=100 days ago", "-1000", "--format=%H%x1f%cI%x1f%s"], env, cwd=str(clone)
+        [
+            "log",
+            f"--since={period['after']}",
+            f"--until={period['before']}",
+            "-1000",
+            "--format=%H%x1f%cI%x1f%s",
+        ],
+        env,
+        cwd=str(clone),
     )
     if code:
         raise RuntimeError("Report Git evidence unavailable")
@@ -1411,10 +1438,13 @@ def refresh_repo_reports(repo: dict) -> None:
             coverage = "unavailable"
     response = maintenance_post(
         f"{API_URL}/api/mihari/reports",
-        headers={"Authorization": f"Bearer {decrypt(repo['api_key_encrypted'])}"},
+        headers=headers,
         json={
             "folder_id": repo["folder_id"],
             "head_sha": head,
+            "head_at": head_at,
+            "report_kind": period["kind"],
+            "period_start": period["period_start"],
             "timezone": repo.get("report_timezone") or "UTC",
             "commits": commits,
             "pull_requests": pulls,
