@@ -113,10 +113,26 @@ def capture_report(sb, owner, folder, payload, now=None):
         kind: {r["period_start"]: r for r in report_rows(sb, owner, folder, kind, tz)}
         for kind in ("weekly", "monthly")
     }
+    active = candidates[:2]
+    if all(
+        (old := stored[kind].get(start.isoformat()))
+        and old.get("coverage", {}).get("head_sha") != payload["head_sha"]
+        for kind, start, _ in active
+    ):
+        # Frequent merges must not keep the monthly review behind the weekly.
+        active.sort(
+            key=lambda period: iso(stored[period[0]][period[1].isoformat()]["generated_at"])
+        )
+        candidates[:2] = active
     for kind, start, end in candidates:
         old = stored[kind].get(start.isoformat())
         closed = today > end
-        if old and not closed and old.get("coverage", {}).get("policy") == POLICY:
+        if (
+            old
+            and not closed
+            and old.get("coverage", {}).get("policy") == POLICY
+            and old.get("coverage", {}).get("head_sha") == payload["head_sha"]
+        ):
             generated = iso(old["generated_at"]).astimezone(ZoneInfo(tz)).date()
             if kind == "weekly" and generated == today:
                 continue
@@ -150,6 +166,7 @@ def capture_report(sb, owner, folder, payload, now=None):
         fingerprint = digest(
             {
                 "policy": POLICY,
+                **({"head_sha": payload["head_sha"]} if not closed else {}),
                 "kind": kind,
                 "start": start.isoformat(),
                 "timezone": tz,
@@ -270,6 +287,7 @@ def capture_report(sb, owner, folder, payload, now=None):
                 "expected_revision": old["revision"] if old else 0,
                 "coverage": {
                     "policy": POLICY,
+                    "head_sha": payload["head_sha"],
                     "journal_entries": snapshot.get("entry_count", len(entries)),
                     "journal_entries_included": len(entries),
                     "indexed_entries_available": journal_total,
