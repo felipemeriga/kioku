@@ -25,12 +25,11 @@ const SECTION_ORDER = [
   "how_it_runs",
   "deployment",
   "activity",
-  "documentation",
 ] as const;
 
 const SECTION_TITLES: Record<string, string> = {
-  overview: "Overview",
-  architecture: "Architecture",
+  overview: "Introduction",
+  architecture: "Components",
   how_it_runs: "How it runs",
   deployment: "Deployment",
   activity: "Activity",

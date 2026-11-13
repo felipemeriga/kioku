@@ -10,8 +10,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { ReadableContent } from "./agent-evidence/ReadableContent";
 import { qk } from "../lib/queryKeys";
 import {
   Alert,
@@ -38,7 +37,6 @@ import {
   BRIEFING_SECTIONS,
   clearBriefing,
   fetchBriefing,
-  fetchDocumentation,
   updateBriefingSection,
   type BriefingSection,
   type BriefingSectionKey,
@@ -46,7 +44,6 @@ import {
 import { messageFromError, useToast } from "./ToastProvider";
 import { brand, fonts } from "../theme";
 import SectionRail, { type RailItem } from "./neo/SectionRail";
-import PillChain from "./neo/PillChain";
 import { type GlyphStatus } from "./neo/StatusGlyph";
 import { gradientRule } from "./neo/sx";
 
@@ -55,17 +52,16 @@ interface Props {
 }
 
 const SECTION_TITLES: Record<BriefingSectionKey, string> = {
-  overview: "Overview",
-  architecture: "Architecture",
+  overview: "Introduction",
+  architecture: "Components",
   how_it_runs: "How it runs",
   deployment: "Deployment",
   activity: "Activity",
 };
 
 const SECTION_DESCRIPTIONS: Record<BriefingSectionKey, string> = {
-  overview: "One-line purpose and a short what/why.",
-  architecture:
-    "How the system fits together — subsystems, boundaries, data flow.",
+  overview: "Purpose and scope.",
+  architecture: "Responsibilities, interfaces and key paths.",
   how_it_runs: "Prerequisites, setup, run modes, and checks.",
   deployment: "Environments, deploy steps, CI/CD notes.",
   activity: "Recent repository activity from git history.",
@@ -113,11 +109,6 @@ export default function BriefingPanel({ folderId }: Props) {
     },
   });
   const data = briefingQuery.data ?? null;
-  const documentationQuery = useQuery({
-    queryKey: qk.documentation(folderId),
-    queryFn: () => fetchDocumentation(folderId),
-    enabled: Boolean(data?.last_generated_at),
-  });
   const loading = briefingQuery.isPending;
   const error = briefingQuery.isError
     ? messageFromError(briefingQuery.error)
@@ -159,13 +150,7 @@ export default function BriefingPanel({ folderId }: Props) {
         "Briefing cleared. Run `kioku init` in this repo to regenerate it.",
         "info",
       );
-      // Clearing the briefing also deletes the detailed doc — refresh both.
-      await Promise.all([
-        refresh(),
-        queryClient.invalidateQueries({
-          queryKey: qk.documentation(folderId),
-        }),
-      ]);
+      await refresh();
     } catch (err) {
       toast.showError(err, "Couldn't clear the briefing.");
     } finally {
@@ -175,13 +160,8 @@ export default function BriefingPanel({ folderId }: Props) {
 
   const scrollToSection = (i: number) => {
     setActiveRailIndex(i);
-    if (i === presentKeys.length) {
-      document.getElementById("briefing-documentation")?.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-      return;
-    }
+    const key = presentKeys[i];
+    if (key) setCollapsed((previous) => ({ ...previous, [key]: false }));
     sectionRefs.current[i]?.scrollIntoView({
       behavior: "smooth",
       block: "start",
@@ -196,7 +176,14 @@ export default function BriefingPanel({ folderId }: Props) {
     );
   }
   if (error) {
-    return <Alert severity="error">{error}</Alert>;
+    return (
+      <Alert
+        severity="error"
+        action={<Button onClick={() => void refresh()}>Retry</Button>}
+      >
+        {error}
+      </Alert>
+    );
   }
   if (!data) return null;
 
@@ -212,13 +199,6 @@ export default function BriefingPanel({ folderId }: Props) {
   }));
 
   const presentKeys = BRIEFING_SECTIONS.filter((key) => data.sections[key]);
-  if (documentationQuery.data?.documentation) {
-    railItems.push({
-      n: String(presentKeys.length + 1).padStart(2, "0"),
-      title: "Detailed documentation",
-      status: "auto",
-    });
-  }
 
   return (
     <Box
@@ -294,7 +274,7 @@ export default function BriefingPanel({ folderId }: Props) {
             </Typography>
           </Box>
           {hasBriefing && (
-            <Tooltip title="Delete this briefing + detailed doc so they regenerate on the next `kioku init`">
+            <Tooltip title="Clear the briefing so it regenerates on the next `kioku init`">
               <Button
                 size="small"
                 variant="outlined"
@@ -427,7 +407,8 @@ export default function BriefingPanel({ folderId }: Props) {
                           display: "flex",
                           alignItems: "center",
                           gap: 1.5,
-                          height: 56,
+                          minHeight: 68,
+                          py: 1.75,
                           px: 3,
                           width: "100%",
                           border: 0,
@@ -459,7 +440,7 @@ export default function BriefingPanel({ folderId }: Props) {
                           sx={{
                             fontSize: 17,
                             fontWeight: 600,
-                            width: 170,
+                            width: { xs: "auto", md: 170 },
                             flexShrink: 0,
                             fontFamily: fonts.display,
                           }}
@@ -475,7 +456,8 @@ export default function BriefingPanel({ folderId }: Props) {
                             color: brand.muted,
                             overflow: "hidden",
                             textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
+                            whiteSpace: "normal",
+                            display: { xs: "none", md: "block" },
                             fontFamily: fonts.body,
                           }}
                         >
@@ -602,8 +584,8 @@ export default function BriefingPanel({ folderId }: Props) {
         </DialogTitle>
         <DialogContent>
           <DialogContentText sx={{ color: brand.muted }}>
-            This deletes the entire briefing <b>and</b> the detailed
-            documentation for <b>{data?.folder.name}</b>. To rebuild them, run{" "}
+            This clears the briefing for <b>{data?.folder.name}</b>. Authored
+            reference documents stay available. To rebuild the briefing, run{" "}
             <Box
               component="code"
               sx={{
@@ -616,7 +598,7 @@ export default function BriefingPanel({ folderId }: Props) {
             >
               kioku init
             </Box>{" "}
-            in the repo — it regenerates everything as its first task.
+            in the repo.
           </DialogContentText>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
@@ -767,7 +749,21 @@ function OverviewContent({ section }: { section: BriefingSection }) {
           >
             {lead}
           </Typography>
-          {description && <BriefingMarkdown content={description} />}
+          {description &&
+            (description.length > 600 ? (
+              <Box
+                component="details"
+                sx={{
+                  color: brand.muted,
+                  "& summary": { cursor: "pointer", mb: 1 },
+                }}
+              >
+                <summary>More context</summary>
+                <BriefingMarkdown content={description} />
+              </Box>
+            ) : (
+              <BriefingMarkdown content={description} />
+            ))}
         </Stack>
       );
     }
@@ -781,201 +777,88 @@ function OverviewContent({ section }: { section: BriefingSection }) {
 
 function ArchitectureContent({ section }: { section: BriefingSection }) {
   const content = section.content;
-  if (!content) return <Empty />;
-
-  // Extract typed fields if content is an object
-  let paragraph: string | null = null;
-  let dataFlowProse: string | null = null;
-  let dataFlows: Array<{ label: string; steps: string[] }> | null = null;
-  let components: Array<{ name: string; role: string; path?: string }> | null =
-    null;
-
-  if (
-    typeof content === "object" &&
-    !Array.isArray(content) &&
-    content !== null
-  ) {
-    const obj = content as Record<string, unknown>;
-
-    // Paragraph description
-    if (typeof obj.description === "string") paragraph = obj.description;
-    else if (typeof obj.summary === "string") paragraph = obj.summary;
-
-    // data_flow: array of {label, steps} OR a string with "->"
-    if (Array.isArray(obj.data_flow)) {
-      const raw = obj.data_flow as Array<unknown>;
-      // Each item may be {label, steps} or just a string
-      dataFlows = raw.flatMap((item) => {
-        if (
-          item &&
-          typeof item === "object" &&
-          "label" in (item as object) &&
-          "steps" in (item as object)
-        ) {
-          const it = item as { label: string; steps: unknown };
-          const steps = Array.isArray(it.steps)
-            ? it.steps.map(String)
-            : typeof it.steps === "string"
-              ? it.steps.split("->").map((s: string) => s.trim())
-              : [];
-          return [{ label: it.label, steps }];
-        }
-        if (typeof item === "string" && item.includes("->")) {
-          return [
-            {
-              label: "",
-              steps: item.split("->").map((s: string) => s.trim()),
-            },
-          ];
-        }
-        return [];
-      });
-    } else if (
-      typeof obj.data_flow === "string" &&
-      obj.data_flow.includes("->")
-    ) {
-      dataFlows = [
-        {
-          label: "",
-          steps: obj.data_flow.split("->").map((s: string) => s.trim()),
-        },
-      ];
-    } else if (typeof obj.data_flow === "string") {
-      dataFlowProse = obj.data_flow;
-    }
-
-    // components: array of {name, role, path}
-    if (Array.isArray(obj.components)) {
-      components = (obj.components as Array<unknown>).filter(
-        (c): c is { name: string; role: string; path?: string } =>
-          !!c && typeof c === "object" && "name" in (c as object),
-      );
-    }
-  } else if (typeof content === "string") {
-    // Check for "->" in a plain string
-    if (content.includes("->")) {
-      dataFlows = [
-        {
-          label: "",
-          steps: content.split("->").map((s: string) => s.trim()),
-        },
-      ];
-    } else {
-      paragraph = content;
-    }
-  }
-
-  const hasStructured = Boolean(
-    dataFlows?.length || components?.length || dataFlowProse,
-  );
-
+  if (!content || typeof content !== "object" || Array.isArray(content))
+    return <SectionReader content={content} />;
+  const record = content as Record<string, unknown>;
+  const components = Array.isArray(record.components)
+    ? record.components.filter(
+        (item): item is { name: string; role?: string; path?: string } =>
+          !!item && typeof item === "object" && typeof item.name === "string",
+      )
+    : [];
+  if (!components.length) return <SectionReader content={content} />;
+  const summary =
+    typeof record.summary === "string" ? record.summary : record.description;
   return (
-    <Box
-      sx={{
-        display: "flex",
-        flexDirection: "column",
-        gap: 3,
-        maxWidth: "78ch",
-      }}
-    >
-      {/* Paragraph */}
-      {paragraph ? <BriefingMarkdown content={paragraph} /> : null}
-
-      {/* DATA FLOW pill chains */}
-      {dataFlows && dataFlows.length > 0 && (
-        <Box sx={{ display: "flex", flexDirection: "column", gap: 1.25 }}>
-          <ReadingHeading>Data flow</ReadingHeading>
-          {dataFlows.map((f, i) => (
-            <PillChain
-              key={i}
-              label={f.label}
-              color={i % 2 === 0 ? brand.magenta : brand.cyan}
-              steps={f.steps}
-            />
-          ))}
-        </Box>
-      )}
-      {dataFlowProse && (
-        <Box>
-          <ReadingHeading>Data flow</ReadingHeading>
-          <BriefingMarkdown content={dataFlowProse} />
-        </Box>
-      )}
-
-      {/* COMPONENTS table */}
-      {components && components.length > 0 && (
-        <Box sx={{ display: "flex", flexDirection: "column", gap: 1.25 }}>
-          <ReadingHeading>Components</ReadingHeading>
+    <Stack spacing={2.5} sx={{ minWidth: 0 }}>
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: {
+            xs: "minmax(0, 1fr)",
+            xl: "repeat(2, minmax(0, 1fr))",
+          },
+          gap: 2,
+        }}
+      >
+        {components.map((component, index) => (
           <Box
+            key={index}
+            component="article"
             sx={{
               border: `1px solid ${brand.line}`,
               borderRadius: 1,
-              overflow: "hidden",
+              p: 2.25,
+              minWidth: 0,
+              bgcolor: brand.surface2,
             }}
           >
-            {/* Header row */}
-            <Box
-              sx={{
-                display: "grid",
-                gridTemplateColumns:
-                  "minmax(110px, 1fr) minmax(0, 2fr) minmax(110px, 1fr)",
-                p: "8px 14px",
-                background: `${brand.magenta}12`,
-                fontFamily: fonts.mono,
-                fontSize: 13,
-                letterSpacing: 0,
-                color: brand.magentaGlow,
-              }}
+            <Typography
+              component="h3"
+              sx={{ fontWeight: 650, fontSize: 17, mb: 1 }}
             >
-              <span>Name</span>
-              <span>Role</span>
-              <span>Path</span>
-            </Box>
-            {components.map((c, i) => (
+              {component.name}
+            </Typography>
+            {typeof component.role === "string" && (
+              <BriefingMarkdown content={component.role} />
+            )}
+            {typeof component.path === "string" && (
               <Box
-                key={i}
+                component="code"
                 sx={{
-                  display: "grid",
-                  gridTemplateColumns: {
-                    xs: "1fr",
-                    md: "minmax(110px, 1fr) minmax(0, 2fr) minmax(110px, 1fr)",
-                  },
-                  gap: 1.5,
-                  p: "10px 14px",
-                  borderTop: `1px solid ${brand.line}`,
-                  fontSize: 14,
-                  lineHeight: 1.45,
+                  display: "block",
+                  mt: 1.5,
+                  fontFamily: fonts.mono,
+                  fontSize: 12,
+                  color: brand.cyan,
+                  overflowWrap: "anywhere",
                 }}
               >
-                <Box
-                  component="span"
-                  sx={{ fontWeight: 600, color: brand.text }}
-                >
-                  {c.name}
-                </Box>
-                <Box component="span" sx={{ color: brand.text, opacity: 0.9 }}>
-                  {c.role}
-                </Box>
-                <Box
-                  component="span"
-                  sx={{
-                    fontFamily: fonts.mono,
-                    fontSize: 12,
-                    color: brand.cyan,
-                    overflowWrap: "anywhere",
-                  }}
-                >
-                  {c.path ?? "—"}
-                </Box>
+                {component.path}
               </Box>
-            ))}
+            )}
           </Box>
+        ))}
+      </Box>
+      {Boolean(summary || record.data_flow) && (
+        <Box
+          component="details"
+          sx={{
+            maxWidth: "76ch",
+            color: brand.muted,
+            "& summary": { cursor: "pointer", fontWeight: 600, mb: 1.5 },
+          }}
+        >
+          <summary>How components connect</summary>
+          {typeof summary === "string" && (
+            <BriefingMarkdown content={summary} />
+          )}
+          {Boolean(record.data_flow) && (
+            <SectionReader content={record.data_flow} />
+          )}
         </Box>
       )}
-
-      {/* Fallback: if nothing else rendered */}
-      {!paragraph && !hasStructured && <SectionReader content={content} />}
-    </Box>
+    </Stack>
   );
 }
 
@@ -1044,8 +927,7 @@ function NotGenerated() {
         >
           kioku init
         </Box>{" "}
-        in this repo — it generates the briefing and detailed docs as the
-        session's first task.
+        in this repo to generate its five-section briefing.
       </Typography>
     </Box>
   );
@@ -1267,7 +1149,7 @@ function BriefingMarkdown({
         "& th, & td": { border: `1px solid ${brand.line}`, px: 1, py: 0.5 },
       }}
     >
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      <ReadableContent text={content} />
     </Box>
   );
 }
@@ -1289,28 +1171,11 @@ function ArrayItem({ item }: { item: unknown }) {
     );
   }
   if (item && typeof item === "object") {
-    const obj = item as Record<string, unknown>;
     return (
       <Box
-        sx={{
-          pl: 1.5,
-          borderLeft: `2px solid ${alpha(brand.violet2, 0.4)}`,
-        }}
+        sx={{ pl: 1.5, borderLeft: `2px solid ${alpha(brand.violet2, 0.4)}` }}
       >
-        {Object.entries(obj).map(([k, v]) => (
-          <Typography
-            key={k}
-            sx={{ fontSize: "0.84rem", color: brand.text, lineHeight: 1.5 }}
-          >
-            <Box
-              component="span"
-              sx={{ color: brand.cyan, fontFamily: fonts.mono }}
-            >
-              {k}:
-            </Box>{" "}
-            {String(v)}
-          </Typography>
-        ))}
+        <SectionReader content={item} />
       </Box>
     );
   }
@@ -1459,8 +1324,10 @@ function SectionEditor({
   }, [section.content]);
   const [draft, setDraft] = useState(initial);
   const [busy, setBusy] = useState(false);
+  const invalid = !draft.trim() || draft.length > 50000;
 
   const save = async () => {
+    if (invalid) return;
     setBusy(true);
     let parsed: unknown = draft;
     try {
@@ -1483,6 +1350,14 @@ function SectionEditor({
         minRows={4}
         maxRows={20}
         value={draft}
+        error={invalid}
+        helperText={
+          !draft.trim()
+            ? "Add content before saving."
+            : draft.length > 50000
+              ? "Keep the section under 50,000 characters."
+              : undefined
+        }
         onChange={(e) => setDraft(e.target.value)}
         InputProps={{
           sx: {
@@ -1508,7 +1383,7 @@ function SectionEditor({
           variant="contained"
           startIcon={<SaveIcon fontSize="small" />}
           onClick={save}
-          disabled={busy}
+          disabled={busy || invalid}
           sx={{ textTransform: "none" }}
         >
           {busy ? "Saving…" : "Save + Pin"}

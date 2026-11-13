@@ -428,13 +428,13 @@ def test_needs_input_job_still_copies_attempt_usage_without_applying_facts(confi
     assert db.calls == []
 
 
-def test_existing_absent_doc_pass_heals_before_head_gate_without_any_generation(
+def test_concise_review_skips_current_head_without_inspecting_old_documentation(
     configured, monkeypatch
 ):
     head = "a" * 40
     reviews = {"activity": {"head_sha": head}, "architecture": {"head_sha": head}}
     snapshot = {
-        "expected_sections": {"activity": {}, "architecture": {}, "documentation": {}},
+        "expected_sections": {"activity": {}, "architecture": {}},
         "input": {},
     }
     db = DB(
@@ -462,7 +462,7 @@ def test_existing_absent_doc_pass_heals_before_head_gate_without_any_generation(
         execution.prepare(db, "owner", "folder", "review_plan", {"head_sha": head})["engine"]
         == "skip"
     )
-    assert inspected == [True]
+    assert inspected == []
     assert db.calls == []
 
 
@@ -1028,8 +1028,8 @@ def test_legacy_sql_review_areas_are_canonical_on_first_publication_and_replay(
     assert result.json()["reviewed"] == list(SECTIONS)
     complete = {"folder_id": "folder", "head_sha": head, "reviewed": result.json()["reviewed"]}
     assert client.post("/api/mihari/review-complete", json=complete).status_code == 200
-    # Canonicalizing a response must never satisfy missing publication ACKs.
-    state["acknowledged"] = ["activity"]
+    # Retired documentation does not block a pass, but active work still needs an ACK.
+    state["acknowledged"] = []
     assert client.post("/api/mihari/review-complete", json=complete).status_code == 409
     state["acknowledged"] = ["activity", "documentation"]
     complete["head_sha"] = "b" * 40

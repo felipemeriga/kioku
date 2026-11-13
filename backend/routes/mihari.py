@@ -17,11 +17,11 @@ import re
 import stat
 import subprocess
 import tempfile
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from anthropic import BadRequestError
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from db.client import get_supabase_thread_safe as get_supabase
 from services.crypto import decrypt_secret, encrypt_secret
@@ -78,7 +78,7 @@ class ReportCommit(BaseModel):
 
 class ReportPull(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    number: int = Field(ge=1)
+    number: int = Field(ge=1, le=2147483647)
     at: datetime
     text: str = Field(min_length=1, max_length=1600)
     url: str = Field(
@@ -108,6 +108,35 @@ class ReportRefreshRequest(BaseModel):
     commits: list[ReportCommit] = Field(default_factory=list, max_length=1000)
     pull_requests: list[ReportPull] = Field(default_factory=list, max_length=200)
     github_coverage: str = Field(default="unavailable", max_length=100)
+    head_at: datetime | None = None
+    report_kind: str | None = Field(default=None, pattern=r"^(weekly|monthly)$")
+    period_start: date | None = None
+
+    @model_validator(mode="after")
+    def valid_report_period(self):
+        from services.period_reports import calendar_period
+
+        if (self.report_kind is None) != (self.period_start is None):
+            raise ValueError("Report kind and period start must be supplied together")
+        if (
+            self.report_kind
+            and calendar_period(self.report_kind, self.period_start)[0] != self.period_start
+        ):
+            raise ValueError("Report period must start on Monday or the first of the month")
+        stamps = [item.at for item in [*self.commits, *self.pull_requests]]
+        if self.head_at:
+            stamps.append(self.head_at)
+        if any(stamp.tzinfo is None for stamp in stamps):
+            raise ValueError("Evidence timestamps require timezone")
+        return self
+
+
+@router.post("/reports/plan")
+def plan_reports(body: ReportRefreshRequest, request: Request):
+    from services.period_reports import next_report_period
+
+    owner, sb = _authorized_maintenance(request, body.folder_id)
+    return {"period": next_report_period(sb, owner, body.folder_id, body.model_dump(mode="json"))}
 
 
 @router.post("/reports")
@@ -156,9 +185,6 @@ def review_complete(body: ReviewCompleteRequest, request: Request):
     from services.maintenance.execution import native_enabled
 
     if native_enabled(user_id):
-        from services.maintenance.execution import acknowledge_absent_documentation
-
-        acknowledge_absent_documentation(sb, user_id, body.folder_id, body.head_sha)
         passes = (
             sb.table("maintenance_review_passes")
             .select("head_sha,selected,acknowledged")
@@ -172,7 +198,9 @@ def review_complete(body: ReviewCompleteRequest, request: Request):
         if (
             not passes
             or passes[0]["head_sha"] != body.head_sha
-            or not set(passes[0]["selected"]).issubset(passes[0]["acknowledged"])
+            or not (set(passes[0]["selected"]) - {"documentation"}).issubset(
+                passes[0]["acknowledged"]
+            )
         ):
             raise HTTPException(
                 status_code=409, detail="maintenance pass is not fully acknowledged"
