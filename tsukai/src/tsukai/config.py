@@ -23,7 +23,7 @@ def heavy_maintenance(request):
     return (
         request.caller == "mihari"
         and request.profile == "completion"
-        and request.operation in {"mihari.documentation", "mihari.reground"}
+        and request.operation in {"mihari.documentation", "mihari.reground", "mihari.reports"}
         and request.ai_depth == 0
     )
 

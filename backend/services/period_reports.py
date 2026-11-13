@@ -12,7 +12,9 @@ from pydantic import AwareDatetime, TypeAdapter
 
 TIMESTAMP = TypeAdapter(AwareDatetime)
 
-POLICY = 3
+# A fresh identity keeps exhausted 300-second preparations from poisoning
+# report retries after the runner adopts its heavy-maintenance budget.
+POLICY = 4
 LEGACY_REPORT_SHAPE = {
     "title": "",
     "summary": "",
