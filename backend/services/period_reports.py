@@ -12,9 +12,9 @@ from pydantic import AwareDatetime, TypeAdapter
 
 TIMESTAMP = TypeAdapter(AwareDatetime)
 
-# Timeline sources follow principal-branch transitions, excluding commits
-# introduced only through the second parent of a merge.
-POLICY = 6
+# Keep final PR observations alongside initial intent and principal-branch
+# merge evidence so chronological sampling cannot silently lose resolutions.
+POLICY = 7
 LEGACY_REPORT_SHAPE = {
     "title": "",
     "summary": "",
@@ -80,6 +80,7 @@ REPORT_GUIDE = (
     "and each topic's final state. Keep the overview to two short sentences, "
     "at most 420 characters. "
     "Return at most three short outcomes. Topic names are free: follow the actual work. "
+    "Avoid overall merge totals in prose; the backend-built timeline is authoritative for counts. "
     "Each dated update explains what changed, its recorded purpose, and any observed outcome. "
     "If purpose or outcome is missing, do not invent it. "
     "Connect diagnostic PRs to the investigation they support, rather than treating merged changes "
@@ -259,6 +260,29 @@ def next_report_period(sb, owner, folder, payload, now=None):
     )
 
 
+def latest_pr_journals(sb, owner, folder, terms, after, before):
+    """Retain final PR observations even when chronological sampling omits them."""
+    selected = {}
+    for term in terms[:16]:
+        rows = (
+            sb.table("agent_journal_search_entries")
+            .select("entry_id,session_id,agent,captured_at,body,journal_date")
+            .eq("user_id", owner)
+            .eq("folder_id", folder)
+            .gte("captured_at", after.isoformat())
+            .lt("captured_at", before.isoformat())
+            .filter("body", "match", "#" + term + "([^0-9]|$)")
+            .order("captured_at", desc=True)
+            .order("entry_id", desc=True)
+            .limit(2)
+            .execute()
+            .data
+        )
+        for row in rows:
+            selected[row["entry_id"]] = {**row, "context_anchor": True, "outcome_anchor": True}
+    return list(selected.values())
+
+
 def capture_report(sb, owner, folder, payload, now=None):
     """Choose one due period. Preparation never mutates the last good report."""
     if payload.get("git_history_mode") == "legacy":
@@ -304,7 +328,13 @@ def capture_report(sb, owner, folder, payload, now=None):
             .execute()
             .data
         )
-        entries = snapshot.get("entries", [])
+        entries = {row["entry_id"]: row for row in snapshot.get("entries", [])}
+        for row in latest_pr_journals(sb, owner, folder, terms, after, cutoff):
+            entries[row["entry_id"]] = row
+        entries = sorted(
+            entries.values(), key=lambda row: (iso(row["captured_at"]), row["entry_id"])
+        )
+        snapshot["entries"] = entries
         events = snapshot.get("events", [])
         commits = [c for c in payload.get("commits", []) if after <= iso(c["at"]) < cutoff]
         pulls = [p for p in payload.get("pull_requests", []) if after <= iso(p["at"]) < cutoff]
@@ -335,7 +365,10 @@ def capture_report(sb, owner, folder, payload, now=None):
         # Retain a chronological spread rather than silently dropping the last days.
         journal_total = len(entries)
         if len(entries) > 80:
-            anchors = [row for row in entries if row.get("context_anchor")][:48]
+            anchors = sorted(
+                [row for row in entries if row.get("context_anchor")],
+                key=lambda row: not row.get("outcome_anchor", False),
+            )[:64]
             remaining = [row for row in entries if row not in anchors]
             count = 80 - len(anchors)
             entries = anchors + [

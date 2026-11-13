@@ -175,6 +175,8 @@ class DB:
         self.entries, self.existing, self.calls = entries, existing or [], 0
 
     def table(self, name):
+        if name == "agent_journal_search_entries":
+            return Query(self.entries[-2:])
         assert name == "repo_period_reports"
         return Query(self.existing)
 
@@ -580,3 +582,45 @@ def test_snapshot_preserves_final_merge_fixes_beyond_the_commit_subject():
         datetime(2026, 11, 13, 11, tzinfo=timezone.utc),
     )
     assert snapshot["input"]["sources"][0]["text"] == message
+
+
+def test_latest_pr_outcomes_survive_a_sample_that_only_retained_the_old_review():
+    rows = [
+        {
+            "entry_id": f"e{i}",
+            "session_id": "s",
+            "agent": "codex",
+            "captured_at": f"2026-11-13T10:{i:02d}:00Z",
+            "body": "Review PR #484: recovery requires correction."
+            if i == 0
+            else "PR #484: all review findings fixed; updated replay checks passed.",
+        }
+        for i in range(3)
+    ]
+
+    class SampledDB(DB):
+        def rpc(self, name, args):
+            if name == "period_report_source_snapshot":
+                return Query({"entries": rows[:1], "events": [], "entry_count": 3})
+            return super().rpc(name, args)
+
+    snapshot, _ = capture_report(
+        SampledDB(rows),
+        "owner",
+        "repo",
+        {
+            "head_sha": "a" * 40,
+            "timezone": "UTC",
+            "commits": [
+                {
+                    "sha": "a" * 40,
+                    "at": "2026-11-13T10:10:00Z",
+                    "text": "Merge recovery fixes (#484)",
+                }
+            ],
+        },
+        datetime(2026, 11, 13, 11, tzinfo=timezone.utc),
+    )
+    journals = [s for s in snapshot["input"]["sources"] if s["kind"] == "journal"]
+    assert [s["entry_id"] for s in journals] == ["e0", "e1", "e2"]
+    assert "all review findings fixed" in journals[-1]["text"]
