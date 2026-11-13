@@ -44,8 +44,8 @@ jobs:
       - name: Check Rust
         run: |
           cargo fmt --manifest-path desktop/Cargo.toml --check
-          cargo test --locked --manifest-path desktop/Cargo.toml
-          cargo clippy --locked --manifest-path desktop/Cargo.toml -- -D warnings
+          cargo test --release --locked --manifest-path desktop/Cargo.toml
+          cargo clippy --release --locked --manifest-path desktop/Cargo.toml -- -D warnings
       - name: Build app and DMG
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}

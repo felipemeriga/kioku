@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod connection;
+mod native_downloads;
 mod updates;
 
 use std::{io::Write, time::Duration};
@@ -181,6 +182,7 @@ fn main() {
             config.url = tauri::WebviewUrl::External(url);
             tauri::WebviewWindowBuilder::from_config(app, &config)?
                 .initialization_script(include_str!("window.js"))
+                .on_download(native_downloads::handle)
                 .on_navigation(|url| {
                     if url.as_str() == "about:blank" || (url.scheme() == "https" && url.host_str() == Some("kioku.merigafy.com")) {
                         return true;
@@ -198,6 +200,7 @@ fn main() {
                         let label = format!("source-{}", NEXT_WINDOW.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
                         let created = tauri::WebviewWindowBuilder::new(&handle, label, tauri::WebviewUrl::External("about:blank".parse().unwrap()))
                             .window_features(features).title("Kioku — Source").inner_size(1100.0, 800.0)
+                            .on_download(native_downloads::handle)
                             .on_navigation(|url| {
                                 if url.as_str() == "about:blank" || (url.scheme() == "https" && url.host_str() == Some("kioku.merigafy.com")) { return true; }
                                 if matches!(url.scheme(), "https" | "http") { let _ = std::process::Command::new("/usr/bin/open").arg(url.as_str()).spawn(); }
