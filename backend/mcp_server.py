@@ -970,7 +970,7 @@ def list_folders_in_scope() -> str:
                 "get_folder_orientation(folder='<name>') to focus on any of these. "
                 "The 'folder' argument accepts a name ('c360-lead'), a slash-path "
                 "('cosm/c360-lead'), or a UUID. Repo folders have the strict "
-                "6-section briefing; regular folders have a freeform summary."
+                "five-section briefing; regular folders have a freeform summary."
             ),
         },
         indent=2,
@@ -1036,7 +1036,7 @@ def get_folder_briefing(folder: str | None = None) -> str:
         # Focus on the repo you're working in
         get_folder_briefing(folder='c360-lead')
 
-    Returns the full 6-section briefing (status, content, provenance,
+    Returns the full five-section briefing (status, content, provenance,
     updated_at, updated_by per section) plus a hint reminding you to
     call update_folder_briefing_section to write back new facts.
 
@@ -1613,7 +1613,7 @@ def get_folder_orientation(
             - changes: files added/removed/modified in the KB since the previous summary
             - commits: recent GitHub activity (empty if no GitHub integration)
         - subfolders: (workspace_rollup folders only) structured index of children
-        - briefing: (repo folders only) the 6-section briefing
+        - briefing: (repo folders only) the five-section briefing
         - metadata: last_generated_at, kind, doc_count
     """
     if not _current_user_id.get():
@@ -1712,10 +1712,10 @@ def get_folder_orientation(
         },
     }
 
-    # For repo folders, add the strict 6-section briefing so a coding
+    # For repo folders, add the strict five-section briefing so a coding
     # agent has structured facts to work with immediately + can update
     # any section via update_folder_briefing_section.
-    from services.folder_summary.briefing_schema import snapshot_sections
+    from services.folder_summary.briefing_schema import ACTIVE_SECTION_KEYS, snapshot_sections
 
     sections = snapshot_sections(row)
     # Detect briefing rows by shape rather than kind — the constraint may
@@ -1730,6 +1730,13 @@ def get_folder_orientation(
         )
     )
     if is_briefing_row and sections:
+        sections = {key: value for key, value in sections.items() if key in ACTIVE_SECTION_KEYS}
+        # Orientation also returns the stored summary; keep that copy concise.
+        summary = dict(payload["summary"])
+        summary.pop("documentation", None)
+        if "sections" in summary:
+            summary["sections"] = sections
+        payload["summary"] = summary
         payload["briefing"] = {
             "schema_version": row.get("briefing_schema_version") or 1,
             "sections": sections,

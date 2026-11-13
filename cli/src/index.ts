@@ -357,7 +357,7 @@ program
     "after",
     `
 Examples:
-  $ kioku briefing                          # current 6-section briefing
+  $ kioku briefing                          # current five-section briefing
   $ kioku briefing --section deployment     # just one section
   $ kioku briefing --json | jq .sections.overview
 `
