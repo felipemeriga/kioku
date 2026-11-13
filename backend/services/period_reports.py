@@ -14,7 +14,7 @@ TIMESTAMP = TypeAdapter(AwareDatetime)
 
 # Timeline sources follow principal-branch transitions, excluding commits
 # introduced only through the second parent of a merge.
-POLICY = 5
+POLICY = 6
 LEGACY_REPORT_SHAPE = {
     "title": "",
     "summary": "",
@@ -390,7 +390,7 @@ def capture_report(sb, owner, folder, payload, now=None):
                     "observed_at": iso(c["at"]).isoformat(),
                     "sha": c["sha"],
                     "url": c.get("url"),
-                    "text": c["text"][:500],
+                    "text": c["text"][:1600],
                 }
             )
         for p in pulls:
@@ -530,7 +530,11 @@ def validate_report(snapshot, value):
         if item["evidence_quote"] in quotes:
             source, text = quotes[item["evidence_quote"]]
             if source not in item["source_ids"]:
-                raise ValueError("Report quote belongs to an uncited source")
+                if len(item["source_ids"]) == 12:
+                    raise ValueError("Report quote origin exceeds the citation bound")
+                # Quote IDs are server-owned provenance. Preserve declared
+                # context while making the exact quoted origin explicit.
+                item["source_ids"] = [source, *item["source_ids"]]
             item["evidence_quote"] = text
         if not 10 <= len(item["text"]) <= maximum or not 12 <= len(item["evidence_quote"]) <= 250:
             raise ValueError("Invalid report item")
@@ -582,7 +586,9 @@ def validate_report(snapshot, value):
                     "date": source["date"],
                     "pr_number": int(match[1]) if match else None,
                     "sha": source["sha"],
-                    "title": source["text"].removeprefix("Commit on principal branch: "),
+                    "title": source["text"]
+                    .removeprefix("Commit on principal branch: ")
+                    .splitlines()[0],
                     "source_ids": [source["id"]],
                     "evidence_quote": source["text"][:250],
                 }
