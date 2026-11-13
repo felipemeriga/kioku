@@ -10,7 +10,21 @@ from pydantic import ValidationError
 from routes.mihari import ReportRefreshRequest
 from routes.reports import ReportSettings
 from services.maintenance.operations import build_request, validate_result
-from services.period_reports import calendar_period, capture_report, instants, report_context
+from services.period_reports import calendar_period, capture_report, instants, iso, report_context
+
+
+@pytest.mark.parametrize("fraction", ["", ".2", ".22", ".220", ".2201", ".22012", ".220123"])
+@pytest.mark.parametrize("offset", ["Z", "+00:00", "-03:00"])
+def test_postgrest_timestamp_precision_is_runtime_independent(fraction, offset):
+    parsed = iso(f"2026-11-09T13:38:59{fraction}{offset}")
+    assert parsed.microsecond == int((fraction[1:] or "0").ljust(6, "0"))
+    assert parsed.tzinfo is not None
+
+
+@pytest.mark.parametrize("value", ["invalid", "2026-11-09T13:38:59", "2026-13-09T13:38:59Z"])
+def test_report_timestamp_rejects_invalid_or_naive_values(value):
+    with pytest.raises(ValueError):
+        iso(value)
 
 
 def test_iso_week_crosses_year_and_month_ends_include_leap_day():
