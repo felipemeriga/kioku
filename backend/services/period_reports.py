@@ -2,7 +2,9 @@
 
 import hashlib
 import json
+import re
 from calendar import monthrange
+from copy import deepcopy
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -10,7 +12,7 @@ from pydantic import AwareDatetime, TypeAdapter
 
 TIMESTAMP = TypeAdapter(AwareDatetime)
 
-POLICY = 1
+POLICY = 2
 REPORT_SHAPE = {
     "title": "",
     "summary": "",
@@ -23,12 +25,18 @@ REPORT_GUIDE = (
     "Write a useful dated repository review, not a concatenation of session summaries. "
     "Weekly: progress/outcomes, decisions, still open. Monthly: how work evolved across weeks, "
     "recurring themes, corrections and carryover. Use only supplied sources and exact source IDs. "
-    "Every summary and item must cite supporting sources. Each item needs one exact contiguous "
-    "supporting evidence_quote of 12-250 characters from a cited source's text. "
+    "Every summary and item must cite supporting sources. For evidence_quote select the ID "
+    "of a supplied exact excerpt belonging to a cited source, rather than rewriting its text. "
     "Journal claims are reported work, never independently verified. Commands are not results. "
     "A principal-branch commit confirms code presence, not deployment or runtime success. "
     "PR states require supplied GitHub metadata; otherwise say unavailable. Distinguish dates of "
     "observations from dates of incidents. Preserve contradictions and unresolved results. "
+    "Reconcile each topic chronologically using observed_at, including within the same day. "
+    "Lead with its latest supported state at the cutoff. If a later source reverts, corrects, "
+    "or supersedes earlier work, explicitly describe that reversal and cite both sources. "
+    "Do not list superseded proposals or resolved issues as current open work. A newer journal "
+    "claim does not override stronger Git or runtime evidence without support; "
+    "qualify uncertainty. "
     "A prior weekly report is orientation, not independent evidence; cite its underlying sources. "
     "Source coverage is bounded: never claim complete verification or invent missing activity. "
     "Prefer three to five substantive findings; do not repeat the same fact across sections. "
@@ -72,7 +80,7 @@ def digest(value):
 def report_rows(sb, owner, folder, kind, tz, limit=16):
     return (
         sb.table("repo_period_reports")
-        .select("id,period_start,period_end,revision,source_digest,generated_at,content")
+        .select("id,period_start,period_end,revision,source_digest,generated_at,content,coverage")
         .eq("user_id", owner)
         .eq("folder_id", folder)
         .eq("kind", kind)
@@ -108,7 +116,7 @@ def capture_report(sb, owner, folder, payload, now=None):
     for kind, start, end in candidates:
         old = stored[kind].get(start.isoformat())
         closed = today > end
-        if old and not closed:
+        if old and not closed and old.get("coverage", {}).get("policy") == POLICY:
             generated = iso(old["generated_at"]).astimezone(ZoneInfo(tz)).date()
             if kind == "weekly" and generated == today:
                 continue
@@ -172,6 +180,7 @@ def capture_report(sb, owner, folder, payload, now=None):
                     "id": "journal:" + row["entry_id"],
                     "kind": "journal",
                     "date": iso(row["captured_at"]).astimezone(ZoneInfo(tz)).date().isoformat(),
+                    "observed_at": iso(row["captured_at"]).isoformat(),
                     "session_id": row["session_id"],
                     "agent": row["agent"],
                     "entry_id": row["entry_id"],
@@ -190,6 +199,7 @@ def capture_report(sb, owner, folder, payload, now=None):
                     "id": "original:" + event["event_id"],
                     "kind": "original",
                     "date": iso(event["event_at"]).astimezone(ZoneInfo(tz)).date().isoformat(),
+                    "observed_at": iso(event["event_at"]).isoformat(),
                     "session_id": event["session_id"],
                     "event_id": event["event_id"],
                     "role": event["role"],
@@ -203,7 +213,8 @@ def capture_report(sb, owner, folder, payload, now=None):
                 {
                     "id": "commit:" + c["sha"],
                     "kind": "git_commit",
-                    "date": c["at"][:10],
+                    "date": iso(c["at"]).astimezone(ZoneInfo(tz)).date().isoformat(),
+                    "observed_at": iso(c["at"]).isoformat(),
                     "sha": c["sha"],
                     "url": c.get("url"),
                     "text": c["text"][:500],
@@ -214,11 +225,13 @@ def capture_report(sb, owner, folder, payload, now=None):
                 {
                     "id": "pull:" + str(p["number"]),
                     "kind": "github_pull_request",
-                    "date": p["at"][:10],
+                    "date": iso(p["at"]).astimezone(ZoneInfo(tz)).date().isoformat(),
+                    "observed_at": iso(p["at"]).isoformat(),
                     "url": p["url"],
                     "text": p["text"][:500],
                 }
             )
+        sources.sort(key=lambda source: (iso(source["observed_at"]), source["id"]))
         weekly = []
         if kind == "monthly":
             weekly = [
@@ -256,6 +269,7 @@ def capture_report(sb, owner, folder, payload, now=None):
                 "source_digest": fingerprint,
                 "expected_revision": old["revision"] if old else 0,
                 "coverage": {
+                    "policy": POLICY,
                     "journal_entries": snapshot.get("entry_count", len(entries)),
                     "journal_entries_included": len(entries),
                     "indexed_entries_available": journal_total,
@@ -273,7 +287,32 @@ def capture_report(sb, owner, folder, payload, now=None):
     return None, "reports are current or no period activity"
 
 
+def report_quote_choices(sources):
+    """Compact model choices; publication resolves IDs to unchanged original excerpts."""
+    choices = {}
+    count = 0
+    for source in sources:
+        excerpts = []
+        for line in source["text"].splitlines():
+            for sentence in re.split(r"(?<=[.!?])\s+", line):
+                for start in range(0, len(sentence), 250):
+                    text = sentence[start : start + 250].strip()
+                    if 12 <= len(text) <= 250 and text not in excerpts:
+                        excerpts.append(text)
+        choices[source["id"]] = []
+        for text in excerpts[:6]:
+            choices[source["id"]].append({"id": f"q{count}", "text": text})
+            count += 1
+    return choices
+
+
 def validate_report(snapshot, value):
+    value = deepcopy(value)
+    quotes = {
+        quote["id"]: (source, quote["text"])
+        for source, choices in report_quote_choices(snapshot["input"]["sources"]).items()
+        for quote in choices
+    }
     sources = {s["id"]: s for s in snapshot["input"]["sources"]}
     if (
         not 3 <= len(value["title"].strip()) <= 160
@@ -298,6 +337,11 @@ def validate_report(snapshot, value):
             raise ValueError("Invalid report section")
         for item in section["items"]:
             cited(item["source_ids"])
+            if item["evidence_quote"] in quotes:
+                source, text = quotes[item["evidence_quote"]]
+                if source not in item["source_ids"]:
+                    raise ValueError("Report quote belongs to an uncited source")
+                item["evidence_quote"] = text
             if not 10 <= len(item["text"]) <= 1000 or not 12 <= len(item["evidence_quote"]) <= 250:
                 raise ValueError("Invalid report item")
             if not any(item["evidence_quote"] in sources[i]["text"] for i in item["source_ids"]):

@@ -1,5 +1,6 @@
 """Calendar/citation/freshness contract for persisted period reports."""
 
+import json
 from copy import deepcopy
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
@@ -9,8 +10,16 @@ from pydantic import ValidationError
 
 from routes.mihari import ReportRefreshRequest
 from routes.reports import ReportSettings
-from services.maintenance.operations import build_request, validate_result
-from services.period_reports import calendar_period, capture_report, instants, iso, report_context
+from services.maintenance.operations import build_request, completion_schema, validate_result
+from services.period_reports import (
+    POLICY,
+    calendar_period,
+    capture_report,
+    instants,
+    iso,
+    report_context,
+    report_quote_choices,
+)
 
 
 @pytest.mark.parametrize("fraction", ["", ".2", ".22", ".220", ".2201", ".22012", ".220123"])
@@ -92,6 +101,30 @@ def test_report_cannot_invent_source_or_quote_or_publish_partial_envelope():
         )
 
 
+def test_report_quotes_are_schema_constrained_without_changing_punctuation():
+    snap, _ = report_fixture()
+    snap["input"]["sources"][0]["text"] = "- Kept the gap’s clock.\n- Later reverted the change."
+    request = build_request(snap)
+    quote = request["schema"]["properties"]["sections"]["items"]["properties"]["items"]["items"][
+        "properties"
+    ]["evidence_quote"]
+    choices = report_quote_choices(snap["input"]["sources"])["journal:1"]
+    assert quote["enum"] == [choice["id"] for choice in choices]
+    assert all(choice["text"] in snap["input"]["sources"][0]["text"] for choice in choices)
+    assert any("gap’s" in choice["text"] for choice in choices)
+    _, result = report_fixture()
+    result["sections"][0]["items"][0]["evidence_quote"] = choices[0]["id"]
+    validated = validate_result(snap, result)
+    assert validated["sections"][0]["items"][0]["evidence_quote"] == choices[0]["text"]
+    snap["input"]["sources"].append({"id": "other", "text": "This is an uncited source excerpt."})
+    result["sections"][0]["items"][0]["evidence_quote"] = report_quote_choices(
+        snap["input"]["sources"]
+    )["other"][0]["id"]
+    with pytest.raises(ValueError, match="uncited source"):
+        validate_result(snap, result)
+    assert "evidence_choices" in request["prompt"]
+
+
 @pytest.mark.parametrize("zone", ["../../etc/passwd", "Mars/Olympus", "", "x" * 65])
 def test_invalid_timezone_rejected_in_ui_and_maintenance(zone):
     with pytest.raises(ValidationError):
@@ -100,6 +133,23 @@ def test_invalid_timezone_rejected_in_ui_and_maintenance(zone):
         ReportRefreshRequest(
             folder_id="11111111-1111-4111-8111-111111111111", head_sha="a" * 40, timezone=zone
         )
+
+
+def test_maximum_report_quote_schema_fits_native_single_argument_budget():
+    snap, _ = report_fixture()
+    sources = []
+    for prefix, count in (("journal:", 80), ("original:", 16), ("commit:", 150), ("pull:", 100)):
+        for n in range(count):
+            identifier = str(n) if prefix == "pull:" else f"{n:064x}"
+            sources.append(
+                {
+                    "id": prefix + identifier,
+                    "text": "\n".join(f"Exact source sentence number {j}." for j in range(6)),
+                }
+            )
+    snap["input"]["sources"] = sources
+    schema = completion_schema(build_request(snap)["schema"])
+    assert len(json.dumps(schema).encode()) < 120000
 
 
 class Query:
@@ -155,6 +205,8 @@ def test_retries_preserve_identical_snapshot_and_successful_day_is_not_regenerat
     )
     assert first == later
     assert first["report"]["status"] == "draft"
+    assert first["report"]["coverage"]["policy"] == POLICY
+    assert first["input"]["sources"][0]["observed_at"] == "2026-11-13T10:00:00+00:00"
     old = {
         **first["report"],
         "generated_at": "2026-11-13T11:01:00Z",
@@ -168,6 +220,43 @@ def test_retries_preserve_identical_snapshot_and_successful_day_is_not_regenerat
     )
     assert next_report["report"]["kind"] == "monthly"
     assert db.calls == 1
+    old["coverage"] = {**old["coverage"], "policy": POLICY - 1}
+    old["source_digest"] = "previous-policy-fingerprint"
+    revised, _ = capture_report(
+        DB(rows, [old]), "owner", "repo", body, datetime(2026, 11, 13, 12, tzinfo=timezone.utc)
+    )
+    assert revised["report"]["kind"] == "weekly"
+    assert revised["report"]["expected_revision"] == 1
+
+
+def test_same_day_reversal_keeps_precise_source_order():
+    rows = [
+        {
+            "entry_id": "revert",
+            "session_id": "s",
+            "agent": "codex",
+            "captured_at": "2026-11-13T15:00:00Z",
+            "body": "Reverted the earlier change after a regression.",
+        },
+        {
+            "entry_id": "implement",
+            "session_id": "s",
+            "agent": "codex",
+            "captured_at": "2026-11-13T10:00:00Z",
+            "body": "Implemented the new cache policy.",
+        },
+    ]
+    snap, _ = capture_report(
+        DB(rows),
+        "owner",
+        "repo",
+        {"head_sha": "a" * 40},
+        datetime(2026, 11, 13, 16, tzinfo=timezone.utc),
+    )
+    assert [source["id"] for source in snap["input"]["sources"]] == [
+        "journal:implement",
+        "journal:revert",
+    ]
 
 
 def test_report_context_is_optional_and_session_queries_do_not_load_reports():

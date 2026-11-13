@@ -34,6 +34,11 @@ const weekly = {
             source_ids: ["j1", "o1"],
             evidence_quote: "deployment remains unverified",
           },
+          {
+            text: "Confirm the deployed budget against the runtime result.",
+            source_ids: ["o1"],
+            evidence_quote: "Runtime RSS: 8 GiB",
+          },
         ],
       },
     ],
@@ -103,7 +108,14 @@ describe("ReportsPanel", () => {
       })
     ).toBeInTheDocument();
     expect(screen.getByText(/Sources through/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "View evidence" }));
+    expect(
+      screen.getAllByRole("button", { name: /^Sources for / })
+    ).toHaveLength(1);
+    expect(screen.getByText("Sources (2)")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Sources for / }));
+    expect(
+      screen.queryByRole("button", { name: "View evidence" })
+    ).not.toBeInTheDocument();
     fireEvent.click(
       await screen.findByRole("button", { name: "Open original" })
     );
