@@ -27,6 +27,7 @@ from routes.mihari import router as mihari_router
 from routes.notes import router as notes_router
 from routes.notion import router as notion_router
 from routes.remotes import router as remotes_router
+from routes.reports import router as reports_router
 from routes.retrieval_log import router as retrieval_log_router
 from routes.usage import router as usage_router
 from services.ai.chat import reconciliation_loop, revoked_cancellation_loop
@@ -86,6 +87,7 @@ app.include_router(context_router)
 app.include_router(notion_router)
 app.include_router(ingestion_jobs_router)
 app.include_router(learnings_router)
+app.include_router(reports_router)
 app.include_router(briefing_router)
 app.include_router(cli_router)
 app.include_router(agent_evidence_router)

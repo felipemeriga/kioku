@@ -252,6 +252,31 @@ def execute_memory_tool(
             if number is not None:
                 row["citation"] = f"[{number}]"
 
+    for report in result.get("period_reports", []):
+        fid = report["folder_id"]
+        label = (
+            f"Period report / {report['kind']} / {report['period_start']} / "
+            f"revision {report['revision']}"
+        )
+        source = {
+            "content": report["excerpt"],
+            "created_at": report["generated_at"],
+            "metadata": {
+                "source_filename": label,
+                "source_id": report["id"] + ":" + str(report["revision"]),
+                "folder_id": fid,
+                "revision_id": str(report["revision"]),
+                "file_url": "/documents?"
+                + urlencode({"folder": fid, "tab": "learnings", "report": report["id"]}),
+            },
+        }
+        number = citations.register(source) if citations else None
+        if number is not None:
+            report["citation"] = f"[{number}]"
+        if debug_retrieval is not None:
+            debug_retrieval.append(
+                {"source": label, "source_type": "document", "content": report["excerpt"]}
+            )
     return json.dumps(result, ensure_ascii=False)
 
 

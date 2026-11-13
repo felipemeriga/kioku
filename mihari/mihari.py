@@ -1345,6 +1345,92 @@ def refresh_repo_learnings(repo: dict) -> None:
         )
 
 
+def refresh_repo_reports(repo: dict) -> None:
+    """Generate one due period independently of principal-branch freshness."""
+    if not API_URL or not repo.get("api_key_encrypted"):
+        return
+    clone = DATA / repo["user_id"] / repo["folder_id"]
+    if not (clone / ".git").exists():
+        return
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.environ.get("HOME", "/root")}
+    code, head, _ = run_git(["rev-parse", "HEAD"], env, cwd=str(clone))
+    if code:
+        return
+    code, history, _ = run_git(
+        ["log", "--since=100 days ago", "-1000", "--format=%H%x1f%cI%x1f%s"], env, cwd=str(clone)
+    )
+    if code:
+        raise RuntimeError("Report Git evidence unavailable")
+    remote = re.fullmatch(
+        r"(?:git@github.com:|https://github.com/)([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?",
+        repo["remote_url"],
+    )
+    base = f"https://github.com/{remote[1]}/{remote[2]}" if remote else None
+    commits = []
+    for line in history.splitlines():
+        parts = line.split("\x1f", 2)
+        if len(parts) == 3:
+            sha, at, subject = parts
+            commits.append(
+                {
+                    "sha": sha,
+                    "at": at,
+                    "text": "Commit on principal branch: " + subject[:1450],
+                    "url": f"{base}/commit/{sha}" if base else None,
+                }
+            )
+    pulls, coverage = [], "unavailable"
+    # Never reuse one owner's private token for another tenant. Public API is
+    # optional; private-repo PR states remain explicitly unavailable.
+    if remote:
+        try:
+            response = requests.get(
+                f"https://api.github.com/repos/{remote[1]}/{remote[2]}/pulls",
+                params={"state": "all", "sort": "updated", "direction": "desc", "per_page": 100},
+                headers={"Accept": "application/vnd.github+json"},
+                timeout=15,
+            )
+            if response.ok:
+                rows = response.json()
+                coverage = "public_api_recent_100" if len(rows) == 100 else "public_api_available"
+                for row in rows:
+                    pulls.append(
+                        {
+                            "number": row["number"],
+                            "at": row["updated_at"],
+                            "url": row["html_url"],
+                            "text": (
+                                f"GitHub PR #{row['number']}: {row['title']}. "
+                                f"State at observation: {row['state']}; "
+                                f"merged_at={row.get('merged_at')}; "
+                                f"created_at={row['created_at']}; updated_at={row['updated_at']}"
+                            )[:1600],
+                        }
+                    )
+        except (requests.RequestException, ValueError, KeyError, TypeError):
+            coverage = "unavailable"
+    response = maintenance_post(
+        f"{API_URL}/api/mihari/reports",
+        headers={"Authorization": f"Bearer {decrypt(repo['api_key_encrypted'])}"},
+        json={
+            "folder_id": repo["folder_id"],
+            "head_sha": head,
+            "timezone": repo.get("report_timezone") or "UTC",
+            "commits": commits,
+            "pull_requests": pulls,
+            "github_coverage": coverage,
+        },
+        timeout=180,
+    )
+    raise_review_response(response)
+    result = response.json()
+    if result.get("updated"):
+        log(
+            f"{repo['remote_url']}: published {result.get('kind')} report "
+            f"revision {result.get('revision')}"
+        )
+
+
 def main() -> int:
     repos = rest_get("watched_repos", {"select": "*", "order": "created_at"})
     if not repos:
@@ -1369,10 +1455,10 @@ def main() -> int:
         # Journal capture continues between Git pushes. Review it on every pass,
         # independently of whether process_repo found a new principal commit.
         try:
-            refresh_repo_learnings(repo)
+            refresh_repo_reports(repo)
         except Exception as exc:  # noqa: BLE001 — retry on the next pass
             failures += 1
-            log(f"ERROR {repo['remote_url']}: learning review failed — {exc}")
+            log(f"ERROR {repo['remote_url']}: report review failed — {exc}")
     return 1 if failures else 0
 
 
