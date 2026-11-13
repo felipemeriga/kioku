@@ -20,6 +20,7 @@ import {
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
+import SourceOutlinedIcon from "@mui/icons-material/SourceOutlined";
 import { apiFetch } from "../lib/api";
 import { useAuth } from "../hooks/useAuth";
 import { ReadableContent } from "./agent-evidence/ReadableContent";
@@ -30,6 +31,7 @@ type Source = {
   id: string;
   kind: string;
   date: string;
+  observed_at?: string;
   text: string;
   entry_id?: string;
   journal_date?: string;
@@ -469,15 +471,28 @@ export default function ReportsPanel({
                       {section.items.map((item, n) => (
                         <Box key={n} sx={{ mb: 2.5 }}>
                           <ReadableContent text={item.text} />
-                          <Button
-                            size="small"
-                            sx={{ px: 0 }}
-                            onClick={() => showSources(item.source_ids)}
-                          >
-                            View evidence
-                          </Button>
                         </Box>
                       ))}
+                      <Button
+                        size="small"
+                        color="inherit"
+                        startIcon={<SourceOutlinedIcon fontSize="small" />}
+                        aria-label={`Sources for ${section.heading}`}
+                        sx={{ px: 0, color: "text.secondary" }}
+                        onClick={() =>
+                          showSources(
+                            section.items.flatMap((item) => item.source_ids)
+                          )
+                        }
+                      >
+                        Sources (
+                        {
+                          new Set(
+                            section.items.flatMap((item) => item.source_ids)
+                          ).size
+                        }
+                        )
+                      </Button>
                     </section>
                   ))}
                   <footer>
@@ -540,7 +555,9 @@ export default function ReportsPanel({
               variant="outlined"
             />
             <Typography variant="caption" sx={{ ml: 1 }}>
-              {source.date}
+              {source.observed_at
+                ? dateLabel(source.observed_at, report?.timezone || zone)
+                : source.date}
             </Typography>
             <ReadableContent text={source.text} />
             {source.url &&
