@@ -101,7 +101,8 @@ pub fn check(app: tauri::AppHandle, manual: bool) {
                 .build()
                 {
                     Ok(progress) => progress,
-                    Err(_) => {
+                    Err(error) => {
+                        eprintln!("Could not create update progress window: {error}");
                         app.dialog()
                             .message("Could not open the update window. Please try again.")
                             .parent(&window)
@@ -146,7 +147,8 @@ pub fn check(app: tauri::AppHandle, manual: bool) {
                             .parent(&window)
                             .show(|_| {});
                     }
-                    Err(_) => {
+                    Err(error) => {
+                        eprintln!("Desktop update failed: {error}");
                         app.dialog().message("The update could not be verified or installed. Please try again later.").parent(&window).title("Update failed").kind(MessageDialogKind::Error).show(|_| {});
                     }
                 }

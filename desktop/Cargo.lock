@@ -721,6 +721,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "data-url"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "be1e0bca6c3637f992fc1cc7cbc52a78c1ef6db076dbf1059c4323d6a2048376"
+
+[[package]]
 name = "dbus"
 version = "0.9.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2018,7 +2024,7 @@ dependencies = [
 
 [[package]]
 name = "kioku-desktop"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "percent-encoding",
  "reqwest 0.12.28",
@@ -4001,6 +4007,7 @@ dependencies = [
  "anyhow",
  "bytes",
  "cookie",
+ "data-url",
  "dirs",
  "dunce",
  "embed_plist",
