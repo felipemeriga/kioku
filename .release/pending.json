@@ -1,53 +1,63 @@
 {
-  "source_sha": "cf9ef5262152bfd3fd3ea3486f64d7bf4abae1cc",
+  "source_sha": "63e241611b707d925dce68718735a6598439c6b2",
   "release_branch": "main",
   "versions": {
-    "backend": "0.3.80",
-    "cli": "0.8.30",
-    "frontend": "0.5.51",
-    "mcp": "0.3.80",
-    "mihari": "0.3.40"
+    "backend": "0.3.81",
+    "cli": "0.8.31",
+    "frontend": "0.5.52",
+    "mcp": "0.3.81",
+    "mihari": "0.3.41",
+    "tsukai": "0.1.24"
   },
   "release_levels": {
     "backend": "patch",
     "cli": "patch",
     "frontend": "patch",
     "mcp": "patch",
-    "mihari": "patch"
+    "mihari": "patch",
+    "tsukai": "patch"
   },
   "major": false,
   "images": [
     {
       "package": "backend",
-      "version": "0.3.80",
+      "version": "0.3.81",
       "image": "felipemeriga1/kioku-backend",
       "context": "backend",
       "dockerfile": "backend/Dockerfile",
-      "tag": "0.3.80-cf9ef5262152"
+      "tag": "0.3.81-63e241611b70"
     },
     {
       "package": "frontend",
-      "version": "0.5.51",
+      "version": "0.5.52",
       "image": "felipemeriga1/kioku-frontend",
       "context": "frontend",
       "dockerfile": "frontend/Dockerfile",
-      "tag": "0.5.51-cf9ef5262152"
+      "tag": "0.5.52-63e241611b70"
     },
     {
       "package": "mcp",
-      "version": "0.3.80",
+      "version": "0.3.81",
       "image": "felipemeriga1/kioku-mcp",
       "context": "backend",
       "dockerfile": "backend/Dockerfile.mcp",
-      "tag": "0.3.80-cf9ef5262152"
+      "tag": "0.3.81-63e241611b70"
     },
     {
       "package": "mihari",
-      "version": "0.3.40",
+      "version": "0.3.41",
       "image": "felipemeriga1/kioku-mihari",
       "context": ".",
       "dockerfile": "mihari/Dockerfile",
-      "tag": "0.3.40-cf9ef5262152"
+      "tag": "0.3.41-63e241611b70"
+    },
+    {
+      "package": "tsukai",
+      "version": "0.1.24",
+      "image": "felipemeriga1/kioku-tsukai",
+      "context": "tsukai",
+      "dockerfile": "tsukai/Dockerfile",
+      "tag": "0.1.24-63e241611b70"
     }
   ],
   "cli": true,
