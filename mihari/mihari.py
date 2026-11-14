@@ -188,7 +188,18 @@ def maintenance_control_post(url, *, headers, json, timeout=30):
     raise RuntimeError("Maintenance gateway unavailable; durable preparation retained for retry")
 
 
-def maintenance_post(url, *, headers, json, timeout, _repair=True, _batches=3, _preparation=None):
+def maintenance_post(
+    url,
+    *,
+    headers,
+    json,
+    timeout,
+    _repair=True,
+    _batches=3,
+    _preparation=None,
+    _quote_repair=True,
+    _quote_preparation=None,
+):
     """Direct model transport after backend authorization and immutable prepare.
 
     This is an explicit maintenance call site, not an HTTP/LLM interception.
@@ -206,6 +217,7 @@ def maintenance_post(url, *, headers, json, timeout, _repair=True, _batches=3, _
             "operation": operation,
             "payload": json,
             **({"retry_preparation_id": _preparation} if _preparation else {}),
+            **({"quote_repair_preparation_id": _quote_preparation} if _quote_preparation else {}),
         },
         # A full monthly evidence snapshot can legitimately take more than 30s.
         # Keep it inside the existing bounded control deadline without restarting it.
@@ -275,6 +287,31 @@ def maintenance_post(url, *, headers, json, timeout, _repair=True, _batches=3, _
         and isinstance(detail, str)
         and detail.startswith("invalid_result:")
     )
+    if (
+        operation == "reports"
+        and invalid_result
+        and _quote_repair
+        and getattr(publication, "headers", {}).get("X-Kioku-Report-Repair") == "quotes"
+    ):
+        log("Correcting only source associations and dated citation anchors")
+        try:
+            return maintenance_post(
+                url,
+                headers=headers,
+                json=json,
+                timeout=timeout,
+                _repair=False,
+                _batches=_batches,
+                _quote_repair=False,
+                _quote_preparation=body["preparation_id"],
+            )
+        except RuntimeError as exc:
+            # If evidence cannot support unchanged claims, use the still-available
+            # single full review to qualify them. Never retry auth/transport failures.
+            if not _repair or "invalid_result:" not in str(exc):
+                raise
+            _quote_repair = False
+            log("Evidence association was insufficient; using the bounded full review")
     if _repair and (invalid_result or recoverable_budget):
         log(f"Maintenance attempt needs bounded recovery: {detail}")
         return maintenance_post(
@@ -285,6 +322,7 @@ def maintenance_post(url, *, headers, json, timeout, _repair=True, _batches=3, _
             _repair=False,
             _batches=_batches,
             _preparation=body["preparation_id"] if operation == "reports" else None,
+            _quote_repair=_quote_repair,
         )
     if (
         publication.status_code == 409

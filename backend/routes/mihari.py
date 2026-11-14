@@ -563,6 +563,9 @@ class MaintenancePrepareRequest(BaseModel):
     retry_preparation_id: str | None = Field(
         default=None, pattern=r"^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
     )
+    quote_repair_preparation_id: str | None = Field(
+        default=None, pattern=r"^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+    )
 
 
 class MaintenancePublishRequest(BaseModel):
@@ -591,6 +594,8 @@ def prepare_maintenance(body: MaintenancePrepareRequest, request: Request):
         parsed = models[body.operation].model_validate(body.payload)
         owner, sb = _authorized_maintenance(request, parsed.folder_id)
         if not native_enabled(owner):
+            if body.quote_repair_preparation_id:
+                raise HTTPException(status_code=409, detail="Native citation recovery is disabled")
             return {"ok": True, "engine": "api"}
         if body.operation == "reports":
             from zoneinfo import ZoneInfo
@@ -607,6 +612,17 @@ def prepare_maintenance(body: MaintenancePrepareRequest, request: Request):
             and payload.get("section") != body.operation
         ):
             raise HTTPException(status_code=422, detail="section/operation mismatch")
+        if body.retry_preparation_id and body.quote_repair_preparation_id:
+            raise ValueError("Choose one report recovery mode")
+        if body.quote_repair_preparation_id:
+            return prepare(
+                sb,
+                owner,
+                parsed.folder_id,
+                body.operation,
+                payload,
+                quote_repair_preparation_id=body.quote_repair_preparation_id,
+            )
         if body.retry_preparation_id:
             return prepare(
                 sb,
@@ -638,7 +654,12 @@ def publish_maintenance(body: MaintenancePublishRequest, request: Request):
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        from services.period_reports import ReportEvidenceError
+
+        headers = (
+            {"X-Kioku-Report-Repair": "quotes"} if isinstance(exc, ReportEvidenceError) else None
+        )
+        raise HTTPException(status_code=409, detail=str(exc), headers=headers) from exc
     except ExecutionError as exc:
         raise HTTPException(status_code=502, detail="maintenance execution: " + exc.code) from exc
     except APIError as exc:

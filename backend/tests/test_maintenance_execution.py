@@ -1186,3 +1186,172 @@ def test_background_reports_use_reasoning_without_changing_other_maintenance(
             assert not execution.request_matches_policy(changed)
         else:
             assert "reasoning_effort" not in request
+
+
+def quote_recovery_db():
+    snapshot = {
+        "operation": "reports",
+        "input": {
+            "head_sha": "a" * 40,
+            "kind": "monthly",
+            "period_start": "2026-11-01",
+            "timezone": "UTC",
+            "sources": [],
+        },
+    }
+    request = {"metadata": {"maintenance_operation": "reports"}, "prompt": "bound evidence"}
+    row = {
+        "id": "original",
+        "user_id": "owner",
+        "folder_id": "folder",
+        "operation": "reports",
+        "head_sha": "a" * 40,
+        "snapshot": snapshot,
+        "request": request,
+        "validation_error": "wrong quote date",
+        "publication": None,
+    }
+    db = DB(
+        {
+            "maintenance_preparations": [row],
+            "maintenance_usage_outbox": [
+                {
+                    "preparation_id": "original",
+                    "job_id": "verified-job",
+                    "user_id": "owner",
+                    "folder_id": "folder",
+                    "outcome": "completed",
+                    "captured_at": "done",
+                }
+            ],
+        }
+    )
+    return db, snapshot
+
+
+def test_quote_recovery_uses_verified_runner_candidate_and_is_idempotent(configured, monkeypatch):
+    from services import report_quote_repair
+
+    db, snapshot = quote_recovery_db()
+    calls = []
+    repaired_snapshot = {
+        **snapshot,
+        "quote_repair": {
+            "candidate": {},
+            "targets": [
+                {
+                    "key": "r0",
+                    "requires_observation": False,
+                    "finding": {"text": "Observed outcome"},
+                    "quotes": [
+                        {
+                            "id": "q1",
+                            "text": "Observed outcome in the primary record.",
+                            "date": "2026-11-10",
+                        }
+                    ],
+                }
+            ],
+        },
+    }
+    monkeypatch.setattr(execution, "request_matches_policy", lambda row: True)
+    monkeypatch.setattr(
+        report_quote_repair,
+        "make_quote_repair",
+        lambda snap, raw: calls.append((snap, raw)) or repaired_snapshot,
+    )
+
+    class Runner:
+        def __init__(self, url, token, capability):
+            claims = jwt.decode(
+                capability,
+                "test-key-that-is-at-least-32-bytes-long",
+                algorithms=["HS256"],
+                audience="tsukai",
+            )
+            expected = hashlib.sha256(
+                json.dumps(
+                    db.rows["maintenance_preparations"][0]["request"],
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode()
+            ).hexdigest()
+            assert claims["request_sha256"] == expected
+
+        def result(self, job):
+            assert job == "verified-job"
+            return SimpleNamespace(structured={"verified": True}, text="")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(execution, "TsukaiClient", Runner)
+    payload = {
+        "head_sha": "a" * 40,
+        "report_kind": "monthly",
+        "period_start": "2026-11-01",
+        "timezone": "UTC",
+        "candidate": "untrusted caller content",
+    }
+    first = execution.prepare(
+        db, "owner", "folder", "reports", payload, quote_repair_preparation_id="original"
+    )
+    second = execution.prepare(
+        db, "owner", "folder", "reports", payload, quote_repair_preparation_id="original"
+    )
+    assert first["preparation_id"] == second["preparation_id"]
+    assert first["request"]["reasoning_effort"] == "low"
+    assert first["request"]["max_tokens"] == 1500
+    assert all(raw == {"verified": True} for _, raw in calls)
+    repair = db.rows["maintenance_preparations"][1]
+    assert repair["repair_of"] == "original"
+    repair["validation_error"] = "unsupported"
+    with pytest.raises(ValueError, match="citation repair exhausted"):
+        execution.prepare(
+            db, "owner", "folder", "reports", payload, quote_repair_preparation_id="original"
+        )
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "foreign-owner",
+        "foreign-folder",
+        "foreign-job",
+        "period",
+        "published",
+        "repeat",
+        "foreign-parent",
+        "policy",
+    ],
+)
+def test_quote_recovery_rejects_untrusted_scope_and_repeat_requests(configured, monkeypatch, case):
+    db, snapshot = quote_recovery_db()
+    monkeypatch.setattr(execution, "request_matches_policy", lambda row: True)
+    owner, folder, payload = "owner", "folder", {"head_sha": "a" * 40}
+    if case == "foreign-owner":
+        owner = "other"
+    elif case == "foreign-folder":
+        folder = "other"
+    elif case == "foreign-job":
+        db.rows["maintenance_usage_outbox"][0]["user_id"] = "other"
+    elif case == "period":
+        payload["report_kind"] = "weekly"
+    elif case == "published":
+        db.rows["maintenance_preparations"][0]["publication"] = {"revision": 8}
+    elif case == "repeat":
+        snapshot["quote_repair"] = {"candidate": {}}
+    elif case == "foreign-parent":
+        db.rows["maintenance_preparations"][0]["repair_of"] = "foreign"
+        db.rows["maintenance_preparations"].append(
+            {
+                **db.rows["maintenance_preparations"][0],
+                "id": "foreign",
+                "user_id": "other",
+                "repair_of": None,
+            }
+        )
+    elif case == "policy":
+        monkeypatch.setattr(execution, "request_matches_policy", lambda row: False)
+    with pytest.raises(ValueError):
+        execution.report_quote_repair_snapshot(db, owner, folder, "reports", payload, "original")

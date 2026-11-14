@@ -210,6 +210,10 @@ def _source_quotes(entries):
 def build_request(snapshot):
     """Return model kwargs from an immutable, already authorized snapshot."""
     op = snapshot["operation"]
+    if op == "reports" and snapshot.get("quote_repair"):
+        from services.report_quote_repair import quote_repair_request
+
+        return quote_repair_request(snapshot)
     if op not in OPERATIONS:
         raise ValueError("unsupported maintenance operation")
     shape = deepcopy(SHAPES.get(op))
@@ -441,6 +445,10 @@ def validate_result(snapshot, raw):
             raise ValueError("nonpublishable maintenance outcome")
         value = value["data"]
     op = snapshot["operation"]
+    if op == "reports" and snapshot.get("quote_repair"):
+        from services.report_quote_repair import validate_quote_repair
+
+        return validate_quote_repair(snapshot, value)
     shape = SHAPES.get(op)
     if op == "reports":
         shape = report_shape(snapshot)

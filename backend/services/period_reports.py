@@ -12,6 +12,11 @@ from pydantic import AwareDatetime, TypeAdapter
 
 TIMESTAMP = TypeAdapter(AwareDatetime)
 
+
+class ReportEvidenceError(ValueError):
+    """Only dated anchors or missing observed-source citations failed validation."""
+
+
 # Keep final PR observations alongside initial intent and principal-branch
 # merge evidence so chronological sampling cannot silently lose resolutions.
 POLICY = 8
@@ -873,17 +878,22 @@ def validate_report(snapshot, value):
             raise ValueError("Report cites unknown or missing evidence")
 
     factual_errors = []
+    evidence_only = True
     location = "summary"
 
     def factual(check, *args):
+        nonlocal evidence_only
         try:
             check(*args)
         except ValueError as exc:
+            if check is not validate_runtime_provenance:
+                evidence_only = False
             factual_errors.append(f"{exc} [{location}]")
 
     def finish_factual_checks():
         if factual_errors:
-            raise ValueError("; ".join(dict.fromkeys(factual_errors)))
+            error = ReportEvidenceError if evidence_only else ValueError
+            raise error("; ".join(dict.fromkeys(factual_errors)))
 
     cited(value["summary_source_ids"])
     if compact_report(snapshot):

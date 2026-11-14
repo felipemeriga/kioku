@@ -636,3 +636,125 @@ def test_report_context_prioritizes_recent_primary_evidence_without_reusing_old_
         source["id"] for source in projected["input"]["sources"]
     }
     assert snapshot == before
+
+
+def citation_repair_fixture():
+    from services.report_quote_repair import make_quote_repair
+
+    snapshot, value = compact_fixture()
+    update = value["topics"][0]["updates"][1]
+    update["source_ids"] = ["s0", "s1"]
+    update["evidence_quote"] = report_choices(snapshot)["journal:intent"][0]["id"]
+    value["topics"][0]["updates"] = [update]
+    return snapshot, value, make_quote_repair(snapshot, value)
+
+
+def test_citation_only_recovery_preserves_claims_and_original_evidence():
+    snapshot, candidate, repair = citation_repair_fixture()
+    target = repair["quote_repair"]["targets"][0]
+    assert all(part["date"] == "2026-11-13" for part in target["quotes"])
+    selected = target["quotes"][0]["id"]
+    result = validate_result(repair, {"quotes": {"r0": selected}})
+    assert result["topics"][0]["updates"][0]["text"] == candidate["topics"][0]["updates"][0]["text"]
+    assert result["topics"][0]["updates"][0]["date"] == "2026-11-13"
+    assert (
+        result["topics"][0]["updates"][0]["evidence_quote"]
+        in snapshot["input"]["sources"][1]["text"]
+    )
+    assert repair["input"] == snapshot["input"]
+    assert candidate["topics"][0]["updates"][0]["evidence_quote"] != selected
+
+
+@pytest.mark.parametrize("selection", ["q0", "unknown", "unsupported", {"text": "invented"}])
+def test_citation_repair_cannot_choose_old_unknown_or_unverified_passages(selection):
+    _, _, repair = citation_repair_fixture()
+    with pytest.raises(ValueError, match="allowed supporting quote"):
+        validate_result(repair, {"quotes": {"r0": selection}})
+
+
+@pytest.mark.parametrize("extra", [{"summary": "rewritten"}, {"quotes": {"r0": "q1", "r1": "q1"}}])
+def test_citation_repair_cannot_edit_narrative_or_add_targets(extra):
+    _, _, repair = citation_repair_fixture()
+    value = {"quotes": {"r0": "q1"}, **extra}
+    with pytest.raises(ValueError, match="required shape"):
+        validate_result(repair, value)
+
+
+def test_monthly_quote_anchor_can_use_actual_day_in_same_iso_week():
+    from services.report_quote_repair import make_quote_repair
+
+    snapshot, candidate = compact_fixture()
+    snapshot["input"].update(kind="monthly", period_start="2026-11-01", period_end="2026-11-30")
+    update = candidate["topics"][0]["updates"][1]
+    update["date"] = "2026-11-12"
+    candidate["topics"][0]["updates"] = [update]
+    repair = make_quote_repair(snapshot, candidate)
+    target = repair["quote_repair"]["targets"][0]
+    result = validate_result(repair, {"quotes": {"r0": target["quotes"][0]["id"]}})
+    assert result["topics"][0]["updates"][0]["date"] == "2026-11-13"
+    assert result["topics"][0]["updates"][0]["text"] == update["text"]
+
+
+def test_citation_recovery_rejects_other_factual_failures_and_repeated_repairs():
+    from services.report_quote_repair import make_quote_repair
+
+    snapshot, candidate, repair = citation_repair_fixture()
+    candidate["summary"] = "Five PRs merged into main during the week."
+    with pytest.raises(ValueError, match="merge totals"):
+        make_quote_repair(snapshot, candidate)
+    with pytest.raises(ValueError, match="exhausted"):
+        make_quote_repair(repair, candidate)
+
+
+def test_citation_request_excludes_unrelated_sources_and_uses_bounded_choices():
+    from services.report_quote_repair import make_quote_repair
+
+    snapshot, candidate, _ = citation_repair_fixture()
+    snapshot["input"]["sources"].append(
+        {
+            "id": "journal:unrelated",
+            "kind": "journal",
+            "date": "2026-11-13",
+            "observed_at": "2026-11-13T18:00:00Z",
+            "text": "UNRELATED_PRIVATE_CONTEXT_CANARY",
+        }
+    )
+    repair = make_quote_repair(snapshot, candidate)
+    request = build_request(repair)
+    assert request["max_tokens"] == 1500
+    assert "UNRELATED_PRIVATE_CONTEXT_CANARY" not in request["prompt"]
+    assert "unsupported" in request["schema"]["properties"]["quotes"]["properties"]["r0"]["enum"]
+    jsonschema.validate({"quotes": {"r0": "unsupported"}}, request["schema"])
+
+
+def test_runtime_citation_repair_adds_only_existing_observed_primary_evidence():
+    from services.report_quote_repair import make_quote_repair
+
+    snapshot, candidate = compact_fixture()
+    snapshot["input"]["sources"].append(
+        {
+            "id": "journal:live-check",
+            "kind": "journal",
+            "date": "2026-11-13",
+            "observed_at": "2026-11-13T18:00:00Z",
+            "text": "NBA SSE service deployed; a live production request succeeded.",
+        }
+    )
+    aliases = {source: alias for alias, source in report_aliases(snapshot).items()}
+    commit = "commit:" + "b" * 40
+    item = candidate["topics"][0]["final_state"]["items"][0]
+    item.update(
+        text="NBA SSE service deployed successfully.",
+        source_ids=[aliases[commit]],
+        evidence_quote=report_choices(snapshot)[commit][0]["id"],
+    )
+    repair = make_quote_repair(snapshot, candidate)
+    target = repair["quote_repair"]["targets"][0]
+    assert target["requires_observation"]
+    assert all(part["kind"] in {"journal", "original"} for part in target["quotes"])
+    quote = next(part for part in target["quotes"] if part["source"] == "journal:live-check")
+    result = validate_result(repair, {"quotes": {"r0": quote["id"]}})
+    repaired = result["topics"][0]["final_state"]["items"][0]
+    assert repaired["text"] == item["text"]
+    assert "journal:live-check" in repaired["source_ids"]
+    assert repaired["evidence_quote"] in snapshot["input"]["sources"][-1]["text"]
