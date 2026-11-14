@@ -984,3 +984,72 @@
 .reports-source-dialog .reports-source-modal {
   background-image: none;
 }
+
+/* Keep navigation bounded while its caption and pagination remain visible. */
+.reports-periods {
+  display: flex;
+  flex-direction: column;
+  max-height: min(680px, 70dvh);
+  background: var(--surface);
+}
+.reports-period-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: #9864b5 var(--surface);
+}
+.reports-period-scroll:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: -2px;
+}
+.reports-periods .reports-period-caption,
+.reports-periods footer {
+  flex-shrink: 0;
+}
+.reports-period-scroll .reports-period-month {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 12px 11px 7px;
+  color: var(--muted);
+  background: var(--surface);
+  font-size: 11px;
+  font-weight: 600;
+}
+/* Match the scoped button reset so selection and hover cannot be overridden. */
+.reports-panel button.reports-period {
+  border: 1px solid transparent;
+  border-bottom-color: var(--line);
+  border-left-width: 2px;
+  margin: 3px 0;
+  background: transparent;
+  transition: background-color 120ms, border-color 120ms;
+}
+.reports-panel button.reports-period:hover {
+  background: var(--raised);
+  border-color: #78518c;
+}
+.reports-panel button.reports-period.selected {
+  background: #291236;
+  border-color: #684064;
+  border-left-color: var(--pink);
+}
+.reports-panel button.reports-period.selected span {
+  color: #ddb7d5;
+}
+@media (max-width: 650px) {
+  .reports-periods {
+    flex-direction: row;
+    max-height: none;
+  }
+  .reports-periods .reports-period-scroll {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .reports-panel button.reports-period {
+    transition: none;
+  }
+}

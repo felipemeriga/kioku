@@ -628,4 +628,49 @@ describe("Chronological report reading", () => {
     expect(within(work).getByText("Week of December 28")).toBeInTheDocument();
     expect(within(work).getByText("Week of January 4")).toBeInTheDocument();
   });
+  it("groups weekly periods by start month and keeps selection accessible", async () => {
+    const rows = [
+      weekly,
+      {
+        ...weekly,
+        id: "33333333-3333-4333-8333-333333333333",
+        period_start: "2026-11-02",
+        period_end: "2026-11-08",
+        status: "final",
+      },
+      {
+        ...weekly,
+        id: "44444444-4444-4444-8444-444444444444",
+        period_start: "2026-10-26",
+        period_end: "2026-11-01",
+        status: "final",
+      },
+    ];
+    vi.mocked(apiFetch).mockImplementation(async (path) => {
+      const url = String(path);
+      if (url.includes("/reports?"))
+        return response({ reports: rows, timezone: "UTC", has_more: false });
+      return response({
+        report: rows.find((row) => url.includes(row.id)) ?? weekly,
+        revisions: [{ revision: 2 }],
+      });
+    });
+    mount();
+    const periods = await screen.findByRole("region", {
+      name: "Available weekly reports",
+    });
+    expect(periods).toHaveAttribute("tabindex", "0");
+    expect(
+      within(periods).getAllByRole("heading", { name: "November 2026" })
+    ).toHaveLength(1);
+    expect(
+      within(periods).getByRole("heading", { name: "October 2026" })
+    ).toBeInTheDocument();
+    const older = within(periods).getByRole("button", { name: /November 2–8/ });
+    fireEvent.click(older);
+    expect(older).toHaveAttribute("aria-current", "true");
+    expect(
+      within(periods).getByRole("button", { name: /November 9–15/ })
+    ).not.toHaveAttribute("aria-current");
+  });
 });
