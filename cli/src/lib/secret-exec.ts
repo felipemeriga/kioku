@@ -1,4 +1,4 @@
-import { Transform, type TransformCallback, type Writable } from "node:stream";
+import { Transform, type TransformCallback, Writable } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 import { spawn } from "node:child_process";
 
@@ -209,6 +209,8 @@ export async function runSecretCommand(
     let stopCode: number | undefined;
     let forceKilled = false;
     let closedResult: number | undefined;
+    let outputFinished = 0;
+    const forwards: Array<{ source: Transform; sink: Writable }> = [];
     let escalation: ReturnType<typeof setTimeout> | undefined;
     const kill = (signal: NodeJS.Signals) => {
       if (!child.pid) return;
@@ -222,14 +224,16 @@ export async function runSecretCommand(
       if (stopping) return;
       stopping = true;
       stopCode = exitCode;
+      if (closedResult !== undefined) closedResult = exitCode;
       kill(signal);
       escalation = setTimeout(() => {
         kill("SIGKILL");
         forceKilled = true;
-        if (closedResult !== undefined) {
-          cleanup();
-          resolve(closedResult);
+        for (const { source, sink } of forwards) {
+          source.unpipe(sink);
+          sink.destroy();
         }
+        finishIfReady();
       }, 3000);
       // Keep escalation alive even if the group leader exits before descendants.
     };
@@ -239,14 +243,48 @@ export async function runSecretCommand(
     timer.unref();
     process.on("SIGINT", interrupt);
     process.on("SIGTERM", terminate);
+    const outputFailed = () => stop("SIGTERM", 1);
+    const finishIfReady = () => {
+      if (
+        closedResult === undefined ||
+        outputFinished < 2 ||
+        (stopping && !forceKilled)
+      )
+        return;
+      cleanup();
+      resolve(closedResult);
+    };
     const cleanup = () => {
       clearTimeout(timer);
       if (escalation) clearTimeout(escalation);
       process.off("SIGINT", interrupt);
       process.off("SIGTERM", terminate);
+      outputs.stdout.off("error", outputFailed);
+      outputs.stderr.off("error", outputFailed);
     };
-    stdout.pipe(outputs.stdout, { end: false });
-    stderr.pipe(outputs.stderr, { end: false });
+    const forward = (source: Transform, destination: Writable) => {
+      let complete = false;
+      const done = () => {
+        if (!complete) {
+          complete = true;
+          outputFinished++;
+          finishIfReady();
+        }
+      };
+      const sink = new Writable({
+        write(chunk, encoding, callback) {
+          destination.write(chunk, encoding, callback);
+        },
+      });
+      forwards.push({ source, sink });
+      sink.once("finish", done);
+      sink.once("close", done);
+      sink.once("error", outputFailed);
+      destination.on("error", outputFailed);
+      source.pipe(sink);
+    };
+    forward(stdout, outputs.stdout);
+    forward(stderr, outputs.stderr);
     child.stdout.pipe(stdout);
     child.stderr.pipe(stderr);
     child.once("error", () => {
@@ -262,9 +300,7 @@ export async function runSecretCommand(
         stopCode ??
         code ??
         (signal === "SIGINT" ? 130 : signal === "SIGTERM" ? 143 : 1);
-      if (stopping && !forceKilled) return;
-      cleanup();
-      resolve(closedResult);
+      finishIfReady();
     });
   });
 }

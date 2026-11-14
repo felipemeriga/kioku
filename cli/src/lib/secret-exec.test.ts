@@ -197,3 +197,79 @@ test(
     }
   },
 );
+
+test(
+  "a closed output pipe stops execution without success or raw error output",
+  { timeout: 7000 },
+  async () => {
+    const { Writable } = await import("node:stream");
+    const { runSecretCommand } = await import("./secret-exec.js");
+    const output = new Writable({
+      write(_chunk, _encoding, cb) {
+        cb(Object.assign(new Error("closed pipe"), { code: "EPIPE" }));
+      },
+    });
+    output.on("error", () => {});
+    const code = await runSecretCommand(
+      [
+        process.execPath,
+        "-e",
+        "process.stdout.write(process.env.TEST_CREDENTIAL);setTimeout(()=>{},150)",
+      ],
+      {
+        invocation_id: "test",
+        environment: { TEST_CREDENTIAL: "synthetic" },
+        clear_env: [],
+        credential_expires_at: null,
+      },
+      {
+        stdout: output,
+        stderr: new Writable({
+          write(_c, _e, cb) {
+            cb();
+          },
+        }),
+      },
+    );
+    assert.equal(code, 1);
+  },
+);
+
+test(
+  "cancellation abandons backpressured proxies without destroying shared outputs",
+  { timeout: 6500 },
+  async () => {
+    const { Writable } = await import("node:stream");
+    const { runSecretCommand } = await import("./secret-exec.js");
+    const stalled = new Writable({ write(_c, _e, _cb) {} });
+    const discard = new Writable({
+      write(_c, _e, cb) {
+        cb();
+      },
+    });
+    const command = runSecretCommand(
+      [
+        process.execPath,
+        "-e",
+        'process.stdout.write("nonsecret output");setInterval(()=>{},1000)',
+      ],
+      {
+        invocation_id: "test",
+        environment: { TEST_CREDENTIAL: "synthetic" },
+        clear_env: [],
+        credential_expires_at: null,
+      },
+      { stdout: stalled, stderr: discard },
+    );
+    const timer = setTimeout(() => process.emit("SIGTERM"), 200);
+    try {
+      assert.equal(await command, 143);
+      assert.equal(stalled.destroyed, false);
+      assert.equal(discard.destroyed, false);
+    } finally {
+      clearTimeout(timer);
+      stalled.destroy();
+      discard.destroy();
+    }
+  },
+);

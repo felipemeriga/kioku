@@ -133,5 +133,9 @@ export async function execAccess(
     bindings = parseBindings(opts.binding);
   if (!command.length) throw Error("Provide a command after --.");
   const resolved = await resolveSecretAccess(root, bindings);
-  process.exitCode = await runSecretCommand(command, resolved);
+  const code = await runSecretCommand(command, resolved);
+  process.exitCode = code;
+  // On cancellation output may be intentionally abandoned (e.g. a stalled pipe).
+  // Do not wait indefinitely for the shared stdout handle to drain.
+  if ([124, 130, 143].includes(code)) process.exit(code);
 }
