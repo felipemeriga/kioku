@@ -640,3 +640,29 @@ def test_safe_routes_generate_correlation_ids_for_all_outcomes(api):
         assert response.headers["Cache-Control"] == "no-store"
         assert UUID(response.headers["X-Request-ID"])
     assert len({r.headers["X-Request-ID"] for r in results}) == 3
+
+
+def test_aws_region_comes_from_explicit_resource_metadata(api, db, monkeypatch):
+    db.rows["access_resources"][0].update({"type": "cloud", "region": "us-east-2"})
+    db.rows["access_bindings"][0]["field_mapping"] = {
+        "AWS_ACCESS_KEY_ID": "id",
+        "AWS_SECRET_ACCESS_KEY": "key",
+    }
+
+    class Aws:
+        def read(self, ref):
+            return {"id": "synthetic-id", "key": SECRET}
+
+    monkeypatch.setattr(store, "InfisicalProvider", Aws)
+    r = api.post(
+        "/api/secret-access/resolve",
+        json=body(),
+        headers={"Authorization": "Bearer ksd_fake-token"},
+    )
+    assert r.status_code == 200
+    assert r.json()["environment"] == {
+        "AWS_ACCESS_KEY_ID": "synthetic-id",
+        "AWS_SECRET_ACCESS_KEY": SECRET,
+        "AWS_REGION": "us-east-2",
+    }
+    assert "AWS_CONFIG_FILE" not in r.json()["environment"]

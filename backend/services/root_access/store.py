@@ -437,12 +437,14 @@ class AccessStore:
                 fail("secret_unavailable", 409)
             if expired(row["credential_expires_at"], 60):
                 fail("credential_expired", 409)
-            self.one("access_resources", owner, root, row["resource_id"])
+            resource = self.one("access_resources", owner, root, row["resource_id"])
             self.binding(owner, root, row)
             if set(environment) & set(row["field_mapping"]):
                 fail("invalid_input", 422)
             environment.update(dict.fromkeys(row["field_mapping"]))
             clear.extend(row["clear_env"])
+            if resource["type"] == "cloud" and resource.get("region"):
+                environment.setdefault("AWS_REGION", resource["region"])
             if row["credential_expires_at"]:
                 expiry.append(row["credential_expires_at"])
             bindings.append(row)
