@@ -190,7 +190,9 @@ export async function execAccess(
         argv,
         {
           ...resolved,
-          clear_env: [...resolved.clear_env, ...delivery.clearEnvironment],
+          clear_env: [
+            ...new Set([...resolved.clear_env, ...delivery.clearEnvironment]),
+          ],
           environment: delivery.environment,
         },
         undefined,
