@@ -420,9 +420,9 @@ def query_documents_metadata(question: str) -> str:
         user_id = _current_user_id.get()
         folder_ids = _descendant_folder_ids(get_supabase(), _current_scope_folder_id.get(), user_id)
         return metadata_query(question, {"owner_id": user_id, "folder_ids": folder_ids})
-    result = generate_and_execute_sql(
-        question, _current_user_id.get(), _current_scope_folder_id.get()
-    )
+    user_id = _current_user_id.get()
+    folder_ids = _descendant_folder_ids(get_supabase(), _current_scope_folder_id.get(), user_id)
+    result = generate_and_execute_sql(question, user_id, folder_ids=folder_ids)
     if result["error"]:
         return f"Query failed: {result['error']}"
     if not result["results"]:
