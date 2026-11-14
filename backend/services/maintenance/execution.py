@@ -696,7 +696,7 @@ def prepare(sb, owner, folder, operation, payload, retry_preparation_id=None):
             request["idempotency_key"] = "maintenance:" + key
             request["prompt"] += (
                 "\nA previous independent attempt failed deterministic validation: "
-                + original["validation_error"][: (1200 if operation == "reports" else 300)]
+                + original["validation_error"][: (4000 if operation == "reports" else 300)]
                 + ". Produce a complete corrected result using only the original evidence."
             )
             repaired = (
@@ -823,7 +823,7 @@ def publish(sb, owner, folder, preparation, job_id):
             sb.table("maintenance_preparations").update(
                 {
                     "validation_error": str(exc)[
-                        : (1200 if row["snapshot"]["operation"] == "reports" else 300)
+                        : (4000 if row["snapshot"]["operation"] == "reports" else 300)
                     ]
                 }
             ).eq("id", preparation).eq("user_id", owner).execute()

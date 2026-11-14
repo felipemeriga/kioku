@@ -588,6 +588,10 @@ def test_one_repair_receives_all_independent_factual_problems():
     ):
         assert expected in message
     assert message.count("runtime claim requires") == 1
+    assert "topics.nba-sse.updates[2026-11-12]" in message
+    assert "belongs to 2026-11-13; choose a quote from 2026-11-12" in message
+    assert "topics.nba-sse.final_state.items[1]" in message
+    assert "topics.nba-sse.final_state.status" in message
     assert len(message) < 1200
 
 
