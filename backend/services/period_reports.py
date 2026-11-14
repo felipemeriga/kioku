@@ -699,9 +699,17 @@ def validate_numeric_ranges(text, evidence):
             return re.escape(number) + r"\s*" + unit_pattern
 
         explicit_range = re.escape(first) + r"\s*(?:to|→|->)\s*" + quantity(last)
-        if not re.search(explicit_range, source_text) and not all(
-            re.search(quantity(number), source_text) for number in (first, last)
-        ):
+        prefixed_range = (
+            unit_pattern
+            + r"[^0-9.\n]{0,100}"
+            + re.escape(first)
+            + r"\s*(?:to|→|->)\s*"
+            + re.escape(last)
+            + r"\b"
+        )
+        if not (
+            re.search(explicit_range, source_text) or re.search(prefixed_range, source_text)
+        ) and not all(re.search(quantity(number), source_text) for number in (first, last)):
             raise ValueError("Report numeric range lacks evidence for its unit; omit or qualify it")
 
 

@@ -446,6 +446,7 @@ def test_unlabeled_source_numbers_cannot_become_route_or_module_counts(claim, so
     [
         ("Diagnostics fell from 41 to 31 errors.", "Type checking reduced from 41 to 31 errors."),
         ("Counts fell from 41 to 31 errors.", "Initially 41 errors; finally 31 errors."),
+        ("Type errors fell from 47 to 41 errors.", "Type errors in Services and clips (47 to 41)."),
         ("Changed from 3 to 4 GiB.", "A 3 GiB test preceded adoption of 4 GiB."),
         ("Added 3 to 4 and left the rest unchanged.", "The inputs were inspected."),
     ],
