@@ -666,3 +666,26 @@ def test_aws_region_comes_from_explicit_resource_metadata(api, db, monkeypatch):
         "AWS_REGION": "us-east-2",
     }
     assert "AWS_CONFIG_FILE" not in r.json()["environment"]
+
+
+def test_revoking_one_computer_does_not_revoke_another(api, db, fake_provider):
+    second = str(uuid4())
+    d = deepcopy(db.rows["secret_devices"][0])
+    d.update({"id": second, "credential_hash": store.digest("ksd_second-device")})
+    db.rows["secret_devices"].append(d)
+    g = deepcopy(db.rows["secret_grants"][0])
+    g.update({"id": str(uuid4()), "device_id": second})
+    db.rows["secret_grants"].append(g)
+    assert api.post(f"/api/root-access/{ROOT}/devices/{DEVICE}/revoke").status_code == 200
+    denied = api.post(
+        "/api/secret-access/resolve",
+        json=body(),
+        headers={"Authorization": "Bearer ksd_fake-token"},
+    )
+    allowed = api.post(
+        "/api/secret-access/resolve",
+        json=body(),
+        headers={"Authorization": "Bearer ksd_second-device"},
+    )
+    assert denied.status_code == 403 and SECRET not in denied.text
+    assert allowed.status_code == 200 and allowed.json()["environment"]["MONGO_URI"] == SECRET
