@@ -180,6 +180,7 @@ def make_quote_repair(snapshot, raw):
 
 
 def quote_repair_request(snapshot):
+    records = {source: alias for alias, source in report_aliases(snapshot).items()}
     targets = snapshot["quote_repair"]["targets"]
     fields = {
         target["key"]: {
@@ -207,7 +208,7 @@ def quote_repair_request(snapshot):
         ),
         "prompt": (
             "Correct evidence metadata only. For each finding choose a supplied quote ID that "
-            "supports its substantive claim. Read adjacent source parts together. Never rewrite "
+            "supports its substantive claim. Read adjacent parts of the same record together. Never rewrite "
             "claims or select a passage merely because its date matches. For requires_observation "
             "select an actual recorded deployment/execution observation. Plans, implementation, "
             "or inspection of generated report text do not prove successful execution. Select "
@@ -221,7 +222,11 @@ def quote_repair_request(snapshot):
                         "finding": t["finding"],
                         "requires_observation": t["requires_observation"],
                         "quotes": [
-                            {k: v for k, v in p.items() if k != "source"} for p in t["quotes"]
+                            {
+                                "record": records.get(p.get("source"), "provided"),
+                                **{k: v for k, v in p.items() if k != "source"},
+                            }
+                            for p in t["quotes"]
                         ],
                     }
                     for t in targets

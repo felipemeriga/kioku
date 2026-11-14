@@ -1312,7 +1312,17 @@ def test_quote_recovery_uses_verified_runner_candidate_and_is_idempotent(configu
 
 
 @pytest.mark.parametrize(
-    "case", ["foreign-owner", "foreign-folder", "foreign-job", "period", "published", "repeat"]
+    "case",
+    [
+        "foreign-owner",
+        "foreign-folder",
+        "foreign-job",
+        "period",
+        "published",
+        "repeat",
+        "foreign-parent",
+        "policy",
+    ],
 )
 def test_quote_recovery_rejects_untrusted_scope_and_repeat_requests(configured, monkeypatch, case):
     db, snapshot = quote_recovery_db()
