@@ -3,6 +3,7 @@ import { screen, fireEvent, waitFor } from "@testing-library/react";
 import { Route, Routes } from "react-router-dom";
 import { renderWithProviders } from "../test/renderWithProviders";
 import RootAccessPage from "./RootAccessPage";
+import ResourceDialog from "../components/access/ResourceDialog";
 import { ApiError } from "../lib/api";
 import { useAuth } from "../hooks/useAuth";
 import { EnvironmentGuide } from "../components/access/AccessAdministration";
@@ -113,6 +114,7 @@ describe("root access interface", () => {
       await screen.findByText("Stored in central vault"),
     ).toBeInTheDocument();
     expect(screen.getByText("MONGO_URI")).toBeInTheDocument();
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
   });
   it("writes credentials through the dedicated endpoint and clears on provider failure", async () => {
     vi.mocked(mutateAccess).mockRejectedValue(
@@ -302,4 +304,31 @@ describe("pending credential recovery", () => {
       expect(document.body.textContent).not.toContain("RECOVERY-CANARY");
     },
   );
+});
+
+describe("binding metadata refresh", () => {
+  it("selects a newly loaded binding when the drawer opened before the refetch finished", () => {
+    const view = renderWithProviders(
+      <ResourceDialog
+        root={root}
+        catalog={{ ...catalog, bindings: [] }}
+        resource={catalog.resources[0]}
+        onClose={() => {}}
+        onSaved={() => {}}
+      />,
+    );
+    expect(
+      screen.queryByText("Stored in central vault"),
+    ).not.toBeInTheDocument();
+    view.rerender(
+      <ResourceDialog
+        root={root}
+        catalog={catalog}
+        resource={catalog.resources[0]}
+        onClose={() => {}}
+        onSaved={() => {}}
+      />,
+    );
+    expect(screen.getByText("Stored in central vault")).toBeInTheDocument();
+  });
 });

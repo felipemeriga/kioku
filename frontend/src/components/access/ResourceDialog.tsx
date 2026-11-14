@@ -45,7 +45,9 @@ export default function ResourceDialog({
     (b) => b.resource_id === resource?.id,
   );
   const [bindingId, setBindingId] = useState(bindings[0]?.id ?? "");
-  const binding = bindings.find((b) => b.id === bindingId);
+  const binding =
+    bindings.find((b) => b.id === bindingId) ??
+    (bindingId === "" ? bindings[0] : undefined);
   const [mode, setMode] = useState<
     "detail" | "resource" | "mapping" | "credential"
   >(resource ? "detail" : "resource");
@@ -245,11 +247,20 @@ export default function ResourceDialog({
         "Unavailable environment")
       : "Shared";
   return (
-    <Drawer anchor="right" open onClose={close} className="access-drawer">
+    <Drawer
+      anchor="right"
+      open
+      onClose={close}
+      className="access-drawer"
+      slotProps={{
+        paper: {
+          role: "dialog",
+          "aria-modal": true,
+          "aria-labelledby": "access-resource-title",
+        },
+      }}
+    >
       <Box
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="access-resource-title"
         sx={{
           display: "flex",
           flexDirection: "column",
@@ -394,8 +405,8 @@ export default function ResourceDialog({
                         key={b.id}
                         label={`${environmentName(b)} · ${b.consumer}`}
                         onClick={() => selectBinding(b)}
-                        variant={b.id === bindingId ? "filled" : "outlined"}
-                        color={b.id === bindingId ? "secondary" : "default"}
+                        variant={b.id === binding?.id ? "filled" : "outlined"}
+                        color={b.id === binding?.id ? "secondary" : "default"}
                         size="small"
                         sx={{
                           maxWidth: "100%",
@@ -413,7 +424,7 @@ export default function ResourceDialog({
                     variant="outlined"
                     size="small"
                     onClick={() => {
-                      setBindingId("");
+                      setBindingId("new");
                       setEnvironment("");
                       setConsumer("");
                       setMapping("CONNECTION_URI=connection");
