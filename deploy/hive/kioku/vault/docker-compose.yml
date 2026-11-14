@@ -1,0 +1,84 @@
+# Private centralized vault. No public listener; CLI talks to Kioku's HTTPS API.
+name: kioku-vault
+services:
+  infisical:
+    image: infisical/infisical:v0.167.10@sha256:1a8ed5e889988b37ffb439d67677de5f42b4864236a9c76fbfa9a097676daabd
+    container_name: kioku-vault
+    restart: unless-stopped
+    mem_limit: 2g
+    cpus: 1.5
+    env_file: vault.env
+    environment:
+      NODE_ENV: production
+      TELEMETRY_ENABLED: "false"
+      DB_CONNECTION_URI: postgres://infisical:${POSTGRES_PASSWORD:?required}@vault-db:5432/infisical
+      REDIS_URL: redis://vault-redis:6379
+      SITE_URL: http://kioku-vault:8080
+    depends_on:
+      vault-db:
+        condition: service_healthy
+      vault-redis:
+        condition: service_healthy
+    networks:
+      - vault-private
+      - vault-access
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/api/status').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 40
+      start_period: 120s
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+  vault-db:
+    image: postgres:14-alpine@sha256:0e6cd607ed90b858005f39da5931dad42ff1ea4be37a897ffe325414b0bab029
+    container_name: kioku-vault-db
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: 0.5
+    environment:
+      POSTGRES_DB: infisical
+      POSTGRES_USER: infisical
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+    volumes:
+      - vault-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U infisical -d infisical"]
+      interval: 5s
+      timeout: 3s
+      retries: 40
+    networks:
+      - vault-private
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+  vault-redis:
+    image: redis:7-alpine@sha256:7f7d30b7fdd09467bac58198a1f166dd69789d348d4fe859cccb20e0cf287fbe
+    container_name: kioku-vault-redis
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.25
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "96mb", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - vault-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - vault-private
+volumes:
+  vault-postgres:
+    name: kioku-vault-postgres
+  vault-redis:
+    name: kioku-vault-redis
+networks:
+  vault-private:
+    internal: true
+  vault-access:
+    external: true
+    name: kioku-vault-access

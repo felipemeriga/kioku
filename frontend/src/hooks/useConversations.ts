@@ -28,7 +28,8 @@ export function useConversations() {
 
   const listQuery = useQuery({
     queryKey: qk.conversationsForUser(ownerId),
-    queryFn: fetchConversations,
+    queryFn: ({ signal }) => fetchConversations(signal),
+    retry: false,
     enabled: !authLoading && !!ownerId,
   });
   const { data: conversations = [], isSuccess } = listQuery;
@@ -87,13 +88,14 @@ export function useConversations() {
   useEffect(() => {
     if (!selectedId || !ownerId) return;
     let active = true;
+    const controller = new AbortController();
     void Promise.resolve().then(async () => {
       if (!active) return;
       setMessagesLoading(true);
       setMessagesError(null);
       setActiveExecution(null);
       try {
-        const conv = await fetchConversation(selectedId);
+        const conv = await fetchConversation(selectedId, controller.signal);
         if (active) {
           setMessages(conv.messages);
           setActiveExecution(conv.active_execution ?? null);
@@ -110,6 +112,7 @@ export function useConversations() {
     });
     return () => {
       active = false;
+      controller.abort();
     };
   }, [selectedId, messageAttempt, ownerId]);
 
