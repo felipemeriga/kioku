@@ -33,3 +33,17 @@ do $$ declare r jsonb; v integer; begin
  if has_table_privilege('authenticated','public.access_bindings','SELECT') or has_function_privilege('authenticated','public.consume_secret_enrollment(uuid,text,uuid,text)','EXECUTE') then raise exception 'authenticated raw access granted'; end if;
 end $$;
 select 'root access SQL acceptance passed' as result;
+do $$ declare r jsonb; v integer; expiry timestamptz:=now()+interval '1 day'; begin
+ r:=reserve_secret_write('70000000-0000-4000-8000-000000000003','10000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000001','40000000-0000-4000-8000-000000000001',2,'opaque3','hmac3',expiry);
+ v:=finish_secret_write('70000000-0000-4000-8000-000000000003','10000000-0000-4000-8000-000000000001',null);
+ if v<>3 or (select credential_expires_at from access_bindings where id='40000000-0000-4000-8000-000000000001')<>expiry then raise exception 'original expiry lost on recovery'; end if;
+ r:=reserve_secret_write('70000000-0000-4000-8000-000000000004','10000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000001','40000000-0000-4000-8000-000000000001',3,'opaque4','hmac4',null);
+ v:=cancel_secret_write('70000000-0000-4000-8000-000000000004','10000000-0000-4000-8000-000000000001');
+ if v<>4 then raise exception 'cancel revision not advanced'; end if;
+ begin
+ perform finish_secret_write('70000000-0000-4000-8000-000000000004','10000000-0000-4000-8000-000000000001',null);
+ raise exception 'late finalize after cancel accepted';
+ exception when others then if sqlerrm<>'binding_changed' then raise; end if; end;
+ if (select write_operation_id from access_bindings where id='40000000-0000-4000-8000-000000000001') is not null then raise exception 'cancel did not unfreeze binding'; end if;
+end $$;
+select 'root access recovery SQL acceptance passed' as result;
