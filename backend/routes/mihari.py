@@ -86,6 +86,12 @@ class ReportPull(BaseModel):
     )
 
 
+class ReportFactualReview(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_revision: int = Field(ge=1)
+    reason: str = Field(min_length=20, max_length=2000)
+
+
 class ReportRefreshRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -112,6 +118,7 @@ class ReportRefreshRequest(BaseModel):
     head_at: datetime | None = None
     report_kind: str | None = Field(default=None, pattern=r"^(weekly|monthly)$")
     period_start: date | None = None
+    factual_review: ReportFactualReview | None = None
 
     @model_validator(mode="after")
     def valid_report_period(self):
@@ -124,6 +131,10 @@ class ReportRefreshRequest(BaseModel):
             and calendar_period(self.report_kind, self.period_start)[0] != self.period_start
         ):
             raise ValueError("Report period must start on Monday or the first of the month")
+        if self.factual_review and not self.report_kind:
+            raise ValueError("Factual review requires an explicit report period")
+        if self.factual_review and len(self.factual_review.reason.strip()) < 20:
+            raise ValueError("Factual review requires a meaningful reason")
         stamps = [item.at for item in [*self.commits, *self.pull_requests]]
         if self.head_at:
             stamps.append(self.head_at)
