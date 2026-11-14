@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   parseBindings,
+  parseUsages,
   secureApiBase,
   secretRequest,
 } from "./secret-access.js";
@@ -22,7 +23,7 @@ test("accepts only explicit unique versioned bindings", () => {
 test("protects device credential transport", () => {
   assert.equal(
     secureApiBase("https://kioku.example").origin,
-    "https://kioku.example",
+    "https://kioku.example"
   );
   assert.equal(secureApiBase("http://localhost:8000").hostname, "localhost");
   for (const url of [
@@ -43,10 +44,9 @@ test("does not surface server body with credentials on errors", async () => {
         "https://example.com",
         "/api/secret-access/resolve",
         "ksd_fake",
-        {},
+        {}
       ),
-      (e) =>
-        e instanceof Error && !e.message.includes("synthetic-hidden-error"),
+      (e) => e instanceof Error && !e.message.includes("synthetic-hidden-error")
     );
   } finally {
     globalThis.fetch = saved;
@@ -62,7 +62,7 @@ test("redirection disabled for secret requests", async () => {
   try {
     assert.deepEqual(
       await secretRequest("https://example.com", "/api/test", "ksd_fake"),
-      { ok: true },
+      { ok: true }
     );
   } finally {
     globalThis.fetch = saved;
@@ -88,14 +88,14 @@ test("stores devices privately and isolates roots/API origins", async () => {
     saveSecretDevice(device, "https://one.example");
     assert.equal(
       readSecretDevice(id, "https://one.example").device_id,
-      device.device_id,
+      device.device_id
     );
     assert.throws(() => readSecretDevice(id, "https://two.example"));
     const file = path.join(
       dir,
       "kioku",
       "secret-devices",
-      fs.readdirSync(path.join(dir, "kioku", "secret-devices"))[0],
+      fs.readdirSync(path.join(dir, "kioku", "secret-devices"))[0]
     );
     assert.equal(fs.statSync(file).mode & 0o777, 0o600);
     fs.chmodSync(file, 0o644);
@@ -123,7 +123,7 @@ test("access commands reject insecure origins before existing auth calls", async
     await assert.rejects(listAccess({ root: id }), /HTTPS/);
     await assert.rejects(
       enrollAccess({ root: id, fileCredentialStore: true }),
-      /HTTPS/,
+      /HTTPS/
     );
     assert.equal(calls, 0);
   } finally {
@@ -145,5 +145,92 @@ test("existing user session check forwards cancellation for access commands", as
     assert.equal((await whoami(controller.signal)).user_id, id);
   } finally {
     globalThis.fetch = old;
+  }
+});
+
+test("V2 usage selectors require exact independent usage and credential revisions", () => {
+  assert.deepEqual(parseUsages([id + "@2@4"]), [
+    { usage_id: id, revision: 2, credential_revision: 4 },
+  ]);
+  for (const raw of [
+    [],
+    [id + "@2"],
+    [id + "@0@2"],
+    [id + "@2@0"],
+    [id + "@2@3@4"],
+    [id + "@2@4", id + "@3@4"],
+  ])
+    assert.throws(() => parseUsages(raw));
+});
+
+test("V2 resolve uses device-only auth and verifies every exact returned usage revision", async () => {
+  const fs = await import("node:fs"),
+    os = await import("node:os"),
+    path = await import("node:path");
+  const { saveSecretDevice, resolveSecretUsages } = await import(
+    "./secret-access.js"
+  );
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "kioku-v2-device-"));
+  const oldHome = process.env.XDG_CONFIG_HOME,
+    oldBase = process.env.KIOKU_API_BASE,
+    oldFetch = globalThis.fetch;
+  process.env.XDG_CONFIG_HOME = dir;
+  process.env.KIOKU_API_BASE = "https://v2.example";
+  try {
+    saveSecretDevice(
+      {
+        root_id: id,
+        device_id: "22222222-2222-4222-8222-222222222222",
+        device_token: "ksd_synthetic",
+        expires_at: new Date(Date.now() + 600000).toISOString(),
+      },
+      "https://v2.example"
+    );
+    let wrong = false;
+    globalThis.fetch = async (url, options) => {
+      assert.equal(
+        String(url),
+        "https://v2.example/api/secret-access/resolve-v2"
+      );
+      assert.equal(
+        (options?.headers as Record<string, string>).Authorization,
+        "Bearer ksd_synthetic"
+      );
+      const body = JSON.parse(options?.body as string);
+      assert.equal(body.allow_raw_secret_argv, false);
+      assert.equal(body.usages[0].credential_revision, 4);
+      return Response.json({
+        invocation_id: body.invocation_id,
+        credential_expires_at: null,
+        clear_env: [],
+        deliveries: [
+          {
+            usage_id: id,
+            revision: wrong ? 3 : 2,
+            credential_id: "33333333-3333-4333-8333-333333333333",
+            credential_revision: 4,
+            kind: "env",
+            environment: { TOKEN: "synthetic" },
+          },
+        ],
+      });
+    };
+    assert.equal(
+      (await resolveSecretUsages(id, parseUsages([id + "@2@4"]), false))
+        .deliveries.length,
+      1
+    );
+    wrong = true;
+    await assert.rejects(
+      resolveSecretUsages(id, parseUsages([id + "@2@4"]), false),
+      /Invalid access response/
+    );
+  } finally {
+    globalThis.fetch = oldFetch;
+    if (oldHome === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = oldHome;
+    if (oldBase === undefined) delete process.env.KIOKU_API_BASE;
+    else process.env.KIOKU_API_BASE = oldBase;
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });

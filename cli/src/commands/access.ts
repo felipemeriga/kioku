@@ -7,12 +7,15 @@ import {
   UUID,
   forgetSecretDevice,
   parseBindings,
+  parseUsages,
+  resolveSecretUsages,
   resolveSecretAccess,
   saveSecretDevice,
   secureApiBase,
   secretRequest,
   type SecretDevice,
 } from "../lib/secret-access.js";
+import { prepareSecretDeliveries } from "../lib/secret-delivery.js";
 import { runSecretCommand } from "../lib/secret-exec.js";
 
 function rootId(root: string) {
@@ -41,7 +44,7 @@ export async function enrollAccess(opts: {
   const root = rootId(opts.root);
   if (!opts.fileCredentialStore)
     throw Error(
-      "This build uses a separate mode-0600 device credential file. Add --file-credential-store to acknowledge local file storage.",
+      "This build uses a separate mode-0600 device credential file. Add --file-credential-store to acknowledge local file storage."
     );
   const cfg = await userToken();
   const label = opts.label || hostname();
@@ -65,7 +68,7 @@ export async function enrollAccess(opts: {
   if (!UUID.test(start.request_id) || typeof start.device_code !== "string")
     throw Error("Invalid enrollment response.");
   console.log(
-    "Approve this computer and select resource permissions in your browser:",
+    "Approve this computer and select resource permissions in your browser:"
   );
   console.log(url.toString());
   if (opts.browser !== false) tryOpenBrowser(url.toString());
@@ -84,7 +87,7 @@ export async function enrollAccess(opts: {
         throw Error("Enrollment returned a different root.");
       saveSecretDevice(result as SecretDevice, cfg.api_base);
       console.log(
-        "Computer enrolled. Device credential saved separately with mode 0600; no vault values were stored.",
+        "Computer enrolled. Device credential saved separately with mode 0600; no vault values were stored."
       );
       return;
     }
@@ -101,6 +104,14 @@ export async function listAccess(opts: { root: string }) {
   const data = await secretRequest<{
     resources: Array<{ id: string; name: string }>;
     environments: Array<{ id: string; name: string; slug: string }>;
+    credentials?: Array<{ id: string; revision: number }>;
+    usages?: Array<{
+      id: string;
+      revision: number;
+      credential_id: string;
+      enabled: boolean;
+      name?: string;
+    }>;
     bindings: Array<{
       id: string;
       resource_id: string;
@@ -113,27 +124,90 @@ export async function listAccess(opts: { root: string }) {
   const envs = new Map(data.environments.map((e) => [e.id, e.name || e.slug]));
   for (const binding of data.bindings) {
     console.log(
-      `${names.get(binding.resource_id) || "Resource"} | ${binding.environment_id ? envs.get(binding.environment_id) || "Environment" : "Shared"} | ${binding.id}@${binding.revision}${binding.enabled ? "" : " | disabled"}`,
+      `${names.get(binding.resource_id) || "Resource"} | ${
+        binding.environment_id
+          ? envs.get(binding.environment_id) || "Environment"
+          : "Shared"
+      } | ${binding.id}@${binding.revision}${
+        binding.enabled ? "" : " | disabled"
+      }`
     );
   }
-  if (!data.bindings.length)
-    console.log("No resource bindings configured for this root.");
+  const credentials = new Map(
+    (data.credentials || []).map((c) => [c.id, c.revision])
+  );
+  for (const usage of data.usages || []) {
+    const revision = credentials.get(usage.credential_id);
+    if (revision)
+      console.log(
+        `${usage.name || "Usage"} | --usage ${usage.id}@${
+          usage.revision
+        }@${revision}${usage.enabled ? "" : " | disabled"}`
+      );
+  }
+  if (!data.bindings.length && !data.usages?.length)
+    console.log("No resource usages configured for this root.");
 }
 export function forgetAccess(opts: { root: string }) {
   forgetSecretDevice(rootId(opts.root));
   console.log(
-    "Local device credential removed. Revoke the computer in Kioku to block other copies.",
+    "Local device credential removed. Revoke the computer in Kioku to block other copies."
   );
 }
 export async function execAccess(
   command: string[],
-  opts: { root: string; binding: string[] },
+  opts: {
+    root: string;
+    binding: string[];
+    usage?: string[];
+    allowRawSecretArgv?: boolean;
+  }
 ) {
-  const root = rootId(opts.root),
-    bindings = parseBindings(opts.binding);
+  const root = rootId(opts.root);
   if (!command.length) throw Error("Provide a command after --.");
-  const resolved = await resolveSecretAccess(root, bindings);
-  const code = await runSecretCommand(command, resolved);
+  let code: number;
+  if (opts.usage?.length) {
+    if (opts.binding?.length)
+      throw Error("Select usages or legacy bindings, not both.");
+    const resolved = await resolveSecretUsages(
+      root,
+      parseUsages(opts.usage),
+      Boolean(opts.allowRawSecretArgv)
+    );
+    const delivery = prepareSecretDeliveries(
+      resolved.deliveries,
+      Boolean(opts.allowRawSecretArgv)
+    );
+    try {
+      if (delivery.ssh && !["ssh", "/usr/bin/ssh"].includes(command[0]))
+        throw Error(
+          "SSH usages require ssh as the command; following arguments are remote command arguments."
+        );
+      const argv = delivery.ssh
+        ? [...delivery.ssh, ...command.slice(1), ...delivery.arguments]
+        : [...command, ...delivery.arguments];
+      code = await runSecretCommand(
+        argv,
+        {
+          ...resolved,
+          clear_env: [...resolved.clear_env, ...delivery.clearEnvironment],
+          environment: delivery.environment,
+        },
+        undefined,
+        delivery
+      );
+    } finally {
+      delivery.cleanup();
+    }
+  } else {
+    if (opts.allowRawSecretArgv)
+      throw Error("Raw argv acknowledgement requires a V2 usage.");
+    const resolved = await resolveSecretAccess(
+      root,
+      parseBindings(opts.binding)
+    );
+    code = await runSecretCommand(command, resolved);
+  }
   process.exitCode = code;
   // On cancellation output may be intentionally abandoned (e.g. a stalled pipe).
   // Do not wait indefinitely for the shared stdout handle to drain.

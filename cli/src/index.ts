@@ -84,7 +84,37 @@ const access = program.command("access").description("Discover resources and enr
 access.command("list").requiredOption("--root <uuid>", "Root folder ID").action(async opts => { try { await listAccess(opts); } catch(err) { printError(err); process.exitCode=1; } });
 access.command("enroll").requiredOption("--root <uuid>", "Root folder ID").option("--label <label>", "Computer name").option("--no-browser", "Print approval URL only").option("--file-credential-store", "Allow a separate mode-0600 device credential file").action(async opts => { try { await enrollAccess(opts); } catch(err) { printError(err); process.exitCode=1; } });
 access.command("forget").requiredOption("--root <uuid>", "Root folder ID").action(opts => { try { forgetAccess(opts); } catch(err) { printError(err); process.exitCode=1; } });
-program.command("exec").description("Execute a command with authorized secrets; use -- before command arguments").requiredOption("--root <uuid>", "Root folder ID").requiredOption("--binding <uuid@revision>", "Exact binding, repeat for multiple resources", (value:string,previous:string[]) => [...previous,value], [] as string[]).argument("<command...>").action(async (command:string[],opts) => { try { await execAccess(command,opts); } catch(err) { printError(err); process.exitCode=1; } });
+program
+  .command("exec")
+  .description(
+    "Execute a command with authorized secrets; use -- before command arguments"
+  )
+  .requiredOption("--root <uuid>", "Root folder ID")
+  .option(
+    "--binding <uuid@revision>",
+    "Exact binding, repeat for multiple resources",
+    (value: string, previous: string[]) => [...previous, value],
+    [] as string[]
+  )
+  .option(
+    "--usage <uuid@revision@credential-revision>",
+    "Exact V2 usage, repeat for multiple resources",
+    (value: string, previous: string[]) => [...previous, value],
+    [] as string[]
+  )
+  .option(
+    "--allow-raw-secret-argv",
+    "Acknowledge secrets may be visible in process arguments; requires a server grant"
+  )
+  .argument("<command...>")
+  .action(async (command: string[], opts) => {
+    try {
+      await execAccess(command, opts);
+    } catch (err) {
+      printError(err);
+      process.exitCode = 1;
+    }
+  });
 
 program
   .command("quickstart")
