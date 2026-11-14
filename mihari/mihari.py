@@ -188,7 +188,7 @@ def maintenance_control_post(url, *, headers, json, timeout=30):
     raise RuntimeError("Maintenance gateway unavailable; durable preparation retained for retry")
 
 
-def maintenance_post(url, *, headers, json, timeout, _repair=True, _batches=3):
+def maintenance_post(url, *, headers, json, timeout, _repair=True, _batches=3, _preparation=None):
     """Direct model transport after backend authorization and immutable prepare.
 
     This is an explicit maintenance call site, not an HTTP/LLM interception.
@@ -202,7 +202,11 @@ def maintenance_post(url, *, headers, json, timeout, _repair=True, _batches=3):
     prepared = maintenance_control_post(
         f"{API_URL}/api/mihari/execution/prepare",
         headers=headers,
-        json={"operation": operation, "payload": json},
+        json={
+            "operation": operation,
+            "payload": json,
+            **({"retry_preparation_id": _preparation} if _preparation else {}),
+        },
         # A full monthly evidence snapshot can legitimately take more than 30s.
         # Keep it inside the existing bounded control deadline without restarting it.
         timeout=60 if operation == "reports" else 30,
@@ -274,7 +278,13 @@ def maintenance_post(url, *, headers, json, timeout, _repair=True, _batches=3):
     if _repair and (invalid_result or recoverable_budget):
         log(f"Maintenance attempt needs bounded recovery: {detail}")
         return maintenance_post(
-            url, headers=headers, json=json, timeout=timeout, _repair=False, _batches=_batches
+            url,
+            headers=headers,
+            json=json,
+            timeout=timeout,
+            _repair=False,
+            _batches=_batches,
+            _preparation=body["preparation_id"] if operation == "reports" else None,
         )
     if (
         publication.status_code == 409

@@ -1068,13 +1068,70 @@ def test_report_repair_preserves_combined_feedback_beyond_300_characters(configu
     feedback = "wrong numeric units; " + "independent factual issue; " * 16 + "wrong final PR state"
     assert 300 < len(feedback) < 1200
     db.rows["maintenance_preparations"][0]["validation_error"] = feedback
-    repaired = execution.prepare(db, "owner", "folder", "reports", snapshot["input"])
+    monkeypatch.setattr(
+        execution, "capture", lambda *_: pytest.fail("Recovery must not recapture new arrivals")
+    )
+    repaired = execution.prepare(
+        db,
+        "owner",
+        "folder",
+        "reports",
+        snapshot["input"],
+        retry_preparation_id=original["preparation_id"],
+    )
     assert feedback in repaired["request"]["prompt"]
     assert feedback not in original["request"]["prompt"]
     assert (
-        execution.prepare(db, "owner", "folder", "reports", snapshot["input"])["request"]
+        execution.prepare(
+            db,
+            "owner",
+            "folder",
+            "reports",
+            snapshot["input"],
+            retry_preparation_id=original["preparation_id"],
+        )["request"]
         == repaired["request"]
     )
+
+    assert db.rows["maintenance_preparations"][1]["snapshot"] == snapshot
+    for owner, folder in (("other", "folder"), ("owner", "other")):
+        with pytest.raises(ValueError, match="Unknown report recovery"):
+            execution.prepare(
+                db,
+                owner,
+                folder,
+                "reports",
+                snapshot["input"],
+                retry_preparation_id=original["preparation_id"],
+            )
+    with pytest.raises(ValueError, match="period does not match"):
+        execution.prepare(
+            db,
+            "owner",
+            "folder",
+            "reports",
+            {**snapshot["input"], "report_kind": "monthly"},
+            retry_preparation_id=original["preparation_id"],
+        )
+    with pytest.raises(ValueError, match="unrepaired rejected"):
+        execution.prepare(
+            db,
+            "owner",
+            "folder",
+            "reports",
+            snapshot["input"],
+            retry_preparation_id=repaired["preparation_id"],
+        )
+    db.rows["maintenance_preparations"][1]["validation_error"] = "Still invalid"
+    with pytest.raises(ValueError, match="repair exhausted"):
+        execution.prepare(
+            db,
+            "owner",
+            "folder",
+            "reports",
+            snapshot["input"],
+            retry_preparation_id=original["preparation_id"],
+        )
 
 
 def test_background_reports_use_reasoning_without_changing_other_maintenance(
