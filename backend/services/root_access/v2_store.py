@@ -446,7 +446,7 @@ class V2Store(AccessStore):
             for req in body.usages
         ]
         # Detect all metadata destination conflicts before the first provider read.
-        env_names, arg_flags, ssh_count, aws_count = set(), set(), 0, 0
+        env_names, arg_flags, cleared, ssh_count, aws_count = set(), set(), set(), 0, 0
         for usage, credential in selected:
             d = usage["delivery"]
             aws_count += credential["kind"] == "aws"
@@ -457,6 +457,16 @@ class V2Store(AccessStore):
                 if d["kind"] == "file" and d["destination"]["kind"] == "env"
                 else set()
             )
+            if d["kind"] == "env":
+                cleared.update(d["clear_env"])
+            if credential["kind"] == "aws":
+                cleared.update(AWS_CLEAR)
+                if d["kind"] == "env" and credential.get("region"):
+                    names.add("AWS_REGION")
+            if d["kind"] == "ssh":
+                cleared.update({"SSH_AUTH_SOCK", "SSH_ASKPASS", "SSH_ASKPASS_REQUIRE", "DISPLAY"})
+                if d.get("passphrase_field"):
+                    names.update({"SSH_ASKPASS", "SSH_ASKPASS_REQUIRE", "DISPLAY"})
             if env_names & names:
                 fail("invalid_input", 422)
             env_names |= names
@@ -465,7 +475,7 @@ class V2Store(AccessStore):
                     fail("invalid_input", 422)
                 arg_flags.add(d["destination"]["name"])
             ssh_count += d["kind"] == "ssh"
-        if ssh_count > 1 or aws_count > 1:
+        if ssh_count > 1 or aws_count > 1 or len(env_names) > 32 or len(cleared) > 128:
             fail("invalid_input", 422)
         provider, bundles = InfisicalProvider(), {}
         for _, credential in selected:
@@ -508,8 +518,6 @@ class V2Store(AccessStore):
                     resource.get("region") if legacy_cloud else ""
                 )
                 if (credential["kind"] == "aws" or legacy_cloud) and region:
-                    if "AWS_REGION" in env_names:
-                        fail("invalid_input", 422)
                     result["AWS_REGION"] = region
                 out["environment"] = result
                 clear.extend(d["clear_env"])

@@ -544,3 +544,49 @@ def test_file_argument_limit_matches_cli():
 def test_runtime_control_variables_match_cli_denials(name):
     with pytest.raises(ValidationError):
         m.EnvDelivery(kind="env", field_mapping={name: "connection"})
+
+
+def test_combined_env_limit_rejected_before_provider(vdb, provider):
+    first = vdb.rows["access_usages"][0]
+    first["delivery"]["field_mapping"] = {f"APP_{i}": "connection" for i in range(32)}
+    second = deepcopy(first)
+    second["id"] = str(uuid4())
+    second["delivery"]["field_mapping"] = {"EXTRA": "connection"}
+    vdb.rows["access_usages"].append(second)
+    grant = deepcopy(vdb.rows["secret_usage_grants"][0])
+    grant.update(id=str(uuid4()), usage_id=second["id"])
+    vdb.rows["secret_usage_grants"].append(grant)
+    body = request()
+    body.usages.append(m.RequestedUsage(usage_id=second["id"], revision=1, credential_revision=2))
+    with pytest.raises(HTTPException) as error:
+        v2.V2Store(vdb).resolve_v2("ksd_fake-token", body)
+    assert error.value.status_code == 422
+    assert provider.calls == 0
+
+
+def test_combined_clear_limit_rejected_before_provider(vdb, provider):
+    original = deepcopy(vdb.rows["access_usages"][0])
+    original_grant = deepcopy(vdb.rows["secret_usage_grants"][0])
+    vdb.rows["access_usages"] = []
+    vdb.rows["secret_usage_grants"] = []
+    selections = []
+    for i in range(5):
+        usage = deepcopy(original)
+        usage.update(
+            id=str(uuid4()),
+            delivery={
+                "kind": "env",
+                "field_mapping": {f"APP_{i}": "connection"},
+                "clear_env": [f"SELECTOR_{i}_{j}" for j in range(32)],
+            },
+        )
+        vdb.rows["access_usages"].append(usage)
+        grant = deepcopy(original_grant)
+        grant.update(id=str(uuid4()), usage_id=usage["id"])
+        vdb.rows["secret_usage_grants"].append(grant)
+        selections.append({"usage_id": usage["id"], "revision": 1, "credential_revision": 2})
+    body = m.ResolveV2(root_id=ROOT, invocation_id=uuid4(), usages=selections)
+    with pytest.raises(HTTPException) as error:
+        v2.V2Store(vdb).resolve_v2("ksd_fake-token", body)
+    assert error.value.status_code == 422
+    assert provider.calls == 0
