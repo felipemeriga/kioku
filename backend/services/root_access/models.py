@@ -57,7 +57,7 @@ class Resource(StrictModel):
 def env_name(value: str) -> str:
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", value):
         raise ValueError("Invalid environment variable name")
-    if value.startswith(("LD_", "DYLD_")) or value in {
+    if value.upper().startswith(("LD_", "DYLD_")) or value.upper() in {
         "NODE_OPTIONS",
         "BASH_ENV",
         "ENV",
@@ -67,7 +67,7 @@ def env_name(value: str) -> str:
         "HOME",
         "USERPROFILE",
         "COMSPEC",
-        "SystemRoot",
+        "SYSTEMROOT",
         "PATHEXT",
         "IFS",
         "CDPATH",
@@ -114,7 +114,7 @@ class Binding(StrictModel):
         # Clearing control selectors is allowed; injecting them is not.
         if any(
             not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", k)
-            or k in {"PATH", "HOME", "USERPROFILE", "COMSPEC", "SystemRoot", "PATHEXT"}
+            or k.upper() in {"PATH", "HOME", "USERPROFILE", "COMSPEC", "SYSTEMROOT", "PATHEXT"}
             for k in value
         ):
             raise ValueError("Invalid cleared variable name")

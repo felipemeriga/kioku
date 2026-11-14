@@ -440,7 +440,7 @@ def test_provider_transport_safe(monkeypatch):
         "_client",
         lambda: httpx.Client(base_url=vault.origin, transport=httpx.MockTransport(handler)),
     )
-    ref = "KIOKU_" + OWNER.replace("-", "") + "_" + ROOT.replace("-", "") + "_" + uuid4().hex
+    ref = "KIOKU_" + "a" * 64
     assert vault.read(ref) == {"uri": SECRET}
     assert calls[1].url.params["workspaceId"] == RESOURCE
     assert SECRET not in str(calls[1].url)
@@ -516,3 +516,113 @@ def test_unrecognized_poll_never_contains_generated_device_token(api, db):
         "/api/secret-access/enroll/poll", json={"request_id": str(uuid4()), "device_code": "a" * 40}
     )
     assert response.status_code == 410 and "ksd_" not in response.text
+
+
+def test_expiry_after_provider_io_blocks_delivery(api, db, monkeypatch):
+    t = store.now()
+    db.rows["access_bindings"][0]["credential_expires_at"] = (t + timedelta(seconds=90)).isoformat()
+    monkeypatch.setattr(store, "now", lambda: t)
+
+    class Slow:
+        def read(self, ref):
+            monkeypatch.setattr(store, "now", lambda: t + timedelta(seconds=120))
+            return {"uri": SECRET}
+
+    monkeypatch.setattr(store, "InfisicalProvider", Slow)
+    r = api.post(
+        "/api/secret-access/resolve",
+        json=body(),
+        headers={"Authorization": "Bearer ksd_fake-token"},
+    )
+    assert r.status_code == 409 and SECRET not in r.text
+
+
+def test_control_variable_names_case_insensitive():
+    for value in ("path", "home", "systemroot", "aws_profile", "dyld_INSERT_LIBRARIES"):
+        with pytest.raises(ValueError):
+            models.env_name(value)
+
+
+@pytest.mark.parametrize("present,state", [(True, "completed"), (False, "cancelled")])
+def test_failed_write_recovery_via_api_without_values(api, db, monkeypatch, present, state):
+    op = str(uuid4())
+    binding = db.rows["access_bindings"][0]
+    monkeypatch.setenv("KIOKU_VAULT_WRITE_HMAC_KEY", "x" * 40)
+
+    class Vault:
+        configured = True
+
+        def write(self, ref, values):
+            raise provider.ProviderUnavailable()
+
+        def exists(self, ref):
+            return present
+
+    monkeypatch.setattr(store, "InfisicalProvider", Vault)
+
+    def rpc(name, args):
+        def execute():
+            if name == "reserve_secret_write":
+                binding["write_operation_id"] = op
+                db.rows["secret_write_operations"] = [
+                    {
+                        "id": op,
+                        "binding_id": BINDING,
+                        "user_id": OWNER,
+                        "root_folder_id": ROOT,
+                        "status": "pending",
+                        "provider_ref": args["p_ref"],
+                        "credential_expires_at": None,
+                    }
+                ]
+                return SimpleNamespace(data={"status": "pending", "provider_ref": args["p_ref"]})
+            assert name in {"finish_secret_write", "cancel_secret_write"}
+            binding["write_operation_id"] = None
+            binding["revision"] += 1
+            return SimpleNamespace(data=binding["revision"])
+
+        return SimpleNamespace(execute=execute)
+
+    db.rpc = rpc
+    r = api.post(
+        f"/api/root-access/{ROOT}/bindings/{BINDING}/credential",
+        json={"expected_revision": 1, "idempotency_key": op, "values": {"uri": SECRET}},
+    )
+    assert r.status_code == 503 and SECRET not in r.text
+    catalog = api.get("/api/root-access/" + ROOT).json()
+    assert catalog["bindings"][0]["pending_operation_id"] == op
+    assert "provider_ref" not in str(catalog)
+    r = api.post(f"/api/root-access/{ROOT}/bindings/{BINDING}/credential/reconcile", json={})
+    assert r.status_code == 200 and r.json()["state"] == state
+    assert r.json()["revision"] == 2
+    assert api.get("/api/root-access/" + ROOT).json()["bindings"][0]["pending_operation_id"] is None
+
+
+def test_uncertain_recovery_preserves_pending_state(api, db, monkeypatch):
+    op = str(uuid4())
+    db.rows["access_bindings"][0]["write_operation_id"] = op
+    db.rows["secret_write_operations"] = [
+        {
+            "id": op,
+            "binding_id": BINDING,
+            "user_id": OWNER,
+            "root_folder_id": ROOT,
+            "status": "pending",
+            "provider_ref": "KIOKU_" + "a" * 64,
+        }
+    ]
+
+    class Down:
+        def exists(self, ref):
+            raise provider.ProviderUnavailable()
+
+    monkeypatch.setattr(store, "InfisicalProvider", Down)
+    r = api.post(f"/api/root-access/{ROOT}/bindings/{BINDING}/credential/reconcile", json={})
+    assert r.status_code == 503
+    assert db.rows["access_bindings"][0]["write_operation_id"] == op
+
+
+def test_provider_reference_within_upstream_route_bound():
+    reference = "KIOKU_" + store.digest(OWNER + ":" + ROOT + ":" + str(uuid4()))
+    assert len(reference) <= 100
+    assert provider.InfisicalProvider._reference(reference) == reference

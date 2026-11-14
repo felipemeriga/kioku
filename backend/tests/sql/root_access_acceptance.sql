@@ -12,14 +12,14 @@ do $$ declare r jsonb; v integer; begin
  r:=consume_secret_enrollment('50000000-0000-4000-8000-000000000001','fakehash','60000000-0000-4000-8000-000000000002','tokenhash2');
  if r->>'status'<>'consumed' then raise exception 'poll delivered twice'; end if;
  if (select count(*) from secret_devices)<>1 or (select count(*) from secret_grants)<>1 then raise exception 'device/grant count invalid'; end if;
- r:=reserve_secret_write('70000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000001','40000000-0000-4000-8000-000000000001',1,'opaque','hmac1');
+ r:=reserve_secret_write('70000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000001','40000000-0000-4000-8000-000000000001',1,'opaque','hmac1',null);
  if r->>'status'<>'pending' then raise exception 'reservation failed'; end if;
  begin
- perform reserve_secret_write('70000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000001','40000000-0000-4000-8000-000000000001',1,'opaque','different-input');
+ perform reserve_secret_write('70000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000001','40000000-0000-4000-8000-000000000001',1,'opaque','different-input',null);
  raise exception 'changed idempotent payload accepted';
  exception when others then if sqlerrm<>'binding_changed' then raise; end if; end;
  begin
- perform reserve_secret_write('70000000-0000-4000-8000-000000000002','10000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000001','40000000-0000-4000-8000-000000000001',1,'opaque2','hmac2');
+ perform reserve_secret_write('70000000-0000-4000-8000-000000000002','10000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000001','40000000-0000-4000-8000-000000000001',1,'opaque2','hmac2',null);
  raise exception 'concurrent reservation accepted';
  exception when others then if sqlerrm<>'binding_changed' then raise; end if; end;
  v:=finish_secret_write('70000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001',null);

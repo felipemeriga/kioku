@@ -75,7 +75,7 @@ def discover_resources(sb, owner, root, query="", environment=None, account=None
             and (environment is None or b["environment_id"] in matching_envs or resource["shared"])
         ]
         if available:
-            results.append({**resource, "bindings": available})
+            results.append({**resource, "bindings": [store.public_binding(b) for b in available]})
     return {
         "root_id": str(root),
         "environments": envs,

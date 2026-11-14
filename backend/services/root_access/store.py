@@ -14,7 +14,7 @@ from services.root_access.provider import InfisicalProvider, ProviderUnavailable
 
 PUBLIC_BINDING = (
     "id,resource_id,environment_id,consumer,field_mapping,clear_env,revision,"
-    "enabled,has_secret,credential_expires_at"
+    "enabled,has_secret,credential_expires_at,write_operation_id"
 )
 PUBLIC_DEVICE = "id,label,created_at,last_used_at,expires_at,revoked_at"
 
@@ -88,6 +88,14 @@ class AccessStore:
             fail("access_denied", 404)
         return rows[0]
 
+    @staticmethod
+    def public_binding(row):
+        result = {
+            key: row.get(key) for key in PUBLIC_BINDING.split(",") if key != "write_operation_id"
+        }
+        result["pending_operation_id"] = row.get("write_operation_id")
+        return result
+
     def catalog(self, owner, root):
         self.root(owner, root)
         guide = (
@@ -116,7 +124,10 @@ class AccessStore:
             .order("name")
             .execute()
             .data,
-            "bindings": self.query("access_bindings", owner, root, PUBLIC_BINDING).execute().data,
+            "bindings": [
+                self.public_binding(row)
+                for row in self.query("access_bindings", owner, root, PUBLIC_BINDING).execute().data
+            ],
             "devices": self.query("secret_devices", owner, root, PUBLIC_DEVICE).execute().data,
             "grants": self.query(
                 "secret_grants", owner, root, "id,device_id,binding_id,expires_at,revoked_at"
@@ -212,14 +223,7 @@ class AccessStore:
             ).encode(),
             "sha256",
         ).hexdigest()
-        reference = (
-            "KIOKU_"
-            + owner.replace("-", "")
-            + "_"
-            + str(root).replace("-", "")
-            + "_"
-            + op.replace("-", "")
-        )
+        reference = "KIOKU_" + digest(owner + ":" + str(root) + ":" + op)
         try:
             reserved = (
                 self.sb.rpc(
@@ -232,6 +236,9 @@ class AccessStore:
                         "p_revision": body.expected_revision,
                         "p_ref": reference,
                         "p_digest": input_hmac,
+                        "p_expiry": body.credential_expires_at.isoformat()
+                        if body.credential_expires_at
+                        else None,
                     },
                 )
                 .execute()
@@ -241,6 +248,8 @@ class AccessStore:
             fail("binding_changed", 409)
         if reserved["status"] == "complete":
             return {"ok": True, "revision": body.expected_revision + 1}
+        if reserved["status"] != "pending":
+            fail("binding_changed", 409)
         try:
             InfisicalProvider().write(reserved["provider_ref"], body.values)
         except ProviderUnavailable:
@@ -271,6 +280,34 @@ class AccessStore:
             outcome="allowed",
         )
         return {"ok": True, "revision": revision}
+
+    def reconcile(self, owner, root, binding):
+        self.root(owner, root)
+        row = self.one("access_bindings", owner, root, binding)
+        op_id = row.get("write_operation_id")
+        if not op_id:
+            return {"ok": True, "state": "unchanged", "revision": row["revision"]}
+        op = self.one("secret_write_operations", owner, root, op_id)
+        if op["binding_id"] != str(binding) or op["status"] != "pending":
+            fail("binding_changed", 409)
+        try:
+            exists = InfisicalProvider().exists(op["provider_ref"])
+        except ProviderUnavailable:
+            fail("provider_unavailable", 503)
+        if exists:
+            revision = (
+                self.sb.rpc(
+                    "finish_secret_write",
+                    {"p_id": op_id, "p_owner": owner, "p_expiry": op.get("credential_expires_at")},
+                )
+                .execute()
+                .data
+            )
+            return {"ok": True, "state": "completed", "revision": revision}
+        revision = (
+            self.sb.rpc("cancel_secret_write", {"p_id": op_id, "p_owner": owner}).execute().data
+        )
+        return {"ok": True, "state": "cancelled", "revision": revision}
 
     def enroll(self, owner, root, label):
         self.root(owner, root)
@@ -400,20 +437,12 @@ class AccessStore:
                 fail("secret_unavailable", 409)
             if expired(row["credential_expires_at"], 60):
                 fail("credential_expired", 409)
-            resource = self.one("access_resources", owner, root, row["resource_id"])
+            self.one("access_resources", owner, root, row["resource_id"])
             self.binding(owner, root, row)
             if set(environment) & set(row["field_mapping"]):
                 fail("invalid_input", 422)
             environment.update(dict.fromkeys(row["field_mapping"]))
             clear.extend(row["clear_env"])
-            if resource["type"] == "cloud":
-                environment.update(
-                    {
-                        "AWS_EC2_METADATA_DISABLED": "true",
-                        "AWS_SHARED_CREDENTIALS_FILE": os.devnull,
-                        "AWS_CONFIG_FILE": os.devnull,
-                    }
-                )
             if row["credential_expires_at"]:
                 expiry.append(row["credential_expires_at"])
             bindings.append(row)
@@ -447,6 +476,8 @@ class AccessStore:
                 or not fresh["enabled"]
             ):
                 fail("binding_changed", 409)
+            if expired(fresh["credential_expires_at"], 60):
+                fail("credential_expired", 409)
             self.event(
                 owner,
                 root,

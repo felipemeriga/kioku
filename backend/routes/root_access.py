@@ -23,7 +23,7 @@ from services.root_access.models import (
     Resolve,
     Resource,
 )
-from services.root_access.store import PUBLIC_BINDING, PUBLIC_DEVICE, AccessStore, fail, now
+from services.root_access.store import PUBLIC_DEVICE, AccessStore, fail, now
 
 
 class SecretSafeRoute(APIRoute):
@@ -196,7 +196,7 @@ def create_binding(root_id: UUID, body: Binding, user_id: str = Depends(get_curr
     s.root(user_id, root_id)
     value = s.binding(user_id, root_id, dump(body))
     row = s.insert("access_bindings", user_id, root_id, value)
-    return {k: row.get(k) for k in PUBLIC_BINDING.split(",")}
+    return s.public_binding(row)
 
 
 @router.patch("/{root_id}/bindings/{binding_id}")
@@ -231,7 +231,7 @@ def edit_binding(
     )
     if not rows:
         fail("binding_changed", 409)
-    return {k: rows[0].get(k) for k in PUBLIC_BINDING.split(",")}
+    return s.public_binding(rows[0])
 
 
 @router.post("/{root_id}/bindings/{binding_id}/credential")
@@ -239,6 +239,11 @@ def replace_credential(
     root_id: UUID, binding_id: UUID, body: Credential, user_id: str = Depends(get_current_user)
 ):
     return store().write(user_id, root_id, binding_id, body)
+
+
+@router.post("/{root_id}/bindings/{binding_id}/credential/reconcile")
+def reconcile_credential(root_id: UUID, binding_id: UUID, user_id: str = Depends(get_current_user)):
+    return store().reconcile(user_id, root_id, binding_id)
 
 
 @router.post("/{root_id}/grants")

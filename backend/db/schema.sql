@@ -2859,8 +2859,8 @@ create table public.secret_write_operations (
  id uuid primary key, user_id uuid not null references auth.users(id) on delete cascade,
  root_folder_id uuid not null references public.folders(id) on delete cascade,
  binding_id uuid not null references public.access_bindings(id) on delete cascade,
- expected_revision integer not null, provider_ref text not null, input_hmac text not null,
- status text not null default 'pending' check(status in ('pending','complete')),
+ expected_revision integer not null, provider_ref text not null, input_hmac text not null, credential_expires_at timestamptz,
+ status text not null default 'pending' check(status in ('pending','complete','cancelled')),
  created_at timestamptz not null default now()
 );
 create table public.secret_access_events (
@@ -2905,7 +2905,7 @@ revoke all on function public.consume_secret_enrollment(uuid,text,uuid,text) fro
 grant execute on function public.consume_secret_enrollment(uuid,text,uuid,text) to service_role;
 
 -- Reserve a binding before vault I/O, making uncertain writes fail closed.
-create function public.reserve_secret_write(p_id uuid,p_owner uuid,p_root uuid,p_binding uuid,p_revision integer,p_ref text,p_digest text)
+create function public.reserve_secret_write(p_id uuid,p_owner uuid,p_root uuid,p_binding uuid,p_revision integer,p_ref text,p_digest text,p_expiry timestamptz)
 returns jsonb language plpgsql security definer set search_path=public,pg_temp as $$
 declare b public.access_bindings; op public.secret_write_operations;
 begin
@@ -2917,7 +2917,7 @@ begin
  return jsonb_build_object('status',op.status,'provider_ref',op.provider_ref);
  end if;
  if b.revision<>p_revision or b.write_operation_id is not null then raise exception 'binding_changed'; end if;
- insert into public.secret_write_operations(id,user_id,root_folder_id,binding_id,expected_revision,provider_ref,input_hmac) values(p_id,p_owner,p_root,p_binding,p_revision,p_ref,p_digest);
+ insert into public.secret_write_operations(id,user_id,root_folder_id,binding_id,expected_revision,provider_ref,input_hmac,credential_expires_at) values(p_id,p_owner,p_root,p_binding,p_revision,p_ref,p_digest,p_expiry);
  update public.access_bindings set write_operation_id=p_id where id=b.id;
  return jsonb_build_object('status','pending','provider_ref',p_ref);
 end $$;
@@ -2928,15 +2928,16 @@ begin
  select * into op from public.secret_write_operations where id=p_id and user_id=p_owner for update;
  if not found then raise exception 'access_denied'; end if;
  if op.status='complete' then return op.expected_revision+1; end if;
- update public.access_bindings set provider_ref=op.provider_ref,has_secret=true,revision=revision+1,credential_expires_at=p_expiry,write_operation_id=null
+ if op.status<>'pending' then raise exception 'binding_changed'; end if;
+ update public.access_bindings set provider_ref=op.provider_ref,has_secret=true,revision=revision+1,credential_expires_at=op.credential_expires_at,write_operation_id=null
  where id=op.binding_id and user_id=p_owner and root_folder_id=op.root_folder_id and revision=op.expected_revision and write_operation_id=op.id returning revision into v;
  if v is null then raise exception 'binding_changed'; end if;
  update public.secret_write_operations set status='complete' where id=op.id;
  return v;
 end $$;
-revoke all on function public.reserve_secret_write(uuid,uuid,uuid,uuid,integer,text,text) from public,anon,authenticated;
+revoke all on function public.reserve_secret_write(uuid,uuid,uuid,uuid,integer,text,text,timestamptz) from public,anon,authenticated;
 revoke all on function public.finish_secret_write(uuid,uuid,timestamptz) from public,anon,authenticated;
-grant execute on function public.reserve_secret_write(uuid,uuid,uuid,uuid,integer,text,text) to service_role;
+grant execute on function public.reserve_secret_write(uuid,uuid,uuid,uuid,integer,text,text,timestamptz) to service_role;
 grant execute on function public.finish_secret_write(uuid,uuid,timestamptz) to service_role;
 create table public.root_access_guide_revisions (
  root_folder_id uuid not null references public.folders(id) on delete cascade,
@@ -2964,3 +2965,17 @@ begin
 end $$;
 revoke all on function public.save_root_access_guide(uuid,uuid,integer,text) from public,anon,authenticated;
 grant execute on function public.save_root_access_guide(uuid,uuid,integer,text) to service_role;
+create function public.cancel_secret_write(p_id uuid,p_owner uuid)
+returns integer language plpgsql security definer set search_path=public,pg_temp as $$
+declare op public.secret_write_operations; v integer;
+begin
+ select * into op from public.secret_write_operations where id=p_id and user_id=p_owner for update;
+ if not found or op.status<>'pending' then raise exception 'binding_changed'; end if;
+ update public.access_bindings set write_operation_id=null,revision=revision+1
+ where id=op.binding_id and user_id=p_owner and root_folder_id=op.root_folder_id and revision=op.expected_revision and write_operation_id=op.id returning revision into v;
+ if v is null then raise exception 'binding_changed'; end if;
+ update public.secret_write_operations set status='cancelled' where id=op.id;
+ return v;
+end $$;
+revoke all on function public.cancel_secret_write(uuid,uuid) from public,anon,authenticated;
+grant execute on function public.cancel_secret_write(uuid,uuid) to service_role;

@@ -70,7 +70,7 @@ class InfisicalProvider:
 
     @staticmethod
     def _reference(ref):
-        if not re.fullmatch(r"KIOKU_[a-f0-9]{32}_[a-f0-9]{32}_[a-f0-9]{32}", ref):
+        if not re.fullmatch(r"KIOKU_[a-f0-9]{64}", ref):
             raise ProviderUnavailable()
         return ref
 
@@ -95,6 +95,23 @@ class InfisicalProvider:
                 )
                 if response.status_code not in {200, 201}:
                     raise ProviderUnavailable()
+        except (httpx.HTTPError, ValueError, KeyError, TypeError):
+            raise ProviderUnavailable() from None
+
+    def exists(self, ref):
+        ref = self._reference(ref)
+        try:
+            with self._client() as client:
+                response = client.get(
+                    "/api/v3/secrets/raw/" + ref,
+                    params=self._params(),
+                    headers={"Authorization": "Bearer " + self._token(client)},
+                )
+                if response.status_code == 404:
+                    return False
+                if response.status_code != 200:
+                    raise ProviderUnavailable()
+                return True
         except (httpx.HTTPError, ValueError, KeyError, TypeError):
             raise ProviderUnavailable() from None
 
