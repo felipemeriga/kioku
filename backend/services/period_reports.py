@@ -688,6 +688,21 @@ def report_quote_choices(sources):
     return choices
 
 
+def validate_merge_count_prose(text):
+    """Overall merge totals belong to the server-built inventory, not prose."""
+    number = r"(?:[0-9]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|twenty)"
+    pull = r"(?:prs?|pull requests?)"
+    if re.search(
+        rf"\b{number}\s+{pull}\s+(?:(?:were|have been)\s+)?merged\b"
+        rf"|\bmerged\s+{number}\s+{pull}\b",
+        text,
+        re.IGNORECASE,
+    ):
+        raise ValueError(
+            "Omit generated merge totals from overview; the merge timeline is authoritative"
+        )
+
+
 def validate_numeric_ranges(text, evidence):
     """Do not turn unlabeled source ranges into invented quantity units."""
     normalized = re.sub(r"[`*_]", "", text.lower())
@@ -815,6 +830,7 @@ def validate_report(snapshot, value):
 
     cited(value["summary_source_ids"])
     if compact_report(snapshot):
+        validate_merge_count_prose(value["summary"])
         validate_runtime_provenance(
             value["summary"], [sources[i] for i in value["summary_source_ids"]]
         )
