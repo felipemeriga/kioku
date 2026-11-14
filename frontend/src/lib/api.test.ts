@@ -1,10 +1,13 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import * as api from "./api";
+import { supabase } from "./supabase";
 
 vi.mock("./supabase", () => ({
   supabase: {
     auth: {
-      getSession: async () => ({ data: { session: { access_token: "t" } } }),
+      getSession: vi.fn(async () => ({
+        data: { session: { access_token: "t" } },
+      })),
     },
   },
 }));
@@ -210,4 +213,61 @@ it("does not infer a rebuild requirement from generic network or HTTP error text
       new api.ApiError({ status: 502, userMessage: "execution_uncertain" }),
     ),
   ).toBe(false);
+});
+
+describe("bounded conversation reads", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.mocked(supabase.auth.getSession).mockResolvedValue({
+      data: { session: { access_token: "t" } },
+    } as Awaited<ReturnType<typeof supabase.auth.getSession>>);
+  });
+  it.each(["authentication", "network", "body"])(
+    "ends a stuck %s read with a retryable error",
+    async (stage) => {
+      vi.useFakeTimers();
+      const pending = () => new Promise<never>(() => {});
+      const fetchMock = vi.fn(
+        stage === "network"
+          ? pending
+          : async () => ({ json: pending, ok: true }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      if (stage === "authentication")
+        vi.mocked(supabase.auth.getSession).mockImplementation(pending);
+      const read = api.fetchConversations();
+      const rejected = expect(read).rejects.toMatchObject({
+        status: 504,
+        userMessage: expect.stringContaining("try again"),
+      });
+      await vi.advanceTimersByTimeAsync(api.CONVERSATION_READ_TIMEOUT_MS);
+      await rejected;
+      if (stage === "authentication") expect(fetchMock).not.toHaveBeenCalled();
+      else
+        expect(
+          (fetchMock.mock.calls as unknown as [string, RequestInit][])[0][1]
+            .signal?.aborted,
+        ).toBe(true);
+    },
+  );
+  it("cancels a selected conversation read immediately and allows the next read", async () => {
+    const controller = new AbortController();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<never>(() => {})),
+    );
+    const read = api.fetchConversation("old", controller.signal);
+    controller.abort();
+    await expect(read).rejects.toMatchObject({ name: "AbortError" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ id: "next", messages: [] })),
+      ),
+    );
+    await expect(api.fetchConversation("next")).resolves.toMatchObject({
+      id: "next",
+    });
+  });
 });
