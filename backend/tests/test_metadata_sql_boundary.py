@@ -154,3 +154,9 @@ def test_quoted_alias_case_is_preserved_in_scope_predicates():
 def test_generated_relation_is_pinned_to_public_schema():
     sql = scoped_metadata_sql("SELECT COUNT(*) FROM documents", OWNER)
     assert "FROM public.documents" in sql
+
+
+def test_parser_fallback_never_logs_untrusted_sql(caplog):
+    with pytest.raises(ValueError):
+        scoped_metadata_sql("SHOW synthetic-private-query-value", OWNER)
+    assert "synthetic-private-query-value" not in caplog.text

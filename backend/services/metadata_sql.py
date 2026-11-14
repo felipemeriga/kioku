@@ -141,7 +141,7 @@ def _parsed_metadata(sql: str) -> exp.Select:
     if not isinstance(sql, str) or not sql.strip() or len(sql) > 8192:
         raise ValueError("Unsupported metadata query")
     try:
-        statements = parse(sql, read="postgres")
+        statements = parse(sql, read="postgres", error_message_context=0)
     except (SqlglotError, ValueError, RecursionError):
         raise ValueError("Unsupported metadata query") from None
     if len(statements) != 1 or not isinstance(statements[0], exp.Select):
