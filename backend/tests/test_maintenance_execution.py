@@ -1036,3 +1036,41 @@ def test_legacy_sql_review_areas_are_canonical_on_first_publication_and_replay(
     assert client.post("/api/mihari/review-complete", json=complete).status_code == 409
     assert original == immutable
     assert row["publication"]["reviewed"] == immutable["reviewed"]
+
+
+def test_report_repair_preserves_combined_feedback_beyond_300_characters(configured, monkeypatch):
+    snapshot = {
+        "operation": "reports",
+        "input": {
+            "format_version": 2,
+            "kind": "weekly",
+            "head_sha": "a" * 40,
+            "period_start": "2026-11-09",
+            "period_end": "2026-11-15",
+            "sources": [
+                {
+                    "id": "journal:1",
+                    "kind": "journal",
+                    "date": "2026-11-13",
+                    "observed_at": "2026-11-13T12:00:00Z",
+                    "text": "The change merged; live behavior remains unverified.",
+                }
+            ],
+        },
+        "report": {"coverage": {"policy": 8}},
+        "current": {},
+        "expected_sections": {},
+    }
+    monkeypatch.setattr(execution, "capture", lambda *_: (snapshot, None))
+    db = DB()
+    original = execution.prepare(db, "owner", "folder", "reports", snapshot["input"])
+    feedback = "wrong numeric units; " + "independent factual issue; " * 16 + "wrong final PR state"
+    assert 300 < len(feedback) < 1200
+    db.rows["maintenance_preparations"][0]["validation_error"] = feedback
+    repaired = execution.prepare(db, "owner", "folder", "reports", snapshot["input"])
+    assert feedback in repaired["request"]["prompt"]
+    assert feedback not in original["request"]["prompt"]
+    assert (
+        execution.prepare(db, "owner", "folder", "reports", snapshot["input"])["request"]
+        == repaired["request"]
+    )

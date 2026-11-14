@@ -828,14 +828,30 @@ def validate_report(snapshot, value):
         ):
             raise ValueError("Report cites unknown or missing evidence")
 
+    factual_errors = []
+
+    def factual(check, *args):
+        try:
+            check(*args)
+        except ValueError as exc:
+            factual_errors.append(str(exc))
+
+    def finish_factual_checks():
+        if factual_errors:
+            raise ValueError("; ".join(dict.fromkeys(factual_errors)))
+
     cited(value["summary_source_ids"])
     if compact_report(snapshot):
-        validate_merge_count_prose(value["summary"])
-        validate_runtime_provenance(
-            value["summary"], [sources[i] for i in value["summary_source_ids"]]
+        factual(validate_merge_count_prose, value["summary"])
+        factual(
+            validate_runtime_provenance,
+            value["summary"],
+            [sources[i] for i in value["summary_source_ids"]],
         )
-        validate_numeric_ranges(
-            value["summary"], [sources[i]["text"] for i in value["summary_source_ids"]]
+        factual(
+            validate_numeric_ranges,
+            value["summary"],
+            [sources[i]["text"] for i in value["summary_source_ids"]],
         )
 
     def finding(item, maximum=1000):
@@ -850,11 +866,13 @@ def validate_report(snapshot, value):
                 item["source_ids"] = [source, *item["source_ids"]]
             item["evidence_quote"] = text
         if compact_report(snapshot):
-            validate_runtime_provenance(
+            factual(
+                validate_runtime_provenance,
                 " ".join(item.get(k, "") for k in ("title", "text", "detail")),
                 [sources[i] for i in item["source_ids"]],
             )
-            validate_numeric_ranges(
+            factual(
+                validate_numeric_ranges,
                 " ".join(item.get(k, "") for k in ("title", "text", "detail")),
                 [sources[i]["text"] for i in item["source_ids"]],
             )
@@ -898,11 +916,11 @@ def validate_report(snapshot, value):
                 if compact_report(snapshot) and (
                     quote_source is None or sources[quote_source].get("date") != day
                 ):
-                    raise ValueError("Report quote date does not match its update")
+                    factual_errors.append("Report quote date does not match its update")
                 if not snapshot["input"]["period_start"] <= day <= snapshot["input"]["period_end"]:
                     raise ValueError("Report update outside its period")
                 if not any(sources[i].get("date") == day for i in update["source_ids"]):
-                    raise ValueError("Report update date lacks matching evidence")
+                    factual_errors.append("Report update date lacks matching evidence")
             topic["updates"].sort(key=lambda update: update["date"])
             state = topic["final_state"]
             if not 3 <= len(state["status"]) <= 64 or not 1 <= len(state["items"]) <= 3:
@@ -910,8 +928,9 @@ def validate_report(snapshot, value):
             for item in state["items"]:
                 finding(item, 320 if compact_report(snapshot) else 500)
             if compact_report(snapshot):
-                validate_open_pr_state(snapshot, topic, sources)
-                validate_runtime_provenance(
+                factual(validate_open_pr_state, snapshot, topic, sources)
+                factual(
+                    validate_runtime_provenance,
                     state["status"],
                     [sources[i] for item in state["items"] for i in item["source_ids"]],
                 )
@@ -950,6 +969,7 @@ def validate_report(snapshot, value):
             }
             for topic in value["topics"]
         ]
+        finish_factual_checks()
         return value
     if not 1 <= len(value["sections"]) <= 6:
         raise ValueError("Invalid report sections")
@@ -958,6 +978,7 @@ def validate_report(snapshot, value):
             raise ValueError("Invalid report section")
         for item in section["items"]:
             finding(item)
+    finish_factual_checks()
     return value
 
 

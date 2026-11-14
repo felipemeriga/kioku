@@ -552,3 +552,35 @@ def test_overview_can_describe_work_without_duplicating_authoritative_merge_coun
     snapshot, value = compact_fixture()
     value["summary"] = "NBA lifecycle fixes reached main; runtime effects remain unverified."
     assert validate_report(snapshot, value)
+
+
+def test_one_repair_receives_all_independent_factual_problems():
+    snapshot, value = compact_fixture()
+    snapshot["input"]["cutoff"] = "2026-11-14T10:00:00Z"
+    value["summary"] = "Five PRs merged into main during the week."
+    topic = value["topics"][0]
+    topic["updates"][1]["date"] = "2026-11-12"
+    topic["final_state"]["status"] = "PR open"
+    topic["final_state"]["items"][0]["text"] = "The application fell from 41 to 31 routes."
+    commit = "commit:" + "b" * 40
+    aliases = {source: alias for alias, source in report_aliases(snapshot).items()}
+    topic["final_state"]["items"].append(
+        {
+            "text": "PR #485 is deployed; the pipeline is operational.",
+            "source_ids": [aliases[commit]],
+            "evidence_quote": report_choices(snapshot)[commit][0]["id"],
+        }
+    )
+    with pytest.raises(ValueError) as failure:
+        validate_report(snapshot, value)
+    message = str(failure.value)
+    for expected in (
+        "merge totals",
+        "numeric range",
+        "quote date",
+        "open PR state",
+        "runtime claim",
+    ):
+        assert expected in message
+    assert message.count("runtime claim requires") == 1
+    assert len(message) < 1200
