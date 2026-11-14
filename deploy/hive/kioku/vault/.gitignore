@@ -1,0 +1,6 @@
+# Operator-generated credentials and backups never belong in Git.
+*.env
+*.dump.age
+recovery/
+backups/
+__pycache__/
