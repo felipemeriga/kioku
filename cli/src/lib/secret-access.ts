@@ -211,10 +211,20 @@ export async function resolveSecretAccess(
 ): Promise<ResolvedAccess> {
   const cfg = readConfig(),
     device = readSecretDevice(root, cfg.api_base);
-  return secretRequest<ResolvedAccess>(
+  const invocation = randomUUID();
+  const result = await secretRequest<ResolvedAccess>(
     cfg.api_base,
     "/api/secret-access/resolve",
     device.device_token,
-    { root_id: root, invocation_id: randomUUID(), bindings },
+    { root_id: root, invocation_id: invocation, bindings },
   );
+  if (
+    result.invocation_id !== invocation ||
+    !(
+      result.credential_expires_at === null ||
+      typeof result.credential_expires_at === "string"
+    )
+  )
+    throw Error("Invalid access response.");
+  return result;
 }

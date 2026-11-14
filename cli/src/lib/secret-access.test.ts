@@ -68,3 +68,43 @@ test("redirection disabled for secret requests", async () => {
     globalThis.fetch = saved;
   }
 });
+
+test("stores devices privately and isolates roots/API origins", async () => {
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const { saveSecretDevice, readSecretDevice, forgetSecretDevice } =
+    await import("./secret-access.js");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "kioku-device-test-"));
+  const before = process.env.XDG_CONFIG_HOME;
+  process.env.XDG_CONFIG_HOME = dir;
+  try {
+    const device = {
+      root_id: id,
+      device_id: "22222222-2222-4222-8222-222222222222",
+      device_token: "ksd_synthetic_only",
+      expires_at: new Date(Date.now() + 60000).toISOString(),
+    };
+    saveSecretDevice(device, "https://one.example");
+    assert.equal(
+      readSecretDevice(id, "https://one.example").device_id,
+      device.device_id,
+    );
+    assert.throws(() => readSecretDevice(id, "https://two.example"));
+    const file = path.join(
+      dir,
+      "kioku",
+      "secret-devices",
+      fs.readdirSync(path.join(dir, "kioku", "secret-devices"))[0],
+    );
+    assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+    fs.chmodSync(file, 0o644);
+    assert.throws(() => readSecretDevice(id, "https://one.example"));
+    forgetSecretDevice(id, "https://one.example");
+    assert.throws(() => readSecretDevice(id, "https://one.example"));
+  } finally {
+    if (before === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = before;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
