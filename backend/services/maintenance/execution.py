@@ -652,7 +652,7 @@ def prepare(sb, owner, folder, operation, payload):
             request["idempotency_key"] = "maintenance:" + key
             request["prompt"] += (
                 "\nA previous independent attempt failed deterministic validation: "
-                + original["validation_error"][:300]
+                + original["validation_error"][: (1200 if operation == "reports" else 300)]
                 + ". Produce a complete corrected result using only the original evidence."
             )
             repaired = (
@@ -776,9 +776,13 @@ def publish(sb, owner, folder, preparation, job_id):
                 row["snapshot"], result.structured if result.structured is not None else result.text
             )
         except ValueError as exc:
-            sb.table("maintenance_preparations").update({"validation_error": str(exc)[:300]}).eq(
-                "id", preparation
-            ).eq("user_id", owner).execute()
+            sb.table("maintenance_preparations").update(
+                {
+                    "validation_error": str(exc)[
+                        : (1200 if row["snapshot"]["operation"] == "reports" else 300)
+                    ]
+                }
+            ).eq("id", preparation).eq("user_id", owner).execute()
             raise ValueError("invalid_result:" + str(exc)) from exc
         publication = apply_result(sb, preparation, owner, job_id, value, row.get("operation"))
         published = True
