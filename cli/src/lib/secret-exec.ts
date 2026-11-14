@@ -10,11 +10,11 @@ export interface ResolvedAccess {
 }
 const dangerous = (name: string) =>
   /^(LD_|DYLD_|NODE_OPTIONS$|NODE_PATH$|BASH_ENV$|ENV$|SHELLOPTS$|BASHOPTS$|PS4$|PYTHONPATH$|PYTHONHOME$|PERL5OPT$|RUBYOPT$)/i.test(
-    name,
+    name
   );
 const processControl = (name: string) =>
   /^(PATH|HOME|USERPROFILE|COMSPEC|SYSTEMROOT|PATHEXT|IFS|CDPATH|ZDOTDIR|PYTHONSTARTUP)$/i.test(
-    name,
+    name
   );
 const awsSelectors = new Set([
   "AWS_PROFILE",
@@ -43,12 +43,13 @@ export function buildSecretEnvironment(
   parent: NodeJS.ProcessEnv,
   values: Record<string, string>,
   clear: string[],
+  allowEmpty = false
 ): NodeJS.ProcessEnv {
   if (
     !values ||
     Array.isArray(values) ||
     typeof values !== "object" ||
-    Object.keys(values).length === 0 ||
+    (!allowEmpty && Object.keys(values).length === 0) ||
     Object.keys(values).length > 32 ||
     !Array.isArray(clear) ||
     clear.length > 128
@@ -72,7 +73,7 @@ export function buildSecretEnvironment(
   if (
     size > 262144 ||
     clear.some(
-      (k) => typeof k !== "string" || !validName(k) || processControl(k),
+      (k) => typeof k !== "string" || !validName(k) || processControl(k)
     )
   )
     throw Error("Credential mapping exceeds supported limits.");
@@ -115,7 +116,7 @@ export function createSecretRedactor(values: string[]): Transform {
   if (
     !values.length ||
     values.some(
-      (v) => typeof v !== "string" || !v || Buffer.byteLength(v) > 65536,
+      (v) => typeof v !== "string" || !v || Buffer.byteLength(v) > 65536
     )
   )
     throw Error("Invalid redaction values.");
@@ -125,9 +126,7 @@ export function createSecretRedactor(values: string[]): Transform {
     variants.add(JSON.stringify(value).slice(1, -1));
     variants.add(encodeURIComponent(value));
     variants.add(
-      encodeURIComponent(value).replace(/%[A-F0-9]{2}/g, (v) =>
-        v.toLowerCase(),
-      ),
+      encodeURIComponent(value).replace(/%[A-F0-9]{2}/g, (v) => v.toLowerCase())
     );
   }
   const patterns = [...variants].sort((a, b) => b.length - a.length);
@@ -175,6 +174,7 @@ export async function runSecretCommand(
     stdout: process.stdout,
     stderr: process.stderr,
   },
+  delivery?: { secrets: string[]; trustedEnvironment?: Record<string, string> }
 ): Promise<number> {
   if (process.platform === "win32")
     throw Error("Secret execution currently supports macOS and Linux.");
@@ -187,7 +187,10 @@ export async function runSecretCommand(
     process.env,
     resolved.environment,
     resolved.clear_env,
+    Boolean(delivery)
   );
+  if (delivery?.trustedEnvironment)
+    Object.assign(env, delivery.trustedEnvironment);
   let duration = 3600000;
   if (resolved.credential_expires_at) {
     const expiry = Date.parse(resolved.credential_expires_at);
@@ -195,7 +198,12 @@ export async function runSecretCommand(
       throw Error("Credential expired or too close to expiry.");
     duration = Math.min(duration, expiry - Date.now() - 30000);
   }
-  const values = Object.values(resolved.environment);
+  const values = [
+    ...Object.values(resolved.environment),
+    ...(delivery?.secrets || []),
+  ];
+  // Literal-only recipes still use the same stream machinery.
+  if (!values.length) values.push("\0kioku-no-secret-sentinel");
   const stdout = createSecretRedactor(values),
     stderr = createSecretRedactor(values);
   return new Promise((resolve, reject) => {
@@ -295,8 +303,8 @@ export async function runSecretCommand(
       cleanup();
       reject(
         Error(
-          "Could not start the command. Check its executable and permissions.",
-        ),
+          "Could not start the command. Check its executable and permissions."
+        )
       );
     });
     child.once("close", (code, signal) => {
