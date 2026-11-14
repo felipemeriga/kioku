@@ -626,3 +626,17 @@ def test_provider_reference_within_upstream_route_bound():
     reference = "KIOKU_" + store.digest(OWNER + ":" + ROOT + ":" + str(uuid4()))
     assert len(reference) <= 100
     assert provider.InfisicalProvider._reference(reference) == reference
+
+
+def test_safe_routes_generate_correlation_ids_for_all_outcomes(api):
+    from uuid import UUID
+
+    results = [
+        api.get("/api/root-access/" + ROOT),
+        api.post("/api/secret-access/resolve", json=body()),
+        api.post("/api/secret-access/resolve", json={}),
+    ]
+    for response in results:
+        assert response.headers["Cache-Control"] == "no-store"
+        assert UUID(response.headers["X-Request-ID"])
+    assert len({r.headers["X-Request-ID"] for r in results}) == 3

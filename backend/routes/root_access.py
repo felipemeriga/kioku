@@ -1,7 +1,7 @@
 """Root environment catalog and write-only credential management."""
 
 import json
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
@@ -33,6 +33,8 @@ class SecretSafeRoute(APIRoute):
         handler = super().get_route_handler()
 
         async def safe(request):
+            request_id = str(uuid4())
+            headers = {"Cache-Control": "no-store", "X-Request-ID": request_id}
             try:
                 length = request.headers.get("content-length")
                 if length and int(length) > 400000:
@@ -41,7 +43,7 @@ class SecretSafeRoute(APIRoute):
                         content={
                             "detail": {"code": "invalid_input", "message": "Request is too large."}
                         },
-                        headers={"Cache-Control": "no-store"},
+                        headers=headers,
                     )
                 # Bound chunked requests too, before Pydantic ever sees the body.
                 if request.method in {"POST", "PUT", "PATCH"}:
@@ -54,7 +56,7 @@ class SecretSafeRoute(APIRoute):
                         parts.append(chunk)
                     request._body = b"".join(parts)
                 response = await handler(request)
-                response.headers["Cache-Control"] = "no-store"
+                response.headers.update(headers)
                 return response
             except RequestValidationError:
                 return JSONResponse(
@@ -62,10 +64,14 @@ class SecretSafeRoute(APIRoute):
                     content={
                         "detail": {"code": "invalid_input", "message": "Check the supplied fields."}
                     },
-                    headers={"Cache-Control": "no-store"},
+                    headers=headers,
                 )
-            except HTTPException:
-                raise
+            except HTTPException as exc:
+                return JSONResponse(
+                    status_code=exc.status_code,
+                    content={"detail": exc.detail},
+                    headers={**(exc.headers or {}), **headers},
+                )
             except Exception:
                 # Provider/db exceptions may contain values: never serialize/log exception.
                 return JSONResponse(
@@ -76,7 +82,7 @@ class SecretSafeRoute(APIRoute):
                             "message": "Access service is unavailable. Try again shortly.",
                         }
                     },
-                    headers={"Cache-Control": "no-store"},
+                    headers=headers,
                 )
 
         return safe
