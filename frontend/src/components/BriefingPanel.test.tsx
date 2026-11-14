@@ -260,6 +260,95 @@ describe("BriefingPanel", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("preserves complete introduction and unknown component metadata with syntax highlighting", async () => {
+    const introduction =
+      "Unpunctuated repository context ".repeat(20) + "preserved final phrase";
+    const architecture = {
+      components: [
+        {
+          name: "Worker",
+          role: "Runs `capture()`",
+          path: "backend/worker.py",
+          recovery: "Keep the immutable archive",
+          retries: 0,
+        },
+      ],
+      operational_notes: "Additional architecture context",
+    };
+    const original = JSON.stringify(architecture);
+    vi.spyOn(api, "fetchBriefing").mockResolvedValue({
+      ...staleBriefingFixture,
+      sections: {
+        ...staleBriefingFixture.sections,
+        overview: {
+          ...staleBriefingFixture.sections.overview,
+          content: {
+            purpose: introduction,
+            summary: "A separate summary remains available",
+            notes: '```rust\nfn main() { println!("ready"); }\n```',
+          },
+        },
+        architecture: {
+          ...staleBriefingFixture.sections.architecture,
+          content: architecture,
+        },
+      },
+    });
+    const { container } = renderWithProviders(<BriefingPanel folderId="f1" />);
+    expect(await screen.findByText(introduction)).toBeInTheDocument();
+    expect(
+      screen.getByText("A separate summary remains available"),
+    ).toBeInTheDocument();
+    expect(
+      container.querySelector("code.language-rust .hljs-keyword"),
+    ).toHaveTextContent("fn");
+    expect(screen.getByText("Keep the immutable archive")).toBeInTheDocument();
+    expect(screen.getByText("0")).toBeInTheDocument();
+    expect(
+      screen.getByText("Additional architecture context"),
+    ).toBeInTheDocument();
+    expect(JSON.stringify(architecture)).toBe(original);
+  });
+
+  it("preserves deployment fields and the recorded activity order", async () => {
+    vi.spyOn(api, "fetchBriefing").mockResolvedValue({
+      ...staleBriefingFixture,
+      sections: {
+        ...staleBriefingFixture.sections,
+        deployment: {
+          ...staleBriefingFixture.sections.deployment,
+          content: {
+            environments: "Production uses `main`",
+            rollback_notes: "[Rollback guide](https://example.com/rollback)",
+          },
+        },
+        activity: {
+          ...staleBriefingFixture.sections.activity,
+          content: {
+            highlights: ["First recorded update", "Second recorded update"],
+            caveat: "Deployment remains unverified",
+          },
+        },
+      },
+    });
+    renderWithProviders(<BriefingPanel folderId="f1" />);
+    await screen.findByText("Repository briefing");
+    fireEvent.click(screen.getAllByText("Deployment").at(-1)!);
+    expect(screen.getByText("main", { selector: "code" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Rollback guide" }),
+    ).toHaveAttribute("href", "https://example.com/rollback");
+    fireEvent.click(screen.getAllByText("Activity").at(-1)!);
+    const first = screen.getByText("First recorded update");
+    const second = screen.getByText("Second recorded update");
+    expect(
+      first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Deployment remains unverified"),
+    ).toBeInTheDocument();
+  });
+
   it("renders the briefing title", async () => {
     vi.spyOn(api, "fetchBriefing").mockResolvedValue(staleBriefingFixture);
     renderWithProviders(<BriefingPanel folderId="f1" />);

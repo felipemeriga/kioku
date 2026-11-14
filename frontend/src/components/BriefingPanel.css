@@ -1,0 +1,174 @@
+/* Briefing presentation only; stored source content remains unchanged. */
+.briefing-introduction,
+.briefing-components,
+.briefing-reading-fields {
+  min-width: 0;
+}
+.briefing-introduction {
+  max-width: 74ch;
+}
+#root .briefing-panel .briefing-introduction-lead .readable-content {
+  font-size: 18px;
+  line-height: 1.8;
+}
+.briefing-context {
+  border-top: 1px solid #493459;
+  padding-top: 17px;
+  margin-top: 23px;
+  max-width: 76ch;
+}
+.briefing-context > summary,
+.briefing-component-details > summary {
+  cursor: pointer;
+  color: #c1b2ce;
+  width: fit-content;
+  font-size: 14px;
+}
+.briefing-context[open] > summary,
+.briefing-component-details[open] > summary {
+  margin-bottom: 16px;
+  color: #f5effa;
+}
+.briefing-component-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.32fr) minmax(0, 1fr);
+  gap: 22px;
+  padding: 17px 0;
+  border-bottom: 1px solid #3c2d4c;
+  align-items: start;
+}
+.briefing-component-row:first-child {
+  padding-top: 2px;
+}
+.briefing-component-identity,
+.briefing-component-body {
+  min-width: 0;
+}
+#root .briefing-component-identity h3 {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.briefing-component-path {
+  display: block;
+  color: #00e2ed;
+  font: 12px/1.7 "IBM Plex Mono", monospace;
+  overflow-wrap: anywhere;
+}
+#root .briefing-panel .briefing-component-body p,
+#root .briefing-panel .briefing-component-body li {
+  font-size: 15px;
+  line-height: 1.75;
+}
+.briefing-component-body .briefing-markdown .readable-content > :first-child {
+  margin-top: 0;
+}
+.briefing-component-body .briefing-markdown .readable-content > :last-child {
+  margin-bottom: 0;
+}
+.briefing-component-body .briefing-object-field + .briefing-object-field {
+  margin-top: 12px;
+}
+.briefing-reading-field {
+  min-width: 0;
+  padding: 25px 0;
+  border-bottom: 1px solid #3c2d4c;
+}
+.briefing-reading-field:first-child {
+  padding-top: 0;
+}
+.briefing-reading-field:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+.briefing-reading-deployment .briefing-reading-field {
+  display: grid;
+  grid-template-columns: 145px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+#root .briefing-panel .briefing-field-heading {
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.6;
+  margin: 0 0 13px;
+}
+.briefing-field-content {
+  min-width: 0;
+  max-width: 74ch;
+}
+.briefing-field-content .briefing-markdown .readable-content > :first-child {
+  margin-top: 0;
+}
+.briefing-field-content .briefing-markdown .readable-content > :last-child {
+  margin-bottom: 0;
+}
+#root .briefing-panel .briefing-activity-list {
+  list-style: none;
+  margin: 0 0 0 5px;
+  padding: 0;
+}
+#root .briefing-panel .briefing-activity-list > li {
+  position: relative;
+  border-left: 1px solid #59426c;
+  padding: 0 0 22px 23px;
+  margin: 0;
+}
+.briefing-activity-list > li::before {
+  content: "";
+  position: absolute;
+  left: -4px;
+  top: 10px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #00e2ed;
+}
+#root .briefing-panel .briefing-activity-list > li:last-child {
+  padding-bottom: 0;
+}
+.briefing-activity-list .briefing-markdown .readable-content > :first-child {
+  margin-top: 0;
+}
+.briefing-activity-list .briefing-markdown .readable-content > :last-child {
+  margin-bottom: 0;
+}
+#root .briefing-panel .briefing-markdown .readable-content {
+  font-size: 16px;
+  line-height: 1.8;
+}
+#root .briefing-panel .briefing-markdown .readable-content a {
+  text-decoration: underline;
+  text-decoration-color: #735086;
+  text-underline-offset: 3px;
+}
+#root .briefing-panel .briefing-markdown .readable-content a:hover {
+  color: #fff;
+  text-decoration-color: #00e2ed;
+}
+#root .briefing-panel .briefing-markdown .readable-code-block {
+  min-width: 0;
+}
+#root .briefing-panel .briefing-markdown .readable-code-heading {
+  font-family: inherit;
+}
+#root .briefing-panel .briefing-markdown .readable-content pre.readable-code {
+  font-size: 13px;
+  line-height: 1.7;
+  margin: 0;
+}
+@media (max-width: 720px) {
+  .briefing-component-row,
+  .briefing-reading-deployment .briefing-reading-field {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 9px;
+  }
+  .briefing-component-row {
+    padding: 16px 0;
+  }
+  #root .briefing-panel .briefing-field-heading {
+    margin-bottom: 4px;
+  }
+}
