@@ -31,6 +31,10 @@ if ((fs.statSync(authPath).mode & 0o077) !== 0)
 fs.mkdirSync(artifacts, { recursive: true, mode: 0o700 });
 const keepFixture = process.env.KIOKU_V2_E2E_KEEP_FIXTURE === "1";
 const fixturePath = path.join(artifacts, "cli-fixture.json");
+if (process.argv[2] !== "resume" && fs.existsSync(fixturePath))
+  throw new Error(
+    "A retained fixture already exists. Finish native/provider cleanup before creating another."
+  );
 const writeOperations = [];
 let rootName = "";
 let phase = "launch",
@@ -611,7 +615,7 @@ async function resumeRevocation() {
     );
     assert.equal(resolved.ok, true);
     done();
-    if (keepFixture) {
+    {
       const saved = await catalog();
       fs.writeFileSync(
         fixturePath,
@@ -645,9 +649,11 @@ async function resumeRevocation() {
         ),
         { mode: 0o600 }
       );
-      report.status = "awaiting-native-cli";
-      report.fixture = fixturePath;
-      return;
+      if (keepFixture) {
+        report.status = "awaiting-native-cli";
+        report.fixture = fixturePath;
+        return;
+      }
     }
     step("stale grant revision rejected");
     const edit = await call(
