@@ -467,8 +467,9 @@ export default function DocumentsPage() {
           justifyContent="space-between"
           alignItems={{ xs: "flex-start", sm: "center" }}
           gap={2}
+          sx={{ flexWrap: "wrap" }}
         >
-          <Box>
+          <Box sx={{ minWidth: 0, flex: "1 1 auto", overflowWrap: "anywhere" }}>
             <Typography
               component="h1"
               sx={{
@@ -535,18 +536,32 @@ export default function DocumentsPage() {
                   size="small"
                   variant="outlined"
                   startIcon={<KeyIcon fontSize="small" />}
+                  title={`Environments & access · ${breadcrumbs[0].name}`}
                   onClick={() =>
                     navigate(`/folders/${breadcrumbs[0].id}/access`)
                   }
                   sx={{
                     borderColor: brand.line,
                     color: brand.muted,
-                    whiteSpace: "nowrap",
+                    maxWidth: "100%",
+                    minWidth: 0,
                   }}
                 >
-                  {breadcrumbs.length === 1
-                    ? "Environments & access"
-                    : `Access · ${breadcrumbs[0].name}`}
+                  <Typography
+                    component="span"
+                    data-access-label
+                    sx={{
+                      minWidth: 0,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      font: "inherit",
+                    }}
+                  >
+                    {breadcrumbs.length === 1
+                      ? "Environments & access"
+                      : `Access · ${breadcrumbs[0].name}`}
+                  </Typography>
                 </Button>
               )}
             <Button
