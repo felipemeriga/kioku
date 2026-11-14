@@ -287,7 +287,10 @@ def test_budget_repair_is_once_only_for_confirmed_failures(
 
 
 @pytest.mark.parametrize("repair,expected_admissions", [(False, 1), (True, 2)])
-def test_failed_result_repair_preserves_validation_reason(monkeypatch, repair, expected_admissions):
+@pytest.mark.parametrize("operation", ["learnings", "reports"])
+def test_failed_result_repair_preserves_validation_reason(
+    monkeypatch, repair, expected_admissions, operation
+):
     for key in ("SUPABASE_URL", "KIOKU_MCP_URL", "KIOKU_API_URL"):
         monkeypatch.setenv(key, "http://fixture")
     monkeypatch.setenv("SUPABASE_SERVICE_KEY", "fixture")
@@ -297,7 +300,7 @@ def test_failed_result_repair_preserves_validation_reason(monkeypatch, repair, e
     )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    admissions = []
+    admissions, preparations = [], []
 
     def response(body, status=200):
         return SimpleNamespace(
@@ -306,6 +309,7 @@ def test_failed_result_repair_preserves_validation_reason(monkeypatch, repair, e
 
     def post(url, **kwargs):
         if url.endswith("/prepare"):
+            preparations.append(kwargs["json"])
             return response(
                 {
                     "engine": "tsukai",
@@ -326,7 +330,7 @@ def test_failed_result_repair_preserves_validation_reason(monkeypatch, repair, e
         RuntimeError, match="bounded repair: invalid_result:unsupported learning commit"
     ):
         module.maintenance_post(
-            "http://fixture/api/mihari/learnings",
+            "http://fixture/api/mihari/" + operation,
             headers={},
             json={"folder_id": "folder"},
             timeout=120,
@@ -334,6 +338,12 @@ def test_failed_result_repair_preserves_validation_reason(monkeypatch, repair, e
             _batches=1,
         )
     assert len(admissions) == expected_admissions
+
+    assert "retry_preparation_id" not in preparations[0]
+    if repair and operation == "reports":
+        assert preparations[1]["retry_preparation_id"] == "prep"
+    elif repair:
+        assert "retry_preparation_id" not in preparations[1]
 
 
 def test_monthly_snapshot_finishes_without_restarting_at_thirty_seconds(monkeypatch):

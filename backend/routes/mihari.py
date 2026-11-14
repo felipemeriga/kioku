@@ -560,6 +560,9 @@ def _run_maintenance(body, request, operation):
 class MaintenancePrepareRequest(BaseModel):
     operation: str
     payload: dict
+    retry_preparation_id: str | None = Field(
+        default=None, pattern=r"^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+    )
 
 
 class MaintenancePublishRequest(BaseModel):
@@ -604,6 +607,15 @@ def prepare_maintenance(body: MaintenancePrepareRequest, request: Request):
             and payload.get("section") != body.operation
         ):
             raise HTTPException(status_code=422, detail="section/operation mismatch")
+        if body.retry_preparation_id:
+            return prepare(
+                sb,
+                owner,
+                parsed.folder_id,
+                body.operation,
+                payload,
+                retry_preparation_id=body.retry_preparation_id,
+            )
         return prepare(sb, owner, parsed.folder_id, body.operation, payload)
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc

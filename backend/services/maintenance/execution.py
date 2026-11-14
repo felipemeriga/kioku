@@ -534,12 +534,51 @@ def prepared_response(owner, folder, record):
     }
 
 
-def prepare(sb, owner, folder, operation, payload):
+def report_repair_snapshot(sb, owner, folder, operation, payload, preparation):
+    """Keep a bounded correction on its original evidence despite concurrent arrivals."""
+    rows = (
+        sb.table("maintenance_preparations")
+        .select("*")
+        .eq("id", preparation)
+        .eq("user_id", owner)
+        .eq("folder_id", folder)
+        .eq("operation", operation)
+        .eq("head_sha", payload["head_sha"])
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows or operation != "reports":
+        raise ValueError("Unknown report recovery preparation")
+    row = rows[0]
+    if row.get("repair_of") or not row.get("validation_error") or row.get("publication"):
+        raise ValueError("Report recovery requires an unrepaired rejected preparation")
+    if not request_matches_policy(row):
+        raise ValueError("Report recovery policy changed; prepare a fresh report")
+    snapshot = row["snapshot"]
+    for supplied, stored in (
+        ("report_kind", "kind"),
+        ("period_start", "period_start"),
+        ("timezone", "timezone"),
+    ):
+        if payload.get(supplied) is not None and payload[supplied] != snapshot["input"].get(stored):
+            raise ValueError("Report recovery period does not match its preparation")
+    return snapshot
+
+
+def prepare(sb, owner, folder, operation, payload, retry_preparation_id=None):
     reconcile_usage(sb, owner, folder)
     reconcile_acknowledgements(sb, owner, folder)
     if operation == "documentation":
         acknowledge_absent_documentation(sb, owner, folder, payload["head_sha"])
-    snapshot, reason = capture_pending(sb, owner, folder, operation, payload)
+    if retry_preparation_id:
+        snapshot = report_repair_snapshot(
+            sb, owner, folder, operation, payload, retry_preparation_id
+        )
+        reason = None
+    else:
+        snapshot, reason = capture_pending(sb, owner, folder, operation, payload)
     if snapshot is None:
         promoted = (
             promote_main_learnings(sb, owner, folder, payload) if operation == "learnings" else 0
