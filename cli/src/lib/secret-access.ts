@@ -58,7 +58,7 @@ export function secureApiBase(raw: string): URL {
     (url.protocol !== "https:" && !(url.protocol === "http:" && local))
   )
     throw Error(
-      "Secret access requires an HTTPS API origin (HTTP allowed only on loopback).",
+      "Secret access requires an HTTPS API origin (HTTP allowed only on loopback)."
     );
   return url;
 }
@@ -66,7 +66,7 @@ export async function secretRequest<T>(
   base: string,
   path: string,
   token: string | undefined,
-  body?: unknown,
+  body?: unknown
 ): Promise<T> {
   const origin = secureApiBase(base);
   if (!path.startsWith("/api/")) throw Error("Invalid access endpoint.");
@@ -90,10 +90,10 @@ export async function secretRequest<T>(
         response.status === 401
           ? "Access authentication expired. Enroll this computer again."
           : response.status === 403
-            ? "This computer is not authorized for the selected resource."
-            : response.status === 409
-              ? "The binding changed. Refresh the resource mapping."
-              : "Secret access failed. Check the resource and vault availability.",
+          ? "This computer is not authorized for the selected resource."
+          : response.status === 409
+          ? "The binding changed. Refresh the resource mapping."
+          : "Secret access failed. Check the resource and vault availability."
       );
     }
     if (!response.body) throw Error("Empty access response.");
@@ -104,7 +104,7 @@ export async function secretRequest<T>(
       const { done, value } = await reader.read();
       if (done) break;
       size += value.byteLength;
-      if (size > 1048576) {
+      if (size > 4 * 1048576) {
         await reader.cancel();
         throw Error("Access response exceeds supported limits.");
       }
@@ -119,12 +119,12 @@ export async function secretRequest<T>(
     if (
       e instanceof Error &&
       /^(Access |This computer|The binding|Secret access|Empty access|Invalid access)/.test(
-        e.message,
+        e.message
       )
     )
       throw e;
     throw Error(
-      "Secret access could not reach the server securely. Try again.",
+      "Secret access could not reach the server securely. Try again."
     );
   } finally {
     clearTimeout(timer);
@@ -138,12 +138,12 @@ function devicePath(root: string, base: string) {
     "secret-devices",
     createHash("sha256")
       .update(origin + "|" + root)
-      .digest("hex") + ".json",
+      .digest("hex") + ".json"
   );
 }
 export function saveSecretDevice(
   device: SecretDevice,
-  base = readConfig().api_base,
+  base = readConfig().api_base
 ) {
   if (
     !UUID.test(device.root_id) ||
@@ -167,12 +167,12 @@ export function saveSecretDevice(
 }
 export function readSecretDevice(
   root: string,
-  base = readConfig().api_base,
+  base = readConfig().api_base
 ): SecretDevice {
   const path = devicePath(root, base);
   if (!existsSync(path))
     throw Error(
-      "Enroll this computer first: kioku access enroll --root " + root,
+      "Enroll this computer first: kioku access enroll --root " + root
     );
   let fd: number | undefined;
   try {
@@ -196,7 +196,7 @@ export function readSecretDevice(
     return d;
   } catch {
     throw Error(
-      "Device credential is invalid or expired. Enroll this computer again.",
+      "Device credential is invalid or expired. Enroll this computer again."
     );
   } finally {
     if (fd !== undefined) closeSync(fd);
@@ -207,7 +207,7 @@ export function forgetSecretDevice(root: string, base = readConfig().api_base) {
 }
 export async function resolveSecretAccess(
   root: string,
-  bindings: BindingSelection[],
+  bindings: BindingSelection[]
 ): Promise<ResolvedAccess> {
   const cfg = readConfig(),
     device = readSecretDevice(root, cfg.api_base);
@@ -216,7 +216,7 @@ export async function resolveSecretAccess(
     cfg.api_base,
     "/api/secret-access/resolve",
     device.device_token,
-    { root_id: root, invocation_id: invocation, bindings },
+    { root_id: root, invocation_id: invocation, bindings }
   );
   if (
     result.invocation_id !== invocation ||
@@ -224,6 +224,91 @@ export async function resolveSecretAccess(
       result.credential_expires_at === null ||
       typeof result.credential_expires_at === "string"
     )
+  )
+    throw Error("Invalid access response.");
+  return result;
+}
+
+export interface UsageSelection {
+  usage_id: string;
+  revision: number;
+  credential_revision: number;
+}
+export function parseUsages(raw: string[]): UsageSelection[] {
+  if (!raw.length || raw.length > 8)
+    throw Error("Select between one and eight usages.");
+  const result = raw.map((value) => {
+    const [id, revision, credential, ...extra] = value.split("@");
+    if (
+      !UUID.test(id) ||
+      !revision ||
+      !credential ||
+      !/^\d{1,9}$/.test(revision) ||
+      !/^\d{1,9}$/.test(credential) ||
+      Number(revision) < 1 ||
+      Number(credential) < 1 ||
+      extra.length
+    )
+      throw Error("Use --usage UUID@revision@credential-revision.");
+    return {
+      usage_id: id,
+      revision: Number(revision),
+      credential_revision: Number(credential),
+    };
+  });
+  if (new Set(result.map((x) => x.usage_id)).size !== result.length)
+    throw Error("A usage can only be selected once.");
+  return result;
+}
+export async function resolveSecretUsages(
+  root: string,
+  usages: UsageSelection[],
+  allowRaw: boolean
+) {
+  const cfg = readConfig(),
+    device = readSecretDevice(root, cfg.api_base),
+    invocation = randomUUID();
+  const result = await secretRequest<{
+    invocation_id: string;
+    credential_expires_at: string | null;
+    clear_env: string[];
+    deliveries: (import("./secret-delivery.js").Delivery & {
+      usage_id: string;
+      revision: number;
+      credential_id: string;
+      credential_revision: number;
+    })[];
+  }>(cfg.api_base, "/api/secret-access/resolve-v2", device.device_token, {
+    root_id: root,
+    invocation_id: invocation,
+    usages,
+    allow_raw_secret_argv: allowRaw,
+  });
+  if (
+    result.invocation_id !== invocation ||
+    !(
+      result.credential_expires_at === null ||
+      typeof result.credential_expires_at === "string"
+    )
+  )
+    throw Error("Invalid access response.");
+  if (
+    !Array.isArray(result.deliveries) ||
+    result.deliveries.length !== usages.length ||
+    result.deliveries.some((delivery, index) => {
+      const selected = usages.find(
+        (item) => item.usage_id === delivery.usage_id
+      );
+      return (
+        !selected ||
+        !UUID.test(delivery.credential_id) ||
+        delivery.revision !== selected.revision ||
+        delivery.credential_revision !== selected.credential_revision ||
+        result.deliveries.findIndex(
+          (item) => item.usage_id === delivery.usage_id
+        ) !== index
+      );
+    })
   )
     throw Error("Invalid access response.");
   return result;
