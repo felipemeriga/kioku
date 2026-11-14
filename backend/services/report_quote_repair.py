@@ -208,7 +208,8 @@ def quote_repair_request(snapshot):
         ),
         "prompt": (
             "Correct evidence metadata only. For each finding choose a supplied quote ID that "
-            "supports its substantive claim. Read adjacent parts of the same record together. Never rewrite "
+            "supports its substantive claim. Read adjacent parts of the same record together. "
+            "Never rewrite "
             "claims or select a passage merely because its date matches. For requires_observation "
             "select an actual recorded deployment/execution observation. Plans, implementation, "
             "or inspection of generated report text do not prove successful execution. Select "
