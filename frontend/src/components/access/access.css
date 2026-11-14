@@ -132,9 +132,7 @@
   min-width: 0;
 }
 .access-code {
-  font:
-    12px/1.7 "IBM Plex Mono",
-    monospace;
+  font: 12px/1.7 "IBM Plex Mono", monospace;
   color: #84d8e1;
   background: #21122d;
   padding: 2px 5px;
@@ -288,4 +286,157 @@
 .access-additional-details > summary:focus-visible {
   outline: 2px solid #24dfef;
   outline-offset: 4px;
+}
+
+/* Intrinsic sizing is essential here: actions remain inside every drawer size. */
+.access-v2-drawer .MuiDrawer-paper {
+  width: 640px;
+}
+.access-drawer-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+}
+.access-drawer-title-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: start;
+}
+.access-drawer-title-row h6 {
+  overflow-wrap: anywhere;
+}
+.access-drawer-content form,
+.access-drawer-content [role="tabpanel"] {
+  min-width: 0;
+}
+.access-drawer-content .MuiTextField-root {
+  width: 100%;
+  min-width: 0;
+}
+.access-drawer-content .MuiInputBase-root {
+  min-width: 0;
+}
+.access-drawer-content textarea {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.access-drawer-content .MuiButton-root {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.access-resource-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 20px;
+  min-width: 0;
+}
+.access-resource-meta > p {
+  min-width: 0;
+}
+.access-resource-meta .MuiChip-root {
+  height: auto;
+  max-width: 100%;
+  flex-shrink: 0;
+}
+.access-resource-meta .MuiChip-label,
+.access-drawer-content .MuiChip-label {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.access-credential-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(100px, 128px);
+  gap: 14px;
+  align-items: center;
+  padding: 20px 0;
+  border-top: 1px solid #392747;
+  min-width: 0;
+}
+.access-credential-description {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.access-credential-row .MuiChip-root {
+  max-width: 100%;
+  height: auto;
+}
+.access-credential-action {
+  width: 100%;
+}
+.access-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 18px 0 0;
+  border-top: 1px solid #392747;
+}
+.access-environment-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid #392747;
+  border-radius: 4px;
+  min-width: 0;
+  margin: 0;
+  padding: 12px 16px;
+}
+.access-environment-picker legend {
+  font-size: 12px;
+  color: #afa0bf;
+  padding: 0 4px;
+}
+.access-environment-picker .MuiFormControlLabel-root {
+  min-width: 0;
+}
+.access-environment-picker .MuiFormControlLabel-label {
+  overflow-wrap: anywhere;
+}
+.access-mapping-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 10px;
+  min-width: 0;
+  align-items: start;
+}
+.access-recipe-card {
+  border: 1px solid #392747;
+  border-radius: 6px;
+  padding: 16px;
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 480px) {
+  .access-v2-drawer .access-drawer-header,
+  .access-v2-drawer .access-drawer-content,
+  .access-v2-drawer .access-drawer-footer {
+    padding: 20px 16px;
+  }
+  .access-credential-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+  }
+  .access-credential-action {
+    grid-column: 1/-1;
+    justify-self: start;
+    width: auto;
+    max-width: 100%;
+  }
+  .access-resource-meta {
+    flex-direction: column;
+  }
+  .access-mapping-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .access-mapping-row > button {
+    justify-self: start;
+  }
 }

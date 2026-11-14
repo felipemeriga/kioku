@@ -3,7 +3,7 @@ import { screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { Route, Routes } from "react-router-dom";
 import { renderWithProviders } from "../test/renderWithProviders";
 import RootAccessPage from "./RootAccessPage";
-import ResourceDialog from "../components/access/ResourceDialog";
+import ResourceDialog from "../components/access/LegacyResourceDialog";
 import { ApiError } from "../lib/api";
 import { useAuth } from "../hooks/useAuth";
 import { EnvironmentGuide } from "../components/access/AccessAdministration";
@@ -88,7 +88,7 @@ function render() {
     <Routes>
       <Route path="/folders/:rootId/access" element={<RootAccessPage />} />
     </Routes>,
-    { initialEntries: [`/folders/${root}/access`] },
+    { initialEntries: [`/folders/${root}/access`] }
   );
 }
 beforeEach(() => {
@@ -108,21 +108,27 @@ describe("root access interface", () => {
       target: { value: "homologação" },
     });
     fireEvent.click(
-      screen.getByRole("button", { name: "Configure SES MongoDB" }),
+      screen.getByRole("button", { name: "Configure SES MongoDB" })
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Manage legacy application mappings" })
     );
     expect(
-      await screen.findByText("Stored in central vault"),
+      await screen.findByText("Stored in central vault")
     ).toBeInTheDocument();
     expect(screen.getByText("MONGO_URI")).toBeInTheDocument();
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
   });
   it("writes credentials through the dedicated endpoint and clears on provider failure", async () => {
     vi.mocked(mutateAccess).mockRejectedValue(
-      new Error("provider password: DO-NOT-PRINT"),
+      new Error("provider password: DO-NOT-PRINT")
     );
     render();
     fireEvent.click(
-      await screen.findByRole("button", { name: "Configure SES MongoDB" }),
+      await screen.findByRole("button", { name: "Configure SES MongoDB" })
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Manage legacy application mappings" })
     );
     fireEvent.click(screen.getByRole("button", { name: "Replace" }));
     const input = screen.getByLabelText(/Secret field: connection/);
@@ -138,8 +144,8 @@ describe("root access interface", () => {
           expected_revision: 4,
           values: { connection: "SYNTHETIC-CANARY" },
         }),
-        expect.any(AbortSignal),
-      ),
+        expect.any(AbortSignal)
+      )
     );
     await screen.findByText("Could not complete this request. Try again.");
     expect(input).toHaveValue("");
@@ -163,8 +169,8 @@ describe("root access interface", () => {
           markdown: "# Updated",
           expected_revision: 3,
         },
-        expect.any(AbortSignal),
-      ),
+        expect.any(AbortSignal)
+      )
     );
   });
   it("requires explicit confirmation before revoking a computer", async () => {
@@ -180,8 +186,8 @@ describe("root access interface", () => {
         "/devices/device/revoke",
         "POST",
         {},
-        expect.any(AbortSignal),
-      ),
+        expect.any(AbortSignal)
+      )
     );
   });
 });
@@ -189,7 +195,7 @@ describe("root access interface", () => {
 describe("guide concurrent edits", () => {
   it("keeps the draft and original revision when server metadata refreshes", async () => {
     const view = renderWithProviders(
-      <EnvironmentGuide root={root} catalog={catalog} onSaved={() => {}} />,
+      <EnvironmentGuide root={root} catalog={catalog} onSaved={() => {}} />
     );
     fireEvent.change(screen.getByLabelText("Markdown guide"), {
       target: { value: "My unsaved work" },
@@ -202,10 +208,10 @@ describe("guide concurrent edits", () => {
           guide: { markdown: "External edit", revision: 4 },
         }}
         onSaved={() => {}}
-      />,
+      />
     );
     expect(screen.getByLabelText("Markdown guide")).toHaveValue(
-      "My unsaved work",
+      "My unsaved work"
     );
     fireEvent.click(screen.getByRole("button", { name: "Save guide" }));
     await waitFor(() =>
@@ -217,8 +223,8 @@ describe("guide concurrent edits", () => {
           markdown: "My unsaved work",
           expected_revision: 3,
         },
-        expect.any(AbortSignal),
-      ),
+        expect.any(AbortSignal)
+      )
     );
   });
 });
@@ -235,10 +241,10 @@ describe("account isolation", () => {
     view.rerender(
       <Routes>
         <Route path="/folders/:rootId/access" element={<RootAccessPage />} />
-      </Routes>,
+      </Routes>
     );
     expect(
-      screen.queryByRole("button", { name: "Configure SES MongoDB" }),
+      screen.queryByRole("button", { name: "Configure SES MongoDB" })
     ).not.toBeInTheDocument();
     expect(fetchAccess).toHaveBeenCalledTimes(requests);
   });
@@ -250,7 +256,7 @@ describe("pending credential recovery", () => {
     async (failure) => {
       const current = structuredClone(catalog);
       vi.mocked(fetchAccess).mockImplementation(async () =>
-        structuredClone(current),
+        structuredClone(current)
       );
       vi.mocked(mutateAccess).mockImplementation(async (_root, path) => {
         if (path.endsWith("/reconcile")) {
@@ -267,7 +273,12 @@ describe("pending credential recovery", () => {
       });
       render();
       fireEvent.click(
-        await screen.findByRole("button", { name: "Configure SES MongoDB" }),
+        await screen.findByRole("button", { name: "Configure SES MongoDB" })
+      );
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "Manage legacy application mappings",
+        })
       );
       fireEvent.click(screen.getByRole("button", { name: "Replace" }));
       fireEvent.change(screen.getByLabelText(/Secret field: connection/), {
@@ -279,11 +290,11 @@ describe("pending credential recovery", () => {
       });
       if (failure === "timeout")
         expect(
-          await screen.findByText(/Its outcome may be pending/),
+          await screen.findByText(/Its outcome may be pending/)
         ).toBeInTheDocument();
       expect(screen.getByLabelText(/Secret field: connection/)).toHaveValue("");
       expect(
-        screen.getByRole("button", { name: "Save credential" }),
+        screen.getByRole("button", { name: "Save credential" })
       ).toBeDisabled();
       fireEvent.click(recovery);
       await waitFor(() =>
@@ -292,17 +303,17 @@ describe("pending credential recovery", () => {
           "/bindings/binding/credential/reconcile",
           "POST",
           {},
-          expect.any(AbortSignal),
-        ),
+          expect.any(AbortSignal)
+        )
       );
       await waitFor(() =>
-        expect(screen.getByRole("button", { name: "Replace" })).toBeEnabled(),
+        expect(screen.getByRole("button", { name: "Replace" })).toBeEnabled()
       );
       expect(
-        screen.queryByRole("button", { name: "Reconcile pending write" }),
+        screen.queryByRole("button", { name: "Reconcile pending write" })
       ).not.toBeInTheDocument();
       expect(document.body.textContent).not.toContain("RECOVERY-CANARY");
-    },
+    }
   );
 });
 
@@ -315,10 +326,10 @@ describe("binding metadata refresh", () => {
         resource={catalog.resources[0]}
         onClose={() => {}}
         onSaved={() => {}}
-      />,
+      />
     );
     expect(
-      screen.queryByText("Stored in central vault"),
+      screen.queryByText("Stored in central vault")
     ).not.toBeInTheDocument();
     view.rerender(
       <ResourceDialog
@@ -327,7 +338,7 @@ describe("binding metadata refresh", () => {
         resource={catalog.resources[0]}
         onClose={() => {}}
         onSaved={() => {}}
-      />,
+      />
     );
     expect(screen.getByText("Stored in central vault")).toBeInTheDocument();
   });
@@ -343,25 +354,25 @@ describe("guide revision history", () => {
       },
     ]);
     renderWithProviders(
-      <EnvironmentGuide root={root} catalog={catalog} onSaved={() => {}} />,
+      <EnvironmentGuide root={root} catalog={catalog} onSaved={() => {}} />
     );
     fireEvent.change(screen.getByLabelText("Markdown guide"), {
       target: { value: "My current unsaved guide" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Revision history" }));
     expect(
-      await screen.findByRole("heading", { name: "Old environment guide" }),
+      await screen.findByRole("heading", { name: "Old environment guide" })
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Close history" }));
     expect(screen.getByLabelText("Markdown guide")).toHaveValue(
-      "My current unsaved guide",
+      "My current unsaved guide"
     );
     expect(mutateAccess).toHaveBeenCalledWith(
       root,
       "/guide/revisions",
       "GET",
       undefined,
-      expect.any(AbortSignal),
+      expect.any(AbortSignal)
     );
   });
 });
@@ -377,15 +388,15 @@ describe("shared resources without credentials", () => {
       name: "Configure SES MongoDB",
     });
     expect(
-      within(row).getByText("Shared", { exact: true }),
+      within(row).getByText("Shared", { exact: true })
     ).toBeInTheDocument();
     expect(within(row).getByText(/Needed/)).toBeInTheDocument();
     fireEvent.click(row);
     fireEvent.click(
-      screen.getByRole("button", { name: "Edit resource details" }),
+      screen.getByRole("button", { name: "Edit resource details" })
     );
     expect(
-      screen.getByText("Additional details (optional)"),
+      screen.getByText("Additional details (optional)")
     ).toBeInTheDocument();
     expect(screen.getByLabelText("Account (optional)")).not.toBeRequired();
     expect(screen.getByLabelText("Region (optional)")).not.toBeRequired();
@@ -396,8 +407,42 @@ describe("shared resources without credentials", () => {
         "/resources/res",
         "PATCH",
         expect.objectContaining({ shared: true, account: "", region: "" }),
-        expect.any(AbortSignal),
-      ),
+        expect.any(AbortSignal)
+      )
     );
+  });
+});
+
+describe("credential coverage", () => {
+  it("does not mark a missing environment stored when another has duplicate variants", async () => {
+    const c = structuredClone(catalog);
+    c.environments.push({
+      id: "prod",
+      name: "Production",
+      slug: "production",
+      sensitivity: "production",
+    });
+    c.resources[0].environment_ids = ["env", "prod"];
+    c.credentials = ["one", "two"].map((id) => ({
+      id,
+      resource_id: "res",
+      environment_id: "env",
+      label: id,
+      kind: "uri",
+      fields: ["connection"],
+      enabled: true,
+      revision: 1,
+      has_secret: true,
+      credential_expires_at: null,
+      pending_operation_id: null,
+      fingerprint: null,
+      legacy_binding_id: id,
+    }));
+    vi.mocked(fetchAccess).mockResolvedValue(c);
+    render();
+    const row = await screen.findByRole("button", {
+      name: "Configure SES MongoDB",
+    });
+    expect(within(row).getByText("○ Needed")).toBeInTheDocument();
   });
 });
