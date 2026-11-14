@@ -37,3 +37,19 @@ do $$ declare r jsonb; v integer; expiry timestamptz:=now()+interval '1 day'; be
  if (select provider_ref from access_credentials where id='80000000-0000-4000-8000-000000000001')<>'v2-opaque' then raise exception 'cancel changed live reference'; end if;
 end $$;
 select 'V2 migration, reference preservation, no grant widening, immutable write and recovery acceptance passed' as result;
+-- Reviewed-version CAS and revocation across both public protocol versions.
+do $$ declare g jsonb; begin
+ update secret_grants set revoked_at=null;
+ g:=grant_secret_usage('a0000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000001','60000000-0000-4000-8000-000000000001','40000000-0000-4000-8000-000000000001',4,'["uri"]','["env"]',null);
+ if (g->>'usage_revision')::integer<>4 then raise exception 'grant snapshot lost'; end if;
+ update access_usages set revision=5 where id='40000000-0000-4000-8000-000000000001';
+ begin
+ perform grant_secret_usage('a0000000-0000-4000-8000-000000000002','10000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000001','60000000-0000-4000-8000-000000000001','40000000-0000-4000-8000-000000000001',4,'["uri"]','["env"]',null);
+ raise exception 'unreviewed recipe granted';
+ exception when others then if sqlerrm<>'binding_changed' then raise; end if; end;
+ if (select usage_revision from secret_usage_grants where id=(g->>'id')::uuid)<>4 then raise exception 'stale approval modified grant'; end if;
+ perform revoke_secret_usage((g->>'id')::uuid,'10000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000001');
+ if exists(select 1 from secret_grants where revoked_at is null) or exists(select 1 from secret_usage_grants where legacy_grant_id is not null and revoked_at is null) then raise exception 'V2 revocation left V1 usable'; end if;
+ if has_function_privilege('authenticated','grant_secret_usage(uuid,uuid,uuid,uuid,uuid,integer,jsonb,jsonb,timestamptz)','EXECUTE') or has_function_privilege('anon','revoke_secret_usage(uuid,uuid,uuid)','EXECUTE') then raise exception 'raw grant function exposed'; end if;
+end $$;
+select 'V2 reviewed-revision grant CAS and cross-protocol revocation passed' as result;

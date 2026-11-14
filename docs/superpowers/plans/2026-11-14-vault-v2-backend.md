@@ -53,3 +53,6 @@
 - Ruling: Legacy credential instances remain metadata-read-only and writes forward to V1, preserving existing IDs/permissions and ongoing old-client changes via triggers. Existing device grants remain independent and do not authorize newly created recipes.
 - Ruling: AWS region is public per-instance metadata; optional session token may be absent on rotation, inherited token/selectors are cleared; AWS recipes restricted to atomic env pair or default credentials file, never raw argv.
 - Remaining: parent review, CI and coordinated migration/release/E2E; no production changes made by this branch.
+
+- Review follow-up: grant approval now requires reviewed usage revision and executes a row-locked CAS RPC; migrated V2 revocation also revokes its V1 permission in the same transaction. Real PostgreSQL acceptance confirms stale approvals and both protocol revocations. Defense-in-depth process-control names aligned with CLI, literal whitespace preserved, unsupported empty literal/overlong config flag rejected.
+- Operational requirement: production migration must hold SHARE ROW EXCLUSIVE locks on V1 bindings/grants/resources inside the same transaction as backfill, trigger installation and registry update. Prepared dry-run-first Management API script and private loopback candidate script under /tmp; neither applies automatically.

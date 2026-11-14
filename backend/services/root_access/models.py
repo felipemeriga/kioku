@@ -80,6 +80,11 @@ def env_name(value: str) -> str:
         raise ValueError("Invalid environment variable name")
     if value.upper().startswith(("LD_", "DYLD_")) or value.upper() in {
         "NODE_OPTIONS",
+        "NODE_PATH",
+        "PS4",
+        "PYTHONHOME",
+        "PERL5OPT",
+        "RUBYOPT",
         "BASH_ENV",
         "ENV",
         "PYTHONSTARTUP",
@@ -103,6 +108,7 @@ def env_name(value: str) -> str:
         "AWS_ROLE_ARN",
         "AWS_ROLE_SESSION_NAME",
         "AWS_EC2_METADATA_DISABLED",
+        "AWS_EC2_METADATA_SERVICE_ENDPOINT",
         "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
         "AWS_CONTAINER_CREDENTIALS_FULL_URI",
         "AWS_CONTAINER_AUTHORIZATION_TOKEN",

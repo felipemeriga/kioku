@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from services.root_access.models import Binding, Credential, StrictModel, env_name
 
@@ -78,8 +78,9 @@ class EnvDelivery(StrictModel):
 
 
 class LiteralArgument(StrictModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=False)
     kind: Literal["literal"]
-    value: str = Field(max_length=4096)
+    value: str = Field(min_length=1, max_length=4096)
 
     @field_validator("value")
     @classmethod
@@ -145,7 +146,7 @@ class FileDestination(StrictModel):
         if self.kind == "env":
             if self.name != "AWS_SHARED_CREDENTIALS_FILE":
                 env_name(self.name)
-        elif not re.fullmatch(r"--?[A-Za-z][A-Za-z0-9_-]*", self.name):
+        elif not re.fullmatch(r"--?[A-Za-z][A-Za-z0-9_-]{0,63}", self.name):
             raise ValueError("Invalid configuration flag")
         return self
 
@@ -181,7 +182,7 @@ class SSHDelivery(StrictModel):
     @field_validator("host")
     @classmethod
     def host_valid(cls, value):
-        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.:-]{0,252}", value):
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]{0,252}", value):
             raise ValueError("Invalid SSH host")
         return value
 
@@ -220,6 +221,7 @@ class UsageUpdate(Usage):
 class UsageGrant(StrictModel):
     device_id: UUID
     usage_id: UUID
+    expected_usage_revision: int = Field(ge=1)
     allowed_fields: list[str] = Field(min_length=1, max_length=32)
     capabilities: list[Capability] = Field(min_length=1, max_length=5)
     expires_at: datetime | None = None

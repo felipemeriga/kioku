@@ -6,6 +6,7 @@ import json
 import os
 import struct
 from hashlib import sha256
+from uuid import uuid4
 
 from cryptography.hazmat.primitives import serialization
 
@@ -347,25 +348,47 @@ class V2Store(AccessStore):
         if device["revoked_at"] or expired(device["expires_at"]):
             fail("device_revoked", 409)
         usage = self.one("access_usages", owner, root, value["usage_id"])
+        expected_revision = value.pop("expected_usage_revision")
+        if usage["revision"] != expected_revision:
+            fail("binding_changed", 409)
         fields = usage_fields(usage["delivery"])
         caps = usage_capabilities(usage["delivery"])
         # An exact recipe snapshot is the destination constraint; no wildcard grants.
         if fields != set(value["allowed_fields"]) or caps != set(value["capabilities"]):
             fail("invalid_input", 422)
-        row = {
-            **value,
-            "user_id": owner,
-            "root_folder_id": str(root),
-            "usage_revision": usage["revision"],
-            "revoked_at": None,
-        }
-        rows = (
-            self.sb.table("secret_usage_grants")
-            .upsert(row, on_conflict="device_id,usage_id")
-            .execute()
-            .data
-        )
-        return {k: rows[0].get(k) for k in PUBLIC_USAGE_GRANT.split(",")}
+        try:
+            row = (
+                self.sb.rpc(
+                    "grant_secret_usage",
+                    {
+                        "p_id": str(uuid4()),
+                        "p_owner": owner,
+                        "p_root": str(root),
+                        "p_device": value["device_id"],
+                        "p_usage": value["usage_id"],
+                        "p_revision": expected_revision,
+                        "p_fields": value["allowed_fields"],
+                        "p_capabilities": value["capabilities"],
+                        "p_expiry": value.get("expires_at"),
+                    },
+                )
+                .execute()
+                .data
+            )
+        except Exception:
+            fail("binding_changed", 409)
+        return {k: row.get(k) for k in PUBLIC_USAGE_GRANT.split(",")}
+
+    def revoke_usage(self, owner, root, grant):
+        self.root(owner, root)
+        self.one("secret_usage_grants", owner, root, grant)
+        try:
+            self.sb.rpc(
+                "revoke_secret_usage", {"p_id": str(grant), "p_owner": owner, "p_root": str(root)}
+            ).execute()
+        except Exception:
+            fail("binding_changed", 409)
+        return {"ok": True}
 
     def authorize_usage(self, owner, root, device, requested, allow_raw):
         usage = self.one("access_usages", owner, root, requested.usage_id)

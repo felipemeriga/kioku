@@ -84,7 +84,7 @@ create function public.sync_legacy_access_binding() returns trigger language plp
 begin
  insert into public.access_credentials(id,user_id,root_folder_id,resource_id,environment_id,label,kind,fields,enabled,revision,provider_ref,has_secret,credential_expires_at,write_operation_id,legacy_binding_id)
  values(new.id,new.user_id,new.root_folder_id,new.resource_id,new.environment_id,new.consumer,'fields',(select jsonb_agg(distinct v) from jsonb_each_text(new.field_mapping) m(k,v)),new.enabled,new.revision,new.provider_ref,new.has_secret,new.credential_expires_at,new.write_operation_id,new.id)
- on conflict(id) do update set label=excluded.label,fields=excluded.fields,enabled=excluded.enabled,revision=excluded.revision,provider_ref=excluded.provider_ref,has_secret=excluded.has_secret,credential_expires_at=excluded.credential_expires_at,write_operation_id=excluded.write_operation_id;
+ on conflict(id) do update set resource_id=excluded.resource_id,environment_id=excluded.environment_id,label=excluded.label,fields=excluded.fields,enabled=excluded.enabled,revision=excluded.revision,provider_ref=excluded.provider_ref,has_secret=excluded.has_secret,credential_expires_at=excluded.credential_expires_at,write_operation_id=excluded.write_operation_id;
  insert into public.access_usages(id,user_id,root_folder_id,credential_id,name,consumer,delivery,enabled,revision,legacy_binding_id)
  values(new.id,new.user_id,new.root_folder_id,new.id,new.consumer,new.consumer,jsonb_build_object('kind','env','field_mapping',new.field_mapping,'clear_env',new.clear_env),new.enabled,new.revision,new.id)
  on conflict(id) do update set name=excluded.name,consumer=excluded.consumer,delivery=excluded.delivery,enabled=excluded.enabled,revision=excluded.revision;
@@ -150,3 +150,40 @@ revoke all on function public.cancel_credential_write(uuid,uuid) from public,ano
 grant execute on function public.reserve_credential_write(uuid,uuid,uuid,uuid,integer,text,text,timestamptz,text) to service_role;
 grant execute on function public.finish_credential_write(uuid,uuid) to service_role;
 grant execute on function public.cancel_credential_write(uuid,uuid) to service_role;
+
+
+-- Atomically grant exactly the recipe revision reviewed in the UI. A pre-read
+-- alone is insufficient: a concurrent destination/host edit must not be approved.
+create function public.grant_secret_usage(p_id uuid,p_owner uuid,p_root uuid,p_device uuid,p_usage uuid,p_revision integer,p_fields jsonb,p_capabilities jsonb,p_expiry timestamptz)
+returns jsonb language plpgsql security definer set search_path=public,pg_temp as $$
+declare u public.access_usages; g public.secret_usage_grants;
+begin
+ select * into u from public.access_usages where id=p_usage and user_id=p_owner and root_folder_id=p_root for update;
+ if not found or u.revision<>p_revision or not u.enabled then raise exception 'binding_changed'; end if;
+ perform 1 from public.secret_devices where id=p_device and user_id=p_owner and root_folder_id=p_root and revoked_at is null and expires_at>now() for update;
+ if not found then raise exception 'access_denied'; end if;
+ if p_expiry is not null and p_expiry<=now() then raise exception 'invalid_input'; end if;
+ insert into public.secret_usage_grants(id,user_id,root_folder_id,device_id,usage_id,usage_revision,allowed_fields,capabilities,expires_at)
+ values(p_id,p_owner,p_root,p_device,p_usage,p_revision,p_fields,p_capabilities,p_expiry)
+ on conflict(device_id,usage_id) do update set usage_revision=excluded.usage_revision,allowed_fields=excluded.allowed_fields,capabilities=excluded.capabilities,expires_at=excluded.expires_at,revoked_at=null
+ returning * into g;
+ return to_jsonb(g)-'user_id'-'root_folder_id'-'legacy_grant_id'-'created_at';
+end $$;
+
+-- A migrated permission is one permission through both protocol versions.
+-- Lock in V1-trigger order to avoid lock inversion during legacy updates.
+create function public.revoke_secret_usage(p_id uuid,p_owner uuid,p_root uuid)
+returns void language plpgsql security definer set search_path=public,pg_temp as $$
+declare g public.secret_usage_grants;
+begin
+ select * into g from public.secret_usage_grants where id=p_id and user_id=p_owner and root_folder_id=p_root;
+ if not found then raise exception 'access_denied'; end if;
+ if g.legacy_grant_id is not null then
+ update public.secret_grants set revoked_at=now() where id=g.legacy_grant_id and user_id=p_owner and root_folder_id=p_root;
+ end if;
+ update public.secret_usage_grants set revoked_at=now() where id=p_id and user_id=p_owner and root_folder_id=p_root;
+end $$;
+revoke all on function public.grant_secret_usage(uuid,uuid,uuid,uuid,uuid,integer,jsonb,jsonb,timestamptz) from public,anon,authenticated;
+revoke all on function public.revoke_secret_usage(uuid,uuid,uuid) from public,anon,authenticated;
+grant execute on function public.grant_secret_usage(uuid,uuid,uuid,uuid,uuid,integer,jsonb,jsonb,timestamptz) to service_role;
+grant execute on function public.revoke_secret_usage(uuid,uuid,uuid) to service_role;

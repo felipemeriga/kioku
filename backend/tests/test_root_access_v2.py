@@ -500,3 +500,47 @@ def test_legacy_aws_usage_preserves_region_and_selector_isolation(vdb, provider)
     result = v2.V2Store(vdb).resolve_v2("ksd_fake-token", body)
     assert result["deliveries"][0]["environment"]["AWS_REGION"] == "us-east-1"
     assert "AWS_PROFILE" in result["clear_env"]
+
+
+def test_grant_requires_reviewed_revision(vdb):
+    with pytest.raises(ValidationError):
+        m.UsageGrant(
+            device_id=DEVICE, usage_id=UID, allowed_fields=["connection"], capabilities=["env"]
+        )
+    value = {
+        "device_id": DEVICE,
+        "usage_id": UID,
+        "expected_usage_revision": 1,
+        "allowed_fields": ["connection"],
+        "capabilities": ["env"],
+        "expires_at": None,
+    }
+    vdb.rows["access_usages"][0]["revision"] = 2
+    with pytest.raises(HTTPException) as error:
+        v2.V2Store(vdb).grant_usage(OWNER, ROOT, value)
+    assert error.value.status_code == 409
+    assert vdb.rows["secret_usage_grants"][0]["usage_revision"] == 1
+
+
+def test_literal_whitespace_is_preserved_and_empty_rejected():
+    assert (
+        m.LiteralArgument(kind="literal", value="  meaningful value  ").value
+        == "  meaningful value  "
+    )
+    with pytest.raises(ValidationError):
+        m.LiteralArgument(kind="literal", value="")
+
+
+def test_file_argument_limit_matches_cli():
+    m.FileDestination(kind="arg", name="--" + "a" * 64)
+    with pytest.raises(ValidationError):
+        m.FileDestination(kind="arg", name="--" + "a" * 65)
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["NODE_PATH", "PYTHONHOME", "PS4", "PERL5OPT", "RUBYOPT", "AWS_EC2_METADATA_SERVICE_ENDPOINT"],
+)
+def test_runtime_control_variables_match_cli_denials(name):
+    with pytest.raises(ValidationError):
+        m.EnvDelivery(kind="env", field_mapping={name: "connection"})

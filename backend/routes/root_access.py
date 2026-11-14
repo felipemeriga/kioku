@@ -465,13 +465,7 @@ def create_usage_grant(root_id: UUID, body: UsageGrant, user_id: str = Depends(g
 
 @router.post("/{root_id}/usage-grants/{grant_id}/revoke")
 def revoke_usage_grant(root_id: UUID, grant_id: UUID, user_id: str = Depends(get_current_user)):
-    s = v2store()
-    s.root(user_id, root_id)
-    s.one("secret_usage_grants", user_id, root_id, grant_id)
-    s.sb.table("secret_usage_grants").update({"revoked_at": now().isoformat()}).eq(
-        "id", str(grant_id)
-    ).eq("user_id", user_id).eq("root_folder_id", str(root_id)).execute()
-    return {"ok": True}
+    return v2store().revoke_usage(user_id, root_id, grant_id)
 
 
 @secret_router.post("/resolve-v2")
