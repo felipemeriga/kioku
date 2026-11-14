@@ -96,8 +96,8 @@ function RootAccessContent({ rootId }: { rootId: string }) {
           r.shared ||
           (filter !== "shared" &&
             catalog.bindings.some(
-              (b) => b.resource_id === r.id && b.environment_id === filter,
-            ))),
+              (b) => b.resource_id === r.id && b.environment_id === filter
+            )))
     ) ?? [];
   return (
     <Box className="access-page">
@@ -248,26 +248,39 @@ function RootAccessContent({ rootId }: { rootId: string }) {
                   </Box>
                   {visibleResources.map((r) => {
                     const bindings = catalog.bindings.filter(
-                      (b) => b.resource_id === r.id,
+                      (b) => b.resource_id === r.id
                     );
-                    const envs = r.shared
-                      ? ["Shared"]
+                    const credentials = (catalog.credentials ?? []).filter(
+                      (c) => c.resource_id === r.id
+                    );
+                    const availableIds = r.environment_ids?.length
+                      ? r.environment_ids
                       : [
                           ...new Set(
-                            bindings.map(
-                              (b) =>
-                                catalog.environments.find(
-                                  (e) => e.id === b.environment_id,
-                                )?.name ?? "Unavailable",
-                            ),
+                            [
+                              ...bindings.map((b) => b.environment_id),
+                              ...credentials.map((c) => c.environment_id),
+                            ].filter((id): id is string => !!id)
                           ),
                         ];
-                    const pending = bindings.some(
-                      (b) => !!b.pending_operation_id,
+                    const envs = r.shared
+                      ? ["Shared"]
+                      : availableIds.map(
+                          (id) =>
+                            catalog.environments.find((e) => e.id === id)
+                              ?.name ?? "Unavailable"
+                        );
+                    const instances = credentials.length
+                      ? credentials
+                      : bindings;
+                    const pending = instances.some(
+                      (c) => !!c.pending_operation_id
                     );
+                    const expected = r.shared ? 1 : availableIds.length;
                     const stored =
-                      bindings.length > 0 &&
-                      bindings.every((b) => b.has_secret);
+                      instances.length >= expected &&
+                      expected > 0 &&
+                      instances.every((c) => c.has_secret);
                     return (
                       <button
                         type="button"
@@ -313,7 +326,7 @@ function RootAccessContent({ rootId }: { rootId: string }) {
                               variant="caption"
                               color="text.secondary"
                             >
-                              No mappings
+                              No environments
                             </Typography>
                           )}
                         </span>
@@ -327,8 +340,8 @@ function RootAccessContent({ rootId }: { rootId: string }) {
                           {pending
                             ? "◐ Pending"
                             : stored
-                              ? "● Stored"
-                              : "○ Needed"}
+                            ? "● Stored"
+                            : "○ Needed"}
                         </span>
                       </button>
                     );

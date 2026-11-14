@@ -1,4 +1,3 @@
-import { useAccessRequests } from "../../hooks/useAccessRequests";
 import { useState } from "react";
 import {
   Alert,
@@ -10,22 +9,39 @@ import {
   FormControlLabel,
   IconButton,
   MenuItem,
+  Tab,
+  Tabs,
   TextField,
   Typography,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import type {
-  AccessBinding,
   AccessCatalog,
+  AccessCredential,
   AccessResource,
+  AccessUsage,
+  CredentialKind,
 } from "../../lib/rootAccess";
-import {
-  accessError,
-  allowedClearVariable,
-  mappingError,
-  resourceError,
-} from "../../lib/rootAccess";
-
+import { accessError, resourceError } from "../../lib/rootAccess";
+import { useAccessRequests } from "../../hooks/useAccessRequests";
+import CredentialEditor from "./CredentialEditor";
+import UsageEditor from "./UsageEditor";
+import UsageAccess from "./UsageAccess";
+import LegacyResourceDialog from "./LegacyResourceDialog";
+const kindLabels: Record<CredentialKind, string> = {
+  uri: "Connection URI",
+  api_key: "API key",
+  ssh: "SSH key",
+  fields: "Custom credential bundle",
+  aws: "AWS credentials",
+};
+const defaults: Record<CredentialKind, string[]> = {
+  uri: ["connection"],
+  api_key: ["api_key"],
+  ssh: ["private_key"],
+  fields: ["connection"],
+  aws: ["access_key_id", "secret_access_key", "session_token"],
+};
 type Props = {
   root: string;
   catalog: AccessCatalog;
@@ -41,217 +57,160 @@ export default function ResourceDialog({
   onSaved,
 }: Props) {
   const execute = useAccessRequests(root);
-  const bindings = catalog.bindings.filter(
-    (b) => b.resource_id === resource?.id,
-  );
-  const [bindingId, setBindingId] = useState(bindings[0]?.id ?? "");
-  const binding =
-    bindings.find((b) => b.id === bindingId) ??
-    (bindingId === "" ? bindings[0] : undefined);
+  const current =
+    catalog.resources.find((r) => r.id === resource?.id) ?? resource;
   const [mode, setMode] = useState<
-    "detail" | "resource" | "mapping" | "credential"
+    "detail" | "resource" | "credential" | "usage" | "legacy"
   >(resource ? "detail" : "resource");
+  const [tab, setTab] = useState(0);
+  const [selected, setSelected] = useState<AccessCredential>();
+  const [usage, setUsage] = useState<AccessUsage>();
   const [name, setName] = useState(resource?.name ?? "");
   const [description, setDescription] = useState(resource?.description ?? "");
   const [type, setType] = useState<AccessResource["type"]>(
-    resource?.type ?? "database",
+    resource?.type ?? "database"
   );
-  const [shared, setShared] = useState(resource?.shared ?? false);
   const [aliases, setAliases] = useState(resource?.aliases.join(", ") ?? "");
+  const [shared, setShared] = useState(resource?.shared ?? false);
+  const [envs, setEnvs] = useState<string[]>(resource?.environment_ids ?? []);
+  const [kind, setKind] = useState<CredentialKind>(
+    resource?.credential_kind ?? "uri"
+  );
+  const [fields, setFields] = useState(
+    (resource?.credential_fields ?? ["connection"]).join(", ")
+  );
   const [account, setAccount] = useState(resource?.account ?? "");
   const [region, setRegion] = useState(resource?.region ?? "");
-  const [environment, setEnvironment] = useState(binding?.environment_id ?? "");
-  const [consumer, setConsumer] = useState(binding?.consumer ?? "");
-  const [mapping, setMapping] = useState(
-    binding
-      ? Object.entries(binding.field_mapping)
-          .map(([k, v]) => `${k}=${v}`)
-          .join("\n")
-      : "MONGO_URI=connection",
-  );
-  const [clearEnv, setClearEnv] = useState(binding?.clear_env.join(", ") ?? "");
-  const [enabled, setEnabled] = useState(binding?.enabled ?? true);
-  const [values, setValues] = useState<Record<string, string>>({});
-  const [expiry, setExpiry] = useState("");
-  const [multiline, setMultiline] = useState(false);
-  const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const reset = () => {
-    setValues({});
-    setError("");
-    setExpiry("");
-    setMultiline(false);
-  };
-  const close = () => {
-    if (busy) return;
-    reset();
-    onClose();
-  };
-  const selectBinding = (b: AccessBinding) => {
-    setBindingId(b.id);
-    setEnvironment(b.environment_id ?? "");
-    setConsumer(b.consumer);
-    setMapping(
-      Object.entries(b.field_mapping)
-        .map(([k, v]) => `${k}=${v}`)
-        .join("\n"),
-    );
-    setClearEnv(b.clear_env.join(", "));
-    setEnabled(b.enabled);
-    reset();
-  };
-  const save = async () => {
-    setError("");
-    if (binding?.pending_operation_id && mode !== "resource") {
-      setError(
-        "Reconcile the pending credential write before changing this mapping.",
+  const [error, setError] = useState("");
+  const credentials = (catalog.credentials ?? []).filter(
+    (c) => c.resource_id === resource?.id
+  );
+  const usages = (catalog.usages ?? []).filter((u) =>
+    credentials.some((c) => c.id === u.credential_id)
+  );
+  const legacy = catalog.bindings.filter((b) => b.resource_id === resource?.id);
+  const environmentName = (id: string | null) =>
+    id
+      ? catalog.environments.find((e) => e.id === id)?.name ??
+        "Unavailable environment"
+      : "Shared";
+  const availability: { id: string | null; name: string }[] = current?.shared
+    ? [{ id: null, name: "Shared" }]
+    : catalog.environments.filter(
+        (e) =>
+          !current?.environment_ids?.length ||
+          current.environment_ids.includes(e.id)
       );
-      return;
-    }
-    let suffix = "",
-      method = "POST",
-      body: unknown;
-    if (mode === "resource") {
-      const list = aliases
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-      const invalid = resourceError(name, list);
-      if (invalid) {
-        setError(invalid);
-        return;
-      }
-      if (
-        description.length > 4000 ||
-        account.length > 120 ||
-        region.length > 120
-      ) {
-        setError("Shorten the description, account or region.");
-        return;
-      }
-      suffix = resource ? `/resources/${resource.id}` : "/resources";
-      method = resource ? "PATCH" : "POST";
-      body = {
-        name: name.trim(),
-        description,
-        type,
-        aliases: list,
-        shared,
-        account,
-        region,
-      };
-    } else if (mode === "mapping") {
-      const invalid = mappingError(mapping, resource?.type),
-        clear = clearEnv
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean);
-      if (invalid) {
-        setError(invalid);
-        return;
-      }
-      if (!consumer.trim() || consumer.length > 120) {
-        setError("Enter an application name of 1–120 characters.");
-        return;
-      }
-      if (!resource?.shared && !environment) {
-        setError("Choose the environment for this mapping.");
-        return;
-      }
-      if (clear.length > 32 || clear.some((v) => !allowedClearVariable(v))) {
-        setError("Use up to 32 allowed variable names to clear.");
-        return;
-      }
-      suffix = binding ? `/bindings/${binding.id}` : "/bindings";
-      method = binding ? "PATCH" : "POST";
-      body = {
-        resource_id: resource!.id,
-        environment_id: resource!.shared ? null : environment,
-        consumer: consumer.trim(),
-        field_mapping: Object.fromEntries(
-          mapping
-            .split("\n")
-            .filter((l) => l.trim())
-            .map((l) => l.split("=").map((s) => s.trim())),
-        ),
-        clear_env: clear,
-        enabled,
-        ...(binding ? { expected_revision: binding.revision } : {}),
-      };
-    } else if (mode === "credential" && binding) {
-      const fields = [...new Set(Object.values(binding.field_mapping))];
-      if (fields.some((f) => !values[f]?.length)) {
-        setError("Enter a value for every required secret field.");
-        return;
-      }
-      const size = new TextEncoder().encode(JSON.stringify(values)).length;
-      if (
-        size > 262144 ||
-        Object.values(values).some(
-          (v) => v.includes("\0") || new TextEncoder().encode(v).length > 65536,
-        )
-      ) {
-        setError(
-          "Each field must be UTF-8 text without NUL, up to 64 KiB (256 KiB total).",
-        );
-        return;
-      }
-      if (
-        expiry &&
-        (!Number.isFinite(Date.parse(expiry)) ||
-          Date.parse(expiry) <= Date.now())
-      ) {
-        setError("Choose a future credential expiration.");
-        return;
-      }
-      suffix = `/bindings/${binding.id}/credential`;
-      body = {
-        expected_revision: binding.revision,
-        idempotency_key: crypto.randomUUID(),
-        values,
-        credential_expires_at: expiry ? new Date(expiry).toISOString() : null,
-      };
-    } else return;
-    setBusy(true);
-    try {
-      await execute(suffix, method, body);
-      setValues({});
-      onSaved();
-      onClose();
-    } catch (err) {
-      setValues({});
-      onSaved();
-      setError(accessError(err));
-    } finally {
-      setBusy(false);
-    }
-  };
-  async function reconcile() {
-    if (!binding) return;
+  function back() {
+    setSelected(undefined);
+    setUsage(undefined);
+    setError("");
+    setMode("detail");
+  }
+  async function addCredential(environmentId: string | null) {
+    if (!current) return;
     setBusy(true);
     setError("");
-    setValues({});
     try {
-      await execute(`/bindings/${binding.id}/credential/reconcile`, "POST", {});
+      const c = await execute<AccessCredential>("/credentials", "POST", {
+        resource_id: current.id,
+        environment_id: environmentId,
+        label: "",
+        kind: current.credential_kind ?? "uri",
+        fields: current.credential_fields ?? ["connection"],
+        enabled: true,
+      });
+      setSelected(c);
+      setMode("credential");
       onSaved();
-      setMode("detail");
     } catch (err) {
       setError(accessError(err));
     } finally {
       setBusy(false);
     }
   }
-  const environmentName = (b: AccessBinding) =>
-    b.environment_id
-      ? (catalog.environments.find((e) => e.id === b.environment_id)?.name ??
-        "Unavailable environment")
-      : "Shared";
+  async function saveResource(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    const list = aliases
+      .split(",")
+      .map((a) => a.trim())
+      .filter(Boolean);
+    const invalid = resourceError(name, list);
+    if (invalid) {
+      setError(invalid);
+      return;
+    }
+    const fieldList = fields
+      .split(",")
+      .map((f) => f.trim())
+      .filter(Boolean);
+    if (
+      !fieldList.length ||
+      fieldList.length > 32 ||
+      new Set(fieldList).size !== fieldList.length ||
+      fieldList.some((f) => !/^[a-z][a-z0-9_]{0,63}$/.test(f))
+    ) {
+      setError(
+        "Use 1–32 unique lowercase field names with letters, numbers or underscores."
+      );
+      return;
+    }
+    if (
+      description.length > 4000 ||
+      account.length > 120 ||
+      region.length > 120
+    ) {
+      setError("Shorten the description or additional details.");
+      return;
+    }
+    if (!shared && !envs.length) {
+      setError("Choose at least one available environment.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await execute(
+        current ? `/resources/${current.id}` : "/resources",
+        current ? "PATCH" : "POST",
+        {
+          name: name.trim(),
+          description,
+          type,
+          aliases: list,
+          shared,
+          environment_ids: shared ? [] : envs,
+          credential_kind: kind,
+          credential_fields: fieldList,
+          account,
+          region,
+        }
+      );
+      onSaved();
+      onClose();
+    } catch (err) {
+      setError(accessError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+  if (mode === "legacy" && current)
+    return (
+      <LegacyResourceDialog
+        root={root}
+        catalog={catalog}
+        resource={current}
+        onClose={back}
+        onSaved={onSaved}
+      />
+    );
   return (
     <Drawer
       anchor="right"
       open
-      onClose={close}
-      className="access-drawer"
+      onClose={() => !busy && onClose()}
+      className="access-drawer access-v2-drawer"
       slotProps={{
         paper: {
           role: "dialog",
@@ -260,430 +219,447 @@ export default function ResourceDialog({
         },
       }}
     >
-      <Box
-        sx={{
-          display: "flex",
-          flexDirection: "column",
-          height: "100%",
-          minWidth: 0,
-        }}
-      >
+      <Box className="access-drawer-shell">
         <Box className="access-drawer-header">
-          <Box className="access-section-row">
+          <div className="access-drawer-title-row">
             <Box sx={{ minWidth: 0 }}>
               <Typography variant="caption" color="text.secondary">
                 Resources
               </Typography>
-              <Typography
-                id="access-resource-title"
-                variant="h6"
-                sx={{ overflowWrap: "anywhere" }}
-              >
-                {mode === "credential"
-                  ? "Save credential"
-                  : mode === "mapping"
-                    ? "Application mapping"
-                    : (resource?.name ?? "Add a resource")}
+              <Typography id="access-resource-title" variant="h6">
+                {current?.name ?? "Add a resource"}
               </Typography>
             </Box>
             <IconButton
-              onClick={close}
               disabled={busy}
               aria-label="Close resource"
+              onClick={onClose}
             >
               <CloseIcon />
             </IconButton>
-          </Box>
+          </div>
         </Box>
         <Box className="access-drawer-content">
-          <form
-            id="access-resource-form"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void save();
-            }}
-            autoComplete="off"
-          >
-            <Box className="access-form">
-              {error && (
-                <Alert severity="error" role="alert">
-                  {error}
-                </Alert>
+          {error && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {error}
+            </Alert>
+          )}
+          {mode === "resource" && (
+            <form
+              className="access-form"
+              onSubmit={(e) => void saveResource(e)}
+              autoComplete="off"
+            >
+              <TextField
+                label="Resource name"
+                required
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                slotProps={{ htmlInput: { maxLength: 120 } }}
+              />
+              <TextField
+                select
+                label="Resource type"
+                value={type}
+                onChange={(e) =>
+                  setType(e.target.value as AccessResource["type"])
+                }
+              >
+                {["database", "observability", "cloud", "other"].map((t) => (
+                  <MenuItem value={t} key={t}>
+                    {t}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                label="Description"
+                multiline
+                minRows={3}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                slotProps={{ htmlInput: { maxLength: 4000 } }}
+              />
+              <TextField
+                label="Search aliases"
+                value={aliases}
+                onChange={(e) => setAliases(e.target.value)}
+                helperText="Comma-separated. Up to 20 aliases."
+                slotProps={{ htmlInput: { maxLength: 2420 } }}
+              />
+              <TextField
+                select
+                label="Credential type"
+                value={kind}
+                onChange={(e) => {
+                  const k = e.target.value as CredentialKind;
+                  setKind(k);
+                  setFields(defaults[k].join(", "));
+                }}
+              >
+                {Object.entries(kindLabels).map(([k, label]) => (
+                  <MenuItem key={k} value={k}>
+                    {label}
+                  </MenuItem>
+                ))}
+              </TextField>
+              {kind === "fields" && (
+                <TextField
+                  required
+                  label="Credential field names"
+                  value={fields}
+                  onChange={(e) => setFields(e.target.value)}
+                  helperText="Comma-separated names, never credential values."
+                />
               )}
-              {binding?.pending_operation_id && (
-                <Alert severity="warning">
-                  <Typography variant="body2">
-                    A credential write is pending. Reconcile it before replacing
-                    the credential or editing its mapping.
-                  </Typography>
-                  <Button
-                    disabled={busy}
-                    onClick={() => void reconcile()}
-                    size="small"
-                  >
-                    {busy ? "Recovering…" : "Reconcile pending write"}
-                  </Button>
-                </Alert>
+              {kind === "ssh" && (
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={fields.includes("passphrase")}
+                      onChange={(e) =>
+                        setFields(
+                          e.target.checked
+                            ? "private_key, passphrase"
+                            : "private_key"
+                        )
+                      }
+                    />
+                  }
+                  label="Key requires a passphrase"
+                />
               )}
-              {mode === "resource" && (
-                <>
-                  <Typography color="text.secondary" variant="body2">
-                    Describe the resource first. Credentials are added
-                    separately.
-                  </Typography>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={shared}
+                    onChange={(e) => setShared(e.target.checked)}
+                  />
+                }
+                label="Shared across environments"
+              />
+              {!shared && (
+                <fieldset className="access-environment-picker">
+                  <legend>Available in</legend>
+                  {catalog.environments.map((env) => (
+                    <FormControlLabel
+                      key={env.id}
+                      control={
+                        <Checkbox
+                          checked={envs.includes(env.id)}
+                          onChange={(e) =>
+                            setEnvs((ids) =>
+                              e.target.checked
+                                ? [...ids, env.id]
+                                : ids.filter((id) => id !== env.id)
+                            )
+                          }
+                        />
+                      }
+                      label={env.name}
+                    />
+                  ))}
+                  {!catalog.environments.length && (
+                    <Typography variant="body2">
+                      Create an environment in the Environments tab first.
+                    </Typography>
+                  )}
+                </fieldset>
+              )}
+              <details className="access-additional-details">
+                <summary>Additional details (optional)</summary>
+                <div className="access-split-fields" style={{ marginTop: 16 }}>
                   <TextField
-                    label="Resource name"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    label="Account (optional)"
+                    value={account}
+                    onChange={(e) => setAccount(e.target.value)}
                     slotProps={{ htmlInput: { maxLength: 120 } }}
-                    required
                   />
-                  <TextField
-                    select
-                    label="Resource type"
-                    value={type}
-                    onChange={(e) =>
-                      setType(e.target.value as AccessResource["type"])
-                    }
-                  >
-                    {["database", "observability", "cloud", "other"].map(
-                      (t) => (
-                        <MenuItem key={t} value={t}>
-                          {t[0].toUpperCase() + t.slice(1)}
-                        </MenuItem>
-                      ),
+                  {kind !== "aws" && (
+                    <TextField
+                      label="Region (optional)"
+                      value={region}
+                      onChange={(e) => setRegion(e.target.value)}
+                      slotProps={{ htmlInput: { maxLength: 120 } }}
+                    />
+                  )}
+                  {kind === "aws" && (
+                    <Typography variant="caption" color="text.secondary">
+                      Set region per environment when adding its credential.
+                    </Typography>
+                  )}
+                </div>
+              </details>
+              <div className="access-form-actions">
+                <Button disabled={busy} onClick={current ? back : onClose}>
+                  {current ? "Back" : "Cancel"}
+                </Button>
+                <Button type="submit" variant="contained" disabled={busy}>
+                  {busy ? "Saving…" : "Save resource"}
+                </Button>
+              </div>
+            </form>
+          )}
+          {mode === "credential" && selected && (
+            <CredentialEditor
+              key={selected.id}
+              root={root}
+              credential={selected}
+              onSaved={onSaved}
+              onBack={back}
+            />
+          )}
+          {mode === "usage" && selected && (
+            <UsageEditor
+              key={usage?.id ?? selected.id}
+              root={root}
+              credential={selected}
+              usage={usage}
+              onSaved={onSaved}
+              onBack={back}
+            />
+          )}
+          {mode === "detail" && current && (
+            <>
+              <div className="access-resource-meta">
+                <Typography variant="body2" color="text.secondary">
+                  {current.description}
+                </Typography>
+                <Chip
+                  size="small"
+                  label={kindLabels[current.credential_kind ?? "fields"]}
+                  variant="outlined"
+                />
+              </div>
+              <Tabs
+                value={tab}
+                onChange={(_, v: number) => setTab(v)}
+                variant="scrollable"
+                scrollButtons="auto"
+                aria-label="Resource sections"
+                sx={{ mb: 3, borderBottom: 1, borderColor: "divider" }}
+              >
+                {["Credentials", "How to use", "Access"].map((label, i) => (
+                  <Tab
+                    key={label}
+                    label={label}
+                    id={`resource-tab-${i}`}
+                    aria-controls={`resource-panel-${i}`}
+                  />
+                ))}
+              </Tabs>
+              <div
+                role="tabpanel"
+                id={`resource-panel-${tab}`}
+                aria-labelledby={`resource-tab-${tab}`}
+              >
+                {tab === 0 && (
+                  <>
+                    <Typography
+                      variant="body2"
+                      color="text.secondary"
+                      sx={{ mb: 2 }}
+                    >
+                      Store the credential once for each environment.
+                      Applications can use it in different ways.
+                    </Typography>
+                    {availability.map((env) => {
+                      const instances = credentials.filter(
+                        (c) =>
+                          c.environment_id === env.id && !c.legacy_binding_id
+                      );
+                      return (
+                        <div
+                          className="access-credential-row"
+                          key={env.id ?? "shared"}
+                        >
+                          <div className="access-credential-description">
+                            <Typography fontWeight={600}>{env.name}</Typography>
+                            <Typography
+                              variant="caption"
+                              color="text.secondary"
+                            >
+                              {instances[0]?.has_secret
+                                ? instances[0].credential_expires_at
+                                  ? `Expires ${new Date(
+                                      instances[0].credential_expires_at
+                                    ).toLocaleDateString()}`
+                                  : "Stored in central vault"
+                                : "No credential yet"}
+                            </Typography>
+                          </div>
+                          <Chip
+                            className="access-credential-status"
+                            size="small"
+                            color={
+                              instances[0]?.has_secret ? "success" : "warning"
+                            }
+                            variant="outlined"
+                            label={
+                              instances[0]?.pending_operation_id
+                                ? "Pending"
+                                : instances[0]?.has_secret
+                                ? "Stored"
+                                : "Missing"
+                            }
+                          />
+                          <Button
+                            className="access-credential-action"
+                            variant={
+                              instances[0]?.has_secret
+                                ? "outlined"
+                                : "contained"
+                            }
+                            disabled={busy}
+                            onClick={() => {
+                              if (instances[0]) {
+                                setSelected(instances[0]);
+                                setMode("credential");
+                              } else void addCredential(env.id);
+                            }}
+                          >
+                            {instances[0]?.has_secret
+                              ? "Replace"
+                              : "Add credential"}
+                          </Button>
+                        </div>
+                      );
+                    })}
+                    {!availability.length && (
+                      <Alert severity="info">
+                        Add an environment or make this resource Shared.
+                      </Alert>
                     )}
-                  </TextField>
-                  <TextField
-                    label="Description"
-                    multiline
-                    minRows={3}
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    slotProps={{ htmlInput: { maxLength: 4000 } }}
-                  />
-                  <TextField
-                    label="Search aliases"
-                    helperText="Comma-separated. Up to 20 aliases."
-                    value={aliases}
-                    onChange={(e) => setAliases(e.target.value)}
-                    slotProps={{ htmlInput: { maxLength: 2420 } }}
-                  />
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        checked={shared}
-                        onChange={(e) => setShared(e.target.checked)}
-                      />
-                    }
-                    label="Shared across environments"
-                  />
-                  <details className="access-additional-details">
-                    <summary>Additional details (optional)</summary>
-                    <Box className="access-split-fields" sx={{ mt: 2 }}>
-                      <TextField
-                        label="Account (optional)"
-                        value={account}
-                        onChange={(e) => setAccount(e.target.value)}
-                        slotProps={{ htmlInput: { maxLength: 120 } }}
-                      />
-                      <TextField
-                        label="Region (optional)"
-                        value={region}
-                        onChange={(e) => setRegion(e.target.value)}
-                        slotProps={{ htmlInput: { maxLength: 120 } }}
-                      />
-                    </Box>
-                  </details>
-                </>
-              )}
-              {mode === "detail" && resource && (
-                <>
-                  <Typography color="text.secondary" variant="body2">
-                    {resource.description}
-                  </Typography>
-                  <Box className="access-pills">
-                    {bindings.map((b) => (
-                      <Chip
-                        key={b.id}
-                        label={`${environmentName(b)} · ${b.consumer}`}
-                        onClick={() => selectBinding(b)}
-                        variant={b.id === binding?.id ? "filled" : "outlined"}
-                        color={b.id === binding?.id ? "secondary" : "default"}
-                        size="small"
-                        sx={{
-                          maxWidth: "100%",
-                          height: "auto",
-                          "& .MuiChip-label": {
-                            whiteSpace: "normal",
-                            overflowWrap: "anywhere",
-                            py: 0.5,
-                          },
-                        }}
-                      />
-                    ))}
-                  </Box>
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    onClick={() => {
-                      setBindingId("new");
-                      setEnvironment("");
-                      setConsumer("");
-                      setMapping("CONNECTION_URI=connection");
-                      setClearEnv("");
-                      setMode("mapping");
-                    }}
-                  >
-                    Add application mapping
-                  </Button>
-                  {binding ? (
-                    <>
-                      <Typography variant="subtitle2">Credential</Typography>
-                      <Box className="access-device" sx={{ m: 0 }}>
-                        <Box className="access-section-row">
-                          <Box>
+                    {credentials
+                      .filter((c) => c.legacy_binding_id)
+                      .map((c) => (
+                        <div className="access-credential-row" key={c.id}>
+                          <div className="access-credential-description">
                             <Typography fontWeight={600}>
-                              {binding.has_secret
-                                ? "Stored in central vault"
-                                : "No credential stored"}
+                              {environmentName(c.environment_id)}
                             </Typography>
                             <Typography
                               variant="caption"
                               color="text.secondary"
                             >
-                              {binding.has_secret
-                                ? "Value hidden · replacement only"
-                                : "Add a credential for this binding."}
+                              Legacy variant · {c.label || c.legacy_binding_id}
                             </Typography>
-                          </Box>
-                          <Button
+                          </div>
+                          <Chip
                             size="small"
-                            variant="outlined"
-                            disabled={!!binding.pending_operation_id}
+                            label={c.has_secret ? "Stored" : "Missing"}
+                          />
+                          <Button
                             onClick={() => {
-                              reset();
+                              setSelected(c);
                               setMode("credential");
                             }}
                           >
-                            {binding.has_secret ? "Replace" : "Add credential"}
+                            Manage variant
                           </Button>
-                        </Box>
-                      </Box>
-                      <Typography variant="subtitle2">
-                        Application mapping
-                      </Typography>
-                      <Box>
-                        {Object.entries(binding.field_mapping).map(
-                          ([variable, field]) => (
-                            <Box className="access-binding-row" key={variable}>
-                              <span>
-                                {binding.consumer} / {field}
-                              </span>
-                              <code className="access-code">{variable}</code>
-                            </Box>
-                          ),
-                        )}
-                      </Box>
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        disabled={!!binding.pending_operation_id}
-                        onClick={() => setMode("mapping")}
-                      >
-                        Edit mapping
-                      </Button>
-                      {binding.environment_id &&
-                        catalog.environments.find(
-                          (e) => e.id === binding.environment_id,
-                        )?.sensitivity === "production" && (
-                          <Alert severity="warning">
-                            Production requires an explicit grant for each
-                            computer.
-                          </Alert>
-                        )}
-                      <Typography variant="subtitle2">
-                        Computer access
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        {
-                          catalog.grants.filter(
-                            (g) => g.binding_id === binding.id && !g.revoked_at,
-                          ).length
-                        }{" "}
-                        active grants. Manage permissions in Computers & access.
-                      </Typography>
-                    </>
-                  ) : (
-                    <Alert severity="info">
-                      Add an application mapping and environment before storing
-                      a credential.
-                    </Alert>
-                  )}
-                  <Typography variant="subtitle2">
-                    How agents find it
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {resource.aliases.join(", ") || "No aliases yet."}
-                  </Typography>
-                  <Button size="small" onClick={() => setMode("resource")}>
-                    Edit resource details
-                  </Button>
-                </>
-              )}
-              {mode === "mapping" && (
-                <>
-                  <Typography variant="body2" color="text.secondary">
-                    {resource?.name}
-                  </Typography>
-                  {!resource?.shared ? (
-                    <TextField
-                      select
-                      required
-                      label="Environment"
-                      value={environment}
-                      onChange={(e) => setEnvironment(e.target.value)}
-                    >
-                      <MenuItem value="">Choose environment</MenuItem>
-                      {catalog.environments.map((e) => (
-                        <MenuItem key={e.id} value={e.id}>
-                          {e.name}
-                        </MenuItem>
+                        </div>
                       ))}
-                    </TextField>
-                  ) : (
-                    <Alert severity="info">
-                      This resource is shared across environments.
-                    </Alert>
-                  )}
-                  <TextField
-                    label="Application or crate"
-                    value={consumer}
-                    onChange={(e) => setConsumer(e.target.value)}
-                    slotProps={{ htmlInput: { maxLength: 120 } }}
-                    required
+                    {legacy.length > 0 && (
+                      <Button sx={{ mt: 2 }} onClick={() => setMode("legacy")}>
+                        Manage legacy application mappings
+                      </Button>
+                    )}
+                    <Button
+                      sx={{ mt: 3, display: "block" }}
+                      onClick={() => setMode("resource")}
+                    >
+                      Edit resource details
+                    </Button>
+                  </>
+                )}
+                {tab === 1 && (
+                  <div className="access-form">
+                    <Typography variant="body2" color="text.secondary">
+                      Choose how each application receives fields from a
+                      credential. Values stay in the vault.
+                    </Typography>
+                    {usages.map((u) => (
+                      <div className="access-recipe-card" key={u.id}>
+                        <Typography fontWeight={600}>{u.name}</Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          {u.consumer} · {u.delivery.kind} ·{" "}
+                          {environmentName(
+                            credentials.find((c) => c.id === u.credential_id)
+                              ?.environment_id ?? null
+                          )}
+                        </Typography>
+                        <Button
+                          onClick={() => {
+                            setSelected(
+                              credentials.find((c) => c.id === u.credential_id)
+                            );
+                            setUsage(u);
+                            setMode("usage");
+                          }}
+                        >
+                          Edit recipe
+                        </Button>
+                      </div>
+                    ))}
+                    {credentials.length ? (
+                      <>
+                        <TextField
+                          select
+                          label="Credential for new recipe"
+                          value={selected?.id ?? ""}
+                          onChange={(e) =>
+                            setSelected(
+                              credentials.find((c) => c.id === e.target.value)
+                            )
+                          }
+                        >
+                          <MenuItem value="">Choose credential</MenuItem>
+                          {credentials.map((c) => (
+                            <MenuItem key={c.id} value={c.id}>
+                              {environmentName(c.environment_id)}
+                              {c.legacy_binding_id
+                                ? ` · Legacy ${c.label || c.id.slice(0, 8)}`
+                                : ""}
+                            </MenuItem>
+                          ))}
+                        </TextField>
+                        <Button
+                          variant="outlined"
+                          disabled={!selected}
+                          onClick={() => {
+                            setUsage(undefined);
+                            setMode("usage");
+                          }}
+                        >
+                          Add usage recipe
+                        </Button>
+                      </>
+                    ) : (
+                      <Alert severity="info">
+                        Add a credential in Credentials first. It can be
+                        configured before its value is stored.
+                      </Alert>
+                    )}
+                  </div>
+                )}
+                {tab === 2 && (
+                  <UsageAccess
+                    root={root}
+                    catalog={catalog}
+                    usages={usages}
+                    credentials={credentials}
+                    onSaved={onSaved}
                   />
-                  <TextField
-                    label="Variable mappings"
-                    multiline
-                    minRows={4}
-                    helperText="One per line: MONGO_URI=connection. Values here are secret field names, never credentials."
-                    value={mapping}
-                    onChange={(e) => setMapping(e.target.value)}
-                    slotProps={{ htmlInput: { maxLength: 8192 } }}
-                  />
-                  <TextField
-                    label="Clear inherited variables"
-                    value={clearEnv}
-                    onChange={(e) => setClearEnv(e.target.value)}
-                    helperText="Comma-separated alternative credential selectors to remove."
-                    slotProps={{ htmlInput: { maxLength: 4096 } }}
-                  />
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        checked={enabled}
-                        onChange={(e) => setEnabled(e.target.checked)}
-                      />
-                    }
-                    label="Mapping enabled"
-                  />
-                  <Alert severity="info">
-                    Mapping does not grant a computer permission to use this
-                    resource.
-                  </Alert>
-                </>
-              )}
-              {mode === "credential" && binding && (
-                <>
-                  <Typography color="text.secondary" variant="body2">
-                    {resource?.name} / {environmentName(binding)}
-                  </Typography>
-                  <Alert severity="info">
-                    Values are sent only to the vault and cannot be revealed
-                    here. Do not paste credentials into the environment guide.
-                  </Alert>
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        checked={multiline}
-                        onChange={(e) => {
-                          setValues({});
-                          setMultiline(e.target.checked);
-                        }}
-                      />
-                    }
-                    label="Enter a multiline value (visible while editing)"
-                  />
-                  {[...new Set(Object.values(binding.field_mapping))].map(
-                    (field) => (
-                      <TextField
-                        key={field}
-                        label={`Secret field: ${field}`}
-                        type={multiline ? "text" : "password"}
-                        multiline={multiline}
-                        minRows={multiline ? 4 : undefined}
-                        autoComplete="new-password"
-                        value={values[field] ?? ""}
-                        onChange={(e) =>
-                          setValues((v) => ({ ...v, [field]: e.target.value }))
-                        }
-                        slotProps={{
-                          htmlInput: { maxLength: 65536, "data-secret": true },
-                        }}
-                        required
-                      />
-                    ),
-                  )}
-                  <TextField
-                    label="Credential expiration (optional)"
-                    type="datetime-local"
-                    value={expiry}
-                    onChange={(e) => setExpiry(e.target.value)}
-                    slotProps={{ inputLabel: { shrink: true } }}
-                  />
-                  <Typography variant="caption" color="text.secondary">
-                    Secret fields are cleared when you leave this form or after
-                    a failed request.
-                  </Typography>
-                </>
-              )}
-            </Box>
-          </form>
-        </Box>
-        <Box className="access-drawer-footer">
-          {mode !== "detail" && resource ? (
-            <Button
-              disabled={busy}
-              onClick={() => {
-                reset();
-                setMode("detail");
-              }}
-            >
-              Back
-            </Button>
-          ) : (
-            <Button disabled={busy} onClick={close}>
-              {mode === "detail" ? "Done" : "Cancel"}
-            </Button>
-          )}
-          {mode !== "detail" && (
-            <Button
-              type="submit"
-              form="access-resource-form"
-              variant="contained"
-              disabled={busy || !!binding?.pending_operation_id}
-            >
-              {busy
-                ? "Saving…"
-                : mode === "credential"
-                  ? "Save credential"
-                  : mode === "mapping"
-                    ? "Save mapping"
-                    : "Save resource"}
-            </Button>
+                )}
+              </div>
+            </>
           )}
         </Box>
+        {mode === "detail" && (
+          <div className="access-drawer-footer">
+            <Button onClick={onClose}>Done</Button>
+          </div>
+        )}
       </Box>
     </Drawer>
   );

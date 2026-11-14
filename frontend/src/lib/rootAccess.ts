@@ -15,6 +15,9 @@ export interface AccessResource {
   shared: boolean;
   account: string;
   region: string;
+  environment_ids?: string[];
+  credential_kind?: CredentialKind;
+  credential_fields?: string[];
 }
 export interface AccessBinding {
   id: string;
@@ -28,6 +31,69 @@ export interface AccessBinding {
   has_secret: boolean;
   credential_expires_at: string | null;
   pending_operation_id: string | null;
+}
+export type CredentialKind = "uri" | "api_key" | "ssh" | "fields" | "aws";
+export interface AccessCredential {
+  id: string;
+  resource_id: string;
+  environment_id: string | null;
+  label: string;
+  kind: CredentialKind;
+  fields: string[];
+  enabled: boolean;
+  revision: number;
+  has_secret: boolean;
+  credential_expires_at: string | null;
+  pending_operation_id: string | null;
+  fingerprint: string | null;
+  legacy_binding_id: string | null;
+  region?: string;
+}
+export type UsageDelivery =
+  | { kind: "env"; field_mapping: Record<string, string>; clear_env: string[] }
+  | {
+      kind: "argv";
+      arguments: (
+        | { kind: "literal"; value: string }
+        | { kind: "field"; field: string }
+      )[];
+      allow_raw_secret_argv: boolean;
+    }
+  | {
+      kind: "file";
+      format: "json" | "yaml" | "toml";
+      source_template: string;
+      patches: { path: string[]; field: string }[];
+      destination: { kind: "env" | "arg"; name: string };
+    }
+  | {
+      kind: "ssh";
+      host: string;
+      user: string;
+      port: number;
+      host_key: string;
+      private_key_field: string;
+      passphrase_field: string | null;
+    };
+export interface AccessUsage {
+  id: string;
+  credential_id: string;
+  name: string;
+  consumer: string;
+  delivery: UsageDelivery;
+  revision: number;
+  enabled: boolean;
+  legacy_binding_id: string | null;
+}
+export interface AccessUsageGrant {
+  id: string;
+  device_id: string;
+  usage_id: string;
+  usage_revision: number;
+  allowed_fields: string[];
+  capabilities: string[];
+  expires_at: string | null;
+  revoked_at: string | null;
 }
 export interface AccessDevice {
   id: string;
@@ -59,6 +125,9 @@ export interface AccessCatalog {
   environments: AccessEnvironment[];
   resources: AccessResource[];
   bindings: AccessBinding[];
+  credentials?: AccessCredential[];
+  usages?: AccessUsage[];
+  usage_grants?: AccessUsageGrant[];
   devices: AccessDevice[];
   grants: AccessGrant[];
   activity: AccessEvent[];
@@ -78,7 +147,7 @@ export class AccessTimeoutError extends Error {
     super(
       write
         ? "The request timed out. Its outcome may be pending; refresh the resource before retrying."
-        : "Loading took too long. Check your connection and try again.",
+        : "Loading took too long. Check your connection and try again."
     );
     this.name = "AccessTimeoutError";
   }
@@ -88,7 +157,7 @@ async function accessRequest<T>(
   suffix: string,
   method: string,
   body?: unknown,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ): Promise<T> {
   const controller = new AbortController();
   const cancelled = () =>
@@ -128,7 +197,7 @@ async function accessRequest<T>(
 }
 export function fetchAccess(
   root: string,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ): Promise<AccessCatalog> {
   return accessRequest(root, "", "GET", undefined, signal);
 }
@@ -137,7 +206,7 @@ export function mutateAccess<T = unknown>(
   suffix: string,
   method: string,
   body?: unknown,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ): Promise<T> {
   return accessRequest(root, suffix, method, body, signal);
 }
@@ -170,7 +239,7 @@ export function parseMapping(text: string): Record<string, string> {
     text
       .split(/\n/)
       .filter((l) => l.trim())
-      .map((l) => l.split("=").map((p) => p.trim())),
+      .map((l) => l.split("=").map((p) => p.trim()))
   );
 }
 const coreVariables = new Set([
@@ -222,7 +291,7 @@ export function allowedClearVariable(name: string) {
 }
 export function mappingError(
   text: string,
-  type?: AccessResource["type"],
+  type?: AccessResource["type"]
 ): string {
   const lines = text.split(/\n/).filter((l) => l.trim());
   if (!lines.length || lines.length > 32) return "Add 1–32 variable mappings.";
