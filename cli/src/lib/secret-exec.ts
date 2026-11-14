@@ -12,6 +12,31 @@ const dangerous = (name: string) =>
   /^(LD_|DYLD_|NODE_OPTIONS$|NODE_PATH$|BASH_ENV$|ENV$|SHELLOPTS$|BASHOPTS$|PS4$|PYTHONPATH$|PYTHONHOME$|PERL5OPT$|RUBYOPT$)/i.test(
     name,
   );
+const processControl = (name: string) =>
+  /^(PATH|HOME|USERPROFILE|COMSPEC|SYSTEMROOT|PATHEXT|IFS|CDPATH|ZDOTDIR|PYTHONSTARTUP)$/i.test(
+    name,
+  );
+const awsSelectors = new Set([
+  "AWS_PROFILE",
+  "AWS_DEFAULT_PROFILE",
+  "AWS_CONFIG_FILE",
+  "AWS_SHARED_CREDENTIALS_FILE",
+  "AWS_WEB_IDENTITY_TOKEN_FILE",
+  "AWS_ROLE_ARN",
+  "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
+  "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+  "AWS_CONTAINER_AUTHORIZATION_TOKEN",
+  "AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE",
+  "AWS_EC2_METADATA_SERVICE_ENDPOINT",
+  "AWS_EC2_METADATA_DISABLED",
+]);
+const mongoAliases = [
+  "MONGO_URI",
+  "MONGODB_URI",
+  "MONGODB_URL",
+  "MONGO_URL",
+  "MONGO_DB_URL",
+];
 const validName = (name: string) => /^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name);
 export function buildSecretEnvironment(
   parent: NodeJS.ProcessEnv,
@@ -33,6 +58,8 @@ export function buildSecretEnvironment(
     if (
       !validName(key) ||
       dangerous(key) ||
+      processControl(key) ||
+      awsSelectors.has(key) ||
       typeof value !== "string" ||
       !value ||
       value.includes("\0") ||
@@ -43,13 +70,38 @@ export function buildSecretEnvironment(
   }
   if (
     size > 262144 ||
-    clear.some((k) => typeof k !== "string" || !validName(k))
+    clear.some(
+      (k) => typeof k !== "string" || !validName(k) || processControl(k),
+    )
   )
     throw Error("Credential mapping exceeds supported limits.");
   const env = { ...parent };
+  const aws = Object.keys(values).some((k) => k.startsWith("AWS_"));
+  if (aws) {
+    if (!values.AWS_ACCESS_KEY_ID || !values.AWS_SECRET_ACCESS_KEY)
+      throw Error("AWS execution requires a complete credential bundle.");
+    for (const key of [
+      ...awsSelectors,
+      "AWS_ACCESS_KEY_ID",
+      "AWS_SECRET_ACCESS_KEY",
+      "AWS_SESSION_TOKEN",
+      "AWS_SECURITY_TOKEN",
+    ])
+      delete env[key];
+    env.AWS_CONFIG_FILE = "/dev/null";
+    env.AWS_SHARED_CREDENTIALS_FILE = "/dev/null";
+    env.AWS_EC2_METADATA_DISABLED = "true";
+  }
+  if (mongoAliases.some((k) => k in values))
+    for (const key of mongoAliases) delete env[key];
   for (const key of Object.keys(env))
     if (dangerous(key) || clear.includes(key)) delete env[key];
   for (const [key, value] of Object.entries(values)) env[key] = value;
+  if (aws) {
+    env.AWS_CONFIG_FILE = "/dev/null";
+    env.AWS_SHARED_CREDENTIALS_FILE = "/dev/null";
+    env.AWS_EC2_METADATA_DISABLED = "true";
+  }
   return env;
 }
 

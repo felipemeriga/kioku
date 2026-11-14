@@ -101,3 +101,30 @@ test("does not start a process with expired credentials", async () => {
     /expired/,
   );
 });
+
+test("AWS execution cannot inherit another account default chain", () => {
+  const env = buildSecretEnvironment(
+    {
+      PATH: "/bin",
+      AWS_PROFILE: "production",
+      AWS_CONFIG_FILE: "/private/prod",
+      AWS_SESSION_TOKEN: "old",
+      AWS_EC2_METADATA_DISABLED: "false",
+    },
+    {
+      AWS_ACCESS_KEY_ID: "synthetic-id",
+      AWS_SECRET_ACCESS_KEY: "synthetic-key",
+    },
+    [],
+  );
+  assert.equal(env.AWS_PROFILE, undefined);
+  assert.equal(env.AWS_SESSION_TOKEN, undefined);
+  assert.equal(env.AWS_CONFIG_FILE, "/dev/null");
+  assert.equal(env.AWS_SHARED_CREDENTIALS_FILE, "/dev/null");
+  assert.equal(env.AWS_EC2_METADATA_DISABLED, "true");
+  assert.throws(() =>
+    buildSecretEnvironment({}, { AWS_ACCESS_KEY_ID: "partial" }, []),
+  );
+  for (const name of ["PATH", "HOME", "COMSPEC", "IFS", "AWS_PROFILE"])
+    assert.throws(() => buildSecretEnvironment({}, { [name]: "fake" }, []));
+});
