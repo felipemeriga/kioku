@@ -417,3 +417,76 @@ def test_compact_report_keeps_two_evidenced_events_on_the_same_day():
         result["topics"][0]["updates"][0]["evidence_quote"]
         != result["topics"][0]["updates"][1]["evidence_quote"]
     )
+
+
+@pytest.mark.parametrize(
+    "claim,source",
+    [
+        (
+            "business-api reduced from 41 to 31 routes.",
+            "Remove broken routes (41 to 35); type-only query fix (35 to 34); "
+            "remove unused helpers (34 to 32); type ServiceConfig (32 to 31).",
+        ),
+        (
+            "Scheduler reduced from 185 to 145 modules.",
+            "Remove four scripts (185 to 177); client-node fix (177 to 170); "
+            "remove unused NGSS, SMT and cache (170 to 145).",
+        ),
+    ],
+)
+def test_unlabeled_source_numbers_cannot_become_route_or_module_counts(claim, source):
+    from services.period_reports import validate_numeric_ranges
+
+    with pytest.raises(ValueError, match="lacks evidence for its unit"):
+        validate_numeric_ranges(claim, [source])
+
+
+@pytest.mark.parametrize(
+    "claim,source",
+    [
+        ("Diagnostics fell from 41 to 31 errors.", "Type checking reduced from 41 to 31 errors."),
+        ("Counts fell from 41 to 31 errors.", "Initially 41 errors; finally 31 errors."),
+        ("Changed from 3 to 4 GiB.", "A 3 GiB test preceded adoption of 4 GiB."),
+        ("Added 3 to 4 and left the rest unchanged.", "The inputs were inspected."),
+    ],
+)
+def test_explicit_quantities_and_non_quantity_ranges_are_preserved(claim, source):
+    from services.period_reports import validate_numeric_ranges
+
+    validate_numeric_ranges(claim, [source])
+
+
+def test_final_open_pr_cannot_contradict_its_cited_principal_merge():
+    snapshot, value = compact_fixture()
+    state = value["topics"][0]["final_state"]
+    state["status"] = "PR open"
+    state["items"][0]["text"] = "PR #485 remains open for investigation."
+    reverse = {source: alias for alias, source in report_aliases(snapshot).items()}
+    state["items"][0]["source_ids"].append(reverse["commit:" + "b" * 40])
+    with pytest.raises(ValueError, match="contradicts principal-branch merge"):
+        validate_report(snapshot, value)
+
+
+def test_opening_event_does_not_prove_pr_remained_open_at_later_cutoff():
+    snapshot, value = compact_fixture()
+    snapshot["input"]["cutoff"] = "2026-11-14T10:00:00Z"
+    snapshot["input"]["sources"][1]["text"] = "PR #479 opened. Later merge status was not checked."
+    state = value["topics"][0]["final_state"]
+    state["status"] = "PR open, staging format confirmed"
+    state["items"][0]["text"] = "PR #479 introduced the score fallback."
+    with pytest.raises(ValueError, match="lacks cutoff evidence"):
+        validate_report(snapshot, value)
+    state["status"] = "Opened; later status unverified"
+    assert validate_report(snapshot, value)
+
+
+def test_current_open_observation_at_cutoff_is_not_confused_with_later_merge():
+    snapshot, value = compact_fixture()
+    snapshot["input"]["cutoff"] = "2026-11-13T17:00:00.000001Z"
+    snapshot["input"]["sources"][1]["text"] = (
+        "PR #285 opened. Production rollout remains unverified."
+    )
+    state = value["topics"][0]["final_state"]
+    state["status"] = "PR open, pending merge"
+    state["items"][0]["text"] = "PR #285 contains only the startup command patch."
+    assert validate_report(snapshot, value)
