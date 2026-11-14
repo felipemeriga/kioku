@@ -4,6 +4,9 @@ import {
   parseMapping,
   resourceError,
   accessError,
+  allowedVariable,
+  allowedClearVariable,
+  accessKey,
 } from "./rootAccess";
 
 vi.mock("./supabase", () => ({
@@ -30,4 +33,47 @@ describe("access validation", () => {
       "secret-value",
     );
   });
+});
+
+describe("runtime selector safety", () => {
+  it.each([
+    "PATH",
+    "HOME",
+    "USERPROFILE",
+    "COMSPEC",
+    "SYSTEMROOT",
+    "SystemRoot",
+    "PATHEXT",
+    "IFS",
+    "CDPATH",
+    "ZDOTDIR",
+    "PYTHONSTARTUP",
+    "LD_PRELOAD",
+    "DYLD_INSERT_LIBRARIES",
+    "AWS_PROFILE",
+    "AWS_CONFIG_FILE",
+    "AWS_WEB_IDENTITY_TOKEN_FILE",
+    "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+    "AWS_EC2_METADATA_DISABLED",
+  ])("blocks %s as an injected variable", (name) =>
+    expect(allowedVariable(name)).toBe(false),
+  );
+  it("permits clearing SDK selectors but never core process variables", () => {
+    expect(allowedClearVariable("AWS_PROFILE")).toBe(true);
+    expect(allowedClearVariable("LD_PRELOAD")).toBe(true);
+    expect(allowedClearVariable("PATH")).toBe(false);
+  });
+  it("requires the AWS credential pair for cloud mappings", () => {
+    expect(mappingError("AWS_ACCESS_KEY_ID=key", "cloud")).toMatch(/both/);
+    expect(
+      mappingError(
+        "AWS_ACCESS_KEY_ID=key\nAWS_SECRET_ACCESS_KEY=secret",
+        "cloud",
+      ),
+    ).toBe("");
+  });
+  it("isolates query keys by account", () =>
+    expect(accessKey("root", "owner-a")).not.toEqual(
+      accessKey("root", "owner-b"),
+    ));
 });

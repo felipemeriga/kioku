@@ -3,9 +3,13 @@ import { screen, fireEvent, waitFor } from "@testing-library/react";
 import { Route, Routes } from "react-router-dom";
 import { renderWithProviders } from "../test/renderWithProviders";
 import RootAccessPage from "./RootAccessPage";
+import { useAuth } from "../hooks/useAuth";
 import { EnvironmentGuide } from "../components/access/AccessAdministration";
 import type { AccessCatalog } from "../lib/rootAccess";
 import { fetchAccess, mutateAccess } from "../lib/rootAccess";
+vi.mock("../hooks/useAuth", () => ({
+  useAuth: vi.fn(() => ({ user: { id: "owner" }, loading: false })),
+}));
 vi.mock("../lib/supabase", () => ({
   supabase: { auth: { getSession: async () => ({ data: { session: null } }) } },
 }));
@@ -82,6 +86,10 @@ function render() {
 }
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(useAuth).mockReturnValue({
+    user: { id: "owner" },
+    loading: false,
+  } as ReturnType<typeof useAuth>);
   vi.mocked(fetchAccess).mockResolvedValue(structuredClone(catalog));
   vi.mocked(mutateAccess).mockResolvedValue({ ok: true });
 });
@@ -190,5 +198,26 @@ describe("guide concurrent edits", () => {
         expected_revision: 3,
       }),
     );
+  });
+});
+
+describe("account isolation", () => {
+  it("hides prior metadata and disables access requests while auth is changing", async () => {
+    const view = render();
+    await screen.findByRole("button", { name: "Configure SES MongoDB" });
+    const requests = vi.mocked(fetchAccess).mock.calls.length;
+    vi.mocked(useAuth).mockReturnValue({
+      user: null,
+      loading: true,
+    } as ReturnType<typeof useAuth>);
+    view.rerender(
+      <Routes>
+        <Route path="/folders/:rootId/access" element={<RootAccessPage />} />
+      </Routes>,
+    );
+    expect(
+      screen.queryByRole("button", { name: "Configure SES MongoDB" }),
+    ).not.toBeInTheDocument();
+    expect(fetchAccess).toHaveBeenCalledTimes(requests);
   });
 });

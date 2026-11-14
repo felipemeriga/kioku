@@ -68,7 +68,8 @@ export interface AccessEnrollment {
   expires_at: string;
   status: string;
 }
-export const accessKey = (root: string) => ["root-access", root] as const;
+export const accessKey = (root: string, owner: string) =>
+  ["root-access", owner, root] as const;
 const path = (root: string, suffix = "") =>
   `/api/root-access/${encodeURIComponent(root)}${suffix}`;
 export async function fetchAccess(root: string): Promise<AccessCatalog> {
@@ -116,15 +117,57 @@ export function parseMapping(text: string): Record<string, string> {
       .map((l) => l.split("=").map((p) => p.trim())),
   );
 }
+const coreVariables = new Set([
+  "PATH",
+  "HOME",
+  "USERPROFILE",
+  "COMSPEC",
+  "SYSTEMROOT",
+  "PATHEXT",
+]);
+const runtimeVariables = new Set([
+  "NODE_OPTIONS",
+  "BASH_ENV",
+  "ENV",
+  "PYTHONSTARTUP",
+  "PYTHONPATH",
+  "IFS",
+  "CDPATH",
+  "ZDOTDIR",
+  "SHELLOPTS",
+  "BASHOPTS",
+  "AWS_PROFILE",
+  "AWS_DEFAULT_PROFILE",
+  "AWS_CONFIG_FILE",
+  "AWS_SHARED_CREDENTIALS_FILE",
+  "AWS_WEB_IDENTITY_TOKEN_FILE",
+  "AWS_ROLE_ARN",
+  "AWS_ROLE_SESSION_NAME",
+  "AWS_EC2_METADATA_DISABLED",
+  "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
+  "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+  "AWS_CONTAINER_AUTHORIZATION_TOKEN",
+  "AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE",
+]);
 export function allowedVariable(name: string) {
+  const normalized = name.toUpperCase();
   return (
     /^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name) &&
-    !/^(LD_|DYLD_|NODE_OPTIONS$|BASH_ENV$|ENV$|SHELLOPTS$|PYTHONPATH$|PYTHONSTARTUP$)/.test(
-      name,
-    )
+    !/^(LD_|DYLD_)/.test(normalized) &&
+    !coreVariables.has(normalized) &&
+    !runtimeVariables.has(normalized)
   );
 }
-export function mappingError(text: string): string {
+export function allowedClearVariable(name: string) {
+  return (
+    /^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name) &&
+    !coreVariables.has(name.toUpperCase())
+  );
+}
+export function mappingError(
+  text: string,
+  type?: AccessResource["type"],
+): string {
   const lines = text.split(/\n/).filter((l) => l.trim());
   if (!lines.length || lines.length > 32) return "Add 1–32 variable mappings.";
   const seen = new Set<string>();
@@ -139,6 +182,11 @@ export function mappingError(text: string): string {
     if (seen.has(parts[0])) return "Map each variable only once.";
     seen.add(parts[0]);
   }
+  if (
+    type === "cloud" &&
+    (!seen.has("AWS_ACCESS_KEY_ID") || !seen.has("AWS_SECRET_ACCESS_KEY"))
+  )
+    return "AWS mappings require both AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.";
   return "";
 }
 export const guideBytes = (value: string) =>

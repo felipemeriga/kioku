@@ -20,7 +20,7 @@ import type {
 } from "../../lib/rootAccess";
 import {
   accessError,
-  allowedVariable,
+  allowedClearVariable,
   mappingError,
   mutateAccess,
   resourceError,
@@ -132,7 +132,7 @@ export default function ResourceDialog({
         region,
       };
     } else if (mode === "mapping") {
-      const invalid = mappingError(mapping),
+      const invalid = mappingError(mapping, resource?.type),
         clear = clearEnv
           .split(",")
           .map((s) => s.trim())
@@ -149,7 +149,7 @@ export default function ResourceDialog({
         setError("Choose the environment for this mapping.");
         return;
       }
-      if (clear.length > 32 || clear.some((v) => !allowedVariable(v))) {
+      if (clear.length > 32 || clear.some((v) => !allowedClearVariable(v))) {
         setError("Use up to 32 allowed variable names to clear.");
         return;
       }

@@ -17,6 +17,7 @@ import {
 import KeyIcon from "@mui/icons-material/Key";
 import StorageIcon from "@mui/icons-material/Storage";
 import SearchIcon from "@mui/icons-material/Search";
+import { useAuth } from "../hooks/useAuth";
 import { accessError, accessKey, fetchAccess } from "../lib/rootAccess";
 import type { AccessResource } from "../lib/rootAccess";
 import { breadcrumbOptions } from "../lib/folderQueries";
@@ -39,9 +40,17 @@ const labels = [
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export default function RootAccessPage() {
   const { rootId = "" } = useParams();
-  return <RootAccessContent key={rootId} rootId={rootId} />;
+  const { user } = useAuth();
+  return (
+    <RootAccessContent
+      key={`${user?.id ?? "signed-out"}:${rootId}`}
+      rootId={rootId}
+    />
+  );
 }
 function RootAccessContent({ rootId }: { rootId: string }) {
+  const { user, loading: authLoading } = useAuth();
+  const owner = user?.id ?? "";
   const validRoot = uuid.test(rootId);
   const navigate = useNavigate();
   const client = useQueryClient();
@@ -51,18 +60,18 @@ function RootAccessContent({ rootId }: { rootId: string }) {
     [filter, setFilter] = useState("all"),
     [selected, setSelected] = useState<AccessResource | null | undefined>();
   const query = useQuery({
-    queryKey: accessKey(rootId),
+    queryKey: accessKey(rootId, owner),
     queryFn: () => fetchAccess(rootId),
-    enabled: validRoot,
+    enabled: validRoot && !!owner && !authLoading,
   });
   const breadcrumbs = useQuery({
     ...breadcrumbOptions(rootId),
-    enabled: validRoot,
+    enabled: validRoot && !!owner && !authLoading,
   });
   const rootName = breadcrumbs.data?.[0]?.name ?? "Root folder";
-  const catalog = query.data;
+  const catalog = owner && !authLoading ? query.data : undefined;
   const refresh = () => {
-    void client.invalidateQueries({ queryKey: accessKey(rootId) });
+    void client.invalidateQueries({ queryKey: accessKey(rootId, owner) });
   };
   if (!validRoot)
     return (
