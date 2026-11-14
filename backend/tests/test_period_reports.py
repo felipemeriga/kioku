@@ -678,3 +678,60 @@ def test_monthly_merge_inventory_is_not_silently_cut_at_150():
     )
     assert len(snapshot["input"]["sources"]) == 220
     assert snapshot["report"]["coverage"]["git_commits_included"] == 220
+
+
+def test_factual_review_is_targeted_revision_bound_and_not_source_evidence():
+    rows, payload, week, month, _ = active_report_fixture()
+    payload.update(
+        report_kind="weekly",
+        period_start=week["period_start"],
+        factual_review={
+            "expected_revision": 1,
+            "reason": "Recheck numeric units against the original source records.",
+        },
+    )
+    snapshot, _ = capture_report(
+        DB(rows, [week, month]),
+        "owner",
+        "repo",
+        payload,
+        datetime(2026, 11, 13, 15, tzinfo=timezone.utc),
+    )
+    assert snapshot["report"]["kind"] == "weekly"
+    assert snapshot["report"]["expected_revision"] == 1
+    assert snapshot["input"]["review_notes_not_evidence"] == payload["factual_review"]["reason"]
+    assert snapshot["report"]["source_digest"] != week["source_digest"]
+    assert all(
+        payload["factual_review"]["reason"] not in source["text"]
+        for source in snapshot["input"]["sources"]
+    )
+    payload["factual_review"]["expected_revision"] = 2
+    with pytest.raises(ValueError, match="revision is stale"):
+        capture_report(
+            DB(rows, [week, month]),
+            "owner",
+            "repo",
+            payload,
+            datetime(2026, 11, 13, 15, tzinfo=timezone.utc),
+        )
+
+
+def test_factual_review_requires_explicit_period_and_bounded_reason():
+    base = {"folder_id": "f7e30f0d-04e6-42f8-8c02-431b835c6108", "head_sha": "a" * 40}
+    for review in (
+        {"expected_revision": 0, "reason": "x" * 30},
+        {"expected_revision": 1, "reason": " " * 30},
+        {"expected_revision": 1, "reason": "x" * 2001},
+        {"expected_revision": 1, "reason": "x" * 30},
+    ):
+        with pytest.raises(ValidationError):
+            ReportRefreshRequest(**base, factual_review=review)
+    assert ReportRefreshRequest(
+        **base,
+        report_kind="weekly",
+        period_start="2026-11-09",
+        factual_review={
+            "expected_revision": 1,
+            "reason": "Recheck counts against source evidence.",
+        },
+    )
