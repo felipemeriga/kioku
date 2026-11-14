@@ -99,6 +99,12 @@ export default function ResourceDialog({
   };
   const save = async () => {
     setError("");
+    if (binding?.pending_operation_id && mode !== "resource") {
+      setError(
+        "Reconcile the pending credential write before changing this mapping.",
+      );
+      return;
+    }
     let suffix = "",
       method = "POST",
       body: unknown;
@@ -211,11 +217,32 @@ export default function ResourceDialog({
       onClose();
     } catch (err) {
       setValues({});
+      onSaved();
       setError(accessError(err));
     } finally {
       setBusy(false);
     }
   };
+  async function reconcile() {
+    if (!binding) return;
+    setBusy(true);
+    setError("");
+    setValues({});
+    try {
+      await mutateAccess(
+        root,
+        `/bindings/${binding.id}/credential/reconcile`,
+        "POST",
+        {},
+      );
+      onSaved();
+      setMode("detail");
+    } catch (err) {
+      setError(accessError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
   const environmentName = (b: AccessBinding) =>
     b.environment_id
       ? (catalog.environments.find((e) => e.id === b.environment_id)?.name ??
@@ -274,6 +301,21 @@ export default function ResourceDialog({
               {error && (
                 <Alert severity="error" role="alert">
                   {error}
+                </Alert>
+              )}
+              {binding?.pending_operation_id && (
+                <Alert severity="warning">
+                  <Typography variant="body2">
+                    A credential write is pending. Reconcile it before replacing
+                    the credential or editing its mapping.
+                  </Typography>
+                  <Button
+                    disabled={busy}
+                    onClick={() => void reconcile()}
+                    size="small"
+                  >
+                    {busy ? "Recovering…" : "Reconcile pending write"}
+                  </Button>
                 </Alert>
               )}
               {mode === "resource" && (
@@ -408,6 +450,7 @@ export default function ResourceDialog({
                           <Button
                             size="small"
                             variant="outlined"
+                            disabled={!!binding.pending_operation_id}
                             onClick={() => {
                               reset();
                               setMode("credential");
@@ -435,6 +478,7 @@ export default function ResourceDialog({
                       <Button
                         size="small"
                         variant="outlined"
+                        disabled={!!binding.pending_operation_id}
                         onClick={() => setMode("mapping")}
                       >
                         Edit mapping
@@ -618,7 +662,7 @@ export default function ResourceDialog({
               type="submit"
               form="access-resource-form"
               variant="contained"
-              disabled={busy}
+              disabled={busy || !!binding?.pending_operation_id}
             >
               {busy
                 ? "Saving…"

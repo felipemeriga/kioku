@@ -27,6 +27,7 @@ export interface AccessBinding {
   enabled: boolean;
   has_secret: boolean;
   credential_expires_at: string | null;
+  pending_operation_id: string | null;
 }
 export interface AccessDevice {
   id: string;

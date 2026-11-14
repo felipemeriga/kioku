@@ -64,8 +64,10 @@ function RootAccessContent({ rootId }: { rootId: string }) {
     queryFn: () => fetchAccess(rootId),
     enabled: validRoot && !!owner && !authLoading,
   });
+  const rootBreadcrumbs = breadcrumbOptions(rootId);
   const breadcrumbs = useQuery({
-    ...breadcrumbOptions(rootId),
+    ...rootBreadcrumbs,
+    queryKey: [...rootBreadcrumbs.queryKey, owner],
     enabled: validRoot && !!owner && !authLoading,
   });
   const rootName = breadcrumbs.data?.[0]?.name ?? "Root folder";
@@ -259,6 +261,9 @@ function RootAccessContent({ rootId }: { rootId: string }) {
                             ),
                           ),
                         ];
+                    const pending = bindings.some(
+                      (b) => !!b.pending_operation_id,
+                    );
                     const stored =
                       bindings.length > 0 &&
                       bindings.every((b) => b.has_secret);
@@ -315,10 +320,14 @@ function RootAccessContent({ rootId }: { rootId: string }) {
                           className="access-status"
                           style={{
                             fontSize: 11,
-                            color: stored ? "#73dab0" : "#efc27d",
+                            color: stored && !pending ? "#73dab0" : "#efc27d",
                           }}
                         >
-                          {stored ? "● Stored" : "○ Needed"}
+                          {pending
+                            ? "◐ Pending"
+                            : stored
+                              ? "● Stored"
+                              : "○ Needed"}
                         </span>
                       </button>
                     );
