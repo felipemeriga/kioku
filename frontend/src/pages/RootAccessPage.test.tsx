@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen, fireEvent, waitFor } from "@testing-library/react";
+import { screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { Route, Routes } from "react-router-dom";
 import { renderWithProviders } from "../test/renderWithProviders";
 import RootAccessPage from "./RootAccessPage";
@@ -362,6 +362,42 @@ describe("guide revision history", () => {
       "GET",
       undefined,
       expect.any(AbortSignal),
+    );
+  });
+});
+
+describe("shared resources without credentials", () => {
+  it("shows Shared with no bindings and saves without account or region", async () => {
+    const shared = structuredClone(catalog);
+    shared.resources[0].shared = true;
+    shared.bindings = [];
+    vi.mocked(fetchAccess).mockResolvedValue(shared);
+    render();
+    const row = await screen.findByRole("button", {
+      name: "Configure SES MongoDB",
+    });
+    expect(
+      within(row).getByText("Shared", { exact: true }),
+    ).toBeInTheDocument();
+    expect(within(row).getByText(/Needed/)).toBeInTheDocument();
+    fireEvent.click(row);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Edit resource details" }),
+    );
+    expect(
+      screen.getByText("Additional details (optional)"),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Account (optional)")).not.toBeRequired();
+    expect(screen.getByLabelText("Region (optional)")).not.toBeRequired();
+    fireEvent.click(screen.getByRole("button", { name: "Save resource" }));
+    await waitFor(() =>
+      expect(mutateAccess).toHaveBeenCalledWith(
+        root,
+        "/resources/res",
+        "PATCH",
+        expect.objectContaining({ shared: true, account: "", region: "" }),
+        expect.any(AbortSignal),
+      ),
     );
   });
 });

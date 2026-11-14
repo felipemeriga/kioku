@@ -354,38 +354,6 @@ function RootAccessContent({ rootId }: { rootId: string }) {
                   {catalog.resources.length} resources · {rootName} root folder
                 </Typography>
               </Box>
-              <Box className="access-context">
-                <Box className="access-note">
-                  <Typography fontWeight={600}>
-                    One root. Different systems.
-                  </Typography>
-                  <p>
-                    Some tools span every environment. Others have a separate
-                    connection for each one.
-                  </p>
-                  <Button onClick={() => setTab(1)}>
-                    Read the environment guide
-                  </Button>
-                </Box>
-                <Box className="access-note">
-                  <Typography fontWeight={600}>Available to agents</Typography>
-                  <p>“Use the SES database in staging.”</p>
-                  <p>
-                    The agent finds the resource here. Your CLI uses the
-                    credential when it runs the command.
-                  </p>
-                </Box>
-                <Box className="access-note">
-                  <Typography fontWeight={600}>Access is explicit</Typography>
-                  <p>
-                    Adding a resource doesn’t grant a computer permission to use
-                    it.
-                  </p>
-                  <Button onClick={() => setTab(3)}>
-                    Manage computer access
-                  </Button>
-                </Box>
-              </Box>
             </Box>
           )}
           {tab === 1 && (

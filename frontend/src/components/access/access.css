@@ -2,7 +2,8 @@
   padding: 28px 34px 48px;
   width: 100%;
   max-width: 1540px;
-  margin: auto;
+  margin: 0 auto;
+  flex-shrink: 0;
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -14,8 +15,7 @@
 }
 .access-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 250px;
-  gap: 28px;
+  grid-template-columns: minmax(0, 1fr);
 }
 .access-toolbar {
   display: flex;
@@ -86,23 +86,6 @@
   gap: 6px;
   flex-wrap: wrap;
   min-width: 0;
-}
-.access-note {
-  border-top: 2px solid #6e4480;
-  padding-top: 16px;
-  margin-bottom: 28px;
-}
-.access-note p {
-  color: #afa0bf;
-  font-size: 12px;
-  line-height: 1.7;
-  margin: 8px 0 14px;
-}
-.access-note button {
-  padding: 0;
-  min-width: 0;
-  text-align: left;
-  font-size: 12px;
 }
 .access-guide-grid {
   display: grid;
@@ -242,12 +225,6 @@
   gap: 16px;
 }
 @media (max-width: 1150px) {
-  .access-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .access-context {
-    display: none;
-  }
   .access-page {
     padding: 26px;
   }
@@ -301,4 +278,14 @@
   .access-activity td:nth-child(3) {
     display: none;
   }
+}
+
+.access-additional-details > summary {
+  cursor: pointer;
+  color: #afa0bf;
+  font-size: 13px;
+}
+.access-additional-details > summary:focus-visible {
+  outline: 2px solid #24dfef;
+  outline-offset: 4px;
 }

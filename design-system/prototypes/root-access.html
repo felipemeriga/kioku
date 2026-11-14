@@ -249,7 +249,7 @@
       }
       .layout {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) 260px;
+        grid-template-columns: minmax(0, 1fr);
         gap: 26px;
       }
       .toolbar {
@@ -403,33 +403,6 @@
       .status {
         font-size: 11px;
         color: var(--green);
-      }
-      .side-note {
-        border-top: 2px solid #6e4480;
-        padding: 17px 0;
-        margin-bottom: 25px;
-      }
-      .side-note p {
-        font-size: 12px;
-        color: var(--muted);
-        margin: 8px 0 14px;
-      }
-      .side-note button {
-        text-align: left;
-        padding: 0;
-        color: var(--pink);
-        border: 0;
-        font-size: 12px;
-      }
-      .side-note ul {
-        padding-left: 17px;
-        color: var(--muted);
-        font-size: 12px;
-      }
-      .guide-mini {
-        border-left: 2px solid #4b345f;
-        padding: 0 0 0 14px;
-        margin-top: 15px;
       }
       .bottom-caption {
         font-size: 11px;
@@ -644,24 +617,6 @@
         font-size: 11px;
         color: var(--muted);
       }
-      .stepflow {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 12px;
-        margin: 20px 0;
-      }
-      .stepflow div {
-        padding: 12px;
-        border: 1px solid var(--line);
-        border-radius: 4px;
-        font-size: 12px;
-      }
-      .stepflow span {
-        display: block;
-        color: var(--muted);
-        font-size: 11px;
-        margin-top: 6px;
-      }
       .callout {
         background: #1b1029;
         padding: 20px;
@@ -686,9 +641,6 @@
         }
         .layout {
           grid-template-columns: 1fr;
-        }
-        .context-side {
-          display: none;
         }
         .table-head,
         .resource {
@@ -750,9 +702,6 @@
         }
         .row {
           align-items: flex-start;
-        }
-        .stepflow {
-          grid-template-columns: 1fr;
         }
         .activity th:nth-child(3),
         .activity td:nth-child(3) {
@@ -867,35 +816,6 @@
               </div>
               <p class="bottom-caption" id="resourceCount"></p>
             </div>
-            <aside class="context-side">
-              <div class="side-note">
-                <h3>One root. Different systems.</h3>
-                <p>
-                  Some tools span every environment. Others have a separate
-                  connection for each one.
-                </p>
-                <button data-go="guide">Read the environment guide</button>
-              </div>
-              <div class="side-note">
-                <h3>Available to agents</h3>
-                <div class="guide-mini">
-                  <p>“Use the SES database in staging.”</p>
-                  <p>
-                    The agent finds the resource here. Your CLI uses the
-                    credential when it runs the command.
-                  </p>
-                </div>
-                <button id="howItWorks">See the agent flow</button>
-              </div>
-              <div class="side-note">
-                <h3>Access is explicit</h3>
-                <p>
-                  Adding a resource doesn’t grant a computer permission to use
-                  it.
-                </p>
-                <button data-go="computers">Manage computer access</button>
-              </div>
-            </aside>
           </div>
         </section>
         <section id="guide" class="tab" role="tabpanel">
@@ -1176,7 +1096,6 @@ Check the resource mapping. Ask if more than one resource matches.</textarea
         });
       }
       $$("[data-tab]").forEach((b) => (b.onclick = () => tab(b.dataset.tab)));
-      $$("[data-go]").forEach((b) => (b.onclick = () => tab(b.dataset.go)));
       $("#search").oninput = renderResources;
       $("#envFilter").onchange = renderResources;
       function toast(message) {
@@ -1419,11 +1338,6 @@ Check the resource mapping. Ask if more than one resource matches.</textarea
         open(
           "Connect a computer",
           '<p class="muted">On the computer you want to connect, run:</p><div class="callout"><code>kioku access enroll --root cosm</code></div><p class="hint">Proposed command. No enrollment is performed by this prototype.</p><div class="spacer"></div><p>A browser approval will show the computer and requested permissions. Approve only the resources it needs.</p><div class="notice">Each computer gets its own access. No local service needs to run in the background.</div>',
-        );
-      $("#howItWorks").onclick = () =>
-        open(
-          "From request to execution",
-          '<p class="muted">Example: “Run the ingester tests against staging.”</p><div class="stepflow"><div>Find resource<span>MCP returns names and mappings.</span></div><div>Check access<span>Server checks this computer’s grants.</span></div><div>Run command<span>CLI injects the credential into the child process.</span></div></div><div class="callout"><code>kioku exec --binding &lt;binding-id&gt; --revision 4 -- cargo test -p ses-ingester</code></div><div class="notice">The credential is not returned in an MCP response.</div><div class="notice warning">Command output is filtered, but arbitrary code can still expose a credential. This is not a sandbox.</div>',
         );
       $("#activityRows").innerHTML = [
         ["2 min ago", "SES MongoDB", "Felipe’s MacBook", "staging", "Allowed"],
