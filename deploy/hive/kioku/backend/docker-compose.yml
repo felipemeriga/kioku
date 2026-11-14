@@ -23,6 +23,13 @@ services:
       - NOTION_TOKEN_ENCRYPTION_KEY=${KIOKU_NOTION_TOKEN_ENCRYPTION_KEY}
       - MIHARI_URL=${MIHARI_URL:-http://kioku-mihari:8787}
       - MIHARI_TRIGGER_TOKEN=${MIHARI_TRIGGER_TOKEN:-${WATCHER_TRIGGER_TOKEN:-}}
+      - KIOKU_VAULT_URL=${KIOKU_VAULT_URL:-}
+      - KIOKU_VAULT_ALLOW_INTERNAL_HTTP=${KIOKU_VAULT_ALLOW_INTERNAL_HTTP:-false}
+      - KIOKU_VAULT_PROJECT_ID=${KIOKU_VAULT_PROJECT_ID:-}
+      - KIOKU_VAULT_ENVIRONMENT=${KIOKU_VAULT_ENVIRONMENT:-prod}
+      - KIOKU_VAULT_CLIENT_ID=${KIOKU_VAULT_CLIENT_ID:-}
+      - KIOKU_VAULT_CLIENT_SECRET=${KIOKU_VAULT_CLIENT_SECRET:-}
+      - KIOKU_VAULT_WRITE_HMAC_KEY=${KIOKU_VAULT_WRITE_HMAC_KEY:-}
       - REDIS_URL=redis://kioku-redis:6379/0
       - AGENT_EVIDENCE_ENABLED=${AGENT_EVIDENCE_ENABLED:-false}
       - MCP_PUBLIC_URL=https://kioku.mcp.${DOMAIN}/sse
@@ -39,6 +46,7 @@ services:
         aliases:
           - backend
       proxy: {}
+      vault: {}
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=proxy"
@@ -51,6 +59,9 @@ networks:
   kioku:
     external: true
     name: kioku
+  vault:
+    external: true
+    name: kioku-vault-access
   proxy:
     external: true
     name: proxy
