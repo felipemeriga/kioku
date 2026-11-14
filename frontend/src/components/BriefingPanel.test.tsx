@@ -252,6 +252,15 @@ describe("BriefingPanel", () => {
     expect(
       screen.getByRole("heading", { name: "Legacy component 16" }),
     ).toBeInTheDocument();
+    const toggle = screen.getByRole("button", {
+      name: "Components",
+    });
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByText("Legacy component 16")).not.toBeVisible();
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("Legacy component 16")).toBeVisible();
     fireEvent.click(
       screen.getByRole("button", { name: "Show fewer components" }),
     );

@@ -2,7 +2,7 @@
  * BriefingPanel — neo-tokyo clean briefing.
  *
  * Layout: SectionRail (left 210px) + reading column (max 820px).
- * Sections 01–02 (overview, architecture) are always expanded.
+ * Introduction stays expanded; components can be collapsed independently.
  * Remaining sections collapse to a one-line row; click to expand.
  *
  * All edit / pin / reset / regenerate handlers are preserved.
@@ -33,6 +33,7 @@ import {
 } from "@mui/material";
 import DeleteSweepOutlinedIcon from "@mui/icons-material/DeleteSweepOutlined";
 import SaveIcon from "@mui/icons-material/Save";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import CloseIcon from "@mui/icons-material/Close";
 import {
   BRIEFING_SECTIONS,
@@ -325,46 +326,73 @@ export default function BriefingPanel({ folderId }: Props) {
                   title={SECTION_TITLES[key]}
                   color={SECTION_COLORS[key]}
                   status={mapStatus(data.sections[key]?.status ?? "auto")}
-                  onEdit={() =>
-                    EDITABLE_SECTIONS.includes(key)
+                  expanded={
+                    key === "architecture" ? !collapsed[key] : undefined
+                  }
+                  controlsId={
+                    key === "architecture"
+                      ? "briefing-components-content"
+                      : undefined
+                  }
+                  onToggle={
+                    key === "architecture"
+                      ? () =>
+                          setCollapsed((previous) => ({
+                            ...previous,
+                            [key]: !previous[key],
+                          }))
+                      : undefined
+                  }
+                  onEdit={() => {
+                    setCollapsed((previous) => ({ ...previous, [key]: false }));
+                    return EDITABLE_SECTIONS.includes(key)
                       ? setEditingSection(key)
                       : toast.show(
                           `${SECTION_TITLES[key]} is auto-populated — use Suggest to refresh.`,
                           "info",
-                        )
-                  }
+                        );
+                  }}
                 />
 
-                {editingSection === key ? (
-                  <SectionEditor
-                    section={data.sections[key]!}
-                    onSave={async (content, status) => {
-                      try {
-                        await updateBriefingSection(
-                          folderId,
-                          key,
-                          content,
-                          status,
-                        );
-                        toast.showSuccess(`${SECTION_TITLES[key]} saved.`);
-                        setEditingSection(null);
-                        await refresh();
-                      } catch (err) {
-                        toast.showError(
-                          err,
-                          `Couldn't save ${SECTION_TITLES[key]}.`,
-                        );
-                      }
-                    }}
-                    onCancel={() => setEditingSection(null)}
-                  />
-                ) : key === "overview" ? (
-                  <OverviewContent section={data.sections[key]!} />
-                ) : key === "architecture" ? (
-                  <ArchitectureContent section={data.sections[key]!} />
-                ) : null}
+                <Box
+                  id={
+                    key === "architecture"
+                      ? "briefing-components-content"
+                      : undefined
+                  }
+                  hidden={key === "architecture" && collapsed[key] === true}
+                >
+                  {editingSection === key ? (
+                    <SectionEditor
+                      section={data.sections[key]!}
+                      onSave={async (content, status) => {
+                        try {
+                          await updateBriefingSection(
+                            folderId,
+                            key,
+                            content,
+                            status,
+                          );
+                          toast.showSuccess(`${SECTION_TITLES[key]} saved.`);
+                          setEditingSection(null);
+                          await refresh();
+                        } catch (err) {
+                          toast.showError(
+                            err,
+                            `Couldn't save ${SECTION_TITLES[key]}.`,
+                          );
+                        }
+                      }}
+                      onCancel={() => setEditingSection(null)}
+                    />
+                  ) : key === "overview" ? (
+                    <OverviewContent section={data.sections[key]!} />
+                  ) : key === "architecture" ? (
+                    <ArchitectureContent section={data.sections[key]!} />
+                  ) : null}
 
-                <MetaLine section={data.sections[key]!} />
+                  <MetaLine section={data.sections[key]!} />
+                </Box>
               </Box>
             ))}
 
@@ -634,12 +662,18 @@ function SectionHeading({
   color,
   status,
   onEdit,
+  onToggle,
+  expanded,
+  controlsId,
 }: {
   n: string;
   title: string;
   color: string;
   status: GlyphStatus;
   onEdit: () => void;
+  onToggle?: () => void;
+  expanded?: boolean;
+  controlsId?: string;
 }) {
   return (
     <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
@@ -665,7 +699,29 @@ function SectionHeading({
           color: brand.text,
         }}
       >
-        {title}
+        {onToggle ? (
+          <Button
+            onClick={onToggle}
+            aria-expanded={expanded}
+            aria-controls={controlsId}
+            endIcon={
+              <ExpandMoreIcon
+                sx={{ transform: expanded ? "rotate(180deg)" : "none" }}
+              />
+            }
+            sx={{
+              p: 0,
+              minWidth: 0,
+              color: "inherit",
+              font: "inherit",
+              textTransform: "none",
+            }}
+          >
+            {title}
+          </Button>
+        ) : (
+          title
+        )}
       </Typography>
       {/* gradient rule */}
       <Box className="section-title-rule" sx={gradientRule(color)} />
