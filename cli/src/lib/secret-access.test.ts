@@ -132,3 +132,18 @@ test("access commands reject insecure origins before existing auth calls", async
     else process.env.KIOKU_API_BASE = originalBase;
   }
 });
+
+test("existing user session check forwards cancellation for access commands", async () => {
+  const { whoami } = await import("./api.js");
+  const old = globalThis.fetch;
+  const controller = new AbortController();
+  globalThis.fetch = async (_url, options) => {
+    assert.equal(options?.signal, controller.signal);
+    return Response.json({ user_id: id, root_folders: [] });
+  };
+  try {
+    assert.equal((await whoami(controller.signal)).user_id, id);
+  } finally {
+    globalThis.fetch = old;
+  }
+});

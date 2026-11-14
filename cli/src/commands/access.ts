@@ -21,7 +21,13 @@ function rootId(root: string) {
 }
 async function userToken() {
   secureApiBase(readConfig().api_base);
-  await whoami();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
+  try {
+    await whoami(controller.signal);
+  } finally {
+    clearTimeout(timer);
+  }
   const cfg = readConfig();
   if (!cfg.access_token) throw Error("Run kioku login first.");
   return cfg;
