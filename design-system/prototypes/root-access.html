@@ -1,0 +1,1445 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Kioku · Environments & access</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #090710;
+        --panel: #120b20;
+        --raised: #1b112c;
+        --line: #392747;
+        --muted: #afa0bf;
+        --text: #f3edf8;
+        --pink: #ff079e;
+        --cyan: #24dfef;
+        --green: #73dab0;
+        --amber: #efc27d;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          14px/1.55 -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+      }
+      button,
+      input,
+      select,
+      textarea {
+        font: inherit;
+      }
+      button,
+      a,
+      input,
+      select,
+      textarea {
+        outline-offset: 4px;
+      }
+      button:focus-visible,
+      a:focus-visible {
+        outline: 2px solid var(--cyan);
+      }
+      button {
+        cursor: pointer;
+        color: inherit;
+        background: transparent;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        padding: 9px 14px;
+      }
+      button:hover {
+        background: #271633;
+        border-color: #75518d;
+      }
+      button.primary {
+        background: var(--pink);
+        color: #140513;
+        border-color: var(--pink);
+        font-weight: 650;
+      }
+      button.primary:hover {
+        background: #ff51ba;
+      }
+      .quiet {
+        border-color: transparent;
+        color: var(--muted);
+      }
+      .small {
+        font-size: 12px;
+        padding: 5px 10px;
+      }
+      a {
+        color: var(--cyan);
+      }
+      .rail {
+        position: fixed;
+        inset: 0 auto 0 0;
+        width: 64px;
+        border-right: 1px solid var(--line);
+        display: flex;
+        align-items: center;
+        flex-direction: column;
+        gap: 18px;
+        padding: 21px 8px;
+        background: #0e0818;
+      }
+      .logo {
+        font-size: 26px;
+        color: var(--pink);
+        border: 1px solid var(--pink);
+        width: 40px;
+        text-align: center;
+      }
+      .rail button {
+        border: 0;
+        font-size: 21px;
+        padding: 6px 10px;
+      }
+      .rail .selected {
+        color: var(--pink);
+        background: #2a1034;
+      }
+      .avatar {
+        margin-top: auto;
+        background: #291437;
+        border-radius: 50%;
+        width: 30px;
+        height: 30px;
+        text-align: center;
+        line-height: 30px;
+      }
+      .folders {
+        position: fixed;
+        left: 64px;
+        top: 0;
+        bottom: 0;
+        width: 212px;
+        border-right: 1px solid var(--line);
+        padding: 26px 17px;
+        background: #100a1b;
+      }
+      .folders h3 {
+        font-size: 12px;
+        color: var(--muted);
+        font-weight: 500;
+        margin: 0 0 27px;
+      }
+      .folder {
+        padding: 10px 12px;
+        color: #c7bad4;
+        border-radius: 4px;
+        margin: 5px 0;
+      }
+      .folder.current {
+        background: #2b1538;
+        color: #fff;
+        border-left: 2px solid var(--pink);
+      }
+      .folder.sub {
+        padding-left: 29px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .folders footer {
+        position: absolute;
+        bottom: 25px;
+        font-size: 11px;
+        color: var(--muted);
+      }
+      main {
+        margin-left: 276px;
+      }
+      .top {
+        height: 65px;
+        border-bottom: 1px solid var(--line);
+        padding: 20px 36px;
+        display: flex;
+        justify-content: space-between;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .demo {
+        border: 1px solid #5b415e;
+        border-radius: 4px;
+        padding: 1px 8px;
+        color: #cfb6d8;
+      }
+      .page {
+        max-width: 1460px;
+        margin: auto;
+        padding: 32px 42px 60px;
+      }
+      .crumb {
+        font-size: 12px;
+        color: var(--muted);
+        margin-bottom: 22px;
+      }
+      .heading {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 16px;
+      }
+      h1 {
+        font-size: 28px;
+        letter-spacing: -0.7px;
+        margin: 0 0 6px;
+        font-weight: 620;
+      }
+      h2 {
+        font-size: 18px;
+        letter-spacing: -0.2px;
+        margin: 0;
+      }
+      h3 {
+        font-size: 15px;
+        margin: 0 0 8px;
+      }
+      p {
+        margin: 5px 0 16px;
+        max-width: 75ch;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .health {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        font-size: 12px;
+        color: var(--green);
+      }
+      .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: currentColor;
+        display: inline-block;
+      }
+      .tabs {
+        display: flex;
+        gap: 26px;
+        border-bottom: 1px solid var(--line);
+        margin: 27px 0;
+      }
+      .tabs button {
+        padding: 12px 0;
+        border: 0;
+        border-radius: 0;
+        color: var(--muted);
+      }
+      .tabs button.active {
+        color: var(--cyan);
+        box-shadow: 0 2px var(--pink);
+      }
+      .tab {
+        display: none;
+      }
+      .tab.active {
+        display: block;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 260px;
+        gap: 26px;
+      }
+      .toolbar {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 18px;
+        align-items: center;
+      }
+      .search {
+        position: relative;
+        flex: 1;
+      }
+      .search input {
+        padding-left: 34px;
+      }
+      .search span {
+        position: absolute;
+        left: 12px;
+        top: 9px;
+        color: var(--muted);
+      }
+      input,
+      select,
+      textarea {
+        width: 100%;
+        background: #0d0816;
+        border: 1px solid #634576;
+        border-radius: 4px;
+        color: var(--text);
+        padding: 10px 12px;
+      }
+      input::placeholder,
+      textarea::placeholder {
+        color: #8e7f9e;
+      }
+      select {
+        width: auto;
+        min-width: 140px;
+      }
+      label {
+        display: block;
+        font-size: 12px;
+        color: #cdbfd9;
+        margin-bottom: 7px;
+      }
+      textarea {
+        min-height: 140px;
+        resize: vertical;
+      }
+      code,
+      .mono {
+        font:
+          12px/1.7 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+      }
+      code {
+        color: #84d8e1;
+        background: #21122d;
+        padding: 2px 5px;
+        border-radius: 3px;
+      }
+      .catalog {
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        overflow: hidden;
+      }
+      .table-head {
+        background: #171020;
+        display: grid;
+        grid-template-columns: 1fr 200px 80px;
+        padding: 10px 20px;
+        color: var(--muted);
+        font-size: 11px;
+      }
+      .resource {
+        display: grid;
+        grid-template-columns: 1fr 200px 80px;
+        align-items: center;
+        padding: 20px;
+        gap: 10px;
+        border-top: 1px solid var(--line);
+        cursor: pointer;
+        transition: background 0.12s;
+      }
+      .resource:hover {
+        background: #1c102b;
+      }
+      .res-title {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .service-icon {
+        width: 35px;
+        height: 35px;
+        border: 1px solid #473253;
+        border-radius: 7px;
+        display: grid;
+        place-items: center;
+        font-size: 18px;
+        color: var(--green);
+        flex-shrink: 0;
+      }
+      .service-icon.grafana {
+        color: #f2b879;
+      }
+      .service-icon.aws {
+        color: #c9b0f4;
+        font-size: 12px;
+        font-weight: 700;
+      }
+      .res-title strong {
+        font-size: 14px;
+        font-weight: 600;
+      }
+      .res-title p {
+        font-size: 12px;
+        color: var(--muted);
+        margin: 3px 0 0;
+      }
+      .pills {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      .pill {
+        font-size: 10px;
+        border: 1px solid #56415f;
+        background: #22162e;
+        padding: 2px 7px;
+        border-radius: 4px;
+        white-space: nowrap;
+        color: #d5c6df;
+      }
+      .pill.staging {
+        color: #7ce1ec;
+        border-color: #245461;
+        background: #10262d;
+      }
+      .pill.production {
+        color: #f0cb94;
+        border-color: #654931;
+        background: #2a2019;
+      }
+      .pill.shared {
+        color: #c9b4ef;
+        border-color: #54406c;
+      }
+      .status {
+        font-size: 11px;
+        color: var(--green);
+      }
+      .side-note {
+        border-top: 2px solid #6e4480;
+        padding: 17px 0;
+        margin-bottom: 25px;
+      }
+      .side-note p {
+        font-size: 12px;
+        color: var(--muted);
+        margin: 8px 0 14px;
+      }
+      .side-note button {
+        text-align: left;
+        padding: 0;
+        color: var(--pink);
+        border: 0;
+        font-size: 12px;
+      }
+      .side-note ul {
+        padding-left: 17px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .guide-mini {
+        border-left: 2px solid #4b345f;
+        padding: 0 0 0 14px;
+        margin-top: 15px;
+      }
+      .bottom-caption {
+        font-size: 11px;
+        color: var(--muted);
+        margin: 15px 0;
+      }
+      .empty {
+        padding: 45px;
+        text-align: center;
+        color: var(--muted);
+      }
+      .split {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 25px;
+      }
+      .editor {
+        min-height: 420px;
+        font:
+          13px/1.8 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+      }
+      .paper {
+        padding: 26px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--panel);
+      }
+      .paper h3 {
+        margin-top: 22px;
+      }
+      .paper h3:first-child {
+        margin-top: 0;
+      }
+      .paper p {
+        color: #cec1d8;
+        font-size: 13px;
+      }
+      .row {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .section-head {
+        margin: 0 0 22px;
+      }
+      .env-card {
+        border-top: 1px solid var(--line);
+        padding: 21px 0;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 20px;
+      }
+      .env-card p {
+        font-size: 12px;
+        color: var(--muted);
+        margin: 5px 0;
+      }
+      .device {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        margin: 14px 0;
+        padding: 20px;
+      }
+      .device small {
+        color: var(--muted);
+      }
+      .device .grants {
+        margin-top: 16px;
+        display: flex;
+        gap: 7px;
+        flex-wrap: wrap;
+      }
+      .activity {
+        width: 100%;
+        border-collapse: collapse;
+        text-align: left;
+      }
+      .activity th {
+        font-size: 11px;
+        color: var(--muted);
+        font-weight: 400;
+      }
+      .activity td,
+      .activity th {
+        padding: 15px 12px;
+        border-bottom: 1px solid var(--line);
+      }
+      .activity td {
+        font-size: 12px;
+      }
+      .overlay {
+        position: fixed;
+        inset: 0;
+        background: #030108a8;
+        z-index: 5;
+        display: none;
+      }
+      .overlay.open {
+        display: block;
+      }
+      .drawer {
+        position: absolute;
+        right: 0;
+        top: 0;
+        bottom: 0;
+        width: min(580px, 100%);
+        background: #120b1d;
+        border-left: 1px solid #67427b;
+        display: flex;
+        flex-direction: column;
+        box-shadow: -20px 0 70px #0007;
+      }
+      .drawer-head {
+        padding: 26px 28px;
+        border-bottom: 1px solid var(--line);
+      }
+      .drawer-body {
+        padding: 24px 28px;
+        overflow: auto;
+        flex: 1;
+      }
+      .drawer-footer {
+        padding: 18px 28px;
+        border-top: 1px solid var(--line);
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+        background: #150c21;
+      }
+      .mapping {
+        margin: 18px 0;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+      }
+      .mapping > div {
+        padding: 12px 14px;
+        display: flex;
+        justify-content: space-between;
+        border-bottom: 1px solid var(--line);
+        font-size: 12px;
+      }
+      .mapping > div:last-child {
+        border-bottom: 0;
+      }
+      .field {
+        margin-bottom: 18px;
+      }
+      .field select {
+        width: 100%;
+      }
+      .hint {
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 6px;
+      }
+      .notice {
+        padding: 12px 14px;
+        border: 1px solid #30565d;
+        background: #0c2228;
+        color: #a7e1e6;
+        border-radius: 5px;
+        font-size: 12px;
+        margin: 17px 0;
+      }
+      .notice.warning {
+        border-color: #68502d;
+        background: #292115;
+        color: #e6cb9f;
+      }
+      .error {
+        color: #ffafc9;
+        font-size: 12px;
+        margin: 8px 0;
+      }
+      .error-box {
+        background: #341326;
+        border: 1px solid #a84f72;
+        padding: 12px;
+        border-radius: 5px;
+      }
+      .toast {
+        position: fixed;
+        bottom: 25px;
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 12px 22px;
+        background: #19332d;
+        border: 1px solid #4d9f89;
+        border-radius: 5px;
+        z-index: 10;
+        display: none;
+        box-shadow: 0 6px 30px #0008;
+      }
+      .inline-tabs {
+        display: flex;
+        gap: 8px;
+        margin: 19px 0;
+      }
+      .inline-tabs button.active {
+        border-color: #82579d;
+        background: #2c173b;
+      }
+      .spacer {
+        height: 18px;
+      }
+      .subtle {
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .stepflow {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+        margin: 20px 0;
+      }
+      .stepflow div {
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        font-size: 12px;
+      }
+      .stepflow span {
+        display: block;
+        color: var(--muted);
+        font-size: 11px;
+        margin-top: 6px;
+      }
+      .callout {
+        background: #1b1029;
+        padding: 20px;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+      }
+      #formError:empty {
+        display: none;
+      }
+      .mobile-root {
+        display: none;
+      }
+      @media (max-width: 1150px) {
+        .folders {
+          width: 170px;
+        }
+        main {
+          margin-left: 234px;
+        }
+        .page {
+          padding: 26px;
+        }
+        .layout {
+          grid-template-columns: 1fr;
+        }
+        .context-side {
+          display: none;
+        }
+        .table-head,
+        .resource {
+          grid-template-columns: 1fr 170px 70px;
+        }
+      }
+      @media (max-width: 760px) {
+        .folders {
+          display: none;
+        }
+        main {
+          margin-left: 56px;
+        }
+        .rail {
+          width: 56px;
+        }
+        .page {
+          padding: 22px 16px;
+        }
+        .top {
+          padding: 20px 16px;
+        }
+        .heading {
+          align-items: flex-start;
+        }
+        .heading > .health {
+          display: none;
+        }
+        h1 {
+          font-size: 23px;
+        }
+        .tabs {
+          gap: 20px;
+          overflow: auto;
+          white-space: nowrap;
+        }
+        .toolbar {
+          flex-wrap: wrap;
+        }
+        .toolbar .search {
+          flex-basis: 100%;
+        }
+        .table-head {
+          display: none;
+        }
+        .resource {
+          grid-template-columns: 1fr auto;
+        }
+        .resource .pills {
+          grid-column: 1;
+          margin-left: 47px;
+        }
+        .resource > .status {
+          grid-column: 2;
+          grid-row: 1;
+        }
+        .split {
+          grid-template-columns: 1fr;
+        }
+        .row {
+          align-items: flex-start;
+        }
+        .stepflow {
+          grid-template-columns: 1fr;
+        }
+        .activity th:nth-child(3),
+        .activity td:nth-child(3) {
+          display: none;
+        }
+        .drawer-head,
+        .drawer-body {
+          padding: 21px;
+        }
+        .mobile-root {
+          display: inline;
+        }
+        .editor {
+          min-height: 300px;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          transition: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <nav class="rail" aria-label="Main navigation">
+      <div class="logo" title="Kioku">記</div>
+      <button title="Chat" aria-label="Chat">♧</button
+      ><button class="selected" title="Documents" aria-label="Documents">
+        ▱</button
+      ><button title="Settings" aria-label="Settings">⚙</button>
+      <div class="avatar" title="Felipe">F</div>
+    </nav>
+    <aside class="folders">
+      <h3>Folders</h3>
+      <div class="folder">▱ &nbsp; All documents</div>
+      <div class="spacer"></div>
+      <div class="folder current">⌄ &nbsp; cosm</div>
+      <div class="folder sub">▱ &nbsp; repositories</div>
+      <div class="folder sub">▱ &nbsp; nba</div>
+      <div class="folder sub">▱ &nbsp; observability</div>
+      <div class="folder">› &nbsp; Obol</div>
+      <div class="folder">› &nbsp; personal</div>
+      <footer>Access follows the root folder.</footer>
+    </aside>
+    <main>
+      <header class="top">
+        <span>Kioku &nbsp; / &nbsp; Documents &nbsp; / &nbsp; cosm</span
+        ><span class="demo">Interactive prototype</span>
+      </header>
+      <div class="page">
+        <div class="crumb">⌂ &nbsp; / &nbsp; cosm &nbsp; / &nbsp; Settings</div>
+        <div class="heading">
+          <div>
+            <h1>Environments & access</h1>
+            <p class="muted">
+              The systems your agents can use, and how they fit together.
+            </p>
+          </div>
+          <span class="health"
+            ><i class="dot"></i> Central vault connected
+            <span
+              title="Illustrative connection status. This prototype is not connected to a vault."
+              >ⓘ</span
+            ></span
+          >
+        </div>
+        <nav class="tabs" aria-label="Access sections" role="tablist">
+          <button
+            role="tab"
+            aria-selected="true"
+            class="active"
+            data-tab="resources"
+          >
+            Resources</button
+          ><button role="tab" aria-selected="false" data-tab="guide">
+            Environment guide</button
+          ><button role="tab" aria-selected="false" data-tab="environments">
+            Environments</button
+          ><button role="tab" aria-selected="false" data-tab="computers">
+            Computers & access</button
+          ><button role="tab" aria-selected="false" data-tab="activity">
+            Activity
+          </button>
+        </nav>
+        <section id="resources" class="tab active" role="tabpanel">
+          <div class="layout">
+            <div>
+              <div class="toolbar">
+                <div class="search">
+                  <span>⌕</span
+                  ><input
+                    id="search"
+                    aria-label="Search resources"
+                    placeholder="Find a resource, service or alias…"
+                    maxlength="120"
+                  />
+                </div>
+                <select id="envFilter" aria-label="Filter environment">
+                  <option value="all">All environments</option>
+                  <option value="development">Development</option>
+                  <option value="staging">Staging</option>
+                  <option value="production">Production</option>
+                  <option value="shared">Shared</option></select
+                ><button class="primary" id="addResource">＋ Resource</button>
+              </div>
+              <div class="catalog">
+                <div class="table-head">
+                  <span>Resource</span><span>Available in</span
+                  ><span>Credential</span>
+                </div>
+                <div id="resourceRows"></div>
+              </div>
+              <p class="bottom-caption" id="resourceCount"></p>
+            </div>
+            <aside class="context-side">
+              <div class="side-note">
+                <h3>One root. Different systems.</h3>
+                <p>
+                  Some tools span every environment. Others have a separate
+                  connection for each one.
+                </p>
+                <button data-go="guide">Read the environment guide</button>
+              </div>
+              <div class="side-note">
+                <h3>Available to agents</h3>
+                <div class="guide-mini">
+                  <p>“Use the SES database in staging.”</p>
+                  <p>
+                    The agent finds the resource here. Your CLI uses the
+                    credential when it runs the command.
+                  </p>
+                </div>
+                <button id="howItWorks">See the agent flow</button>
+              </div>
+              <div class="side-note">
+                <h3>Access is explicit</h3>
+                <p>
+                  Adding a resource doesn’t grant a computer permission to use
+                  it.
+                </p>
+                <button data-go="computers">Manage computer access</button>
+              </div>
+            </aside>
+          </div>
+        </section>
+        <section id="guide" class="tab" role="tabpanel">
+          <div class="row section-head">
+            <div>
+              <h2>How Cosm’s environments work</h2>
+              <p class="muted">
+                Give agents the context to choose the right resource.
+              </p>
+            </div>
+            <button class="primary" id="saveGuide">Save guide</button>
+          </div>
+          <div class="split">
+            <div>
+              <label for="guideEditor">Markdown</label
+              ><textarea
+                class="editor"
+                id="guideEditor"
+                maxlength="65536"
+                spellcheck="false"
+              >
+# Cosm environments
+
+## Observability
+We use one Grafana for all environments. Choose the environment in the dashboard filters, not a different Grafana connection.
+
+## MongoDB
+SES has separate connections for development, staging and production. Never fall back to production when testing staging.
+
+The ingester uses `MONGO_URI`. Business API uses `MONGODB_URL`.
+
+## AWS
+Use the staging account for integration tests. Select the account and region explicitly for every operation.
+
+## When unsure
+Check the resource mapping. Ask if more than one resource matches.</textarea
+              >
+              <div class="hint">
+                Context only. Add credentials through a resource’s dedicated
+                form.
+              </div>
+            </div>
+            <article
+              class="paper"
+              id="guidePreview"
+              aria-label="Guide preview"
+            ></article>
+          </div>
+        </section>
+        <section id="environments" class="tab" role="tabpanel">
+          <div class="row section-head">
+            <div>
+              <h2>Environments</h2>
+              <p class="muted">Names and boundaries used across this root.</p>
+            </div>
+            <button id="addEnv">＋ Environment</button>
+          </div>
+          <div id="envRows"></div>
+          <div class="notice">
+            Shared tools, such as Grafana, remain shared resources. They don’t
+            need a duplicate credential in every environment.
+          </div>
+        </section>
+        <section id="computers" class="tab" role="tabpanel">
+          <div class="row section-head">
+            <div>
+              <h2>Computers & access</h2>
+              <p class="muted">
+                Each computer has its own permissions and can be revoked
+                separately.
+              </p>
+            </div>
+            <button id="connectComputer">Connect a computer</button>
+          </div>
+          <div id="devices"></div>
+          <p class="subtle">
+            Revoking a computer blocks new requests. Rotate a credential to
+            invalidate a value already delivered to a process.
+          </p>
+        </section>
+        <section id="activity" class="tab" role="tabpanel">
+          <div class="section-head">
+            <h2>Access activity</h2>
+            <p class="muted">
+              Who accessed which resource. Credential values and command output
+              aren’t recorded here.
+            </p>
+          </div>
+          <table class="activity">
+            <thead>
+              <tr>
+                <th>When</th>
+                <th>Resource</th>
+                <th>Computer</th>
+                <th>Environment</th>
+                <th>Result</th>
+              </tr>
+            </thead>
+            <tbody id="activityRows"></tbody>
+          </table>
+        </section>
+      </div>
+    </main>
+    <div class="overlay" id="overlay">
+      <section
+        class="drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="drawerTitle"
+      >
+        <header class="drawer-head">
+          <div class="row">
+            <div>
+              <div class="subtle" id="drawerEyebrow">cosm / Resources</div>
+              <h2 id="drawerTitle"></h2>
+            </div>
+            <button id="closeDrawer" class="quiet" aria-label="Close dialog">
+              ✕
+            </button>
+          </div>
+        </header>
+        <div class="drawer-body" id="drawerBody"></div>
+        <footer class="drawer-footer" id="drawerFooter"></footer>
+      </section>
+    </div>
+    <div class="toast" id="toast" role="status"></div>
+    <script>
+      "use strict";
+      const $ = (s) => document.querySelector(s);
+      const $$ = (s) => [...document.querySelectorAll(s)];
+      const esc = (s) =>
+        String(s).replace(
+          /[&<>"']/g,
+          (c) =>
+            ({
+              "&": "&amp;",
+              "<": "&lt;",
+              ">": "&gt;",
+              '"': "&quot;",
+              "'": "&#39;",
+            })[c],
+        );
+      const resources = [
+        {
+          name: "SES MongoDB",
+          type: "mongodb",
+          desc: "Tracking and event storage for SES",
+          envs: ["development", "staging", "production"],
+          aliases: "mongo, database, homologação, ses",
+          variable: "MONGO_URI",
+          consumer: "ses / ingester",
+          credential: true,
+        },
+        {
+          name: "Business API MongoDB",
+          type: "mongodb",
+          desc: "Application data for Business API",
+          envs: ["staging", "production"],
+          aliases: "business-api, mongodb, database",
+          variable: "MONGODB_URL",
+          consumer: "business-api",
+          credential: true,
+        },
+        {
+          name: "Grafana",
+          type: "grafana",
+          desc: "Dashboards and log exploration across environments",
+          envs: ["shared"],
+          aliases: "logs, metrics, observability, monitoring",
+          variable: "GRAFANA_TOKEN",
+          consumer: "Grafana API",
+          credential: true,
+        },
+        {
+          name: "AWS staging",
+          type: "aws",
+          desc: "Integration tests and staging infrastructure",
+          envs: ["staging"],
+          aliases: "aws, s3, cloud, staging account",
+          variable: "AWS_ACCESS_KEY_ID",
+          consumer: "AWS SDK",
+          credential: true,
+        },
+        {
+          name: "AWS production",
+          type: "aws",
+          desc: "Production infrastructure · explicit grants required",
+          envs: ["production"],
+          aliases: "aws, s3, cloud, production account",
+          variable: "AWS_ACCESS_KEY_ID",
+          consumer: "AWS SDK",
+          credential: false,
+        },
+      ];
+      const environments = [
+        {
+          name: "Development",
+          slug: "development",
+          desc: "Local development and disposable test data.",
+        },
+        {
+          name: "Staging",
+          slug: "staging",
+          desc: "Integration tests and pre-production validation.",
+        },
+        {
+          name: "Production",
+          slug: "production",
+          desc: "Live systems. Access requires an explicit grant.",
+        },
+      ];
+      const devices = [
+        {
+          name: "Felipe’s MacBook",
+          os: "macOS · this computer",
+          seen: "Active 2 minutes ago",
+          grants: ["SES MongoDB / staging", "Grafana / shared", "AWS staging"],
+          revoked: false,
+        },
+        {
+          name: "Development host",
+          os: "Linux · remote workstation",
+          seen: "Active 24 minutes ago",
+          grants: [
+            "SES MongoDB / development",
+            "SES MongoDB / staging",
+            "Grafana / shared",
+          ],
+          revoked: false,
+        },
+      ];
+      let activeEnv = "staging",
+        selected = -1,
+        returnFocus = null;
+      let toastTimer;
+      function pill(e) {
+        return `<span class="pill ${esc(e)}">${esc(e[0].toUpperCase() + e.slice(1))}</span>`;
+      }
+      function renderResources() {
+        const q = $("#search").value.toLowerCase(),
+          env = $("#envFilter").value;
+        const list = resources
+          .map((r, i) => ({ r, i }))
+          .filter(
+            ({ r }) =>
+              (r.name + " " + r.desc + " " + r.aliases)
+                .toLowerCase()
+                .includes(q) &&
+              (env === "all" ||
+                r.envs.includes(env) ||
+                (r.envs.includes("shared") && env !== "shared")),
+          );
+        $("#resourceRows").innerHTML = list.length
+          ? list
+              .map(
+                ({ r, i }) =>
+                  `<div class="resource" role="button" tabindex="0" data-resource="${i}" aria-label="Configure ${esc(r.name)}"><div class="res-title"><span class="service-icon ${r.type}" aria-hidden="true">${r.type === "mongodb" ? "◈" : r.type === "grafana" ? "◉" : "aws"}</span><div><strong>${esc(r.name)}</strong><p>${esc(r.desc)}</p></div></div><div class="pills">${r.envs.map(pill).join("")}</div><span class="status" style="${r.credential ? "" : "color:var(--amber)"}">${r.credential ? "● Stored" : "○ Needed"}</span></div>`,
+              )
+              .join("")
+          : '<div class="empty">No matching resources. Try another name or environment.</div>';
+        $("#resourceCount").textContent =
+          `${list.length} resources · Cosm root folder`;
+        $$("[data-resource]").forEach((el) => {
+          el.onclick = () => resourceDetail(+el.dataset.resource);
+          el.onkeydown = (e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              el.click();
+            }
+          };
+        });
+      }
+      function tab(name) {
+        $$(".tab").forEach((t) => t.classList.toggle("active", t.id === name));
+        $$("[data-tab]").forEach((b) => {
+          b.classList.toggle("active", b.dataset.tab === name);
+          b.setAttribute("aria-selected", b.dataset.tab === name);
+        });
+      }
+      $$("[data-tab]").forEach((b) => (b.onclick = () => tab(b.dataset.tab)));
+      $$("[data-go]").forEach((b) => (b.onclick = () => tab(b.dataset.go)));
+      $("#search").oninput = renderResources;
+      $("#envFilter").onchange = renderResources;
+      function toast(message) {
+        clearTimeout(toastTimer);
+        $("#toast").textContent = message;
+        $("#toast").style.display = "block";
+        toastTimer = setTimeout(
+          () => ($("#toast").style.display = "none"),
+          4500,
+        );
+      }
+      function open(title, body, footer = "") {
+        returnFocus = document.activeElement;
+        $("#drawerTitle").textContent = title;
+        $("#drawerBody").innerHTML = body;
+        $("#drawerFooter").innerHTML =
+          footer || "<button data-close>Close</button>";
+        $("#overlay").classList.add("open");
+        $$("[data-close]").forEach((b) => (b.onclick = close));
+        $("#closeDrawer").focus();
+      }
+      function close() {
+        $("#overlay").classList.remove("open");
+        $("#drawerBody").innerHTML = "";
+        $("#drawerFooter").innerHTML = "";
+        if (returnFocus && returnFocus.isConnected) returnFocus.focus();
+      }
+      $("#closeDrawer").onclick = close;
+      $("#overlay").onclick = (e) => {
+        if (e.target === $("#overlay")) close();
+      };
+      document.addEventListener("keydown", (e) => {
+        if (!$("#overlay").classList.contains("open")) return;
+        if (e.key === "Escape") close();
+        if (e.key === "Tab") {
+          const nodes = $$(
+            "#overlay button, #overlay input, #overlay select, #overlay textarea",
+          ).filter((n) => n.offsetParent !== null);
+          const first = nodes[0],
+            last = nodes.at(-1);
+          if (e.shiftKey && document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+          } else if (!e.shiftKey && document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
+      });
+      function resourceDetail(i, env) {
+        selected = i;
+        const r = resources[i];
+        activeEnv = env || r.envs.find((e) => e === activeEnv) || r.envs[0];
+        open(
+          r.name,
+          `<p class="muted">${esc(r.desc)}</p><div class="inline-tabs">${r.envs.map((e) => `<button class="small ${e === activeEnv ? "active" : ""}" data-binding-env="${e}">${esc(e[0].toUpperCase() + e.slice(1))}</button>`).join("")}</div>${activeEnv === "production" ? '<div class="notice warning">Production credentials require a separate grant for each computer.</div>' : ""}${activeEnv === "shared" ? '<div class="notice">One connection for all environments. Choose the target environment in your Grafana query.</div>' : ""}<h3>Credential</h3><div class="row callout"><div><strong>${r.credential ? "Stored in central vault" : "No credential stored"}</strong><div class="hint">${r.credential ? "Value hidden · replacement only" : "Add a credential to make this binding usable."}</div></div><button class="small" id="replaceSecret">${r.credential ? "Replace" : "Add credential"}</button></div><div class="spacer"></div><h3>Application mapping</h3><p class="subtle">The same resource can use different variable names in each service.</p><div class="mapping"><div><span>${esc(r.consumer)}</span><code>${esc(r.variable)}</code></div>${i === 0 ? "<div><span>SES / diagnostics</span><code>MONGODB_URL</code></div>" : ""}</div><button class="small" id="editMapping">Edit mapping</button><div class="spacer"></div><h3>How agents find it</h3><p class="subtle">${esc(r.aliases)}</p><div class="spacer"></div><h3>Computer access</h3><p class="subtle">${activeEnv === "production" ? "No computers granted access." : "Felipe’s MacBook and Development host have explicit grants."}</p><button class="small" id="viewGrants">Manage access</button>`,
+          "<button data-close>Done</button>",
+        );
+        $$("[data-binding-env]").forEach(
+          (b) => (b.onclick = () => resourceDetail(i, b.dataset.bindingEnv)),
+        );
+        $("#replaceSecret").onclick = () => secretForm(i);
+        $("#editMapping").onclick = () => mappingForm(i);
+        $("#viewGrants").onclick = () => {
+          close();
+          tab("computers");
+        };
+      }
+      function secretForm(i) {
+        const r = resources[i];
+        open(
+          `${r.credential ? "Replace" : "Add"} credential`,
+          `<p class="muted">${esc(r.name)} / ${esc(activeEnv)}</p><div class="notice warning">Prototype only. Use a made-up value; nothing is sent to a server.</div><form id="secretForm"><div class="field"><label for="secretValue">New credential</label><input id="secretValue" type="password" autocomplete="new-password" maxlength="4096" placeholder="Enter a fictional value"><div class="hint">Write-only. The saved value cannot be revealed here.</div></div><div id="formError" class="error" role="alert"></div></form><div class="mapping"><div><span>Resource</span><strong>${esc(r.name)}</strong></div><div><span>Environment</span>${pill(activeEnv)}</div><div><span>Used as</span><code>${esc(r.variable)}</code></div></div>`,
+          '<button id="secretBack">Back</button><button class="primary" id="saveSecret">Save credential</button>',
+        );
+        $("#secretBack").onclick = () => resourceDetail(i);
+        $("#saveSecret").onclick = () => {
+          const input = $("#secretValue");
+          if (!input.value.trim()) {
+            $("#formError").textContent =
+              "Enter a fictional credential to continue.";
+            input.setAttribute("aria-invalid", "true");
+            input.focus();
+            return;
+          }
+          input.value = "";
+          r.credential = true;
+          resourceDetail(i);
+          renderResources();
+          toast("Prototype: credential saved. Entered value discarded.");
+        };
+      }
+      function mappingForm(i) {
+        const r = resources[i];
+        open(
+          "Application mapping",
+          `<p class="muted">${esc(r.name)} / ${esc(activeEnv)}</p><div class="field"><label for="consumer">Application or crate</label><input id="consumer" value="${esc(r.consumer)}" maxlength="120"></div><div class="field"><label for="envVar">Environment variable</label><input id="envVar" class="mono" value="${esc(r.variable)}" maxlength="128"><div class="hint">Letters, numbers and underscores. Must start with a letter or underscore.</div></div><div class="field"><label for="aliases">Search aliases</label><input id="aliases" value="${esc(r.aliases)}" maxlength="500"></div><div id="formError" class="error" role="alert"></div><div class="notice">Mapping describes where a credential is injected. It doesn’t grant permission to use it.</div>`,
+          '<button id="mappingBack">Back</button><button class="primary" id="saveMapping">Save mapping</button>',
+        );
+        $("#mappingBack").onclick = () => resourceDetail(i);
+        $("#saveMapping").onclick = () => {
+          const v = $("#envVar").value.trim(),
+            c = $("#consumer").value.trim();
+          if (
+            !c ||
+            !v.match(/^[A-Za-z_][A-Za-z0-9_]*$/) ||
+            /^(LD_|DYLD_|NODE_OPTIONS$|BASH_ENV$|ENV$)/.test(v)
+          ) {
+            $("#formError").textContent =
+              "Enter an application and an allowed variable name. Runtime loader variables aren’t supported.";
+            return;
+          }
+          r.variable = v;
+          r.consumer = c;
+          r.aliases = $("#aliases").value.trim();
+          resourceDetail(i);
+          toast("Prototype: mapping updated.");
+        };
+      }
+      $("#addResource").onclick = () => {
+        open(
+          "Add a resource",
+          `<p class="muted">Describe the resource first. Add its credential separately.</p><div class="field"><label for="resName">Resource name</label><input id="resName" maxlength="120" placeholder="e.g. SES MongoDB"></div><div class="field"><label for="resType">Resource type</label><select id="resType"><option value="mongodb">Database</option><option value="grafana">Observability</option><option value="aws">Cloud account</option></select></div><div class="field"><label for="resEnv">Availability</label><select id="resEnv">${["development", "staging", "production", "shared"].map((e) => `<option>${e}</option>`).join("")}</select></div><div class="field"><label for="resDesc">Description</label><textarea id="resDesc" maxlength="600" placeholder="What is it used for?"></textarea></div><div id="formError" class="error" role="alert"></div>`,
+          '<button data-close>Cancel</button><button class="primary" id="createResource">Create resource</button>',
+        );
+        $("#createResource").onclick = () => {
+          const name = $("#resName").value.trim();
+          if (
+            !name ||
+            resources.some((r) => r.name.toLowerCase() === name.toLowerCase())
+          ) {
+            $("#formError").textContent = "Enter a unique resource name.";
+            $("#resName").focus();
+            return;
+          }
+          resources.push({
+            name,
+            type: $("#resType").value,
+            envs: [$("#resEnv").value],
+            desc: $("#resDesc").value.trim(),
+            aliases: name,
+            variable: "CONNECTION_URI",
+            consumer: "Application",
+            credential: false,
+          });
+          $("#search").value = "";
+          $("#envFilter").value = "all";
+          renderResources();
+          resourceDetail(resources.length - 1);
+          toast("Prototype: resource created.");
+        };
+      };
+      function markdown(text) {
+        return esc(text)
+          .split("\n\n")
+          .map((block) =>
+            block.startsWith("# ")
+              ? `<h2>${block.slice(2)}</h2>`
+              : block.startsWith("## ")
+                ? `<h3>${block.slice(3)}</h3>`
+                : `<p>${block.replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\n/g, "<br>")}</p>`,
+          )
+          .join("");
+      }
+      $("#guideEditor").oninput = () =>
+        ($("#guidePreview").innerHTML = markdown($("#guideEditor").value));
+      $("#guideEditor").oninput();
+      $("#saveGuide").onclick = () =>
+        toast("Prototype: guide saved for this preview.");
+      function renderEnvs() {
+        $("#envRows").innerHTML = environments
+          .map(
+            (e) =>
+              `<div class="env-card"><div><h3>${pill(e.slug)} &nbsp; ${esc(e.name)}</h3><p>${esc(e.desc)}</p></div><span class="subtle">${resources.filter((r) => r.envs.includes(e.slug)).length} resources</span></div>`,
+          )
+          .join("");
+      }
+      $("#addEnv").onclick = () => {
+        open(
+          "Add an environment",
+          '<div class="field"><label for="envName">Name</label><input id="envName" maxlength="120" placeholder="e.g. QA"></div><div class="field"><label for="envSlug">Identifier</label><input id="envSlug" maxlength="40" placeholder="e.g. qa"><div class="hint">Lowercase letters, numbers and hyphens.</div></div><div id="formError" class="error" role="alert"></div>',
+          '<button data-close>Cancel</button><button class="primary" id="createEnv">Add environment</button>',
+        );
+        $("#createEnv").onclick = () => {
+          const name = $("#envName").value.trim(),
+            slug = $("#envSlug").value.trim();
+          if (
+            !name ||
+            !/^[a-z][a-z0-9-]{0,39}$/.test(slug) ||
+            environments.some((e) => e.slug === slug) ||
+            slug === "shared"
+          ) {
+            $("#formError").textContent =
+              "Use a name and a unique lowercase identifier. “shared” is reserved.";
+            return;
+          }
+          environments.push({ name, slug, desc: "Custom environment." });
+          renderEnvs();
+          close();
+          toast("Prototype: environment added.");
+        };
+      };
+      function renderDevices() {
+        $("#devices").innerHTML = devices
+          .map(
+            (d, i) =>
+              `<article class="device"><div class="row"><div><h3>▣ &nbsp; ${esc(d.name)}</h3><small>${esc(d.os)} · ${d.revoked ? "Access revoked" : esc(d.seen)}</small></div>${d.revoked ? '<span class="pill">Revoked</span>' : `<button class="small" data-revoke="${i}">Revoke access</button>`}</div><div class="grants">${d.revoked ? "" : d.grants.map((g) => `<span class="pill">${esc(g)}</span>`).join("")}</div></article>`,
+          )
+          .join("");
+        $$("[data-revoke]").forEach(
+          (b) =>
+            (b.onclick = () => {
+              const i = +b.dataset.revoke;
+              open(
+                "Revoke computer access?",
+                `<p>${esc(devices[i].name)} will no longer be able to request credentials for Cosm.</p><div class="notice warning">Running commands may already have credentials. Rotate those credentials if necessary.</div>`,
+                '<button data-close>Keep access</button><button class="primary" id="confirmRevoke">Revoke access</button>',
+              );
+              $("#confirmRevoke").onclick = () => {
+                devices[i].revoked = true;
+                renderDevices();
+                close();
+                toast("Prototype: computer access revoked.");
+              };
+            }),
+        );
+      }
+      $("#connectComputer").onclick = () =>
+        open(
+          "Connect a computer",
+          '<p class="muted">On the computer you want to connect, run:</p><div class="callout"><code>kioku access enroll --root cosm</code></div><p class="hint">Proposed command. No enrollment is performed by this prototype.</p><div class="spacer"></div><p>A browser approval will show the computer and requested permissions. Approve only the resources it needs.</p><div class="notice">Each computer gets its own access. No local service needs to run in the background.</div>',
+        );
+      $("#howItWorks").onclick = () =>
+        open(
+          "From request to execution",
+          '<p class="muted">Example: “Run the ingester tests against staging.”</p><div class="stepflow"><div>Find resource<span>MCP returns names and mappings.</span></div><div>Check access<span>Server checks this computer’s grants.</span></div><div>Run command<span>CLI injects the credential into the child process.</span></div></div><div class="callout"><code>kioku exec --binding &lt;binding-id&gt; --revision 4 -- cargo test -p ses-ingester</code></div><div class="notice">The credential is not returned in an MCP response.</div><div class="notice warning">Command output is filtered, but arbitrary code can still expose a credential. This is not a sandbox.</div>',
+        );
+      $("#activityRows").innerHTML = [
+        ["2 min ago", "SES MongoDB", "Felipe’s MacBook", "staging", "Allowed"],
+        ["24 min ago", "Grafana", "Development host", "shared", "Allowed"],
+        [
+          "46 min ago",
+          "AWS production",
+          "Development host",
+          "production",
+          "Denied",
+        ],
+        [
+          "1 hour ago",
+          "Business API MongoDB",
+          "Felipe’s MacBook",
+          "staging",
+          "Allowed",
+        ],
+      ]
+        .map(
+          (a) =>
+            `<tr><td class="muted">${a[0]}</td><td>${a[1]}</td><td>${a[2]}</td><td>${pill(a[3])}</td><td style="color:${a[4] === "Allowed" ? "var(--green)" : "var(--amber)"}">${a[4]}</td></tr>`,
+        )
+        .join("");
+      renderResources();
+      renderEnvs();
+      renderDevices();
+    </script>
+  </body>
+</html>
