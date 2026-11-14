@@ -80,6 +80,10 @@ REPORT_GUIDE = (
     "and each topic's final state. Keep the overview to two short sentences, "
     "at most 420 characters. "
     "Return at most three short outcomes. Topic names are free: follow the actual work. "
+    "This is an outcome report, not a measurement log. Prefer a rounded key result; leave "
+    "incidental test counts, detailed percentiles and diagnostic tables in linked evidence. "
+    "Never combine statistics from different trial revisions into one result. Exact metrics "
+    "must preserve the same source-supported trial, configuration and sampling unit. "
     "Avoid overall merge totals in prose; the backend-built timeline is authoritative for counts. "
     "Each dated update explains what changed, its recorded purpose, and any observed outcome. "
     "If purpose or outcome is missing, do not invent it. "
@@ -103,11 +107,15 @@ REPORT_GUIDE = (
     "a short label; put qualifications and supporting details in its items. "
     "Do not repeat findings across topics or create generic warnings/recommendations. "
     "Journal entries are reported work. Commands show intent, not successful execution. "
+    "Do not call a system operational or deployed using commit-only citations. "
+    "Describe the merged code or workflow instead; runtime claims need recorded observations. "
     "A principal-branch commit confirms code presence, not "
     "deployment or successful runtime behavior. Distinguish observation dates from incident dates. "
     "Later unsupported claims do not override stronger evidence. Explicitly reconcile reverts. "
     "State measurements as observed: zero recorded errors does not rule out an entire causal "
     "mechanism. Do not double-count overlapping groups when summarizing test/replay totals. "
+    "Do not label a PR as currently open from an earlier opening event. Without state evidence "
+    "at cutoff, describe it as opened on its recorded date and later state unverified. "
     "Preserve the exact units and scope of every number. TypeScript diagnostic counts are not "
     "route or module counts. Omit numbers whose meaning is not explicit in evidence. "
     "If review_notes_not_evidence is supplied, investigate those concerns against the original "
@@ -472,7 +480,7 @@ def capture_report(sb, owner, folder, payload, now=None):
                     "date": iso(p["at"]).astimezone(ZoneInfo(tz)).date().isoformat(),
                     "observed_at": iso(p["at"]).isoformat(),
                     "url": p["url"],
-                    "text": p["text"][:500],
+                    "text": p["text"][:1600],
                 }
             )
         sources.sort(key=lambda source: (iso(source["observed_at"]), source["id"]))
@@ -680,6 +688,91 @@ def report_quote_choices(sources):
     return choices
 
 
+def validate_numeric_ranges(text, evidence):
+    """Do not turn unlabeled source ranges into invented quantity units."""
+    normalized = re.sub(r"[`*_]", "", text.lower())
+    source_text = re.sub(r"[`*_]", "", " ".join(evidence).lower())
+    for match in re.finditer(
+        r"\b(\d+(?:\.\d+)?)\s*(?:to|→|->)\s*(\d+(?:\.\d+)?)\s+([a-z][a-z-]+)\b",
+        normalized,
+    ):
+        first, last, unit = match.groups()
+        if unit in {"and", "or", "but", "with", "for", "in", "on", "at", "the", "a", "an"}:
+            continue
+        unit_pattern = re.escape(unit.rstrip("s")) + r"s?\b"
+
+        def quantity(number):
+            return re.escape(number) + r"\s*" + unit_pattern
+
+        explicit_range = re.escape(first) + r"\s*(?:to|→|->)\s*" + quantity(last)
+        prefixed_range = (
+            unit_pattern
+            + r"[^0-9.\n]{0,100}"
+            + re.escape(first)
+            + r"\s*(?:to|→|->)\s*"
+            + re.escape(last)
+            + r"\b"
+        )
+        if not (
+            re.search(explicit_range, source_text) or re.search(prefixed_range, source_text)
+        ) and not all(re.search(quantity(number), source_text) for number in (first, last)):
+            raise ValueError("Report numeric range lacks evidence for its unit; omit or qualify it")
+
+
+def validate_runtime_provenance(text, evidence):
+    """A Git change alone cannot establish a successful rollout or operation."""
+    if any(source["kind"] in {"journal", "original"} for source in evidence):
+        return
+    for match in re.finditer(r"\b(?:operational|deployed)\b", text, re.IGNORECASE):
+        prefix = text[max(0, match.start() - 35) : match.start()].lower()
+        suffix = text[match.end() : match.end() + 30].lower()
+        if re.search(r"\b(?:not|never|unverified|unconfirmed|pending|whether)\b[^.;]*$", prefix):
+            continue
+        if re.match(r"\s*(?:[:;,—–-]\s*)?(?:unverified|unconfirmed|unknown|pending)\b", suffix):
+            continue
+        raise ValueError("Report runtime claim requires observed evidence, not only Git changes")
+
+
+def validate_open_pr_state(snapshot, topic, sources):
+    """An opening event is not proof a PR stayed open through later activity."""
+    state = topic["final_state"]
+    if not re.search(
+        r"\b(?:pr|pull request)s?\s+(?:(?:is|remains|still)\s+)?open\b"
+        r"|\bopen\s+(?:pr|pull request)\b",
+        state["status"],
+        re.IGNORECASE,
+    ):
+        return
+    numbers = set(
+        re.findall(
+            r"#([1-9][0-9]*)\b",
+            topic["title"] + " " + " ".join(item["text"] for item in state["items"]),
+        )
+    )
+    if len(numbers) == 1:
+        number = next(iter(numbers))
+        cited_ids = {i for item in state["items"] for i in item["source_ids"]}
+        for source in (sources[i] for i in cited_ids):
+            subject = source["text"].splitlines()[0]
+            if source["kind"] == "git_commit" and re.search(r"#" + number + r"\b", subject):
+                raise ValueError("Report open PR state contradicts principal-branch merge evidence")
+            if source["id"] == "pull:" + number and re.search(
+                r"\bmerged\b", subject, re.IGNORECASE
+            ):
+                raise ValueError("Report open PR state contradicts GitHub merge evidence")
+    cutoff = snapshot["input"].get("cutoff")
+    if cutoff and not any(
+        source.get("observed_at")
+        and abs((iso(cutoff) - iso(source["observed_at"])).total_seconds()) <= 1
+        and re.search(r"\bopen(?:ed)?\b", source["text"], re.IGNORECASE)
+        for item in state["items"]
+        for source in (sources[i] for i in item["source_ids"])
+    ):
+        raise ValueError(
+            "Report open PR state lacks cutoff evidence; state the last observation instead"
+        )
+
+
 def validate_report(snapshot, value):
     value = deepcopy(value)
     aliases = report_aliases(snapshot)
@@ -721,6 +814,13 @@ def validate_report(snapshot, value):
             raise ValueError("Report cites unknown or missing evidence")
 
     cited(value["summary_source_ids"])
+    if compact_report(snapshot):
+        validate_runtime_provenance(
+            value["summary"], [sources[i] for i in value["summary_source_ids"]]
+        )
+        validate_numeric_ranges(
+            value["summary"], [sources[i]["text"] for i in value["summary_source_ids"]]
+        )
 
     def finding(item, maximum=1000):
         cited(item["source_ids"])
@@ -733,6 +833,15 @@ def validate_report(snapshot, value):
                 # context while making the exact quoted origin explicit.
                 item["source_ids"] = [source, *item["source_ids"]]
             item["evidence_quote"] = text
+        if compact_report(snapshot):
+            validate_runtime_provenance(
+                " ".join(item.get(k, "") for k in ("title", "text", "detail")),
+                [sources[i] for i in item["source_ids"]],
+            )
+            validate_numeric_ranges(
+                " ".join(item.get(k, "") for k in ("title", "text", "detail")),
+                [sources[i]["text"] for i in item["source_ids"]],
+            )
         if not 10 <= len(item["text"]) <= maximum or not 12 <= len(item["evidence_quote"]) <= 250:
             raise ValueError("Invalid report item")
         if not any(item["evidence_quote"] in sources[i]["text"] for i in item["source_ids"]):
@@ -784,6 +893,12 @@ def validate_report(snapshot, value):
                 raise ValueError("Invalid report final state")
             for item in state["items"]:
                 finding(item, 320 if compact_report(snapshot) else 500)
+            if compact_report(snapshot):
+                validate_open_pr_state(snapshot, topic, sources)
+                validate_runtime_provenance(
+                    state["status"],
+                    [sources[i] for item in state["items"] for i in item["source_ids"]],
+                )
         value["format_version"] = 2
         value["merges"] = []
         for source in sources.values():
