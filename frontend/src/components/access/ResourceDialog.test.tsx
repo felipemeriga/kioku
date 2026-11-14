@@ -130,6 +130,19 @@ describe("resource-first credentials", () => {
     expect(screen.getByText("Legacy variant · ses")).toBeInTheDocument();
     expect(screen.getByText("Legacy variant · business")).toBeInTheDocument();
   });
+  it("renders every independent credential variant in one environment", () => {
+    const c = structuredClone(catalog);
+    c.credentials = [
+      { ...credential, id: "first", label: "Account one" },
+      { ...credential, id: "second", label: "Account two" },
+    ];
+    render(c);
+    expect(screen.getByText("Variant · Account one")).toBeInTheDocument();
+    expect(screen.getByText("Variant · Account two")).toBeInTheDocument();
+    expect(
+      screen.getAllByRole("button", { name: /Add credential/ })
+    ).toHaveLength(2);
+  });
   it("uses AWS region metadata CAS before writing bundle at new revision", async () => {
     const c = structuredClone(catalog);
     c.credentials = [

@@ -102,6 +102,13 @@ export default function ResourceDialog({
           !current?.environment_ids?.length ||
           current.environment_ids.includes(e.id)
       );
+  for (const c of credentials.filter((c) => !c.legacy_binding_id)) {
+    if (!availability.some((env) => env.id === c.environment_id))
+      availability.push({
+        id: c.environment_id,
+        name: environmentName(c.environment_id),
+      });
+  }
   function back() {
     setSelected(undefined);
     setUsage(undefined);
@@ -463,66 +470,80 @@ export default function ResourceDialog({
                       Store the credential once for each environment.
                       Applications can use it in different ways.
                     </Typography>
-                    {availability.map((env) => {
+                    {availability.flatMap((env) => {
                       const instances = credentials.filter(
                         (c) =>
                           c.environment_id === env.id && !c.legacy_binding_id
                       );
-                      return (
-                        <div
-                          className="access-credential-row"
-                          key={env.id ?? "shared"}
-                        >
-                          <div className="access-credential-description">
-                            <Typography fontWeight={600}>{env.name}</Typography>
-                            <Typography
-                              variant="caption"
-                              color="text.secondary"
-                            >
-                              {instances[0]?.has_secret
-                                ? instances[0].credential_expires_at
-                                  ? `Expires ${new Date(
-                                      instances[0].credential_expires_at
-                                    ).toLocaleDateString()}`
-                                  : "Stored in central vault"
-                                : "No credential yet"}
-                            </Typography>
-                          </div>
-                          <Chip
-                            className="access-credential-status"
-                            size="small"
-                            color={
-                              instances[0]?.has_secret ? "success" : "warning"
-                            }
-                            variant="outlined"
-                            label={
-                              instances[0]?.pending_operation_id
-                                ? "Pending"
-                                : instances[0]?.has_secret
-                                ? "Stored"
-                                : "Missing"
-                            }
-                          />
-                          <Button
-                            className="access-credential-action"
-                            variant={
-                              instances[0]?.has_secret
-                                ? "outlined"
-                                : "contained"
-                            }
-                            disabled={busy}
-                            onClick={() => {
-                              if (instances[0]) {
-                                setSelected(instances[0]);
-                                setMode("credential");
-                              } else void addCredential(env.id);
-                            }}
+                      return (instances.length ? instances : [undefined]).map(
+                        (c) => (
+                          <div
+                            className="access-credential-row"
+                            key={c?.id ?? env.id ?? "shared"}
                           >
-                            {instances[0]?.has_secret
-                              ? "Replace"
-                              : "Add credential"}
-                          </Button>
-                        </div>
+                            <div className="access-credential-description">
+                              <Typography fontWeight={600}>
+                                {env.name}
+                              </Typography>
+                              {instances.length > 1 && (
+                                <Typography
+                                  variant="caption"
+                                  display="block"
+                                  color="text.secondary"
+                                >
+                                  Variant · {c?.label || c?.id}
+                                </Typography>
+                              )}
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                              >
+                                {c?.has_secret
+                                  ? c.credential_expires_at
+                                    ? `Expires ${new Date(
+                                        c.credential_expires_at
+                                      ).toLocaleDateString()}`
+                                    : "Stored in central vault"
+                                  : "No credential yet"}
+                              </Typography>
+                            </div>
+                            <Chip
+                              className="access-credential-status"
+                              size="small"
+                              color={c?.has_secret ? "success" : "warning"}
+                              variant="outlined"
+                              label={
+                                c?.pending_operation_id
+                                  ? "Pending"
+                                  : c?.has_secret
+                                  ? "Stored"
+                                  : "Missing"
+                              }
+                            />
+                            <Button
+                              className="access-credential-action"
+                              variant={c?.has_secret ? "outlined" : "contained"}
+                              aria-label={
+                                instances.length > 1
+                                  ? `${
+                                      c?.has_secret
+                                        ? "Replace"
+                                        : "Add credential"
+                                    } · ${c?.label || c?.id}`
+                                  : undefined
+                              }
+                              disabled={busy}
+                              onClick={() => {
+                                if (c) {
+                                  setSelected(c);
+                                  setMode("credential");
+                                } else void addCredential(env.id);
+                              }}
+                            >
+                              {c?.has_secret ? "Replace" : "Add credential"}
+                            </Button>
+                          </div>
+                        )
                       );
                     })}
                     {!availability.length && (
