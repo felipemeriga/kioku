@@ -532,3 +532,23 @@ def test_recorded_runtime_observations_can_support_a_rollout_claim():
             }
         ],
     )
+
+
+@pytest.mark.parametrize(
+    "summary",
+    [
+        "Five PRs merged into main and staging across several themes.",
+        "Merged 10 pull requests during the week.",
+    ],
+)
+def test_overview_cannot_invent_a_pr_total_from_topic_counts(summary):
+    snapshot, value = compact_fixture()
+    value["summary"] = summary
+    with pytest.raises(ValueError, match="Omit generated merge totals"):
+        validate_report(snapshot, value)
+
+
+def test_overview_can_describe_work_without_duplicating_authoritative_merge_counts():
+    snapshot, value = compact_fixture()
+    value["summary"] = "NBA lifecycle fixes reached main; runtime effects remain unverified."
+    assert validate_report(snapshot, value)
