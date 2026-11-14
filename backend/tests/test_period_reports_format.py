@@ -7,7 +7,14 @@ import jsonschema
 import pytest
 
 from services.maintenance.operations import build_request, completion_schema, validate_result
-from services.period_reports import render_report, report_quote_choices, validate_report
+from services.period_reports import (
+    render_report,
+    report_aliases,
+    report_choices,
+    report_parts,
+    report_quote_choices,
+    validate_report,
+)
 
 
 def fixture():
@@ -209,3 +216,187 @@ def test_merge_body_is_evidence_without_becoming_the_timeline_heading():
     result = validate_report(snapshot, value)
     assert result["merges"][0]["title"] == "isolate live consumer groups (#485)"
     assert "Preserve recovery" in snapshot["input"]["sources"][2]["text"]
+
+
+def compact_fixture():
+    snapshot, value = fixture()
+    snapshot["report"] = {"coverage": {"policy": 8}}
+    reverse = {source: alias for alias, source in report_aliases(snapshot).items()}
+
+    def compact(node):
+        if isinstance(node, dict):
+            for key, child in node.items():
+                if key in ("source_ids", "summary_source_ids"):
+                    node[key] = [reverse[item] for item in child]
+                else:
+                    compact(child)
+        elif isinstance(node, list):
+            for child in node:
+                compact(child)
+
+    compact(value)
+    return snapshot, value
+
+
+def test_compact_source_references_restore_exact_provenance_without_mutating_native_output():
+    snapshot, value = compact_fixture()
+    snapshot["current"] = {"summary": "Obsolete invented notarization status must not be evidence."}
+    original = deepcopy(value)
+    built = build_request(snapshot)
+    assert built["schema"]["$defs"]["report_source"]["enum"] == ["s0", "s1", "s2"]
+    assert "Obsolete invented notarization status" not in built["prompt"]
+    assert "journal:intent" not in built["prompt"]
+    assert "Evidence choices:" not in built["prompt"]
+    projected = json.loads(built["prompt"].split("EVIDENCE SNAPSHOT:\n", 1)[1])
+    aliases = report_aliases(snapshot)
+    originals = {source["id"]: source for source in snapshot["input"]["sources"]}
+    for source in projected["input"]["sources"]:
+        assert "text" not in source
+        assert (
+            "".join(part["text"] for part in source["parts"])
+            == originals[aliases[source["id"]]]["text"]
+        )
+    jsonschema.validate(value, built["schema"])
+    result = validate_result(snapshot, value)
+    assert result["summary_source_ids"] == ["journal:intent", "journal:result"]
+    assert result["topics"][0]["updates"][0]["source_ids"] == ["journal:intent"]
+    assert value == original
+
+
+def test_unknown_compact_reference_is_rejected():
+    snapshot, value = compact_fixture()
+    value["outcomes"][0]["source_ids"] = ["s99999"]
+    with pytest.raises(ValueError, match="outside its model context"):
+        validate_result(snapshot, value)
+
+
+def test_complete_merge_inventory_is_retained_when_model_context_is_partial():
+    snapshot, value = compact_fixture()
+    for i in range(260):
+        snapshot["input"]["sources"].append(
+            {
+                "id": "commit:" + f"{i:040x}",
+                "kind": "git_commit",
+                "sha": f"{i:040x}",
+                "date": "2026-11-13",
+                "observed_at": "2026-11-13T00:00:00Z",
+                "text": f"Commit on principal branch: merged change number {i}\n" + "x" * 1500,
+            }
+        )
+    aliases = report_aliases(snapshot)
+    assert len(aliases) < 263
+    assert "s262" not in aliases
+    result = validate_result(snapshot, value)
+    assert len(result["merges"]) == 261
+    assert "commit:" + f"{259:040x}" in result["merges"][0]["source_ids"] or any(
+        merge["source_ids"] == ["commit:" + f"{259:040x}"] for merge in result["merges"]
+    )
+    value["outcomes"][0]["source_ids"] = ["s262"]
+    with pytest.raises(ValueError, match="outside its model context"):
+        validate_result(snapshot, value)
+
+
+def test_compact_quote_catalog_preserves_late_resolutions_and_legacy_preparations():
+    source = {
+        "id": "journal:long",
+        "text": "\n".join(
+            f"Source sentence {i} records an intermediate observation." for i in range(12)
+        )
+        + "\nAll four review findings are now fixed.",
+    }
+    legacy = report_quote_choices([source])
+    assert len(legacy[source["id"]]) == 6
+    snapshot = {
+        "report": {"coverage": {"policy": 8}},
+        "input": {
+            "sources": [{**source, "kind": "journal", "observed_at": "2026-11-13T12:00:00Z"}]
+        },
+    }
+    choices = report_choices(snapshot)[source["id"]]
+    assert "All four review findings are now fixed." in choices[-1]["text"]
+    assert "".join(part["text"] for part in report_parts(snapshot)[source["id"]]) == source["text"]
+
+
+def test_compact_native_schema_stays_bounded_for_full_inventory_and_larger_journal_context():
+    snapshot, _ = compact_fixture()
+    sources = []
+    for prefix, kind, count in (
+        ("journal:", "journal", 500),
+        ("original:", "original", 16),
+        ("commit:", "git_commit", 1000),
+        ("pull:", "github_pull_request", 100),
+    ):
+        for i in range(count):
+            sources.append(
+                {
+                    "id": prefix + f"{i:064x}",
+                    "kind": kind,
+                    "observed_at": "2026-11-13T12:00:00Z",
+                    "date": "2026-11-13",
+                    "text": "\n".join(f"Exact source sentence number {j}." for j in range(6)),
+                }
+            )
+    snapshot["input"]["sources"] = sources
+    built = build_request(snapshot)
+    assert len(json.dumps(completion_schema(built["schema"])).encode()) < 120000
+    assert 586 < len(built["schema"]["$defs"]["report_source"]["enum"]) < 1616
+
+
+def test_compact_monthly_report_cannot_repeat_a_topic_within_the_same_week():
+    snapshot, value = compact_fixture()
+    snapshot["input"].update(kind="monthly", period_start="2026-11-01", period_end="2026-11-30")
+    with pytest.raises(ValueError, match="repeats a topic day or week"):
+        validate_result(snapshot, value)
+
+
+def test_compact_weekly_output_has_a_total_update_bound_before_publication():
+    snapshot, value = compact_fixture()
+    base = value["topics"][0]
+    value["topics"] = [
+        {
+            **deepcopy(base),
+            "id": f"topic-{i}",
+            "updates": [deepcopy(base["updates"][0]) for _ in range(7)],
+        }
+        for i in range(5)
+    ]
+    with pytest.raises(ValueError, match="Too many report updates"):
+        validate_result(snapshot, value)
+
+
+def test_source_parts_preserve_every_character_including_short_lines_and_unicode():
+    snapshot, _ = compact_fixture()
+    text = "a\ntrue\n" + ("Evidence with paths, accents: memória /src/file.rs\n" * 20) + "x"
+    snapshot["input"]["sources"][0]["text"] = text
+    parts = report_parts(snapshot)["journal:intent"]
+    assert "".join(part["text"] for part in parts) == text
+    assert all(1 <= len(part["text"]) <= 250 for part in parts)
+    assert all(part["text"] in text for part in parts if "id" in part)
+    assert "id" not in parts[-1] if len(parts[-1]["text"].strip()) < 12 else True
+
+
+def test_commit_body_reference_does_not_invent_a_merge_pr_number():
+    snapshot, value = fixture()
+    snapshot["input"]["sources"][2]["text"] = (
+        "Commit on principal branch: repair configuration\n\nRelated discussion in #9999."
+    )
+    result = validate_result(snapshot, value)
+    assert result["merges"][0]["pr_number"] is None
+    assert result["merges"][0]["title"] == "repair configuration"
+
+
+def test_context_citation_cannot_launder_a_quote_from_another_day():
+    snapshot, value = compact_fixture()
+    update = value["topics"][0]["updates"][0]
+    update.update(date="2026-11-13", source_ids=["s0", "s1"])
+    value["topics"][0]["updates"] = [update]
+    with pytest.raises(ValueError, match="quote date does not match"):
+        validate_result(snapshot, value)
+
+
+def test_dated_update_can_keep_older_context_with_a_contemporaneous_quote():
+    snapshot, value = compact_fixture()
+    update = value["topics"][0]["updates"][1]
+    update["source_ids"] = ["s0", "s1"]
+    result = validate_result(snapshot, value)
+    assert result["topics"][0]["updates"][1]["source_ids"] == ["journal:intent", "journal:result"]

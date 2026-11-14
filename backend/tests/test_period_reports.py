@@ -176,7 +176,7 @@ class DB:
 
     def table(self, name):
         if name == "agent_journal_search_entries":
-            return Query(self.entries[-2:])
+            return Query(self.entries)
         assert name == "repo_period_reports"
         return Query(self.existing)
 
@@ -624,3 +624,57 @@ def test_latest_pr_outcomes_survive_a_sample_that_only_retained_the_old_review()
     journals = [s for s in snapshot["input"]["sources"] if s["kind"] == "journal"]
     assert [s["entry_id"] for s in journals] == ["e0", "e1", "e2"]
     assert "all review findings fixed" in journals[-1]["text"]
+
+
+def test_small_journal_sets_are_complete_including_non_pr_midday_resolutions():
+    rows = [
+        {
+            "entry_id": f"e{i}",
+            "session_id": "s",
+            "agent": "codex",
+            "captured_at": f"2026-11-13T{10 + i // 60:02d}:{i % 60:02d}:00Z",
+            "body": "Desktop signing and notarization completed."
+            if i == 39
+            else f"Observed repository work item number {i}.",
+        }
+        for i in range(80)
+    ]
+
+    class SampledDB(DB):
+        def rpc(self, name, args):
+            if name == "period_report_source_snapshot":
+                return Query({"entries": rows[::10], "events": [], "entry_count": 80})
+            return super().rpc(name, args)
+
+    snapshot, _ = capture_report(
+        SampledDB(rows),
+        "owner",
+        "repo",
+        {"head_sha": "a" * 40, "timezone": "UTC"},
+        datetime(2026, 11, 13, 12, tzinfo=timezone.utc),
+    )
+    assert len(snapshot["input"]["sources"]) == 80
+    assert snapshot["report"]["coverage"]["journals"] == "complete"
+    assert any(
+        "notarization completed" in source["text"] for source in snapshot["input"]["sources"]
+    )
+
+
+def test_monthly_merge_inventory_is_not_silently_cut_at_150():
+    commits = [
+        {
+            "sha": f"{i:040x}",
+            "at": "2026-11-13T10:00:00Z",
+            "text": f"Commit on principal branch: change number {i}",
+        }
+        for i in range(220)
+    ]
+    snapshot, _ = capture_report(
+        DB([]),
+        "owner",
+        "repo",
+        {"head_sha": "a" * 40, "timezone": "UTC", "commits": commits},
+        datetime(2026, 11, 13, 11, tzinfo=timezone.utc),
+    )
+    assert len(snapshot["input"]["sources"]) == 220
+    assert snapshot["report"]["coverage"]["git_commits_included"] == 220

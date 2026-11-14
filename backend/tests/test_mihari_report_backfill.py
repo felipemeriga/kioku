@@ -143,3 +143,16 @@ def test_real_merge_history_excludes_feature_branch_commits(monkeypatch, worker)
     assert [commit["text"] for commit in submitted[0]["commits"]] == [
         "Commit on principal branch: Merge pull request #8"
     ]
+
+
+def test_bounded_merge_context_keeps_final_subject_and_late_reversal(worker):
+    module, _ = worker
+    subject = "ci(typecheck): use tsrs instead of the earlier compiler (#257)"
+    message = subject + "\n\nInitial compiler migration.\n" + "Intermediate change.\n" * 200
+    message += "Final correction: run tsrs, retaining the compatible build toolchain."
+    text = module.report_commit_text(subject, message)
+    assert text.splitlines()[0] == "Commit on principal branch: " + subject
+    assert "Initial compiler migration." in text
+    assert "Final correction: run tsrs" in text
+    assert "omitted" in text
+    assert len(text) <= 1600

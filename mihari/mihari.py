@@ -1321,6 +1321,20 @@ def refresh_repo_learnings(repo: dict) -> None:
         )
 
 
+def report_commit_text(subject: str, message: str) -> str:
+    """Keep the final subject and both ends of a bounded squash/merge history."""
+    subject = subject[:240]
+    body = message.partition("\n")[2].strip()
+    if not body:
+        return "Commit on principal branch: " + subject
+    budget = 1450 - len(subject) - 2
+    if len(body) > budget:
+        marker = "\n[... intermediate commit messages omitted ...]\n"
+        first = (budget - len(marker)) // 2
+        body = body[:first] + marker + body[-(budget - len(marker) - first) :]
+    return "Commit on principal branch: " + subject + "\n\n" + body
+
+
 def refresh_repo_reports(repo: dict) -> None:
     """Generate one due period independently of principal-branch freshness."""
     if not API_URL or not repo.get("api_key_encrypted"):
@@ -1386,7 +1400,7 @@ def refresh_repo_reports(repo: dict) -> None:
                 {
                     "sha": sha,
                     "at": at,
-                    "text": "Commit on principal branch: " + message[:1450],
+                    "text": report_commit_text(subject, message),
                     "url": f"{base}/commit/{sha}" if base else None,
                 }
             )
