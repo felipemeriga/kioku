@@ -741,15 +741,6 @@ def validate_report(snapshot, value):
                 raise ValueError("Invalid report topic text")
             if not 1 <= len(topic["updates"]) <= report_update_limit(snapshot):
                 raise ValueError("Invalid report topic updates")
-            if compact_report(snapshot) and len(
-                {
-                    calendar_period("weekly", datetime.fromisoformat(update["date"]).date())[0]
-                    if snapshot["input"]["kind"] == "monthly"
-                    else update["date"]
-                    for update in topic["updates"]
-                }
-            ) != len(topic["updates"]):
-                raise ValueError("Report repeats a topic day or week")
             for update in topic["updates"]:
                 quote_source = quotes.get(update["evidence_quote"], (None, None))[0]
                 finding(update, 280 if compact_report(snapshot) else 500)
