@@ -113,7 +113,7 @@ Demonstrated interactions: direct environment credential entry/replacement; Shar
 - Credential canaries do not appear in MCP, journals, Originals, response/error logs or successful output through supported paths.
 - Header/tabs remain at fixed top positions across short/long tabs, and no document/drawer overflow at 390, 720, 1024 and 1512 pixels.
 
-No V2 runtime/backend changes or production migration are included in this proposal.
+The user approved V2 implementation, deployment and final end-to-end verification. This design document and disconnected prototype do not themselves establish that runtime changes are deployed.
 
 ## Reference checks
 
@@ -122,3 +122,16 @@ The SSH proposal is grounded in the official OpenSSH interface for identity file
 - https://man.openbsd.org/ssh.1
 - https://man.openbsd.org/ssh_config.5
 - https://man.openbsd.org/ssh-add.1
+
+## AWS bundles and multi-field usage clarification
+
+An AWS credential instance groups `access_key_id`, `secret_access_key` and optional `session_token`. Region is nonsecret configuration associated with the selected environment/credential instance; a single resource-wide region is insufficient when environments differ. Generic Shared resources still require neither account nor region. Temporary credentials retain expiration metadata and must not execute after expiration.
+
+One usage recipe can map several fields together. The AWS environment preset maps the bundle to `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, optional `AWS_SESSION_TOKEN`, and region to `AWS_REGION`. Resolve and authorize the complete required bundle before spawning; an absent optional token must clear an inherited token rather than accidentally mixing identities.
+
+The AWS profile option writes protected temporary credentials/config files for the process, with explicit profile isolation and cleanup. AWS CLI does not accept raw access-key or secret-key command flags; the prototype must not suggest such flags. Region may be provided through the supported `--region` option. Generic command-argument delivery remains available only for consumers that actually accept those arguments and retains the explicit raw-secret policy.
+
+The prototype shows several source-to-destination rows within one usage, rather than requiring separate recipes for each field. AWS key values entered in the disconnected preview are discarded like all other credential values.
+
+Reference: https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-envvars.html
+Reference: https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html
