@@ -1,4 +1,4 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
@@ -25,10 +25,7 @@
         margin: 0;
         background: var(--bg);
         color: var(--text);
-        font:
-          14px/1.55 -apple-system,
-          BlinkMacSystemFont,
-          "Segoe UI",
+        font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI",
           sans-serif;
       }
       button,
@@ -530,11 +527,19 @@
       }
       .env-row {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) 130px 100px;
+        grid-template-columns: minmax(0, 1fr) auto minmax(120px, 140px);
         align-items: center;
         gap: 13px;
         border-top: 1px solid var(--line);
         padding: 20px 0;
+      }
+      .env-row > * {
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+      .env-row > button {
+        white-space: normal;
+        max-width: 100%;
       }
       .env-row h3 {
         margin: 0;
@@ -714,11 +719,7 @@
         margin: 12px 0;
         overflow-wrap: anywhere;
         white-space: pre-wrap;
-        font:
-          12px/1.8 ui-monospace,
-          SFMono-Regular,
-          Menlo,
-          monospace;
+        font: 12px/1.8 ui-monospace, SFMono-Regular, Menlo, monospace;
         color: #9edce2;
       }
       .step-note {
@@ -735,11 +736,7 @@
       }
       .guide-editor {
         min-height: 420px;
-        font:
-          12px/1.8 ui-monospace,
-          SFMono-Regular,
-          Menlo,
-          monospace;
+        font: 12px/1.8 ui-monospace, SFMono-Regular, Menlo, monospace;
       }
       .paper {
         border: 1px solid var(--line);
@@ -1284,7 +1281,7 @@ Choose the resource, environment and saved usage explicitly. If several match, a
               ">": "&gt;",
               '"': "&quot;",
               "'": "&#39;",
-            })[c],
+            }[c])
         );
       const envNames = {
         development: "Development",
@@ -1297,8 +1294,24 @@ Choose the resource, environment and saved usage explicitly. If several match, a
         api: "API key",
         ssh: "SSH key",
         custom: "Custom fields",
+        aws: "AWS credentials",
       };
       const resources = [
+        {
+          id: "aws-platform",
+          name: "AWS platform",
+          description: "Company AWS access for CLI and SDK workflows",
+          kind: "aws",
+          availability: ["development", "staging", "production"],
+          aliases: "aws, cloud, s3, infrastructure",
+          region: "us-east-1",
+          credentials: {
+            development: { stored: true, updated: "Updated November 14" },
+            staging: { stored: false },
+            production: { stored: false },
+          },
+          recipes: [],
+        },
         {
           id: "ses-mongo",
           name: "SES MongoDB",
@@ -1409,7 +1422,9 @@ Choose the resource, environment and saved usage explicitly. If several match, a
       let returnFocus = null,
         toastTimer;
       function pill(env) {
-        return `<span class="pill ${esc(env)}">${esc(envNames[env] || env)}</span>`;
+        return `<span class="pill ${esc(env)}">${esc(
+          envNames[env] || env
+        )}</span>`;
       }
       function showToast(text) {
         clearTimeout(toastTimer);
@@ -1417,7 +1432,7 @@ Choose the resource, environment and saved usage explicitly. If several match, a
         $("#toast").style.display = "block";
         toastTimer = setTimeout(
           () => ($("#toast").style.display = "none"),
-          4500,
+          4500
         );
       }
       function tab(name) {
@@ -1438,28 +1453,66 @@ Choose the resource, environment and saved usage explicitly. If several match, a
               .includes(q) &&
             (env === "all" ||
               r.availability.includes(env) ||
-              (env !== "shared" && r.availability.includes("shared"))),
+              (env !== "shared" && r.availability.includes("shared")))
         );
         $("#resourceRows").innerHTML = list.length
           ? list
               .map(
                 (r) =>
-                  `<article class="resource"><div class="resource-name"><span class="service-icon ${r.kind}" aria-hidden="true">${r.kind === "ssh" ? "⌘" : r.kind === "api" ? "⌁" : "◈"}</span><button data-resource="${r.id}" aria-label="Manage ${esc(r.name)}"><strong>${esc(r.name)}</strong><p>${esc(r.description)}</p></button></div><div class="coverage">${r.availability.map((e) => `<button class="${r.credentials[e]?.stored ? "" : "missing"}" data-credential="${r.id}" data-env="${e}" title="${r.credentials[e]?.stored ? "Replace" : "Add"} credential for ${esc(envNames[e] || e)}" aria-label="${r.credentials[e]?.stored ? "Replace" : "Add"} ${esc(r.name)} credential for ${esc(envNames[e] || e)}"><i class="dot"></i>${esc(envNames[e] || e)}${r.credentials[e]?.stored ? "" : " ＋"}</button>`).join("")}</div><button class="usage-count" data-usages="${r.id}">${r.recipes.length ? `${r.recipes.length} saved ${r.recipes.length === 1 ? "usage" : "usages"}` : "Add usage"}</button><button class="chevron" data-resource="${r.id}" aria-label="Open ${esc(r.name)}">›</button></article>`,
+                  `<article class="resource"><div class="resource-name"><span class="service-icon ${
+                    r.kind
+                  }" aria-hidden="true">${
+                    r.kind === "ssh" ? "⌘" : r.kind === "api" ? "⌁" : "◈"
+                  }</span><button data-resource="${
+                    r.id
+                  }" aria-label="Manage ${esc(r.name)}"><strong>${esc(
+                    r.name
+                  )}</strong><p>${esc(
+                    r.description
+                  )}</p></button></div><div class="coverage">${r.availability
+                    .map(
+                      (e) =>
+                        `<button class="${
+                          r.credentials[e]?.stored ? "" : "missing"
+                        }" data-credential="${r.id}" data-env="${e}" title="${
+                          r.credentials[e]?.stored ? "Replace" : "Add"
+                        } credential for ${esc(
+                          envNames[e] || e
+                        )}" aria-label="${
+                          r.credentials[e]?.stored ? "Replace" : "Add"
+                        } ${esc(r.name)} credential for ${esc(
+                          envNames[e] || e
+                        )}"><i class="dot"></i>${esc(envNames[e] || e)}${
+                          r.credentials[e]?.stored ? "" : " ＋"
+                        }</button>`
+                    )
+                    .join("")}</div><button class="usage-count" data-usages="${
+                    r.id
+                  }">${
+                    r.recipes.length
+                      ? `${r.recipes.length} saved ${
+                          r.recipes.length === 1 ? "usage" : "usages"
+                        }`
+                      : "Add usage"
+                  }</button><button class="chevron" data-resource="${
+                    r.id
+                  }" aria-label="Open ${esc(r.name)}">›</button></article>`
               )
               .join("")
           : '<div class="empty">No matching resources. Try another name or availability.</div>';
-        $("#resourceCount").textContent =
-          `${list.length} resources · Cosm root folder`;
+        $(
+          "#resourceCount"
+        ).textContent = `${list.length} resources · Cosm root folder`;
         $$("[data-resource]").forEach(
-          (b) => (b.onclick = () => detail(b.dataset.resource)),
+          (b) => (b.onclick = () => detail(b.dataset.resource))
         );
         $$("[data-credential]").forEach(
           (b) =>
             (b.onclick = () =>
-              credentialForm(b.dataset.credential, b.dataset.env)),
+              credentialForm(b.dataset.credential, b.dataset.env))
         );
         $$("[data-usages]").forEach(
-          (b) => (b.onclick = () => detail(b.dataset.usages, "usage")),
+          (b) => (b.onclick = () => detail(b.dataset.usages, "usage"))
         );
       }
       $("#search").oninput = renderCatalog;
@@ -1492,7 +1545,7 @@ Choose the resource, environment and saved usage explicitly. If several match, a
         if (e.key === "Escape") close();
         if (e.key === "Tab") {
           const nodes = $$(
-            "#overlay button,#overlay input,#overlay select,#overlay textarea,#overlay summary",
+            "#overlay button,#overlay input,#overlay select,#overlay textarea,#overlay summary"
           ).filter((n) => n.offsetParent !== null && !n.disabled);
           const first = nodes[0],
             last = nodes.at(-1);
@@ -1516,7 +1569,9 @@ Choose the resource, environment and saved usage explicitly. If several match, a
         ]
           .map(
             ([key, label]) =>
-              `<button data-detail="${key}" class="${selected === key ? "active" : ""}" aria-pressed="${selected === key}">${label}</button>`,
+              `<button data-detail="${key}" class="${
+                selected === key ? "active" : ""
+              }" aria-pressed="${selected === key}">${label}</button>`
           )
           .join("")}</nav>`;
       }
@@ -1529,40 +1584,111 @@ Choose the resource, environment and saved usage explicitly. If several match, a
         }[method];
       }
       function recipePreview(recipe) {
+        if (recipe.mappings)
+          return recipe.method === "file"
+            ? "[default] AWS profile → protected temporary file\nAWS_SHARED_CREDENTIALS_FILE=<temporary-file>\nAWS_PROFILE=default"
+            : recipe.mappings
+                .map(
+                  ([field, target]) =>
+                    target +
+                    " ← " +
+                    (field === "environment.region"
+                      ? field
+                      : "credential." + field)
+                )
+                .join("\n");
         if (recipe.method === "env")
           return `${recipe.target} ← credential.${recipe.field}`;
         if (recipe.method === "file")
-          return `${recipe.file || "config.json"}  ${recipe.target} ← credential.${recipe.field}\n${recipe.argument || "--config"} <temporary-file>`;
+          return `${recipe.file || "config.json"}  ${
+            recipe.target
+          } ← credential.${recipe.field}\n${
+            recipe.argument || "--config"
+          } <temporary-file>`;
         if (recipe.method === "arg")
-          return `${recipe.target} ${recipe.source === "raw" ? "<credential value>" : "<temporary-file>"}`;
-        return `ssh -i <temporary-key> -p ${recipe.port || "22"} ${recipe.target}`;
+          return `${recipe.target} ${
+            recipe.source === "raw" ? "<credential value>" : "<temporary-file>"
+          }`;
+        return `ssh -i <temporary-key> -p ${recipe.port || "22"} ${
+          recipe.target
+        }`;
       }
       function detail(id, section = "credentials") {
         const r = get(id);
         let content = "";
         if (section === "credentials") {
-          content = `<p class="instruction">Store the credential once for each environment. Applications can use it in different ways.</p><div class="section-label">${kinds[r.kind]}</div>${r.availability.map((e) => `<div class="env-row"><div><h3>${esc(envNames[e] || e)}</h3><p>${esc(r.credentials[e]?.stored ? r.credentials[e].expiry || r.credentials[e].updated || "Saved in this preview" : "No credential yet")}</p></div><span>${r.credentials[e]?.stored ? '<span class="pill stored"><i class="dot"></i>Stored</span>' : '<span class="pill missing">Missing</span>'}</span><button class="small ${r.credentials[e]?.stored ? "" : "primary"}" data-edit-credential="${e}">${r.credentials[e]?.stored ? "Replace" : "Add credential"}</button></div>`).join("")}<div class="spacer"></div><button class="link small" id="editResource">Edit resource details</button>`;
+          content = `<p class="instruction">Store the credential once for each environment. Applications can use it in different ways.</p><div class="section-label">${
+            kinds[r.kind]
+          }</div>${r.availability
+            .map(
+              (e) =>
+                `<div class="env-row"><div><h3>${esc(
+                  envNames[e] || e
+                )}</h3><p>${esc(
+                  r.credentials[e]?.stored
+                    ? r.credentials[e].expiry ||
+                        r.credentials[e].updated ||
+                        "Saved in this preview"
+                    : "No credential yet"
+                )}</p></div><span>${
+                  r.credentials[e]?.stored
+                    ? '<span class="pill stored"><i class="dot"></i>Stored</span>'
+                    : '<span class="pill missing">Missing</span>'
+                }</span><button class="small ${
+                  r.credentials[e]?.stored ? "" : "primary"
+                }" data-edit-credential="${e}">${
+                  r.credentials[e]?.stored ? "Replace" : "Add credential"
+                }</button></div>`
+            )
+            .join(
+              ""
+            )}<div class="spacer"></div><button class="link small" id="editResource">Edit resource details</button>`;
         } else if (section === "usage") {
-          content = `<div class="row start"><p class="instruction">Choose how an application receives the credential. A usage never stores a second copy.</p><button class="small" id="addUsage">＋ Usage</button></div>${r.recipes.length ? r.recipes.map((recipe, i) => `<article class="recipe"><div class="row"><h3>${esc(recipe.name)}</h3><button class="quiet small" data-edit-recipe="${i}" aria-label="Edit ${esc(recipe.name)}">Edit</button></div><div class="method">${methodName(recipe.method)}</div><p>${esc(recipe.application)} · ${esc(recipe.detail || "Saved usage")}</p><code>${esc(recipePreview(recipe))}</code></article>`).join("") : '<div class="empty">No saved usage yet. You can store credentials before adding one.</div>'}`;
+          content = `<div class="row start"><p class="instruction">Choose how an application receives the credential. A usage never stores a second copy.</p><button class="small" id="addUsage">＋ Usage</button></div>${
+            r.recipes.length
+              ? r.recipes
+                  .map(
+                    (recipe, i) =>
+                      `<article class="recipe"><div class="row"><h3>${esc(
+                        recipe.name
+                      )}</h3><button class="quiet small" data-edit-recipe="${i}" aria-label="Edit ${esc(
+                        recipe.name
+                      )}">Edit</button></div><div class="method">${methodName(
+                        recipe.method
+                      )}</div><p>${esc(recipe.application)} · ${esc(
+                        recipe.detail || "Saved usage"
+                      )}</p><code>${esc(
+                        recipePreview(recipe)
+                      )}</code></article>`
+                  )
+                  .join("")
+              : '<div class="empty">No saved usage yet. You can store credentials before adding one.</div>'
+          }`;
         } else {
           content =
             '<p class="instruction">Computer permissions apply to the credential and environment. Saving a usage does not expand access.</p><div class="action-card"><div class="row"><strong>Felipe’s MacBook</strong><span class="pill stored">Granted</span></div><div class="subtle">Staging credential · expires December 14</div></div><div class="notice warning">Production needs its own grant. A staging grant never falls back to production.</div><button id="goComputers">Manage computers & access</button>';
         }
         open(
           r.name,
-          `<div class="row"><span class="subtle">${kinds[r.kind]}</span><span class="subtle">${r.availability.includes("shared") ? "Shared resource" : "Environment-specific"}</span></div>${drawerTabs(section)}${content}`,
+          `<div class="row"><span class="subtle">${
+            kinds[r.kind]
+          }</span><span class="subtle">${
+            r.availability.includes("shared")
+              ? "Shared resource"
+              : "Environment-specific"
+          }</span></div>${drawerTabs(section)}${content}`
         );
         $$("[data-detail]").forEach(
-          (b) => (b.onclick = () => detail(id, b.dataset.detail)),
+          (b) => (b.onclick = () => detail(id, b.dataset.detail))
         );
         $$("[data-edit-credential]").forEach(
           (b) =>
-            (b.onclick = () => credentialForm(id, b.dataset.editCredential)),
+            (b.onclick = () => credentialForm(id, b.dataset.editCredential))
         );
         $("#editResource")?.addEventListener("click", () => resourceForm(id));
         $("#addUsage")?.addEventListener("click", () => usageForm(id));
         $$("[data-edit-recipe]").forEach(
-          (b) => (b.onclick = () => usageForm(id, +b.dataset.editRecipe)),
+          (b) => (b.onclick = () => usageForm(id, +b.dataset.editRecipe))
         );
         $("#goComputers")?.addEventListener("click", () => {
           close();
@@ -1582,13 +1708,20 @@ Choose the resource, environment and saved usage explicitly. If several match, a
         if (r.kind === "ssh")
           fields =
             '<div class="field"><label for="credentialValue">Private key</label><textarea id="credentialValue" data-secret class="mono" spellcheck="false" autocomplete="off" maxlength="16384" placeholder="Paste a fictional SSH key for this preview"></textarea><div class="hint">The stored private key is never revealed. Use the public fingerprint to identify it.</div></div><div class="field"><label for="keyPassphrase">Passphrase <span class="muted">(optional)</span></label><input id="keyPassphrase" data-secret type="password" autocomplete="new-password" maxlength="1024"></div><div class="field"><label for="publicLabel">Key label <span class="muted">(optional)</span></label><input id="publicLabel" maxlength="120" placeholder="e.g. Staging deployment key"></div>';
+        if (r.kind === "aws")
+          fields =
+            '<div class="field"><label for="credentialValue">Access key ID</label><input id="credentialValue" data-secret type="password" autocomplete="new-password" maxlength="128"></div><div class="field"><label for="awsSecret">Secret access key</label><input id="awsSecret" data-secret type="password" autocomplete="new-password" maxlength="4096"></div><div class="field"><label for="awsToken">Session token <span class="muted">(optional)</span></label><textarea id="awsToken" data-secret autocomplete="off" maxlength="16384"></textarea><div class="hint">For temporary AWS credentials. Omit for a long-lived key pair.</div></div><div class="field"><label for="awsRegion">Region <span class="muted">(non-secret)</span></label><input id="awsRegion" value="' +
+            esc(r.credentials[env]?.region || "") +
+            '" maxlength="120"></div><div class="notice">One bundle: key ID, secret key and optional session token. The command receives every selected field together, or none.</div>';
         if (r.kind === "custom")
           fields =
             '<div id="customFields"><div class="two"><div class="field"><label for="fieldName">Field name</label><input id="fieldName" data-field-name maxlength="128" value="token"></div><div class="field"><label for="credentialValue">Value</label><input id="credentialValue" data-secret type="password" autocomplete="new-password" maxlength="4096" placeholder="Fictional value"></div></div></div><button id="addCredentialField" type="button">+ Add field</button><div class="hint">Store named fields together. Usage recipes select only the fields they need.</div>';
         open(
           `${stored ? "Replace" : "Add"} credential`,
-          `<p class="context-path">${esc(r.name)} &nbsp; / &nbsp; ${pill(env)}</p><div class="notice prototype-note">Design preview only. Use fictional values; nothing is sent or saved to disk.</div>${fields}<details class="details"><summary>Expiration & notes</summary><div class="field"><label for="credentialExpiry">Expires <span class="muted">(optional)</span></label><input id="credentialExpiry" type="date"></div><div class="field"><label for="credentialNote">Non-secret note</label><input id="credentialNote" maxlength="300" placeholder="e.g. Used by the SES integration tests"></div></details><div id="formError" class="error" role="alert"></div>`,
-          '<button id="backToResource">Back</button><button class="primary" id="saveCredential">Save credential</button>',
+          `<p class="context-path">${esc(r.name)} &nbsp; / &nbsp; ${pill(
+            env
+          )}</p><div class="notice prototype-note">Design preview only. Use fictional values; nothing is sent or saved to disk.</div>${fields}<details class="details"><summary>Expiration & notes</summary><div class="field"><label for="credentialExpiry">Expires <span class="muted">(optional)</span></label><input id="credentialExpiry" type="date"></div><div class="field"><label for="credentialNote">Non-secret note</label><input id="credentialNote" maxlength="300" placeholder="e.g. Used by the SES integration tests"></div></details><div id="formError" class="error" role="alert"></div>`,
+          '<button id="backToResource">Back</button><button class="primary" id="saveCredential">Save credential</button>'
         );
         let customFieldCount = 1;
         if (r.kind === "custom")
@@ -1613,28 +1746,35 @@ Choose the resource, environment and saved usage explicitly. If several match, a
             error("Use text without NUL characters.", value);
             return;
           }
+          if (r.kind === "aws") {
+            if (!$("#awsSecret").value.trim())
+              return error(
+                "Enter a fictional secret access key.",
+                $("#awsSecret")
+              );
+          }
           if (r.kind === "custom") {
             const names = $$("[data-field-name]");
             if (
               names.some(
-                (n) => !/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(n.value.trim()),
+                (n) => !/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(n.value.trim())
               )
             )
               return error(
                 "Use field names with letters, numbers and underscores.",
                 names.find(
-                  (n) => !/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(n.value.trim()),
-                ),
+                  (n) => !/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(n.value.trim())
+                )
               );
             if (new Set(names.map((n) => n.value.trim())).size !== names.length)
               return error("Use a different name for each field.");
             const empty = $$("[data-secret]").find(
-              (n) => !n.value.trim() || n.value.includes("\0"),
+              (n) => !n.value.trim() || n.value.includes("\0")
             );
             if (empty)
               return error(
                 "Enter a fictional value for every field, without NUL characters.",
-                empty,
+                empty
               );
           }
           const expiry = $("#credentialExpiry").value;
@@ -1644,7 +1784,7 @@ Choose the resource, environment and saved usage explicitly. If several match, a
           ) {
             error(
               "Choose an expiration date in the future.",
-              $("#credentialExpiry"),
+              $("#credentialExpiry")
             );
             return;
           }
@@ -1652,12 +1792,15 @@ Choose the resource, environment and saved usage explicitly. If several match, a
           r.credentials[env] = {
             stored: true,
             updated: "Updated just now",
+            ...(r.kind === "aws"
+              ? { region: $("#awsRegion").value.trim() }
+              : {}),
             ...(expiry ? { expiry: "Expires " + expiry } : {}),
           };
           renderCatalog();
           detail(id);
           showToast(
-            "Prototype: credential status updated. Entered values discarded.",
+            "Prototype: credential status updated. Entered values discarded."
           );
         };
       }
@@ -1675,27 +1818,44 @@ Choose the resource, environment and saved usage explicitly. If several match, a
           : "environments";
         open(
           existing ? "Resource details" : "Add a resource",
-          `<div class="field"><label for="resourceName">Resource name</label><input id="resourceName" maxlength="120" value="${esc(existing?.name || "")}" placeholder="e.g. SES MongoDB"></div><div class="field"><label for="resourceDescription">Description</label><input id="resourceDescription" maxlength="600" value="${esc(existing?.description || "")}" placeholder="What do agents use this for?"></div><div class="field"><label for="credentialKind">Credential type</label><select id="credentialKind">${Object.entries(
-            kinds,
+          `<div class="field"><label for="resourceName">Resource name</label><input id="resourceName" maxlength="120" value="${esc(
+            existing?.name || ""
+          )}" placeholder="e.g. SES MongoDB"></div><div class="field"><label for="resourceDescription">Description</label><input id="resourceDescription" maxlength="600" value="${esc(
+            existing?.description || ""
+          )}" placeholder="What do agents use this for?"></div><div class="field"><label for="credentialKind">Credential type</label><select id="credentialKind">${Object.entries(
+            kinds
           )
             .map(
               ([key, name]) =>
-                `<option value="${key}" ${existing?.kind === key ? "selected" : ""}>${name}</option>`,
+                `<option value="${key}" ${
+                  existing?.kind === key ? "selected" : ""
+                }>${name}</option>`
             )
             .join(
-              "",
-            )}</select></div><div class="field"><label for="availability">Available in</label><select id="availability"><option value="environments" ${selected === "environments" ? "selected" : ""}>Selected environments</option><option value="shared" ${selected === "shared" ? "selected" : ""}>Shared across environments</option></select></div><div id="envChoices">${Object.keys(
-            envNames,
+              ""
+            )}</select></div><div class="field"><label for="availability">Available in</label><select id="availability"><option value="environments" ${
+            selected === "environments" ? "selected" : ""
+          }>Selected environments</option><option value="shared" ${
+            selected === "shared" ? "selected" : ""
+          }>Shared across environments</option></select></div><div id="envChoices">${Object.keys(
+            envNames
           )
             .filter((e) => e !== "shared")
             .map(
               (e) =>
-                `<label class="check"><input type="checkbox" name="resourceEnv" value="${e}" ${existing?.availability.includes(e) || (!existing && e === "staging") ? "checked" : ""}>${esc(envNames[e])}</label>`,
+                `<label class="check"><input type="checkbox" name="resourceEnv" value="${e}" ${
+                  existing?.availability.includes(e) ||
+                  (!existing && e === "staging")
+                    ? "checked"
+                    : ""
+                }>${esc(envNames[e])}</label>`
             )
             .join(
-              "",
-            )}</div><div id="sharedNote" class="notice" hidden>One credential for this resource, regardless of environment.</div><details class="details"><summary>Additional details <span class="muted">(optional)</span></summary><div class="field"><label for="resourceAliases">Search aliases</label><input id="resourceAliases" maxlength="500" value="${esc(existing?.aliases || "")}" placeholder="mongo, banco, homologação"></div><div class="two"><div class="field"><label for="resourceAccount">Account</label><input id="resourceAccount" maxlength="120" placeholder="Only when relevant"></div><div class="field"><label for="resourceRegion">Region</label><input id="resourceRegion" maxlength="120" placeholder="Only when relevant"></div></div></details><div id="formError" class="error" role="alert"></div>`,
-          '<button data-close>Cancel</button><button class="primary" id="saveResource">Save resource</button>',
+              ""
+            )}</div><div id="sharedNote" class="notice" hidden>One credential for this resource, regardless of environment.</div><details class="details"><summary>Additional details <span class="muted">(optional)</span></summary><div class="field"><label for="resourceAliases">Search aliases</label><input id="resourceAliases" maxlength="500" value="${esc(
+            existing?.aliases || ""
+          )}" placeholder="mongo, banco, homologação"></div><div class="two"><div class="field"><label for="resourceAccount">Account</label><input id="resourceAccount" maxlength="120" placeholder="Only when relevant"></div><div class="field"><label for="resourceRegion">Region</label><input id="resourceRegion" maxlength="120" placeholder="Only when relevant"></div></div></details><div id="formError" class="error" role="alert"></div>`,
+          '<button data-close>Cancel</button><button class="primary" id="saveResource">Save resource</button>'
         );
         function availability() {
           const shared = $("#availability").value === "shared";
@@ -1713,7 +1873,7 @@ Choose the resource, environment and saved usage explicitly. If several match, a
           if (
             !name ||
             resources.some(
-              (r) => r.id !== id && r.name.toLowerCase() === name.toLowerCase(),
+              (r) => r.id !== id && r.name.toLowerCase() === name.toLowerCase()
             )
           ) {
             error("Enter a unique resource name.", $("#resourceName"));
@@ -1741,14 +1901,90 @@ Choose the resource, environment and saved usage explicitly. If several match, a
         };
       }
       $("#newResource").onclick = () => resourceForm();
+      function awsUsageForm(id, index) {
+        const r = get(id),
+          saved = index === undefined ? null : r.recipes[index];
+        open(
+          saved ? "Edit AWS usage" : "Add AWS usage",
+          `<p class="context-path">${esc(
+            r.name
+          )} / How to use</p><div class="field"><label for="usageName">Usage name</label><input id="usageName" maxlength="120" value="${esc(
+            saved?.name || ""
+          )}"></div><div class="field"><label for="usageApplication">Application or repository</label><input id="usageApplication" maxlength="120" value="${esc(
+            saved?.application || ""
+          )}"></div><div class="field"><label for="awsDelivery">Delivery</label><select id="awsDelivery"><option value="env">Environment variables · CLI and SDK</option><option value="file">Temporary AWS profile file · default profile</option></select></div><div id="awsMappings"></div><div class="notice">All fields are applied together. An absent session token is omitted and inherited AWS credential selectors are cleared. AWS CLI has no raw access-key flags.</div><div id="formError" class="error" role="alert"></div>`,
+          '<button id="usageBack">Back</button><button class="primary" id="saveUsage">Save usage</button>'
+        );
+        const mappings = [
+          ["access_key_id", "AWS_ACCESS_KEY_ID"],
+          ["secret_access_key", "AWS_SECRET_ACCESS_KEY"],
+          ["session_token", "AWS_SESSION_TOKEN"],
+          ["environment.region", "AWS_REGION"],
+        ];
+        function draw() {
+          const file = $("#awsDelivery").value === "file";
+          $("#awsMappings").innerHTML =
+            '<div class="section-label">' +
+            (file ? "Temporary TOML profile [default]" : "Field mappings") +
+            "</div>" +
+            mappings
+              .map(
+                ([field, target], i) =>
+                  `<div class="mapping-line"><div class="field"><label for="awsSource${i}">Source ${
+                    i + 1
+                  }</label><input id="awsSource${i}" value="${field}" readonly></div><span>→</span><div class="field"><label for="awsTarget${i}">Destination ${
+                    i + 1
+                  }</label><input id="awsTarget${i}" class="mono" value="${
+                    file
+                      ? i === 3
+                        ? "default.region"
+                        : "default.aws_" + field
+                      : target
+                  }" readonly></div></div>`
+              )
+              .join("") +
+            (file
+              ? '<div class="preview-box">AWS_SHARED_CREDENTIALS_FILE=&lt;protected-temporary-file&gt;\nAWS_PROFILE=default\nNo repository file is changed.</div>'
+              : '<div class="hint">Session token is optional; region is non-secret metadata for the selected environment.</div>');
+        }
+        $("#awsDelivery").onchange = draw;
+        draw();
+        $("#usageBack").onclick = () => detail(id, "usage");
+        $("#saveUsage").onclick = () => {
+          const name = $("#usageName").value.trim(),
+            application = $("#usageApplication").value.trim();
+          if (!name || !application)
+            return error("Enter a usage name and application.");
+          const recipe = {
+            name,
+            application,
+            method: $("#awsDelivery").value,
+            field: "access_key_id",
+            target: "AWS_ACCESS_KEY_ID",
+            detail: "AWS bundle · all fields applied together",
+            mappings,
+          };
+          if (index === undefined) r.recipes.push(recipe);
+          else r.recipes[index] = recipe;
+          renderCatalog();
+          detail(id, "usage");
+        };
+      }
       function usageForm(id, index, override) {
+        if (get(id).kind === "aws") return awsUsageForm(id, index);
         const r = get(id),
           saved = index === undefined ? null : r.recipes[index],
           method =
             override || saved?.method || (r.kind === "ssh" ? "ssh" : "env");
         open(
           saved ? "Edit usage" : "Add a usage",
-          `<p class="context-path">${esc(r.name)} &nbsp; / &nbsp; How to use</p><div class="field"><label for="usageName">Usage name</label><input id="usageName" maxlength="120" value="${esc(saved?.name || "")}" placeholder="e.g. Ingester integration tests"></div><div class="field"><label for="usageApplication">Application or repository</label><input id="usageApplication" maxlength="120" value="${esc(saved?.application || "")}" placeholder="e.g. ses / ingester"></div><label>Delivery</label><div class="method-choices">${[
+          `<p class="context-path">${esc(
+            r.name
+          )} &nbsp; / &nbsp; How to use</p><div class="field"><label for="usageName">Usage name</label><input id="usageName" maxlength="120" value="${esc(
+            saved?.name || ""
+          )}" placeholder="e.g. Ingester integration tests"></div><div class="field"><label for="usageApplication">Application or repository</label><input id="usageApplication" maxlength="120" value="${esc(
+            saved?.application || ""
+          )}" placeholder="e.g. ses / ingester"></div><label>Delivery</label><div class="method-choices">${[
             ["env", "Environment variable", "Inject into this command"],
             ["arg", "Command argument", "Value or temporary file path"],
             ["file", "Configuration file", "Set a key in a temporary copy"],
@@ -1756,12 +1992,18 @@ Choose the resource, environment and saved usage explicitly. If several match, a
           ]
             .map(
               ([key, title, subtitle]) =>
-                `<button class="${method === key ? "active" : ""}" data-method="${key}" aria-pressed="${method === key}"><strong>${title}</strong><span>${subtitle}</span></button>`,
+                `<button class="${
+                  method === key ? "active" : ""
+                }" data-method="${key}" aria-pressed="${
+                  method === key
+                }"><strong>${title}</strong><span>${subtitle}</span></button>`
             )
             .join(
-              "",
-            )}</div><div id="deliveryFields"></div><div class="field"><label for="usageInstructions">When should agents use this?</label><textarea id="usageInstructions" maxlength="1200" placeholder="Explain the context and the application’s expectations.">${esc(saved?.detail || "")}</textarea></div><details class="details"><summary>Advanced execution settings</summary><p class="hint">Explicit IDs and versions are checked at execution. Credential access is granted separately per computer and environment.</p></details><div id="formError" class="error" role="alert"></div>`,
-          '<button id="usageBack">Back</button><button class="primary" id="saveUsage">Save usage</button>',
+              ""
+            )}</div><div id="deliveryFields"></div><div class="field"><label for="usageInstructions">When should agents use this?</label><textarea id="usageInstructions" maxlength="1200" placeholder="Explain the context and the application’s expectations.">${esc(
+            saved?.detail || ""
+          )}</textarea></div><details class="details"><summary>Advanced execution settings</summary><p class="hint">Explicit IDs and versions are checked at execution. Credential access is granted separately per computer and environment.</p></details><div id="formError" class="error" role="alert"></div>`,
+          '<button id="usageBack">Back</button><button class="primary" id="saveUsage">Save usage</button>'
         );
         let activeMethod = method;
 
@@ -1775,17 +2017,41 @@ Choose the resource, environment and saved usage explicitly. If several match, a
             r.kind === "api"
               ? "token"
               : r.kind === "ssh"
-                ? "private_key"
-                : "connection";
+              ? "private_key"
+              : "connection";
           let html = "";
           if (m === "env")
-            html = `<div class="mapping-line"><div class="field"><label for="sourceField">Credential field</label><input id="sourceField" value="${esc(saved?.field || field)}" maxlength="128"></div><span>→</span><div class="field"><label for="targetName">Environment variable</label><input id="targetName" class="mono" value="${esc(saved?.method === "env" ? saved.target : "")}" placeholder="MONGO_URI" maxlength="128"></div></div><div class="preview-box">MONGO_URI ← credential.${field}</div>`;
+            html = `<div class="mapping-line"><div class="field"><label for="sourceField">Credential field</label><input id="sourceField" value="${esc(
+              saved?.field || field
+            )}" maxlength="128"></div><span>→</span><div class="field"><label for="targetName">Environment variable</label><input id="targetName" class="mono" value="${esc(
+              saved?.method === "env" ? saved.target : ""
+            )}" placeholder="MONGO_URI" maxlength="128"></div></div><div class="preview-box">MONGO_URI ← credential.${field}</div>`;
           if (m === "arg")
-            html = `<div class="two"><div class="field"><label for="targetName">Argument</label><input id="targetName" class="mono" value="${esc(saved?.method === "arg" ? saved.target : "--config")}" maxlength="100" placeholder="--config"></div><div class="field"><label for="argumentSource">Argument receives</label><select id="argumentSource"><option value="file">Temporary file path</option><option value="literal">Non-secret value</option><option value="raw">Credential value (exposed in argv)</option></select></div></div><div class="field"><label for="sourceField" id="argumentValueLabel">Credential field for temporary file</label><input id="sourceField" value="${esc(saved?.field || field)}" maxlength="128"></div><div id="argvNotice" class="notice">The argument contains a file path. The secret stays inside a protected temporary file.</div><label class="check" id="argvAckRow" hidden><input id="argvAck" type="checkbox">Allow this usage to place a secret in process arguments. Other processes may be able to read it.</label><div class="preview-box" id="argvPreview">--config &lt;temporary-file&gt;</div>`;
+            html = `<div class="two"><div class="field"><label for="targetName">Argument</label><input id="targetName" class="mono" value="${esc(
+              saved?.method === "arg" ? saved.target : "--config"
+            )}" maxlength="100" placeholder="--config"></div><div class="field"><label for="argumentSource">Argument receives</label><select id="argumentSource"><option value="file">Temporary file path</option><option value="literal">Non-secret value</option><option value="raw">Credential value (exposed in argv)</option></select></div></div><div class="field"><label for="sourceField" id="argumentValueLabel">Credential field for temporary file</label><input id="sourceField" value="${esc(
+              saved?.field || field
+            )}" maxlength="128"></div><div id="argvNotice" class="notice">The argument contains a file path. The secret stays inside a protected temporary file.</div><label class="check" id="argvAckRow" hidden><input id="argvAck" type="checkbox">Allow this usage to place a secret in process arguments. Other processes may be able to read it.</label><div class="preview-box" id="argvPreview">--config &lt;temporary-file&gt;</div>`;
           if (m === "file")
-            html = `<div class="two"><div class="field"><label for="configFormat">Format</label><select id="configFormat"><option>JSON</option><option>YAML</option><option>TOML</option></select></div><div class="field"><label for="configName">Temporary filename</label><input id="configName" maxlength="100" value="${esc(saved?.file || "config.json")}"></div></div><div class="mapping-line"><div class="field"><label for="sourceField">Credential field</label><input id="sourceField" maxlength="128" value="${esc(saved?.field || field)}"></div><span>→</span><div class="field"><label for="targetName">Key path</label><input id="targetName" class="mono" maxlength="200" placeholder="/database/uri" value="${esc(saved?.target || "/database/uri")}"></div></div><div class="field"><label for="baseConfig">Base configuration <span class="muted">(optional, non-secret)</span></label><textarea id="baseConfig" class="mono" spellcheck="false" maxlength="4000">{ "database": { "uri": null } }</textarea></div><div class="field"><label for="configArgument">Application’s config argument</label><input id="configArgument" class="mono" maxlength="100" value="${esc(saved?.argument || "--config")}"></div><div class="notice">A temporary copy receives the value. The repository’s original file is not overwritten.</div><div class="preview-box">config.json  /database/uri ← credential.${field}\n--config &lt;temporary-file&gt;</div>`;
+            html = `<div class="two"><div class="field"><label for="configFormat">Format</label><select id="configFormat"><option>JSON</option><option>YAML</option><option>TOML</option></select></div><div class="field"><label for="configName">Temporary filename</label><input id="configName" maxlength="100" value="${esc(
+              saved?.file || "config.json"
+            )}"></div></div><div class="mapping-line"><div class="field"><label for="sourceField">Credential field</label><input id="sourceField" maxlength="128" value="${esc(
+              saved?.field || field
+            )}"></div><span>→</span><div class="field"><label for="targetName">Key path</label><input id="targetName" class="mono" maxlength="200" placeholder="/database/uri" value="${esc(
+              saved?.target || "/database/uri"
+            )}"></div></div><div class="field"><label for="baseConfig">Base configuration <span class="muted">(optional, non-secret)</span></label><textarea id="baseConfig" class="mono" spellcheck="false" maxlength="4000">{ "database": { "uri": null } }</textarea></div><div class="field"><label for="configArgument">Application’s config argument</label><input id="configArgument" class="mono" maxlength="100" value="${esc(
+              saved?.argument || "--config"
+            )}"></div><div class="notice">A temporary copy receives the value. The repository’s original file is not overwritten.</div><div class="preview-box">config.json  /database/uri ← credential.${field}\n--config &lt;temporary-file&gt;</div>`;
           if (m === "ssh")
-            html = `<div class="two"><div class="field"><label for="sshHost">Host</label><input id="sshHost" value="${esc(saved?.target?.split("@")[1] || "staging.example.test")}" maxlength="253"></div><div class="field"><label for="sshUser">User</label><input id="sshUser" value="${esc(saved?.target?.split("@")[0] || "deploy")}" maxlength="64"></div></div><div class="two"><div class="field"><label for="sshPort">Port</label><input id="sshPort" type="number" min="1" max="65535" value="${esc(saved?.port || "22")}"></div><div class="field"><label for="sourceField">Private-key field</label><input id="sourceField" maxlength="128" value="private_key"></div></div><div class="field"><label for="sshFingerprint">Trusted host fingerprint</label><input id="sshFingerprint" class="mono" maxlength="150" value="${esc(saved?.fingerprint || "")}" placeholder="SHA256:…"><div class="hint">Obtain it from a trusted source. Agents cannot silently accept an unknown host.</div></div><div class="notice">The CLI creates a temporary identity file with restricted permissions and removes it after the command. No persistent local service.</div><div class="preview-box">ssh -i &lt;temporary-key&gt; -p 22 deploy@staging.example.test\nStrict host verification enabled</div>`;
+            html = `<div class="two"><div class="field"><label for="sshHost">Host</label><input id="sshHost" value="${esc(
+              saved?.target?.split("@")[1] || "staging.example.test"
+            )}" maxlength="253"></div><div class="field"><label for="sshUser">User</label><input id="sshUser" value="${esc(
+              saved?.target?.split("@")[0] || "deploy"
+            )}" maxlength="64"></div></div><div class="two"><div class="field"><label for="sshPort">Port</label><input id="sshPort" type="number" min="1" max="65535" value="${esc(
+              saved?.port || "22"
+            )}"></div><div class="field"><label for="sourceField">Private-key field</label><input id="sourceField" maxlength="128" value="private_key"></div></div><div class="field"><label for="sshFingerprint">Trusted host fingerprint</label><input id="sshFingerprint" class="mono" maxlength="150" value="${esc(
+              saved?.fingerprint || ""
+            )}" placeholder="SHA256:…"><div class="hint">Obtain it from a trusted source. Agents cannot silently accept an unknown host.</div></div><div class="notice">The CLI creates a temporary identity file with restricted permissions and removes it after the command. No persistent local service.</div><div class="preview-box">ssh -i &lt;temporary-key&gt; -p 22 deploy@staging.example.test\nStrict host verification enabled</div>`;
           $("#deliveryFields").innerHTML = html;
           if (m === "arg") {
             $("#argumentSource").value =
@@ -1798,8 +2064,8 @@ Choose the resource, environment and saved usage explicitly. If several match, a
                 source === "raw"
                   ? "A raw secret in argv may be visible in the process list, crash reports or tool tracing. Prefer stdin, an environment variable or a temporary file when supported."
                   : source === "literal"
-                    ? "Use this only for non-secret settings such as a profile or a region."
-                    : "The argument contains a file path. The secret stays inside a protected temporary file.";
+                  ? "Use this only for non-secret settings such as a profile or a region."
+                  : "The argument contains a file path. The secret stays inside a protected temporary file.";
               $("#argvAckRow").hidden = source !== "raw";
               $("#argumentValueLabel").textContent =
                 source === "literal"
@@ -1812,8 +2078,8 @@ Choose the resource, environment and saved usage explicitly. If several match, a
                 (source === "raw"
                   ? "<credential value>"
                   : source === "literal"
-                    ? "<non-secret value>"
-                    : "<temporary-file>");
+                  ? "<non-secret value>"
+                  : "<temporary-file>");
             };
             $("#argumentSource").onchange = update;
             $("#targetName").oninput = update;
@@ -1821,7 +2087,7 @@ Choose the resource, environment and saved usage explicitly. If several match, a
           }
         }
         $$("[data-method]").forEach(
-          (b) => (b.onclick = () => drawFields(b.dataset.method)),
+          (b) => (b.onclick = () => drawFields(b.dataset.method))
         );
         drawFields(method);
         $("#usageBack").onclick = () => detail(id, "usage");
@@ -1857,7 +2123,7 @@ Choose the resource, environment and saved usage explicitly. If several match, a
             ) {
               error(
                 "Enter an allowed environment-variable name.",
-                $("#targetName"),
+                $("#targetName")
               );
               return;
             }
@@ -1867,7 +2133,7 @@ Choose the resource, environment and saved usage explicitly. If several match, a
             if (!/^--?[A-Za-z][A-Za-z0-9_-]*$/.test(target)) {
               error(
                 "Use a single option such as --config or -c.",
-                $("#targetName"),
+                $("#targetName")
               );
               return;
             }
@@ -1875,7 +2141,7 @@ Choose the resource, environment and saved usage explicitly. If several match, a
             recipe.source = $("#argumentSource").value;
             if (recipe.source === "raw" && !$("#argvAck").checked) {
               error(
-                "Acknowledge the process-argument exposure, or choose a safer delivery.",
+                "Acknowledge the process-argument exposure, or choose a safer delivery."
               );
               return;
             }
@@ -1890,7 +2156,7 @@ Choose the resource, environment and saved usage explicitly. If several match, a
             ) {
               error(
                 "Use a filename without folders or parent traversal.",
-                $("#configName"),
+                $("#configName")
               );
               return;
             }
@@ -1906,7 +2172,7 @@ Choose the resource, environment and saved usage explicitly. If several match, a
               if (!target.startsWith("/")) {
                 error(
                   "Use a JSON Pointer such as /database/uri.",
-                  $("#targetName"),
+                  $("#targetName")
                 );
                 return;
               }
@@ -1915,7 +2181,7 @@ Choose the resource, environment and saved usage explicitly. If several match, a
               } catch {
                 error(
                   "Use valid JSON for the non-secret base configuration.",
-                  $("#baseConfig"),
+                  $("#baseConfig")
                 );
                 return;
               }
@@ -1943,7 +2209,7 @@ Choose the resource, environment and saved usage explicitly. If several match, a
             if (!fingerprint.startsWith("SHA256:") || fingerprint.length < 12) {
               error(
                 "Add a trusted SHA256 host fingerprint.",
-                $("#sshFingerprint"),
+                $("#sshFingerprint")
               );
               return;
             }
@@ -1956,7 +2222,7 @@ Choose the resource, environment and saved usage explicitly. If several match, a
           renderCatalog();
           detail(id, "usage");
           showToast(
-            "Prototype: usage updated. Credential values were not accessed.",
+            "Prototype: usage updated. Credential values were not accessed."
           );
         };
       }
@@ -1968,8 +2234,8 @@ Choose the resource, environment and saved usage explicitly. If several match, a
             block.startsWith("# ")
               ? `<h2>${block.slice(2)}</h2>`
               : block.startsWith("## ")
-                ? `<h3>${block.slice(3)}</h3>`
-                : `<p>${block.replace(/\n/g, "<br>")}</p>`,
+              ? `<h3>${block.slice(3)}</h3>`
+              : `<p>${block.replace(/\n/g, "<br>")}</p>`
           )
           .join("");
       }
@@ -1981,7 +2247,15 @@ Choose the resource, environment and saved usage explicitly. If several match, a
           .filter(([key]) => key !== "shared")
           .map(
             ([key, name]) =>
-              `<div class="environment-line row"><div><h3>${esc(name)}</h3><p>${key === "production" ? "Live systems. Each computer needs an explicit grant." : key === "staging" ? "Integration tests and pre-production validation." : "Development and disposable test data."}</p></div><span class="subtle">${resources.filter((r) => r.availability.includes(key)).length} resources</span></div>`,
+              `<div class="environment-line row"><div><h3>${esc(name)}</h3><p>${
+                key === "production"
+                  ? "Live systems. Each computer needs an explicit grant."
+                  : key === "staging"
+                  ? "Integration tests and pre-production validation."
+                  : "Development and disposable test data."
+              }</p></div><span class="subtle">${
+                resources.filter((r) => r.availability.includes(key)).length
+              } resources</span></div>`
           )
           .join("");
       }
@@ -1989,7 +2263,7 @@ Choose the resource, environment and saved usage explicitly. If several match, a
         open(
           "Add an environment",
           '<div class="field"><label for="envName">Name</label><input id="envName" maxlength="120" placeholder="e.g. QA"></div><div class="field"><label for="envSlug">Identifier</label><input id="envSlug" maxlength="40" placeholder="qa"><div class="hint">Lowercase letters, numbers and hyphens.</div></div><div id="formError" class="error" role="alert"></div>',
-          '<button data-close>Cancel</button><button class="primary" id="saveEnv">Add environment</button>',
+          '<button data-close>Cancel</button><button class="primary" id="saveEnv">Add environment</button>'
         );
         $("#saveEnv").onclick = () => {
           const name = $("#envName").value.trim(),
@@ -2001,7 +2275,7 @@ Choose the resource, environment and saved usage explicitly. If several match, a
           envNames[slug] = name;
           $("#filter").insertAdjacentHTML(
             "beforeend",
-            `<option value="${esc(slug)}">${esc(name)}</option>`,
+            `<option value="${esc(slug)}">${esc(name)}</option>`
           );
           renderEnvironments();
           close();
@@ -2011,20 +2285,20 @@ Choose the resource, environment and saved usage explicitly. If several match, a
       $("#connectComputer").onclick = () =>
         open(
           "Connect a computer",
-          '<p class="instruction">Run Kioku’s enrollment command on the computer you want to connect, then approve its requested resource access here.</p><div class="preview-box">kioku access enroll --root &lt;cosm-root-id&gt;</div><div class="notice">No persistent local service. Credentials are fetched only for an authorized operation.</div>',
+          '<p class="instruction">Run Kioku’s enrollment command on the computer you want to connect, then approve its requested resource access here.</p><div class="preview-box">kioku access enroll --root &lt;cosm-root-id&gt;</div><div class="notice">No persistent local service. Credentials are fetched only for an authorized operation.</div>'
         );
       $("#manageGrant").onclick = () =>
         open(
           "Computer access",
           '<p class="context-path">Felipe’s MacBook / Cosm</p><h3>Resource and environment</h3><div class="action-card"><strong>SES MongoDB</strong><div class="grant-list">' +
             pill("staging") +
-            '</div></div><p class="instruction">All saved usages still require this credential grant. Adding a recipe does not grant another environment.</p><div class="notice warning">A usage revision that broadens destinations or delivery permissions requires renewed approval.</div>',
+            '</div></div><p class="instruction">All saved usages still require this credential grant. Adding a recipe does not grant another environment.</p><div class="notice warning">A usage revision that broadens destinations or delivery permissions requires renewed approval.</div>'
         );
       $("#revokeDevice").onclick = () => {
         open(
           "Revoke computer access?",
           '<p>Development host will no longer be able to request credentials for Cosm.</p><div class="notice warning">Rotate a credential to invalidate a value already delivered to a running process.</div>',
-          '<button data-close>Keep access</button><button class="primary" id="confirmRevoke">Revoke access</button>',
+          '<button data-close>Keep access</button><button class="primary" id="confirmRevoke">Revoke access</button>'
         );
         $("#confirmRevoke").onclick = () => {
           $("#remoteGrants").innerHTML = '<span class="pill">Revoked</span>';
