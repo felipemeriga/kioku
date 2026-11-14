@@ -1299,7 +1299,7 @@ Check the resource mapping. Ask if more than one resource matches.</textarea
       $("#addResource").onclick = () => {
         open(
           "Add a resource",
-          `<p class="muted">Describe the resource first. Add its credential separately.</p><div class="field"><label for="resName">Resource name</label><input id="resName" maxlength="120" placeholder="e.g. SES MongoDB"></div><div class="field"><label for="resType">Resource type</label><select id="resType"><option value="mongodb">Database</option><option value="grafana">Observability</option><option value="aws">Cloud account</option></select></div><div class="field"><label for="resEnv">Availability</label><select id="resEnv">${["development", "staging", "production", "shared"].map((e) => `<option>${e}</option>`).join("")}</select></div><div class="field"><label for="resDesc">Description</label><textarea id="resDesc" maxlength="600" placeholder="What is it used for?"></textarea></div><div id="formError" class="error" role="alert"></div>`,
+          `<p class="muted">Describe the resource first. Add its credential separately.</p><div class="field"><label for="resName">Resource name</label><input id="resName" maxlength="120" placeholder="e.g. SES MongoDB"></div><div class="field"><label for="resType">Resource type</label><select id="resType"><option value="mongodb">Database</option><option value="grafana">Observability</option><option value="aws">Cloud account</option></select></div><div class="field"><label for="resEnv">Availability</label><select id="resEnv">${[...environments.map((e) => e.slug), "shared"].map((e) => `<option>${esc(e)}</option>`).join("")}</select></div><div class="field"><label for="resDesc">Description</label><textarea id="resDesc" maxlength="600" placeholder="What is it used for?"></textarea></div><div id="formError" class="error" role="alert"></div>`,
           '<button data-close>Cancel</button><button class="primary" id="createResource">Create resource</button>',
         );
         $("#createResource").onclick = () => {
@@ -1347,6 +1347,17 @@ Check the resource mapping. Ask if more than one resource matches.</textarea
       $("#saveGuide").onclick = () =>
         toast("Prototype: guide saved for this preview.");
       function renderEnvs() {
+        const previous = $("#envFilter").value;
+        $("#envFilter").innerHTML =
+          '<option value="all">All environments</option>' +
+          environments
+            .map(
+              (e) => `<option value="${esc(e.slug)}">${esc(e.name)}</option>`,
+            )
+            .join("") +
+          '<option value="shared">Shared</option>';
+        $("#envFilter").value = previous;
+
         $("#envRows").innerHTML = environments
           .map(
             (e) =>
