@@ -24,6 +24,7 @@ dependencies = [
     "ragas>=0.2.0",
     "pyyaml>=6.0.3",
     "python-dateutil>=2.9.0.post0",
+    "sqlglot==30.27.0",
 ]
 
 [tool.uv]
