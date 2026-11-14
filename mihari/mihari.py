@@ -203,7 +203,9 @@ def maintenance_post(url, *, headers, json, timeout, _repair=True, _batches=3):
         f"{API_URL}/api/mihari/execution/prepare",
         headers=headers,
         json={"operation": operation, "payload": json},
-        timeout=30,
+        # A full monthly evidence snapshot can legitimately take more than 30s.
+        # Keep it inside the existing bounded control deadline without restarting it.
+        timeout=60 if operation == "reports" else 30,
     )
     prepared.raise_for_status()
     body = prepared.json()

@@ -334,3 +334,31 @@ def test_failed_result_repair_preserves_validation_reason(monkeypatch, repair, e
             _batches=1,
         )
     assert len(admissions) == expected_admissions
+
+
+def test_monthly_snapshot_finishes_without_restarting_at_thirty_seconds(monkeypatch):
+    for key in ("SUPABASE_URL", "KIOKU_MCP_URL", "KIOKU_API_URL"):
+        monkeypatch.setenv(key, "http://fixture")
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "fixture")
+    spec = importlib.util.spec_from_file_location(
+        "mihari_monthly_fixture", Path(__file__).parents[2] / "mihari/mihari.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    calls = []
+
+    def post(url, **kwargs):
+        calls.append(url)
+        if kwargs["timeout"][1] < 32:
+            raise module.requests.Timeout("Snapshot not yet prepared")
+        return SimpleNamespace(
+            json=lambda: {"engine": "skip", "updated": False},
+            raise_for_status=lambda: None,
+        )
+
+    monkeypatch.setattr(module.requests, "post", post)
+    result = module.maintenance_post(
+        "http://fixture/api/mihari/reports", headers={}, json={"folder_id": "f1"}, timeout=180
+    )
+    assert result.status_code == 200
+    assert calls == ["http://fixture/api/mihari/execution/prepare"]

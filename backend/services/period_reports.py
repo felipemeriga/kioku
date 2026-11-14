@@ -720,7 +720,33 @@ def validate_numeric_ranges(text, evidence):
         normalized,
     ):
         first, last, unit = match.groups()
-        if unit in {"and", "or", "but", "with", "for", "in", "on", "at", "the", "a", "an"}:
+        if unit in {
+            "and",
+            "or",
+            "but",
+            "with",
+            "for",
+            "in",
+            "on",
+            "at",
+            "the",
+            "a",
+            "an",
+            "across",
+            "after",
+            "before",
+            "between",
+            "by",
+            "from",
+            "over",
+            "per",
+            "through",
+            "under",
+            "using",
+            "while",
+            "within",
+            "without",
+        }:
             continue
         unit_pattern = re.escape(unit.rstrip("s")) + r"s?\b"
 

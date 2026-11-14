@@ -449,6 +449,11 @@ def test_unlabeled_source_numbers_cannot_become_route_or_module_counts(claim, so
         ("Type errors fell from 47 to 41 errors.", "Type errors in Services and clips (47 to 41)."),
         ("Changed from 3 to 4 GiB.", "A 3 GiB test preceded adoption of 4 GiB."),
         ("Added 3 to 4 and left the rest unchanged.", "The inputs were inspected."),
+        (
+            "Reduced diagnostics from 710 to 415 across shared services and games.",
+            "Type errors in shared/services (710 to 677); ESM typecheck (430 to 415).",
+        ),
+        ("Reduced from 41 to 31 after cleanup.", "Type errors (41 to 31)."),
     ],
 )
 def test_explicit_quantities_and_non_quantity_ranges_are_preserved(claim, source):
