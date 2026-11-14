@@ -1196,6 +1196,7 @@ def quote_recovery_db():
             "kind": "monthly",
             "period_start": "2026-11-01",
             "timezone": "UTC",
+            "sources": [],
         },
     }
     request = {"metadata": {"maintenance_operation": "reports"}, "prompt": "bound evidence"}
