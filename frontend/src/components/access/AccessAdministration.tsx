@@ -1,3 +1,4 @@
+import { useAccessRequests } from "../../hooks/useAccessRequests";
 import { useState } from "react";
 import {
   Alert,
@@ -16,11 +17,12 @@ import {
 } from "@mui/material";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { accessError, guideBytes, mutateAccess } from "../../lib/rootAccess";
+import { accessError, guideBytes } from "../../lib/rootAccess";
 import type { AccessCatalog, AccessEnrollment } from "../../lib/rootAccess";
 
 type Props = { root: string; catalog: AccessCatalog; onSaved: () => void };
 export function EnvironmentGuide({ root, catalog, onSaved }: Props) {
+  const execute = useAccessRequests(root);
   const [text, setText] = useState(catalog.guide.markdown);
   const [baseRevision, setBaseRevision] = useState(catalog.guide.revision);
   const [error, setError] = useState("");
@@ -34,15 +36,10 @@ export function EnvironmentGuide({ root, catalog, onSaved }: Props) {
     setBusy(true);
     setError("");
     try {
-      const savedGuide = await mutateAccess<{ revision?: number }>(
-        root,
-        "/guide",
-        "PUT",
-        {
-          markdown: text,
-          expected_revision: baseRevision,
-        },
-      );
+      const savedGuide = await execute<{ revision?: number }>("/guide", "PUT", {
+        markdown: text,
+        expected_revision: baseRevision,
+      });
       setBaseRevision(savedGuide.revision ?? baseRevision + 1);
       onSaved();
       setSaved(true);
@@ -110,6 +107,7 @@ export function EnvironmentGuide({ root, catalog, onSaved }: Props) {
   );
 }
 export function Environments({ root, catalog, onSaved }: Props) {
+  const execute = useAccessRequests(root);
   const [editing, setEditing] = useState<string | null>(null);
   const [open, setOpen] = useState(false),
     [name, setName] = useState(""),
@@ -133,8 +131,7 @@ export function Environments({ root, catalog, onSaved }: Props) {
     }
     setBusy(true);
     try {
-      await mutateAccess(
-        root,
+      await execute(
         editing ? `/environments/${editing}` : "/environments",
         editing ? "PATCH" : "POST",
         {
@@ -286,6 +283,7 @@ export function Environments({ root, catalog, onSaved }: Props) {
   );
 }
 export function Computers({ root, catalog, onSaved }: Props) {
+  const execute = useAccessRequests(root);
   const [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [revoke, setRevoke] = useState<string | null>(null),
@@ -297,7 +295,7 @@ export function Computers({ root, catalog, onSaved }: Props) {
     setBusy(true);
     setError("");
     try {
-      await mutateAccess(root, suffix, method, body);
+      await execute(suffix, method, body);
       onSaved();
       setRevoke(null);
       setGrantDevice(null);
@@ -585,6 +583,7 @@ export function EnrollmentApproval({
   request: string;
   onDone: () => void;
 }) {
+  const execute = useAccessRequests(root);
   const [enrollment, setEnrollment] = useState<AccessEnrollment | null>(null),
     [chosen, setChosen] = useState<string[]>([]),
     [error, setError] = useState(""),
@@ -593,8 +592,7 @@ export function EnrollmentApproval({
     setBusy(true);
     try {
       setEnrollment(
-        await mutateAccess<AccessEnrollment>(
-          root,
+        await execute<AccessEnrollment>(
           `/enrollments/${encodeURIComponent(request)}`,
           "GET",
         ),
@@ -608,8 +606,7 @@ export function EnrollmentApproval({
   async function decide(approve: boolean) {
     setBusy(true);
     try {
-      await mutateAccess(
-        root,
+      await execute(
         `/enrollments/${encodeURIComponent(request)}/${approve ? "approve" : "deny"}`,
         "POST",
         approve ? { binding_ids: chosen } : {},

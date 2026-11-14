@@ -1,3 +1,4 @@
+import { useAccessRequests } from "../../hooks/useAccessRequests";
 import { useState } from "react";
 import {
   Alert,
@@ -22,7 +23,6 @@ import {
   accessError,
   allowedClearVariable,
   mappingError,
-  mutateAccess,
   resourceError,
 } from "../../lib/rootAccess";
 
@@ -40,6 +40,7 @@ export default function ResourceDialog({
   onClose,
   onSaved,
 }: Props) {
+  const execute = useAccessRequests(root);
   const bindings = catalog.bindings.filter(
     (b) => b.resource_id === resource?.id,
   );
@@ -211,7 +212,7 @@ export default function ResourceDialog({
     } else return;
     setBusy(true);
     try {
-      await mutateAccess(root, suffix, method, body);
+      await execute(suffix, method, body);
       setValues({});
       onSaved();
       onClose();
@@ -229,12 +230,7 @@ export default function ResourceDialog({
     setError("");
     setValues({});
     try {
-      await mutateAccess(
-        root,
-        `/bindings/${binding.id}/credential/reconcile`,
-        "POST",
-        {},
-      );
+      await execute(`/bindings/${binding.id}/credential/reconcile`, "POST", {});
       onSaved();
       setMode("detail");
     } catch (err) {

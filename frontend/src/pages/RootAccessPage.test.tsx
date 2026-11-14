@@ -7,7 +7,11 @@ import { ApiError } from "../lib/api";
 import { useAuth } from "../hooks/useAuth";
 import { EnvironmentGuide } from "../components/access/AccessAdministration";
 import type { AccessCatalog } from "../lib/rootAccess";
-import { fetchAccess, mutateAccess } from "../lib/rootAccess";
+import {
+  fetchAccess,
+  mutateAccess,
+  AccessTimeoutError,
+} from "../lib/rootAccess";
 vi.mock("../hooks/useAuth", () => ({
   useAuth: vi.fn(() => ({ user: { id: "owner" }, loading: false })),
 }));
@@ -132,6 +136,7 @@ describe("root access interface", () => {
           expected_revision: 4,
           values: { connection: "SYNTHETIC-CANARY" },
         }),
+        expect.any(AbortSignal),
       ),
     );
     await screen.findByText("Could not complete this request. Try again.");
@@ -148,10 +153,16 @@ describe("root access interface", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Save guide" }));
     await waitFor(() =>
-      expect(mutateAccess).toHaveBeenCalledWith(root, "/guide", "PUT", {
-        markdown: "# Updated",
-        expected_revision: 3,
-      }),
+      expect(mutateAccess).toHaveBeenCalledWith(
+        root,
+        "/guide",
+        "PUT",
+        {
+          markdown: "# Updated",
+          expected_revision: 3,
+        },
+        expect.any(AbortSignal),
+      ),
     );
   });
   it("requires explicit confirmation before revoking a computer", async () => {
@@ -167,6 +178,7 @@ describe("root access interface", () => {
         "/devices/device/revoke",
         "POST",
         {},
+        expect.any(AbortSignal),
       ),
     );
   });
@@ -195,10 +207,16 @@ describe("guide concurrent edits", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Save guide" }));
     await waitFor(() =>
-      expect(mutateAccess).toHaveBeenCalledWith(root, "/guide", "PUT", {
-        markdown: "My unsaved work",
-        expected_revision: 3,
-      }),
+      expect(mutateAccess).toHaveBeenCalledWith(
+        root,
+        "/guide",
+        "PUT",
+        {
+          markdown: "My unsaved work",
+          expected_revision: 3,
+        },
+        expect.any(AbortSignal),
+      ),
     );
   });
 });
@@ -225,54 +243,63 @@ describe("account isolation", () => {
 });
 
 describe("pending credential recovery", () => {
-  it("recovers a failed write without retaining or resending plaintext", async () => {
-    const current = structuredClone(catalog);
-    vi.mocked(fetchAccess).mockImplementation(async () =>
-      structuredClone(current),
-    );
-    vi.mocked(mutateAccess).mockImplementation(async (_root, path) => {
-      if (path.endsWith("/reconcile")) {
-        current.bindings[0].pending_operation_id = null;
-        current.bindings[0].revision = 5;
-        return { ok: true, state: "completed", revision: 5 };
-      }
-      current.bindings[0].pending_operation_id = "write-id";
-      throw new ApiError({
-        status: 503,
-        userMessage: "unsafe provider diagnostic",
+  it.each(["unavailable", "timeout"])(
+    "recovers a %s write without retaining or resending plaintext",
+    async (failure) => {
+      const current = structuredClone(catalog);
+      vi.mocked(fetchAccess).mockImplementation(async () =>
+        structuredClone(current),
+      );
+      vi.mocked(mutateAccess).mockImplementation(async (_root, path) => {
+        if (path.endsWith("/reconcile")) {
+          current.bindings[0].pending_operation_id = null;
+          current.bindings[0].revision = 5;
+          return { ok: true, state: "completed", revision: 5 };
+        }
+        current.bindings[0].pending_operation_id = "write-id";
+        if (failure === "timeout") throw new AccessTimeoutError(true);
+        throw new ApiError({
+          status: 503,
+          userMessage: "unsafe provider diagnostic",
+        });
       });
-    });
-    render();
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Configure SES MongoDB" }),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Replace" }));
-    fireEvent.change(screen.getByLabelText(/Secret field: connection/), {
-      target: { value: "RECOVERY-CANARY" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Save credential" }));
-    const recovery = await screen.findByRole("button", {
-      name: "Reconcile pending write",
-    });
-    expect(screen.getByLabelText(/Secret field: connection/)).toHaveValue("");
-    expect(
-      screen.getByRole("button", { name: "Save credential" }),
-    ).toBeDisabled();
-    fireEvent.click(recovery);
-    await waitFor(() =>
-      expect(mutateAccess).toHaveBeenCalledWith(
-        root,
-        "/bindings/binding/credential/reconcile",
-        "POST",
-        {},
-      ),
-    );
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Replace" })).toBeEnabled(),
-    );
-    expect(
-      screen.queryByRole("button", { name: "Reconcile pending write" }),
-    ).not.toBeInTheDocument();
-    expect(document.body.textContent).not.toContain("RECOVERY-CANARY");
-  });
+      render();
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Configure SES MongoDB" }),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Replace" }));
+      fireEvent.change(screen.getByLabelText(/Secret field: connection/), {
+        target: { value: "RECOVERY-CANARY" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Save credential" }));
+      const recovery = await screen.findByRole("button", {
+        name: "Reconcile pending write",
+      });
+      if (failure === "timeout")
+        expect(
+          await screen.findByText(/Its outcome may be pending/),
+        ).toBeInTheDocument();
+      expect(screen.getByLabelText(/Secret field: connection/)).toHaveValue("");
+      expect(
+        screen.getByRole("button", { name: "Save credential" }),
+      ).toBeDisabled();
+      fireEvent.click(recovery);
+      await waitFor(() =>
+        expect(mutateAccess).toHaveBeenCalledWith(
+          root,
+          "/bindings/binding/credential/reconcile",
+          "POST",
+          {},
+          expect.any(AbortSignal),
+        ),
+      );
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Replace" })).toBeEnabled(),
+      );
+      expect(
+        screen.queryByRole("button", { name: "Reconcile pending write" }),
+      ).not.toBeInTheDocument();
+      expect(document.body.textContent).not.toContain("RECOVERY-CANARY");
+    },
+  );
 });

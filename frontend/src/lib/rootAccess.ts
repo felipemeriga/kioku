@@ -73,23 +73,78 @@ export const accessKey = (root: string, owner: string) =>
   ["root-access", owner, root] as const;
 const path = (root: string, suffix = "") =>
   `/api/root-access/${encodeURIComponent(root)}${suffix}`;
-export async function fetchAccess(root: string): Promise<AccessCatalog> {
-  return (await apiFetch(path(root), { cache: "no-store" })).json();
+export class AccessTimeoutError extends Error {
+  constructor(write: boolean) {
+    super(
+      write
+        ? "The request timed out. Its outcome may be pending; refresh the resource before retrying."
+        : "Loading took too long. Check your connection and try again.",
+    );
+    this.name = "AccessTimeoutError";
+  }
 }
-export async function mutateAccess<T = unknown>(
+async function accessRequest<T>(
   root: string,
   suffix: string,
   method: string,
   body?: unknown,
+  signal?: AbortSignal,
 ): Promise<T> {
-  const res = await apiFetch(path(root, suffix), {
-    method,
-    cache: "no-store",
-    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  const controller = new AbortController();
+  const cancelled = () =>
+    new DOMException("Access request cancelled.", "AbortError");
+  if (signal?.aborted) throw cancelled();
+  let rejectStopped: (error: Error) => void = () => {};
+  const stopped = new Promise<never>((_resolve, reject) => {
+    rejectStopped = reject;
   });
-  return res.status === 204 ? (undefined as T) : res.json();
+  const onCancel = () => {
+    rejectStopped(cancelled());
+    controller.abort();
+  };
+  signal?.addEventListener("abort", onCancel, { once: true });
+  const timer = setTimeout(() => {
+    rejectStopped(new AccessTimeoutError(method !== "GET"));
+    controller.abort();
+  }, 15000);
+  const operation = (async () => {
+    const response = await apiFetch(path(root, suffix), {
+      method,
+      cache: "no-store",
+      signal: controller.signal,
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    });
+    if (controller.signal.aborted) throw cancelled();
+    return response.status === 204
+      ? (undefined as T)
+      : ((await response.json()) as T);
+  })();
+  try {
+    return await Promise.race([operation, stopped]);
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", onCancel);
+  }
+}
+export function fetchAccess(
+  root: string,
+  signal?: AbortSignal,
+): Promise<AccessCatalog> {
+  return accessRequest(root, "", "GET", undefined, signal);
+}
+export function mutateAccess<T = unknown>(
+  root: string,
+  suffix: string,
+  method: string,
+  body?: unknown,
+  signal?: AbortSignal,
+): Promise<T> {
+  return accessRequest(root, suffix, method, body, signal);
 }
 export function accessError(error: unknown): string {
+  if (error instanceof AccessTimeoutError) return error.message;
+  if (error instanceof DOMException && error.name === "AbortError")
+    return "Request cancelled.";
   if (error instanceof ApiError) {
     if (error.status === 401) return "Your session expired. Sign in again.";
     if (error.status === 403 || error.status === 404)

@@ -61,7 +61,8 @@ function RootAccessContent({ rootId }: { rootId: string }) {
     [selected, setSelected] = useState<AccessResource | null | undefined>();
   const query = useQuery({
     queryKey: accessKey(rootId, owner),
-    queryFn: () => fetchAccess(rootId),
+    queryFn: ({ signal }) => fetchAccess(rootId, signal),
+    retry: false,
     enabled: validRoot && !!owner && !authLoading,
   });
   const rootBreadcrumbs = breadcrumbOptions(rootId);
