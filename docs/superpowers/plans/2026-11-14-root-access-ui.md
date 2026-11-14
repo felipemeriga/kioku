@@ -44,13 +44,21 @@ Interfaces: Aggregate metadata plus guide/environment/device/grant/enrollment AP
 - [x] Run frontend suite/lint/build, commit.
 
 ### Task4: Browser acceptance and final review
-- [ ] Test approved catalog/dialog/guide and root entry in isolated browser against backend integration when available.
-- [ ] Test mobile390px and long resource/variable text; no viewport overflow.
-- [ ] Review whole diff and parent independent review; correct important failures with regression tests.
-- [ ] Push PR with measured checks and limitations; no deploy in UI subtask.
+- [x] Test approved catalog/dialog/guide and root entry in isolated browser against backend integration when available.
+- [x] Test mobile390px and long resource/variable text; no viewport overflow.
+- [x] Review whole diff and parent independent review; correct important failures with regression tests.
+- [x] Push PR with measured checks and limitations; no deploy in UI subtask.
 
 ## Progress
 - UI implementation commit62a49da. Focused15 tests passed; full frontend345/345, lint/typecheck/build passed.
 - Browser mocked-catalog acceptance passed desktop1512, widths1024/720/390, long names, resource drawer and guide; no JS errors or horizontal overflow. This is frontend acceptance only, not live backend integration.
 - Concurrent guide edit regression observed RED, fixed and focused8/8 passed. Preserve draft base revision and do not remount on aggregate refresh.
 - Pending parent independent review and real backend integration before deployment.
+
+## Final candidate acceptance
+- PR348 HEAD38bf185: full frontend378/378 tests, lint/typecheck/build passed.
+- Parent independent review addressed runtime selectors/AWS pair, account cache isolation, bounded15s requests/cancellation, and pending credential-write reconciliation.
+- Real isolated-candidate backend + persistent Infisical + deployed Supabase acceptance (no mocks): root and descendant entrypoints, environment/resource/binding CRUD, synthetic credential write, guide save/history preview with draft preservation, browser computer approval/revoke, CLI matching value by hash, CLI stdout/stderr redaction, denied resolve/no child spawn after revoke, and cross-root binding404.
+- Browser uncovered duplicate drawer dialog roles and binding-arrival race; each regression observed RED and fixed GREEN.
+- Temporary provider object removed by scoped backend operator before normal API root/child deletion; catalog404 confirmed. No company resources or user conversations modified.
+- Public rollout remains controlled by root after the separate SQL security gate; UI subtask did not deploy independently.
