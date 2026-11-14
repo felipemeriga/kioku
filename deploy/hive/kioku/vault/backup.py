@@ -73,14 +73,20 @@ def main():
     backups = sorted(
         args.directory.glob("kioku-vault-????????T??????Z.dump.age"), reverse=True
     )
-    keep = set(backups[:7])
+    keep = set()
+    days = set()
     weeks = set()
     for backup in backups:
         stamp = backup.name.removeprefix("kioku-vault-").removesuffix(".dump.age")
         try:
-            week = datetime.strptime(stamp, "%Y%m%dT%H%M%SZ").isocalendar()[:2]
+            recorded = datetime.strptime(stamp, "%Y%m%dT%H%M%SZ")
+            week = recorded.isocalendar()[:2]
+            day = recorded.date()
         except ValueError:
             continue
+        if day not in days and len(days) < 7:
+            days.add(day)
+            keep.add(backup)
         if week not in weeks and len(weeks) < 4:
             weeks.add(week)
             keep.add(backup)
