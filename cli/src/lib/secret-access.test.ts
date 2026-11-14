@@ -234,3 +234,35 @@ test("V2 resolve uses device-only auth and verifies every exact returned usage r
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("secret responses allow bounded multi-resource bundles and reject above four MiB", async () => {
+  const old = globalThis.fetch;
+  try {
+    globalThis.fetch = async () =>
+      Response.json({ value: "x".repeat(2 * 1048576) });
+    assert.equal(
+      (
+        await secretRequest<{ value: string }>(
+          "https://example.com",
+          "/api/secret-access/resolve-v2",
+          "ksd_synthetic",
+          {}
+        )
+      ).value.length,
+      2 * 1048576
+    );
+    globalThis.fetch = async () =>
+      Response.json({ value: "x".repeat(4 * 1048576) });
+    await assert.rejects(
+      secretRequest(
+        "https://example.com",
+        "/api/secret-access/resolve-v2",
+        "ksd_synthetic",
+        {}
+      ),
+      /exceeds supported limits/
+    );
+  } finally {
+    globalThis.fetch = old;
+  }
+});

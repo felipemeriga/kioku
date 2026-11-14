@@ -82,6 +82,23 @@ describe(
         renderSecretConfig("yaml", "bad: [", [{ path: ["bad"], value: secret }])
       );
     });
+    test("SSH IPv6 is explicitly unsupported rather than accepted metadata", () => {
+      assert.throws(
+        () =>
+          prepareSecretDeliveries([
+            {
+              kind: "ssh",
+              host: "::1",
+              user: "test",
+              port: 22,
+              host_key:
+                "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJ7+vWmtUUglk7D/DkcAg7USIIOfv+CjVvEz/6WE2xKJ",
+              private_key: "synthetic",
+            },
+          ]),
+        /Invalid or unsupported/
+      );
+    });
     test("raw argv needs explicit acknowledgement, file paths stay separate arguments", () => {
       assert.throws(() =>
         prepareSecretDeliveries([
@@ -223,13 +240,19 @@ describe(
         assert.equal(p.trustedEnvironment.AWS_EC2_METADATA_DISABLED, "true");
         assert.equal(p.trustedEnvironment.AWS_CONFIG_FILE, "/dev/null");
         assert.equal(p.trustedEnvironment.AWS_REGION, "us-east-1");
-        const config = toml(
-          readFileSync(p.trustedEnvironment.AWS_SHARED_CREDENTIALS_FILE, "utf8")
-        ) as any;
-        assert.equal(
-          config.default.aws_secret_access_key,
-          "synthetic-secret-key"
+        const profile = execFileSync(
+          "python3",
+          [
+            "-c",
+            "import configparser,json,sys; p=configparser.RawConfigParser(); p.read(sys.argv[1]); print(json.dumps(dict(p['default'])))",
+            p.trustedEnvironment.AWS_SHARED_CREDENTIALS_FILE,
+          ],
+          { encoding: "utf8" }
         );
+        assert.deepEqual(JSON.parse(profile), {
+          aws_access_key_id: "synthetic-access",
+          aws_secret_access_key: "synthetic-secret-key",
+        });
       } finally {
         p.cleanup();
       }

@@ -164,6 +164,40 @@ export function renderSecretConfig(
     throw invalid();
   }
 }
+/** AWS uses INI, whose parser does not unquote TOML string syntax. */
+export function renderAwsCredentialsFile(template: string): string {
+  const config = parseToml(template) as Record<string, unknown>;
+  const profile = config.default;
+  if (
+    Object.keys(config).length !== 1 ||
+    !profile ||
+    typeof profile !== "object" ||
+    Array.isArray(profile)
+  )
+    throw invalid();
+  const entries = Object.entries(profile);
+  if (
+    !Object.hasOwn(profile, "aws_access_key_id") ||
+    !Object.hasOwn(profile, "aws_secret_access_key") ||
+    entries.some(
+      ([key, value]) =>
+        ![
+          "aws_access_key_id",
+          "aws_secret_access_key",
+          "aws_session_token",
+        ].includes(key) ||
+        typeof value !== "string" ||
+        !value ||
+        /[\x00-\x20\x7f]/.test(value)
+    )
+  )
+    throw invalid();
+  return (
+    "[default]\n" +
+    entries.map(([key, value]) => `${key} = ${value}\n`).join("")
+  );
+}
+
 export function prepareSecretDeliveries(
   deliveries: Delivery[],
   allowRaw = false
@@ -232,7 +266,13 @@ export function prepareSecretDeliveries(
             d.source_template,
             d.patches
           ),
-          path = file(`config-${i}.${d.format}`, rendered);
+          path = file(
+            `config-${i}.${d.format}`,
+            d.destination.kind === "env" &&
+              d.destination.name === "AWS_SHARED_CREDENTIALS_FILE"
+              ? renderAwsCredentialsFile(rendered)
+              : rendered
+          );
         secrets.push(...d.patches.map((p) => p.value));
         if (
           d.destination.kind === "env" &&
