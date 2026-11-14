@@ -83,7 +83,7 @@ async function apiFetch<T>(
       auth &&
       cfg.refresh_token
     ) {
-      const refreshed = await tryRefreshToken();
+      const refreshed = await tryRefreshToken(init.signal ?? undefined);
       if (refreshed) {
         return apiFetch<T>(path, { ...init, _retry: true });
       }
@@ -119,7 +119,7 @@ async function apiFetch<T>(
  */
 let _refreshInFlight: Promise<boolean> | null = null;
 
-async function tryRefreshToken(): Promise<boolean> {
+async function tryRefreshToken(signal?: AbortSignal): Promise<boolean> {
   // Coalesce concurrent refreshes so 3 parallel API calls with an
   // expired token only trigger ONE refresh round-trip.
   if (_refreshInFlight) return _refreshInFlight;
@@ -131,7 +131,7 @@ async function tryRefreshToken(): Promise<boolean> {
       // Discover Supabase URL + anon key. We fetch it from the backend
       // once — no need to hardcode secrets in the CLI, and the anon key
       // is safe to expose by design.
-      const authConfigRes = await fetch(`${cfg.api_base}/api/cli/auth-config`);
+      const authConfigRes = await fetch(`${cfg.api_base}/api/cli/auth-config`, { signal });
       if (!authConfigRes.ok) return false;
       const { supabase_url, supabase_anon_key } =
         (await authConfigRes.json()) as {
@@ -143,6 +143,7 @@ async function tryRefreshToken(): Promise<boolean> {
         `${supabase_url}/auth/v1/token?grant_type=refresh_token`,
         {
           method: "POST",
+          signal,
           headers: {
             "Content-Type": "application/json",
             apikey: supabase_anon_key,
@@ -233,11 +234,11 @@ export async function devicePoll(
   return { status: "expired" };
 }
 
-export async function whoami(): Promise<{
+export async function whoami(signal?: AbortSignal): Promise<{
   user_id: string;
   root_folders: RootFolder[];
 }> {
-  return apiFetch("/api/cli/whoami");
+  return apiFetch("/api/cli/whoami", { signal });
 }
 
 // ── Folders + integrations ─────────────────────────────────────────
