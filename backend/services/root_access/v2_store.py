@@ -407,6 +407,12 @@ class V2Store(AccessStore):
         )
         self.usage_valid(owner, root, {k: usage[k] for k in ("credential_id", "delivery")})
         self.credential_valid(owner, root, credential)
+        if usage.get("legacy_binding_id"):
+            legacy = self.one("access_bindings", owner, root, usage["legacy_binding_id"])
+            if legacy["revision"] != credential["revision"] or legacy.get("write_operation_id"):
+                fail("binding_changed", 409)
+            self.binding(owner, root, legacy)
+            usage["delivery"]["clear_env"] = legacy["clear_env"]
         return usage, credential
 
     def resolve_v2(self, token, body):
@@ -473,16 +479,15 @@ class V2Store(AccessStore):
                             continue
                         fail("secret_unavailable", 409)
                     result[dest] = values[field]
-                if credential["kind"] == "aws":
-                    resource = self.one("access_resources", owner, root, credential["resource_id"])
-                    if (
-                        credential.get("region")
-                        or credential.get("legacy_binding_id")
-                        and resource.get("region")
-                    ):
-                        if "AWS_REGION" in env_names:
-                            fail("invalid_input", 422)
-                        result["AWS_REGION"] = credential.get("region") or resource["region"]
+                resource = self.one("access_resources", owner, root, credential["resource_id"])
+                legacy_cloud = credential.get("legacy_binding_id") and resource["type"] == "cloud"
+                region = credential.get("region") or (
+                    resource.get("region") if legacy_cloud else ""
+                )
+                if (credential["kind"] == "aws" or legacy_cloud) and region:
+                    if "AWS_REGION" in env_names:
+                        fail("invalid_input", 422)
+                    result["AWS_REGION"] = region
                 out["environment"] = result
                 clear.extend(d["clear_env"])
             elif d["kind"] == "argv":

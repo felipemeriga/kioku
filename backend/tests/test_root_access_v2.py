@@ -475,3 +475,28 @@ def test_ssh_excessive_bcrypt_work_rejected_before_crypto(monkeypatch):
     )
     with pytest.raises(HTTPException):
         v2.ssh_fingerprint({"private_key": key, "passphrase": "synthetic"})
+
+
+def test_legacy_aws_usage_preserves_region_and_selector_isolation(vdb, provider):
+    credential = vdb.rows["access_credentials"][0]
+    credential.update(
+        kind="fields",
+        fields=["access_key_id", "secret_access_key"],
+        legacy_binding_id=BINDING,
+        revision=1,
+    )
+    resource = vdb.rows["access_resources"][0]
+    resource.update(type="cloud", region="us-east-1")
+    mapping = {"AWS_ACCESS_KEY_ID": "access_key_id", "AWS_SECRET_ACCESS_KEY": "secret_access_key"}
+    vdb.rows["access_bindings"][0].update(field_mapping=mapping, clear_env=[])
+    vdb.rows["access_usages"][0].update(
+        legacy_binding_id=BINDING,
+        delivery={"kind": "env", "field_mapping": mapping, "clear_env": []},
+    )
+    vdb.rows["secret_usage_grants"][0]["allowed_fields"] = list(mapping.values())
+    provider.values = {"access_key_id": VALUE, "secret_access_key": VALUE + "-secret"}
+    body = request()
+    body.usages[0].credential_revision = 1
+    result = v2.V2Store(vdb).resolve_v2("ksd_fake-token", body)
+    assert result["deliveries"][0]["environment"]["AWS_REGION"] == "us-east-1"
+    assert "AWS_PROFILE" in result["clear_env"]
