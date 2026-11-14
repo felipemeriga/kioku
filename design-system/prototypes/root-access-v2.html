@@ -1937,7 +1937,7 @@ Choose the resource, environment and saved usage explicitly. If several match, a
                   }</label><input id="awsTarget${i}" class="mono" value="${
                     file
                       ? i === 3
-                        ? "default.region"
+                        ? "AWS_REGION (environment metadata)"
                         : "default.aws_" + field
                       : target
                   }" readonly></div></div>`
