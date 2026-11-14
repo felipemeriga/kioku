@@ -868,12 +868,13 @@ def validate_report(snapshot, value):
             raise ValueError("Report cites unknown or missing evidence")
 
     factual_errors = []
+    location = "summary"
 
     def factual(check, *args):
         try:
             check(*args)
         except ValueError as exc:
-            factual_errors.append(str(exc))
+            factual_errors.append(f"{exc} [{location}]")
 
     def finish_factual_checks():
         if factual_errors:
@@ -933,7 +934,8 @@ def validate_report(snapshot, value):
             and sum(len(topic["updates"]) for topic in value["topics"]) > 28
         ):
             raise ValueError("Too many report updates")
-        for item in value["outcomes"]:
+        for index, item in enumerate(value["outcomes"]):
+            location = f"outcomes[{index}]"
             finding(item, 180)
         topic_ids = set()
         for topic in value["topics"]:
@@ -945,7 +947,9 @@ def validate_report(snapshot, value):
             if not 1 <= len(topic["updates"]) <= report_update_limit(snapshot):
                 raise ValueError("Invalid report topic updates")
             for update in topic["updates"]:
-                quote_source = quotes.get(update["evidence_quote"], (None, None))[0]
+                location = f"topics.{topic['id']}.updates[{update['date']}]"
+                quote_id = update["evidence_quote"]
+                quote_source = quotes.get(quote_id, (None, None))[0]
                 finding(update, 280 if compact_report(snapshot) else 500)
                 if not 3 <= len(update["title"]) <= 120 or len(update["detail"]) > (
                     240 if compact_report(snapshot) else 700
@@ -955,18 +959,26 @@ def validate_report(snapshot, value):
                 if compact_report(snapshot) and (
                     quote_source is None or sources[quote_source].get("date") != day
                 ):
-                    factual_errors.append("Report quote date does not match its update")
+                    actual = sources.get(quote_source, {}).get("date", "missing")
+                    factual_errors.append(
+                        f"Report quote date does not match its update [{location}; "
+                        f"quote {quote_id} belongs to {actual}; choose a quote from {day}]"
+                    )
                 if not snapshot["input"]["period_start"] <= day <= snapshot["input"]["period_end"]:
                     raise ValueError("Report update outside its period")
                 if not any(sources[i].get("date") == day for i in update["source_ids"]):
-                    factual_errors.append("Report update date lacks matching evidence")
+                    factual_errors.append(
+                        f"Report update date lacks matching evidence [{location}]"
+                    )
             topic["updates"].sort(key=lambda update: update["date"])
             state = topic["final_state"]
             if not 3 <= len(state["status"]) <= 64 or not 1 <= len(state["items"]) <= 3:
                 raise ValueError("Invalid report final state")
-            for item in state["items"]:
+            for index, item in enumerate(state["items"]):
+                location = f"topics.{topic['id']}.final_state.items[{index}]"
                 finding(item, 320 if compact_report(snapshot) else 500)
             if compact_report(snapshot):
+                location = f"topics.{topic['id']}.final_state.status"
                 factual(validate_open_pr_state, snapshot, topic, sources)
                 factual(
                     validate_runtime_provenance,

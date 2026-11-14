@@ -1065,8 +1065,8 @@ def test_report_repair_preserves_combined_feedback_beyond_300_characters(configu
     monkeypatch.setattr(execution, "capture", lambda *_: (snapshot, None))
     db = DB()
     original = execution.prepare(db, "owner", "folder", "reports", snapshot["input"])
-    feedback = "wrong numeric units; " + "independent factual issue; " * 16 + "wrong final PR state"
-    assert 300 < len(feedback) < 1200
+    feedback = "wrong numeric units; " + "independent factual issue; " * 80 + "wrong final PR state"
+    assert 1200 < len(feedback) < 4000
     db.rows["maintenance_preparations"][0]["validation_error"] = feedback
     monkeypatch.setattr(
         execution, "capture", lambda *_: pytest.fail("Recovery must not recapture new arrivals")
