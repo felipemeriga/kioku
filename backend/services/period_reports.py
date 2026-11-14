@@ -738,7 +738,12 @@ def validate_runtime_provenance(text, evidence):
     """A Git change alone cannot establish a successful rollout or operation."""
     if any(source["kind"] in {"journal", "original"} for source in evidence):
         return
-    for match in re.finditer(r"\b(?:operational|deployed)\b", text, re.IGNORECASE):
+    for match in re.finditer(
+        r"\bdeployed\b|\boperational\b(?=\s*(?:$|[;:,.—–-]"
+        r"|(?:and|but|in|on|with|for|since|during|after)\b))",
+        text,
+        re.IGNORECASE,
+    ):
         prefix = text[max(0, match.start() - 35) : match.start()].lower()
         suffix = text[match.end() : match.end() + 30].lower()
         if re.search(r"\b(?:not|never|unverified|unconfirmed|pending|whether)\b[^.;]*$", prefix):
