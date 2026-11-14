@@ -278,8 +278,16 @@ function RootAccessContent({ rootId }: { rootId: string }) {
                     );
                     const expected = r.shared ? 1 : availableIds.length;
                     const stored =
-                      instances.length >= expected &&
                       expected > 0 &&
+                      (r.shared
+                        ? instances.some(
+                            (c) => c.environment_id === null && c.has_secret
+                          )
+                        : availableIds.every((id) =>
+                            instances.some(
+                              (c) => c.environment_id === id && c.has_secret
+                            )
+                          )) &&
                       instances.every((c) => c.has_secret);
                     return (
                       <button

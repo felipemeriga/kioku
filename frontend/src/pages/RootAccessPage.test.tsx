@@ -412,3 +412,37 @@ describe("shared resources without credentials", () => {
     );
   });
 });
+
+describe("credential coverage", () => {
+  it("does not mark a missing environment stored when another has duplicate variants", async () => {
+    const c = structuredClone(catalog);
+    c.environments.push({
+      id: "prod",
+      name: "Production",
+      slug: "production",
+      sensitivity: "production",
+    });
+    c.resources[0].environment_ids = ["env", "prod"];
+    c.credentials = ["one", "two"].map((id) => ({
+      id,
+      resource_id: "res",
+      environment_id: "env",
+      label: id,
+      kind: "uri",
+      fields: ["connection"],
+      enabled: true,
+      revision: 1,
+      has_secret: true,
+      credential_expires_at: null,
+      pending_operation_id: null,
+      fingerprint: null,
+      legacy_binding_id: id,
+    }));
+    vi.mocked(fetchAccess).mockResolvedValue(c);
+    render();
+    const row = await screen.findByRole("button", {
+      name: "Configure SES MongoDB",
+    });
+    expect(within(row).getByText("○ Needed")).toBeInTheDocument();
+  });
+});
