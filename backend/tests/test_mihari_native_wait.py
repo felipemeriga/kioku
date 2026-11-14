@@ -372,3 +372,136 @@ def test_monthly_snapshot_finishes_without_restarting_at_thirty_seconds(monkeypa
     )
     assert result.status_code == 200
     assert calls == ["http://fixture/api/mihari/execution/prepare"]
+
+
+def test_report_date_failure_uses_one_citation_only_job_after_budget_recovery(monkeypatch):
+    for key in ("SUPABASE_URL", "KIOKU_MCP_URL", "KIOKU_API_URL"):
+        monkeypatch.setenv(key, "http://fixture")
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "fixture")
+    monkeypatch.setenv("MIHARI_TSUKAI_SERVICE_TOKEN", "fixture")
+    spec = importlib.util.spec_from_file_location(
+        "mihari_quote_fixture", Path(__file__).parents[2] / "mihari/mihari.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    preparations, admissions, publications = [], [], []
+
+    def response(body, status=200, headers=None):
+        return SimpleNamespace(
+            json=lambda: body,
+            status_code=status,
+            ok=status < 400,
+            headers=headers or {},
+            raise_for_status=lambda: None,
+        )
+
+    def post(url, **kwargs):
+        if url.endswith("/prepare"):
+            preparations.append(kwargs["json"])
+            return response(
+                {
+                    "engine": "tsukai",
+                    "url": "http://runner",
+                    "capability": "cap",
+                    "request": {},
+                    "preparation_id": f"prep-{len(preparations)}",
+                }
+            )
+        if url.endswith("/v1/jobs"):
+            admissions.append(1)
+            return response({"job_id": "job"})
+        publications.append(1)
+        if len(publications) == 1:
+            return response({"detail": "maintenance execution: wall_timeout"}, 502)
+        if len(publications) == 2:
+            return response(
+                {"detail": "invalid_result:Report quote date does not match its update"},
+                409,
+                {"X-Kioku-Report-Repair": "quotes"},
+            )
+        return response({"updated": True})
+
+    def get(*args, **kwargs):
+        return response(
+            {"status": "failed", "error": {"code": "wall_timeout"}}
+            if len(admissions) == 1
+            else {"status": "completed"}
+        )
+
+    monkeypatch.setattr(module.requests, "post", post)
+    monkeypatch.setattr(module.requests, "get", get)
+    assert module.maintenance_post(
+        "http://fixture/api/mihari/reports", headers={}, json={"folder_id": "f1"}, timeout=180
+    ).ok
+    assert len(admissions) == 3
+    assert preparations[1]["retry_preparation_id"] == "prep-1"
+    assert preparations[2]["quote_repair_preparation_id"] == "prep-2"
+    assert "retry_preparation_id" not in preparations[2]
+
+
+@pytest.mark.parametrize("final_invalid", [False, True])
+def test_unsupported_evidence_uses_at_most_one_remaining_full_review(monkeypatch, final_invalid):
+    for key in ("SUPABASE_URL", "KIOKU_MCP_URL", "KIOKU_API_URL"):
+        monkeypatch.setenv(key, "http://fixture")
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "fixture")
+    monkeypatch.setenv("MIHARI_TSUKAI_SERVICE_TOKEN", "fixture")
+    spec = importlib.util.spec_from_file_location(
+        "mihari_quote_fallback", Path(__file__).parents[2] / "mihari/mihari.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    preparations, publications = [], []
+
+    def response(body, status=200, headers=None):
+        return SimpleNamespace(
+            json=lambda: body,
+            status_code=status,
+            ok=status < 400,
+            headers=headers or {},
+            raise_for_status=lambda: None,
+        )
+
+    def post(url, **kwargs):
+        if url.endswith("/prepare"):
+            preparations.append(kwargs["json"])
+            return response(
+                {
+                    "engine": "tsukai",
+                    "url": "http://runner",
+                    "capability": "cap",
+                    "request": {},
+                    "preparation_id": f"prep-{len(preparations)}",
+                }
+            )
+        if url.endswith("/v1/jobs"):
+            return response({"job_id": "job"})
+        publications.append(1)
+        if len(publications) == 2:
+            return response(
+                {"detail": "invalid_result:Citation repair lacks an allowed supporting quote"}, 409
+            )
+        if len(publications) == 1 or final_invalid:
+            return response(
+                {"detail": "invalid_result:Report runtime claim requires observed evidence"},
+                409,
+                {"X-Kioku-Report-Repair": "quotes"},
+            )
+        return response({"updated": True})
+
+    monkeypatch.setattr(module.requests, "post", post)
+    monkeypatch.setattr(module.requests, "get", lambda *a, **kw: response({"status": "completed"}))
+
+    def call():
+        return module.maintenance_post(
+            "http://fixture/api/mihari/reports", headers={}, json={"folder_id": "f1"}, timeout=180
+        )
+
+    if final_invalid:
+        with pytest.raises(RuntimeError, match="bounded repair"):
+            call()
+    else:
+        assert call().ok
+    assert len(preparations) == 3
+    assert preparations[1]["quote_repair_preparation_id"] == "prep-1"
+    assert preparations[2]["retry_preparation_id"] == "prep-1"
+    assert "quote_repair_preparation_id" not in preparations[2]

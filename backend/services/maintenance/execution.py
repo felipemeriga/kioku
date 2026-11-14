@@ -319,7 +319,7 @@ def acknowledge_absent_documentation(sb, owner, folder, head):
 
 MAINTENANCE_MODEL = "claude-sonnet-4-6"
 # Native structured output consumes formatter turns in addition to synthesis.
-# Keep the allowance finite; one backend validation repair remains the only retry.
+# Keep full synthesis retries finite; citation-only recovery cannot rewrite claims.
 MAINTENANCE_MAX_TURNS = 6
 
 
@@ -343,7 +343,11 @@ def request_matches_policy(row):
         and request["max_turns"] == MAINTENANCE_MAX_TURNS
         and request["model"] == MAINTENANCE_MODEL
         and request.get("reasoning_effort")
-        == ("medium" if row["snapshot"]["operation"] == "reports" else None)
+        == (
+            ("low" if row["snapshot"].get("quote_repair") else "medium")
+            if row["snapshot"]["operation"] == "reports"
+            else None
+        )
     )
 
 
@@ -567,12 +571,111 @@ def report_repair_snapshot(sb, owner, folder, operation, payload, preparation):
     return snapshot
 
 
-def prepare(sb, owner, folder, operation, payload, retry_preparation_id=None):
+def report_quote_repair_snapshot(sb, owner, folder, operation, payload, preparation):
+    from services.report_quote_repair import make_quote_repair
+
+    rows = (
+        sb.table("maintenance_preparations")
+        .select("*")
+        .eq("id", preparation)
+        .eq("user_id", owner)
+        .eq("folder_id", folder)
+        .eq("operation", operation)
+        .eq("head_sha", payload["head_sha"])
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows or operation != "reports":
+        raise ValueError("Unknown report citation recovery preparation")
+    row = rows[0]
+    if (
+        not row.get("validation_error")
+        or row.get("publication")
+        or row["snapshot"].get("quote_repair")
+    ):
+        raise ValueError("Report citation recovery requires a rejected full report")
+    policy_row = row
+    if row.get("repair_of"):
+        parents = (
+            sb.table("maintenance_preparations")
+            .select("*")
+            .eq("id", row["repair_of"])
+            .eq("user_id", owner)
+            .eq("folder_id", folder)
+            .eq("operation", operation)
+            .eq("head_sha", payload["head_sha"])
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if not parents or parents[0].get("repair_of") or parents[0]["snapshot"] != row["snapshot"]:
+            raise ValueError("Invalid report citation recovery lineage")
+        policy_row = parents[0]
+    if not request_matches_policy(policy_row):
+        raise ValueError("Report recovery policy changed; prepare a fresh report")
+    for supplied, stored in (
+        ("report_kind", "kind"),
+        ("period_start", "period_start"),
+        ("timezone", "timezone"),
+    ):
+        if payload.get(supplied) is not None and payload[supplied] != row["snapshot"]["input"].get(
+            stored
+        ):
+            raise ValueError("Report recovery period does not match its preparation")
+    # The outbox is written only after publish independently verifies the job/request binding.
+    jobs = (
+        sb.table("maintenance_usage_outbox")
+        .select("job_id")
+        .eq("preparation_id", preparation)
+        .eq("user_id", owner)
+        .eq("folder_id", folder)
+        .eq("outcome", "completed")
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not jobs:
+        raise ValueError("No verified completed report candidate")
+    client = TsukaiClient(
+        os.environ["TSUKAI_URL"],
+        os.environ["TSUKAI_SERVICE_TOKEN"],
+        capability(owner, folder, row["request"]),
+    )
+    try:
+        result = client.result(jobs[0]["job_id"])
+        return make_quote_repair(
+            row["snapshot"], result.structured if result.structured is not None else result.text
+        )
+    finally:
+        client.close()
+
+
+def prepare(
+    sb,
+    owner,
+    folder,
+    operation,
+    payload,
+    retry_preparation_id=None,
+    quote_repair_preparation_id=None,
+):
     reconcile_usage(sb, owner, folder)
     reconcile_acknowledgements(sb, owner, folder)
     if operation == "documentation":
         acknowledge_absent_documentation(sb, owner, folder, payload["head_sha"])
-    if retry_preparation_id:
+    if retry_preparation_id and quote_repair_preparation_id:
+        raise ValueError("Choose one report recovery mode")
+    if quote_repair_preparation_id:
+        snapshot = report_quote_repair_snapshot(
+            sb, owner, folder, operation, payload, quote_repair_preparation_id
+        )
+        reason = None
+    elif retry_preparation_id:
         snapshot = report_repair_snapshot(
             sb, owner, folder, operation, payload, retry_preparation_id
         )
@@ -629,7 +732,11 @@ def prepare(sb, owner, folder, operation, payload, retry_preparation_id=None):
     preparation = str(uuid4())
     identity = {"owner": owner, "folder": folder, "snapshot": snapshot}
     # Transport/formatter policy is part of every operation's immutable identity.
-    reasoning = {"reasoning_effort": "medium"} if operation == "reports" else {}
+    reasoning = (
+        {"reasoning_effort": "low" if snapshot.get("quote_repair") else "medium"}
+        if operation == "reports"
+        else {}
+    )
     identity["prompt_policy_sha256"] = digest(
         {
             "built": built,
@@ -677,6 +784,8 @@ def prepare(sb, owner, folder, operation, payload, retry_preparation_id=None):
         "snapshot": snapshot,
         "request": request,
     }
+    if quote_repair_preparation_id:
+        record["repair_of"] = quote_repair_preparation_id
     # Identical retries recover the existing immutable preparation, never replace it.
     existing = (
         sb.table("maintenance_preparations")
@@ -691,6 +800,8 @@ def prepare(sb, owner, folder, operation, payload, retry_preparation_id=None):
     if existing:
         record = existing[0]
         if record.get("validation_error"):
+            if snapshot.get("quote_repair"):
+                raise ValueError("Report citation repair exhausted")
             original = record
             key = digest({"repair_of": original["id"], "snapshot": snapshot})
             request["idempotency_key"] = "maintenance:" + key
@@ -827,6 +938,19 @@ def publish(sb, owner, folder, preparation, job_id):
                     ]
                 }
             ).eq("id", preparation).eq("user_id", owner).execute()
+            from services.period_reports import ReportEvidenceError
+            from services.report_quote_repair import make_quote_repair
+
+            if isinstance(exc, ReportEvidenceError) and not row["snapshot"].get("quote_repair"):
+                try:
+                    make_quote_repair(
+                        row["snapshot"],
+                        result.structured if result.structured is not None else result.text,
+                    )
+                except ValueError:
+                    pass
+                else:
+                    raise ReportEvidenceError("invalid_result:" + str(exc)) from exc
             raise ValueError("invalid_result:" + str(exc)) from exc
         publication = apply_result(sb, preparation, owner, job_id, value, row.get("operation"))
         published = True
