@@ -133,7 +133,7 @@ class ReportRefreshRequest(BaseModel):
             raise ValueError("Report period must start on Monday or the first of the month")
         if self.factual_review and not self.report_kind:
             raise ValueError("Factual review requires an explicit report period")
-        if self.factual_review and not self.factual_review.reason.strip():
+        if self.factual_review and len(self.factual_review.reason.strip()) < 20:
             raise ValueError("Factual review requires a meaningful reason")
         stamps = [item.at for item in [*self.commits, *self.pull_requests]]
         if self.head_at:
