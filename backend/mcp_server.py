@@ -982,10 +982,12 @@ def list_folders_in_scope() -> str:
 def discover_access_resources(
     query: str = "", environment: str | None = None, account: str | None = None
 ) -> str:
-    """Find authorized environment resources and CLI binding IDs, never secret values.
+    """Find environment resources, credential metadata and usage IDs, never secret values.
 
     Requires a root-scoped key. Search names, aliases and descriptions, then select
-    an exact binding ID/revision for the enrolled CLI. Ambiguous matches are not
+    exact usage ID/revision plus credential revision (or a legacy binding ID/revision)
+    for the enrolled CLI. Recipes support env, explicit raw argv, protected files
+    and pinned-host SSH. Ambiguous matches are not
     authorization to execute. Shared tools can serve several environments.
     """
     from services.root_access.discovery import discover_resources

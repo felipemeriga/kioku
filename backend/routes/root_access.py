@@ -24,6 +24,15 @@ from services.root_access.models import (
     Resource,
 )
 from services.root_access.store import PUBLIC_DEVICE, AccessStore, fail, now
+from services.root_access.v2_models import (
+    CredentialInstance,
+    CredentialInstanceUpdate,
+    ResolveV2,
+    Usage,
+    UsageGrant,
+    UsageUpdate,
+)
+from services.root_access.v2_store import V2Store
 
 
 class SecretSafeRoute(APIRoute):
@@ -102,7 +111,9 @@ def dump(body):
 
 @router.get("/{root_id}")
 def catalog(root_id: UUID, user_id: str = Depends(get_current_user)):
-    return store().catalog(user_id, root_id)
+    s = store()
+
+    return {**s.catalog(user_id, root_id), **V2Store(s.sb).catalog_v2(user_id, root_id)}
 
 
 @router.put("/{root_id}/guide")
@@ -166,7 +177,11 @@ def edit_environment(
 
 @router.post("/{root_id}/resources")
 def create_resource(root_id: UUID, body: Resource, user_id: str = Depends(get_current_user)):
-    return store().insert("access_resources", user_id, root_id, dump(body))
+    s = store()
+    s.root(user_id, root_id)
+    for environment_id in body.environment_ids:
+        s.one("root_environments", user_id, root_id, environment_id)
+    return s.insert("access_resources", user_id, root_id, dump(body))
 
 
 @router.patch("/{root_id}/resources/{resource_id}")
@@ -185,9 +200,32 @@ def edit_resource(
         .data
     ):
         fail("binding_changed", 409)
+    for environment_id in body.environment_ids:
+        s.one("root_environments", user_id, root_id, environment_id)
+    value = dump(body)
+    # V1 clients must not erase new availability/schema metadata on unrelated edits.
+    for key in ("environment_ids", "credential_kind", "credential_fields"):
+        if key not in body.model_fields_set:
+            value.pop(key, None)
+
+    credentials = (
+        V2Store(s.sb)
+        .query("access_credentials", user_id, root_id)
+        .eq("resource_id", str(resource_id))
+        .execute()
+        .data
+    )
+    if credentials and (
+        old["shared"] != body.shared
+        or (
+            value.get("environment_ids")
+            and any(c["environment_id"] not in value["environment_ids"] for c in credentials)
+        )
+    ):
+        fail("binding_changed", 409)
     return (
         s.sb.table("access_resources")
-        .update(dump(body))
+        .update(value)
         .eq("id", str(resource_id))
         .eq("user_id", user_id)
         .eq("root_folder_id", str(root_id))
@@ -366,3 +404,79 @@ def resolve(body: Resolve, request: Request, response: Response):
         fail("authentication_required", 401)
     response.headers["Cache-Control"] = "no-store"
     return store().resolve(authorization[7:], body)
+
+
+# V2 routes share the same sanitized transport and ownership boundary as V1.
+
+
+def v2store():
+    return V2Store(get_supabase())
+
+
+@router.post("/{root_id}/credentials")
+def create_credential_instance(
+    root_id: UUID, body: CredentialInstance, user_id: str = Depends(get_current_user)
+):
+    return v2store().create_credential(user_id, root_id, dump(body))
+
+
+@router.patch("/{root_id}/credentials/{credential_id}")
+def edit_credential_instance(
+    root_id: UUID,
+    credential_id: UUID,
+    body: CredentialInstanceUpdate,
+    user_id: str = Depends(get_current_user),
+):
+    return v2store().update_credential(
+        user_id, root_id, credential_id, body.model_dump(mode="json", exclude_unset=True)
+    )
+
+
+@router.post("/{root_id}/credentials/{credential_id}/value")
+def write_credential_instance(
+    root_id: UUID, credential_id: UUID, body: Credential, user_id: str = Depends(get_current_user)
+):
+    return v2store().write_v2(user_id, root_id, credential_id, body)
+
+
+@router.post("/{root_id}/credentials/{credential_id}/reconcile")
+def reconcile_credential_instance(
+    root_id: UUID, credential_id: UUID, user_id: str = Depends(get_current_user)
+):
+    return v2store().reconcile_v2(user_id, root_id, credential_id)
+
+
+@router.post("/{root_id}/usages")
+def create_usage(root_id: UUID, body: Usage, user_id: str = Depends(get_current_user)):
+    return v2store().create_usage(user_id, root_id, dump(body))
+
+
+@router.patch("/{root_id}/usages/{usage_id}")
+def edit_usage(
+    root_id: UUID, usage_id: UUID, body: UsageUpdate, user_id: str = Depends(get_current_user)
+):
+    return v2store().update_usage(user_id, root_id, usage_id, dump(body))
+
+
+@router.post("/{root_id}/usage-grants")
+def create_usage_grant(root_id: UUID, body: UsageGrant, user_id: str = Depends(get_current_user)):
+    return v2store().grant_usage(user_id, root_id, dump(body))
+
+
+@router.post("/{root_id}/usage-grants/{grant_id}/revoke")
+def revoke_usage_grant(root_id: UUID, grant_id: UUID, user_id: str = Depends(get_current_user)):
+    s = v2store()
+    s.root(user_id, root_id)
+    s.one("secret_usage_grants", user_id, root_id, grant_id)
+    s.sb.table("secret_usage_grants").update({"revoked_at": now().isoformat()}).eq(
+        "id", str(grant_id)
+    ).eq("user_id", user_id).eq("root_folder_id", str(root_id)).execute()
+    return {"ok": True}
+
+
+@secret_router.post("/resolve-v2")
+def resolve_v2(body: ResolveV2, request: Request):
+    authorization = request.headers.get("Authorization", "")
+    if not authorization.startswith("Bearer "):
+        fail("authentication_required", 401)
+    return v2store().resolve_v2(authorization[7:], body)

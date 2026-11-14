@@ -119,7 +119,7 @@ class AccessStore:
                 "access_resources",
                 owner,
                 root,
-                "id,name,description,type,aliases,shared,account,region",
+                "id,name,description,type,aliases,shared,account,region,environment_ids,credential_kind,credential_fields",
             )
             .order("name")
             .execute()
