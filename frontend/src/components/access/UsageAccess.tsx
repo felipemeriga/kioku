@@ -15,7 +15,11 @@ import type {
   AccessUsage,
 } from "../../lib/rootAccess";
 import { accessError } from "../../lib/rootAccess";
-import { usageCapabilities, usageFields } from "../../lib/accessUsage";
+import {
+  usageCapabilities,
+  usageFields,
+  usagePreview,
+} from "../../lib/accessUsage";
 import { useAccessRequests } from "../../hooks/useAccessRequests";
 export default function UsageAccess({
   root,
@@ -34,17 +38,21 @@ export default function UsageAccess({
   const [device, setDevice] = useState("");
   const [usageId, setUsageId] = useState("");
   const [expiry, setExpiry] = useState("");
-  const [ack, setAck] = useState(false);
+  const [ack, setAck] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const usage = usages.find((u) => u.id === usageId);
   const credential = credentials.find((c) => c.id === usage?.credential_id);
+  const scopeKey = usage
+    ? JSON.stringify([device, usage.id, usage.revision])
+    : "";
+  const approved = !!scopeKey && ack === scopeKey;
   const grants = (catalog.usage_grants ?? []).filter((g) =>
     usages.some((u) => u.id === g.usage_id)
   );
   async function grant(e: React.FormEvent) {
     e.preventDefault();
-    if (!usage || !device || !ack) {
+    if (!usage || !device || !approved) {
       setError("Choose a computer and recipe, and confirm its access scope.");
       return;
     }
@@ -61,11 +69,12 @@ export default function UsageAccess({
       await execute("/usage-grants", "POST", {
         device_id: device,
         usage_id: usage.id,
+        expected_usage_revision: usage.revision,
         allowed_fields: usageFields(usage.delivery),
         capabilities: usageCapabilities(usage.delivery),
         expires_at: expiry ? new Date(expiry).toISOString() : null,
       });
-      setAck(false);
+      setAck("");
       onSaved();
     } catch (err) {
       setError(accessError(err));
@@ -152,7 +161,7 @@ export default function UsageAccess({
             value={usageId}
             onChange={(e) => {
               setUsageId(e.target.value);
-              setAck(false);
+              setAck("");
             }}
           >
             <MenuItem value="">Choose recipe</MenuItem>
@@ -169,6 +178,7 @@ export default function UsageAccess({
               Fields: {usageFields(usage.delivery).join(", ")}. Capabilities:{" "}
               {usageCapabilities(usage.delivery).join(", ")}. Revision{" "}
               {usage.revision}.
+              <pre className="access-code">{usagePreview(usage.delivery)}</pre>
               {!credential?.has_secret &&
                 " A credential value is not stored yet."}
             </Alert>
@@ -183,13 +193,13 @@ export default function UsageAccess({
           <FormControlLabel
             control={
               <Checkbox
-                checked={ack}
-                onChange={(e) => setAck(e.target.checked)}
+                checked={approved}
+                onChange={(e) => setAck(e.target.checked ? scopeKey : "")}
               />
             }
             label="Allow this computer to use these fields through this recipe revision."
           />
-          <Button type="submit" variant="outlined" disabled={busy || !ack}>
+          <Button type="submit" variant="outlined" disabled={busy || !approved}>
             {busy ? "Saving…" : "Grant access"}
           </Button>
         </form>

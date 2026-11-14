@@ -314,7 +314,8 @@ export default function UsageEditor({
         <Alert severity="info">
           AWS key ID, secret key and optional session token form one bundle.
           Region comes from the selected environment’s credential metadata.
-          Temporary profile delivery uses a protected [default] TOML file.
+          Temporary profile delivery uses a protected AWS credentials file with
+          a default profile.
         </Alert>
       )}
       {kind === "env" && (
@@ -327,19 +328,20 @@ export default function UsageEditor({
       )}
       {kind === "file" && (
         <>
-          <TextField
-            select
-            disabled={credential.kind === "aws"}
-            label="File format"
-            value={format}
-            onChange={(e) => setFormat(e.target.value as typeof format)}
-          >
-            {["json", "yaml", "toml"].map((f) => (
-              <MenuItem value={f} key={f}>
-                {f.toUpperCase()}
-              </MenuItem>
-            ))}
-          </TextField>
+          {credential.kind !== "aws" && (
+            <TextField
+              select
+              label="File format"
+              value={format}
+              onChange={(e) => setFormat(e.target.value as typeof format)}
+            >
+              {["json", "yaml", "toml"].map((f) => (
+                <MenuItem value={f} key={f}>
+                  {f.toUpperCase()}
+                </MenuItem>
+              ))}
+            </TextField>
+          )}
           <TextField
             label="Nonsecret source template"
             multiline

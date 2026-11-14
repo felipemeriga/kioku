@@ -122,3 +122,29 @@ export function usageError(
   }
   return "";
 }
+
+export function usagePreview(delivery: UsageDelivery): string {
+  switch (delivery.kind) {
+    case "env":
+      return Object.entries(delivery.field_mapping)
+        .map(([variable, field]) => `${variable} ← credential.${field}`)
+        .join("\n");
+    case "file":
+      return (
+        `${delivery.format.toUpperCase()} temporary file → ${
+          delivery.destination.kind
+        }: ${delivery.destination.name}\n` +
+        delivery.patches
+          .map((p) => `${p.path.join(".")} ← credential.${p.field}`)
+          .join("\n")
+      );
+    case "argv":
+      return delivery.arguments
+        .map((arg) =>
+          arg.kind === "literal" ? arg.value : `credential.${arg.field}`
+        )
+        .join(" ");
+    case "ssh":
+      return `${delivery.user}@${delivery.host}:${delivery.port}\nPinned host key: ${delivery.host_key}\nIdentity: credential.${delivery.private_key_field}`;
+  }
+}
