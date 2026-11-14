@@ -93,6 +93,9 @@ REPORT_GUIDE = (
     "idle days. Weekly: consolidate each topic into one update per active day, at most 28 "
     "updates across all topics. Monthly: consolidate each topic to one update "
     "per active ISO week (at most six), dated on an actual source day within that week. "
+    "Sources are presented newest first. Establish each final state from the latest supported "
+    "observations before composing its older timeline. An older pending state must not override "
+    "a later completed observation. "
     "The final state must reconcile the latest supported evidence at cutoff. Merged code can be "
     "complete while its effect on an investigation remains uncertain. A missing verification is "
     "not automatically an open task: only describe planned follow-ups when explicitly recorded. "
@@ -649,6 +652,7 @@ def report_prompt_snapshot(snapshot):
     projected = deepcopy({key: value for key, value in snapshot.items() if key != "current"})
     aliases = {value: key for key, value in report_aliases(snapshot).items()}
     parts = report_parts(snapshot)
+    projected["input"].pop("weekly_orientation", None)
     projected["input"]["sources"] = [
         {
             **{
@@ -659,7 +663,11 @@ def report_prompt_snapshot(snapshot):
             "id": aliases[source["id"]],
             "parts": parts[source["id"]],
         }
-        for source in report_model_sources(snapshot)
+        for source in sorted(
+            report_model_sources(snapshot),
+            key=lambda item: (iso(item["observed_at"]), item["id"]),
+            reverse=True,
+        )
     ]
     projected["input"]["model_coverage"] = {
         "sources_available": len(snapshot["input"]["sources"]),

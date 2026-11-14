@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from copy import deepcopy
 from types import SimpleNamespace
 
 import jwt
@@ -1074,3 +1075,57 @@ def test_report_repair_preserves_combined_feedback_beyond_300_characters(configu
         execution.prepare(db, "owner", "folder", "reports", snapshot["input"])["request"]
         == repaired["request"]
     )
+
+
+def test_background_reports_use_reasoning_without_changing_other_maintenance(
+    configured, monkeypatch
+):
+    snapshots = {
+        "activity": {
+            "operation": "activity",
+            "input": {"head_sha": "a" * 40},
+            "current": {},
+            "expected_sections": {},
+        },
+        "reports": {
+            "operation": "reports",
+            "input": {
+                "format_version": 2,
+                "kind": "weekly",
+                "head_sha": "a" * 40,
+                "period_start": "2026-11-09",
+                "period_end": "2026-11-15",
+                "sources": [
+                    {
+                        "id": "journal:1",
+                        "kind": "journal",
+                        "date": "2026-11-13",
+                        "observed_at": "2026-11-13T12:00:00Z",
+                        "text": "The change merged; runtime remains unverified.",
+                    }
+                ],
+            },
+            "report": {"coverage": {"policy": 8}},
+            "current": {},
+            "expected_sections": {},
+        },
+    }
+    monkeypatch.setattr(
+        execution, "capture", lambda _db, _owner, _folder, op, _payload: (snapshots[op], None)
+    )
+    db = DB()
+    for op in snapshots:
+        prepared = execution.prepare(db, "owner", "folder", op, snapshots[op]["input"])
+        request = prepared["request"]
+        assert request.get("reasoning_effort") == ("medium" if op == "reports" else None)
+        assert request["model"] == execution.MAINTENANCE_MODEL
+        row = next(
+            r for r in db.rows["maintenance_preparations"] if r["id"] == prepared["preparation_id"]
+        )
+        assert execution.request_matches_policy(row)
+        if op == "reports":
+            changed = deepcopy(row)
+            changed["request"].pop("reasoning_effort")
+            assert not execution.request_matches_policy(changed)
+        else:
+            assert "reasoning_effort" not in request

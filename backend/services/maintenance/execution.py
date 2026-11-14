@@ -342,6 +342,8 @@ def request_matches_policy(row):
         and request["response_schema"] == completion_schema(built["schema"])
         and request["max_turns"] == MAINTENANCE_MAX_TURNS
         and request["model"] == MAINTENANCE_MODEL
+        and request.get("reasoning_effort")
+        == ("medium" if row["snapshot"]["operation"] == "reports" else None)
     )
 
 
@@ -588,6 +590,7 @@ def prepare(sb, owner, folder, operation, payload):
     preparation = str(uuid4())
     identity = {"owner": owner, "folder": folder, "snapshot": snapshot}
     # Transport/formatter policy is part of every operation's immutable identity.
+    reasoning = {"reasoning_effort": "medium"} if operation == "reports" else {}
     identity["prompt_policy_sha256"] = digest(
         {
             "built": built,
@@ -595,6 +598,7 @@ def prepare(sb, owner, folder, operation, payload):
             "schema": completion_schema(built["schema"]),
             "model": MAINTENANCE_MODEL,
             "max_turns": MAINTENANCE_MAX_TURNS,
+            **reasoning,
         }
     )
     key = digest(identity)
@@ -611,6 +615,7 @@ def prepare(sb, owner, folder, operation, payload):
         "max_tokens": built["max_tokens"],
         "max_turns": MAINTENANCE_MAX_TURNS,
         "thinking_tokens": 0,
+        **reasoning,
         "response_schema": completion_schema(built["schema"]),
         "conversation_id": None,
         "folder_ids": [folder],

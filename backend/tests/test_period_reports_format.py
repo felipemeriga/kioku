@@ -610,3 +610,20 @@ def test_bare_operational_status_still_requires_runtime_observations(claim):
         validate_runtime_provenance(
             claim, [{"kind": "git_commit", "text": "Workflow code merged."}]
         )
+
+
+def test_report_context_prioritizes_recent_primary_evidence_without_reusing_old_report_prose():
+    from services.period_reports import iso, report_prompt_snapshot
+
+    snapshot, _ = compact_fixture()
+    snapshot["input"]["weekly_orientation"] = [{"summary": "Obsolete derived report claim."}]
+    before = deepcopy(snapshot)
+    projected = report_prompt_snapshot(snapshot)
+    observed = [iso(source["observed_at"]) for source in projected["input"]["sources"]]
+    assert observed == sorted(observed, reverse=True)
+    assert "weekly_orientation" not in projected["input"]
+    assert "Obsolete derived report claim" not in build_request(snapshot)["prompt"]
+    assert set(report_aliases(snapshot)) == {
+        source["id"] for source in projected["input"]["sources"]
+    }
+    assert snapshot == before

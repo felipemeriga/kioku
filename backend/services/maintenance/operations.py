@@ -348,7 +348,7 @@ def build_request(snapshot):
         fields["source_ids"]["items"]["enum"] = [
             entry["id"] for entry in snapshot["input"]["new_entries"]
         ] or ["__no_source_available__"]
-    max_tokens = 8000 if chronological else 6000 if op == "reports" else 2400
+    max_tokens = 12000 if chronological else 6000 if op == "reports" else 2400
     if op == "reground":
         max_tokens = 4000
     if op == "documentation":
