@@ -69,8 +69,15 @@ export default function PanelResizeHandle({
           if (event.currentTarget.hasPointerCapture(event.pointerId))
             event.currentTarget.releasePointerCapture(event.pointerId);
         }}
-        onPointerCancel={cancel}
-        onLostPointerCapture={cancel}
+        // Browsers can release capture when a window loses focus or native
+        // gestures interrupt a drag. Keep the width the user already sees;
+        // only an explicit Escape requests rollback to the starting width.
+        onPointerCancel={() => {
+          drag.current = null;
+        }}
+        onLostPointerCapture={() => {
+          drag.current = null;
+        }}
         onKeyDown={(event) => {
           const step = event.shiftKey ? 32 : 12;
           const next =
