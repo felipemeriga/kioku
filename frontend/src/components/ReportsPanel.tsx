@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { Fragment, useEffect, useId, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
@@ -375,20 +375,44 @@ export default function ReportsPanel({
                 </option>
               ))}
             </select>
-            {list.data?.reports.map((item) => (
-              <button
-                type="button"
-                key={item.id}
-                className={`reports-period${id === item.id ? " selected" : ""}`}
-                aria-current={id === item.id ? "true" : undefined}
-                onClick={() => chooseReport(item.id)}
-              >
-                <strong>{periodLabel(item)}</strong>
-                <span>
-                  {item.status === "draft" ? "In progress" : "Completed"}
-                </span>
-              </button>
-            ))}
+            <div
+              className="reports-period-scroll"
+              role="region"
+              aria-label={`Available ${kind} reports`}
+              tabIndex={0}
+            >
+              {list.data?.reports.map((item, index, items) => (
+                <Fragment key={item.id}>
+                  {kind === "weekly" &&
+                    (index === 0 ||
+                      items[index - 1].period_start.slice(0, 7) !==
+                        item.period_start.slice(0, 7)) && (
+                      <h4 className="reports-period-month">
+                        {new Date(
+                          `${item.period_start}T12:00:00Z`
+                        ).toLocaleDateString("en-US", {
+                          month: "long",
+                          year: "numeric",
+                          timeZone: "UTC",
+                        })}
+                      </h4>
+                    )}
+                  <button
+                    type="button"
+                    className={`reports-period${
+                      id === item.id ? " selected" : ""
+                    }`}
+                    aria-current={id === item.id ? "true" : undefined}
+                    onClick={() => chooseReport(item.id)}
+                  >
+                    <strong>{periodLabel(item)}</strong>
+                    <span>
+                      {item.status === "draft" ? "In progress" : "Completed"}
+                    </span>
+                  </button>
+                </Fragment>
+              ))}
+            </div>
             <footer>
               <button
                 type="button"
