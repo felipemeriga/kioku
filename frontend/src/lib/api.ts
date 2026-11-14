@@ -175,9 +175,53 @@ export interface Conversation {
   updated_at: string;
 }
 
-export async function fetchConversations(): Promise<Conversation[]> {
-  const res = await apiFetch("/api/conversations");
-  return res.json();
+// Bound the whole history read, including session refresh and JSON download.
+// A proxy/socket or auth lock may never settle; leave a retryable error instead
+// of an indefinite initial spinner. This does not time-limit chat generation.
+export const CONVERSATION_READ_TIMEOUT_MS = 15_000;
+async function readConversationJSON<T>(
+  path: string,
+  signal?: AbortSignal,
+): Promise<T> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
+  const interrupted = new Promise<never>((_, reject) => {
+    onAbort = () => {
+      controller.abort();
+      reject(new DOMException("Request cancelled", "AbortError"));
+    };
+    if (signal?.aborted) onAbort();
+    else signal?.addEventListener("abort", onAbort, { once: true });
+    timer = setTimeout(() => {
+      reject(
+        new ApiError({
+          status: 504,
+          isNetwork: true,
+          userMessage: "Loading conversations took too long. Please try again.",
+        }),
+      );
+      controller.abort();
+    }, CONVERSATION_READ_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([
+      interrupted,
+      (async () => {
+        const response = await apiFetch(path, { signal: controller.signal });
+        return response.json() as Promise<T>;
+      })(),
+    ]);
+  } finally {
+    clearTimeout(timer);
+    if (onAbort) signal?.removeEventListener("abort", onAbort);
+  }
+}
+
+export function fetchConversations(
+  signal?: AbortSignal,
+): Promise<Conversation[]> {
+  return readConversationJSON("/api/conversations", signal);
 }
 
 export async function createConversation(): Promise<Conversation> {
@@ -405,9 +449,9 @@ export interface ConversationWithMessages extends Conversation {
 
 export async function fetchConversation(
   id: string,
+  signal?: AbortSignal,
 ): Promise<ConversationWithMessages> {
-  const res = await apiFetch(`/api/conversations/${id}`);
-  return res.json();
+  return readConversationJSON(`/api/conversations/${id}`, signal);
 }
 
 export interface ChatFilters {
@@ -966,7 +1010,13 @@ export async function refreshFolder(
 }
 
 export type ViewableAs =
-  "markdown" | "image" | "pdf" | "audio" | "video" | "code" | "text";
+  | "markdown"
+  | "image"
+  | "pdf"
+  | "audio"
+  | "video"
+  | "code"
+  | "text";
 
 export interface DocumentContent {
   source_filename: string;

@@ -1,10 +1,38 @@
 """A valid queued heavy job must not hit the short API transport deadline."""
 
 import importlib.util
+import time
 from pathlib import Path
+from threading import Thread
 from types import SimpleNamespace
 
 import pytest
+
+
+def _patch_clock(monkeypatch, module, clock=None, *, advance=False):
+    monotonic = (lambda: clock[0]) if clock is not None else time.monotonic
+    sleep = (
+        (lambda seconds: clock.__setitem__(0, clock[0] + seconds)) if advance else lambda _: None
+    )
+    # Patching attributes on module.time would modify the shared stdlib module
+    # used by unrelated background threads, including telemetry/retry workers.
+    monkeypatch.setattr(module, "time", SimpleNamespace(monotonic=monotonic, sleep=sleep))
+
+
+def test_simulated_clock_does_not_replace_standard_library_functions(monkeypatch):
+    module = SimpleNamespace(time=time)
+    monotonic, sleep = time.monotonic, time.sleep
+    clock = [0]
+    _patch_clock(monkeypatch, module, clock, advance=True)
+    assert time.monotonic is monotonic
+    assert time.sleep is sleep
+    background = Thread(target=lambda: time.sleep(0.001))
+    background.start()
+    background.join(timeout=1)
+    assert not background.is_alive()
+    assert clock[0] == 0
+    module.time.sleep(2)
+    assert clock[0] == 2
 
 
 @pytest.mark.parametrize("operation", ["documentation", "reground", "review-plan", "learnings"])
@@ -51,8 +79,7 @@ def test_queued_native_job_can_finish_after_old_transport_wait(monkeypatch, oper
 
     monkeypatch.setattr(module.requests, "post", post)
     monkeypatch.setattr(module.requests, "get", get)
-    monkeypatch.setattr(module.time, "monotonic", lambda: clock[0])
-    monkeypatch.setattr(module.time, "sleep", lambda _: None)
+    _patch_clock(monkeypatch, module, clock)
     result = module.maintenance_post(
         "http://fixture/api/mihari/" + operation,
         headers={},
@@ -93,10 +120,7 @@ def test_runner_restart_retries_one_unchanged_admission(monkeypatch, failure):
         return SimpleNamespace(status_code=status, raise_for_status=lambda: None)
 
     monkeypatch.setattr(module.requests, "post", post)
-    monkeypatch.setattr(module.time, "monotonic", lambda: clock[0])
-    monkeypatch.setattr(
-        module.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds)
-    )
+    _patch_clock(monkeypatch, module, clock, advance=True)
     if failure == "rejected":
         with pytest.raises(module.requests.HTTPError):
             module.submit_native_job("http://runner/v1/jobs", {}, payload)
@@ -144,10 +168,7 @@ def test_result_reconnect_preserves_job_and_original_deadline(monkeypatch, failu
         return SimpleNamespace(status_code=status, raise_for_status=lambda: None)
 
     monkeypatch.setattr(module.requests, "get", get)
-    monkeypatch.setattr(module.time, "monotonic", lambda: clock[0])
-    monkeypatch.setattr(
-        module.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds)
-    )
+    _patch_clock(monkeypatch, module, clock, advance=True)
     if failure == "auth":
         with pytest.raises(module.requests.HTTPError):
             module.read_native_result(url, capability, 30)
@@ -198,10 +219,7 @@ def test_idempotent_control_calls_retry_only_transport_and_non_json_gateway(monk
         return SimpleNamespace(status_code=200)
 
     monkeypatch.setattr(module.requests, "post", post)
-    monkeypatch.setattr(module.time, "monotonic", lambda: clock[0])
-    monkeypatch.setattr(
-        module.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds)
-    )
+    _patch_clock(monkeypatch, module, clock, advance=True)
     url = "http://backend/api/mihari/execution/publish"
     if failure == "persistent":
         with pytest.raises(RuntimeError, match="durable preparation retained"):
@@ -274,7 +292,7 @@ def test_budget_repair_is_once_only_for_confirmed_failures(
         "get",
         lambda *a, **kw: response({"status": status, "error": {"code": code}}),
     )
-    monkeypatch.setattr(module.time, "sleep", lambda _: None)
+    _patch_clock(monkeypatch, module)
     with pytest.raises(RuntimeError, match=f"maintenance execution: {backend_code}"):
         module.maintenance_post(
             "http://fixture/api/mihari/learnings",

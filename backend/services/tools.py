@@ -551,7 +551,12 @@ def execute_tool(
         return "\n\n---\n\n".join(chunks)
 
     if tool_name == "query_documents_metadata":
-        result = generate_and_execute_sql(tool_input["question"], user_id)
+        result = generate_and_execute_sql(
+            tool_input["question"],
+            user_id,
+            folder_ids=scope_folder_ids,
+            filename=scope_filename,
+        )
         if result["error"]:
             return f"Query failed: {result['error']}"
         if not result["results"]:

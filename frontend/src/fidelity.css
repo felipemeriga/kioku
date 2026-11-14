@@ -608,3 +608,29 @@
 #root [data-testid="assistant-message-surface"] > div > ol {
   max-width: 105ch;
 }
+
+/* Root access adds a third folder action: constrain the whole toolbar, not only
+   the page scrollbox, so long root labels cannot push Upload out of view. */
+#root .documents-heading .documents-actions {
+  min-width: 0;
+  max-width: 100%;
+  flex-shrink: 1;
+}
+#root .documents-path > .MuiBox-root {
+  min-width: 0;
+  max-width: 100%;
+}
+#root .documents-path > .MuiBox-root > .MuiButton-root {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+@media (max-width: 700px) {
+  #root .documents-heading {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  #root .documents-heading .documents-actions {
+    align-self: flex-start;
+  }
+}

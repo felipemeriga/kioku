@@ -58,7 +58,7 @@ describe("workspace resize control", () => {
     fireEvent.keyDown(handle, { key: "ArrowLeft" });
     expect(handle).toHaveAttribute("aria-valuenow", "276");
   });
-  it("restores starting size on canceled pointer drag", () => {
+  it("rolls back only Escape and keeps the resized width on capture interruption", () => {
     render(<Panel />);
     const handle = screen.getByRole("separator");
     handle.setPointerCapture = vi.fn();
@@ -83,6 +83,10 @@ describe("workspace resize control", () => {
     pointer("pointerdown", 100);
     pointer("pointermove", 200);
     pointer("pointercancel", 200);
+    expect(handle).toHaveAttribute("aria-valuenow", "364");
+    pointer("pointerdown", 200);
+    pointer("pointermove", 100);
+    pointer("lostpointercapture", 100);
     expect(handle).toHaveAttribute("aria-valuenow", "264");
     pointer("pointerdown", 100);
     pointer("pointermove", 200);

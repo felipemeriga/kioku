@@ -13,7 +13,7 @@ import {
   Typography,
   alpha,
 } from "@mui/material";
-import { useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import MenuOpenIcon from "@mui/icons-material/MenuOpen";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -65,14 +65,25 @@ export default function ContextPanel({
 }: ContextPanelProps) {
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const selectedFolderId = searchParams.get("folder") || null;
+  const location = useLocation();
+  const navigate = useNavigate();
+  const accessRoot = location.pathname.match(
+    /^\/folders\/([^/]+)\/access$/,
+  )?.[1];
+  const selectedFolderId = accessRoot || searchParams.get("folder") || null;
 
   const handleSelectFolder = useCallback(
     (id: string | null) => {
+      if (accessRoot) {
+        navigate(
+          id ? `/documents?folder=${encodeURIComponent(id)}` : "/documents",
+        );
+        return;
+      }
       if (id === selectedFolderId) return;
       setSearchParams(id ? { folder: id } : {});
     },
-    [selectedFolderId, setSearchParams],
+    [selectedFolderId, setSearchParams, accessRoot, navigate],
   );
 
   const handleDeleteFolder = useCallback(
