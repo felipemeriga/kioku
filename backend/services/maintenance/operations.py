@@ -13,6 +13,10 @@ from services.period_reports import (
     LEGACY_REPORT_GUIDE,
     REPORT_GUIDE,
     REPORT_SHAPE,
+    compact_report,
+    report_aliases,
+    report_choices,
+    report_prompt_snapshot,
     report_quote_choices,
     report_shape,
     report_update_limit,
@@ -268,8 +272,10 @@ def build_request(snapshot):
             {quote["id"] for values in evidence_choices.values() for quote in values}
         ) or ["__no_source_available__"]
     if chronological:
-        ids = [source["id"] for source in snapshot["input"]["sources"]]
-        evidence_choices = report_quote_choices(snapshot["input"]["sources"])
+        aliases = report_aliases(snapshot)
+        ids = list(aliases)
+        by_source = report_choices(snapshot)
+        evidence_choices = {alias: by_source[source] for alias, source in aliases.items()}
         quote_ids = [quote["id"] for choices in evidence_choices.values() for quote in choices]
         schema["$defs"] = {
             "report_source": {"type": "string", "enum": ids or ["__no_source_available__"]},
@@ -309,12 +315,14 @@ def build_request(snapshot):
             }
         )
         update["title"].update(minLength=3, maxLength=120)
-        update["text"].update(minLength=10, maxLength=500)
-        update["detail"].update(maxLength=700)
+        update["text"].update(minLength=10, maxLength=280 if compact_report(snapshot) else 500)
+        update["detail"].update(maxLength=240 if compact_report(snapshot) else 700)
         state = topic["final_state"]["properties"]
         state["status"].update(minLength=3, maxLength=64)
         state["items"].update(minItems=1, maxItems=3)
-        state["items"]["items"]["properties"]["text"].update(minLength=10, maxLength=500)
+        state["items"]["items"]["properties"]["text"].update(
+            minLength=10, maxLength=320 if compact_report(snapshot) else 500
+        )
     if op == "learnings":
         evidence_choices = _source_quotes(snapshot["input"]["new_entries"])
         updates = schema["properties"]["updates"]
@@ -357,20 +365,30 @@ def build_request(snapshot):
         ),
         "prompt": (LEGACY_REPORT_GUIDE if op == "reports" and not chronological else GUIDES[op])
         + (
-            (
-                "\nSelect an evidence_quote ID from evidence_choices for a cited source ID. "
-                if op == "reports"
-                else "\nChoose evidence_quote verbatim from evidence_choices for a cited source. "
+            "\nEach source has ordered parts preserving its full supplied text. "
+            "Read adjacent parts together. Select an evidence_quote ID from the cited source's "
+            "parts; never rewrite it. "
+            "Omit findings without supporting source text. "
+            if op == "reports" and compact_report(snapshot)
+            else (
+                (
+                    "\nSelect an evidence_quote ID from evidence_choices for a cited source ID. "
+                    if op == "reports"
+                    else (
+                        "\nChoose evidence_quote verbatim from evidence_choices "
+                        "for a cited source. "
+                    )
+                )
+                + (
+                    "If none supports a durable learning, return an empty updates array. "
+                    if op == "learnings"
+                    else "Omit findings without a supporting excerpt. "
+                )
+                + "Never paraphrase these quotes.\nEvidence choices: "
+                + canonical(evidence_choices)
+                if evidence_choices is not None
+                else ""
             )
-            + (
-                "If none supports a durable learning, return an empty updates array. "
-                if op == "learnings"
-                else "Omit findings without a supporting excerpt. "
-            )
-            + "Never paraphrase these quotes.\nEvidence choices: "
-            + canonical(evidence_choices)
-            if evidence_choices is not None
-            else ""
         )
         + "\nRequired result shape: "
         + canonical(shape)
@@ -379,7 +397,9 @@ def build_request(snapshot):
             _bounded_evidence(
                 {
                     k: v
-                    for k, v in snapshot.items()
+                    for k, v in (
+                        report_prompt_snapshot(snapshot) if op == "reports" else snapshot
+                    ).items()
                     if k not in ("expected_sections", "expected_reviews")
                 }
             )
