@@ -342,11 +342,14 @@ def test_compact_native_schema_stays_bounded_for_full_inventory_and_larger_journ
     assert 586 < len(built["schema"]["$defs"]["report_source"]["enum"]) < 1616
 
 
-def test_compact_monthly_report_cannot_repeat_a_topic_within_the_same_week():
+def test_compact_monthly_report_keeps_distinct_verified_updates_in_the_same_week():
     snapshot, value = compact_fixture()
     snapshot["input"].update(kind="monthly", period_start="2026-11-01", period_end="2026-11-30")
-    with pytest.raises(ValueError, match="repeats a topic day or week"):
-        validate_result(snapshot, value)
+    result = validate_result(snapshot, value)
+    assert [update["date"] for update in result["topics"][0]["updates"]] == [
+        "2026-11-12",
+        "2026-11-13",
+    ]
 
 
 def test_compact_weekly_output_has_a_total_update_bound_before_publication():
@@ -400,3 +403,17 @@ def test_dated_update_can_keep_older_context_with_a_contemporaneous_quote():
     update["source_ids"] = ["s0", "s1"]
     result = validate_result(snapshot, value)
     assert result["topics"][0]["updates"][1]["source_ids"] == ["journal:intent", "journal:result"]
+
+
+def test_compact_report_keeps_two_evidenced_events_on_the_same_day():
+    snapshot, value = compact_fixture()
+    for source in snapshot["input"]["sources"]:
+        source["date"] = "2026-11-12"
+    for update in value["topics"][0]["updates"]:
+        update["date"] = "2026-11-12"
+    result = validate_result(snapshot, value)
+    assert len(result["topics"][0]["updates"]) == 2
+    assert (
+        result["topics"][0]["updates"][0]["evidence_quote"]
+        != result["topics"][0]["updates"][1]["evidence_quote"]
+    )
