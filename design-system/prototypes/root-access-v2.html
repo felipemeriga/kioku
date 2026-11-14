@@ -1,0 +1,2040 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Kioku · Credentials & usage</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #090710;
+        --panel: #120b20;
+        --raised: #1c112b;
+        --line: #392747;
+        --muted: #afa0bf;
+        --text: #f3edf8;
+        --pink: #ff079e;
+        --cyan: #24dfef;
+        --green: #73dab0;
+        --amber: #efc27d;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          14px/1.55 -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+      }
+      button,
+      input,
+      select,
+      textarea {
+        font: inherit;
+      }
+      button {
+        cursor: pointer;
+        color: inherit;
+        background: transparent;
+        border: 1px solid #614375;
+        border-radius: 4px;
+        padding: 9px 14px;
+        white-space: nowrap;
+      }
+      button:hover {
+        background: #2a1739;
+        border-color: #9b70b8;
+      }
+      button:focus-visible,
+      a:focus-visible,
+      input:focus-visible,
+      select:focus-visible,
+      textarea:focus-visible {
+        outline: 2px solid var(--cyan);
+        outline-offset: 3px;
+      }
+      button.primary {
+        background: var(--pink);
+        border-color: var(--pink);
+        color: #180512;
+        font-weight: 650;
+      }
+      button.primary:hover {
+        background: #ff52ba;
+      }
+      .small {
+        font-size: 12px;
+        padding: 6px 10px;
+      }
+      .quiet {
+        border-color: transparent;
+        color: var(--muted);
+      }
+      .link {
+        color: var(--pink);
+        border: 0;
+        padding: 0;
+        background: none !important;
+        text-align: left;
+      }
+      .rail {
+        position: fixed;
+        inset: 0 auto 0 0;
+        width: 64px;
+        border-right: 1px solid var(--line);
+        background: #0e0818;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 19px;
+        padding: 19px 8px;
+      }
+      .logo {
+        border: 1px solid var(--pink);
+        color: var(--pink);
+        font-size: 26px;
+        width: 40px;
+        text-align: center;
+      }
+      .rail button {
+        border: 0;
+        font-size: 22px;
+        padding: 6px 10px;
+      }
+      .rail .selected {
+        background: #2a1034;
+        color: var(--pink);
+      }
+      .avatar {
+        margin-top: auto;
+        background: #291437;
+        border-radius: 50%;
+        width: 30px;
+        text-align: center;
+        line-height: 30px;
+      }
+      .folders {
+        position: fixed;
+        inset: 0 auto 0 64px;
+        width: 200px;
+        border-right: 1px solid var(--line);
+        padding: 26px 16px;
+        background: #100a1b;
+      }
+      .folders small {
+        color: var(--muted);
+      }
+      .folder {
+        padding: 10px 12px;
+        margin-top: 5px;
+        color: #c6b8d2;
+        border-radius: 4px;
+      }
+      .folder.active {
+        border-left: 2px solid var(--pink);
+        background: #2b1538;
+        color: white;
+      }
+      .folder.sub {
+        padding-left: 32px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      main {
+        margin-left: 264px;
+      }
+      .top {
+        height: 65px;
+        border-bottom: 1px solid var(--line);
+        padding: 20px 32px;
+        color: var(--muted);
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        font-size: 12px;
+      }
+      .prototype {
+        border: 1px solid #60476f;
+        padding: 0 8px;
+        border-radius: 4px;
+        white-space: nowrap;
+      }
+      .page {
+        padding: 30px 36px 60px;
+        width: 100%;
+        max-width: 1530px;
+        margin: 0 auto;
+        min-width: 0;
+      }
+      .crumb {
+        color: var(--pink);
+        font-size: 12px;
+        margin-bottom: 23px;
+      }
+      .heading {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 20px;
+      }
+      .heading > div {
+        min-width: 0;
+      }
+      h1 {
+        font-size: 28px;
+        letter-spacing: -0.7px;
+        font-weight: 620;
+        margin: 0 0 7px;
+      }
+      h2 {
+        font-size: 19px;
+        letter-spacing: -0.25px;
+        margin: 0;
+      }
+      h3 {
+        font-size: 14px;
+        margin: 0 0 7px;
+      }
+      p {
+        margin: 5px 0 15px;
+        max-width: 76ch;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .subtle {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .health {
+        font-size: 12px;
+        color: var(--green);
+        white-space: nowrap;
+      }
+      .tabs {
+        display: flex;
+        gap: 27px;
+        border-bottom: 1px solid var(--line);
+        margin: 25px 0 27px;
+        overflow-x: auto;
+        white-space: nowrap;
+      }
+      .tabs button {
+        border: 0;
+        border-radius: 0;
+        padding: 12px 0;
+        color: var(--muted);
+      }
+      .tabs button.active {
+        color: var(--cyan);
+        box-shadow: 0 2px var(--pink);
+      }
+      .tab {
+        display: none;
+      }
+      .tab.active {
+        display: block;
+      }
+      .toolbar {
+        display: flex;
+        gap: 12px;
+        margin: 0 0 18px;
+        align-items: center;
+      }
+      .search {
+        position: relative;
+        flex: 1;
+      }
+      .search input {
+        padding-left: 35px;
+      }
+      .search span {
+        position: absolute;
+        left: 12px;
+        top: 8px;
+        color: var(--muted);
+        font-size: 19px;
+      }
+      input,
+      select,
+      textarea {
+        border: 1px solid #654779;
+        border-radius: 4px;
+        padding: 10px 12px;
+        color: var(--text);
+        background: #0d0816;
+        width: 100%;
+        min-width: 0;
+      }
+      input::placeholder,
+      textarea::placeholder {
+        color: #8e7d9e;
+      }
+      select {
+        width: auto;
+        min-width: 140px;
+      }
+      textarea {
+        resize: vertical;
+        min-height: 110px;
+      }
+      label {
+        display: block;
+        color: #d1c3db;
+        font-size: 12px;
+        margin-bottom: 7px;
+      }
+      .field {
+        margin: 0 0 19px;
+      }
+      .field select {
+        width: 100%;
+      }
+      .hint {
+        font-size: 11px;
+        color: var(--muted);
+        margin: 6px 0 0;
+        line-height: 1.6;
+      }
+      .catalog {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        overflow: hidden;
+      }
+      .catalog-head,
+      .resource {
+        display: grid;
+        grid-template-columns:
+          minmax(210px, 1fr) minmax(250px, 1.15fr)
+          120px 35px;
+        gap: 20px;
+        align-items: center;
+        padding: 18px 20px;
+      }
+      .catalog-head {
+        font-size: 11px;
+        background: #171020;
+        color: var(--muted);
+        padding-top: 11px;
+        padding-bottom: 11px;
+      }
+      .resource {
+        border-top: 1px solid var(--line);
+      }
+      .resource:hover {
+        background: #150d22;
+      }
+      .resource-name {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        min-width: 0;
+      }
+      .resource-name button {
+        border: 0;
+        padding: 0;
+        text-align: left;
+        white-space: normal;
+      }
+      .resource-name strong {
+        font-size: 14px;
+        font-weight: 600;
+      }
+      .resource-name p {
+        font-size: 12px;
+        color: var(--muted);
+        margin: 3px 0 0;
+      }
+      .service-icon {
+        height: 35px;
+        width: 35px;
+        border: 1px solid #493451;
+        border-radius: 6px;
+        display: grid;
+        place-items: center;
+        flex-shrink: 0;
+        color: var(--green);
+        font-size: 18px;
+      }
+      .service-icon.ssh {
+        color: #c5b0f0;
+      }
+      .service-icon.api {
+        color: #efbd7a;
+      }
+      .coverage {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+      }
+      .coverage button {
+        font-size: 11px;
+        padding: 5px 8px;
+        border-color: #483353;
+        background: #1a1026;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .coverage button.missing {
+        border-color: #8b4a73;
+        color: #ff9bd7;
+        background: #291227;
+      }
+      .coverage button .dot {
+        background: var(--green);
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+      }
+      .coverage button.missing .dot {
+        background: var(--pink);
+      }
+      .usage-count {
+        font-size: 12px;
+        color: var(--muted);
+        border-color: transparent;
+        padding: 4px 0;
+        text-align: left;
+      }
+      .chevron {
+        border: 0;
+        color: var(--muted);
+        padding: 6px;
+      }
+      .caption {
+        font-size: 11px;
+        color: var(--muted);
+        margin: 14px 0;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        min-width: 0;
+      }
+      .row.start {
+        align-items: flex-start;
+      }
+      .pill {
+        font-size: 10px;
+        border: 1px solid #53405e;
+        border-radius: 4px;
+        padding: 2px 7px;
+        background: #22162e;
+        color: #d7c9e1;
+        white-space: nowrap;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .pill.staging {
+        color: #92e1e9;
+        border-color: #31505f;
+        background: #11232b;
+      }
+      .pill.production {
+        color: #ebcb9e;
+        border-color: #655034;
+        background: #292117;
+      }
+      .pill.shared {
+        color: #cebbf1;
+        border-color: #584271;
+      }
+      .pill.stored {
+        color: var(--green);
+        border-color: #315847;
+        background: #10231e;
+      }
+      .pill.missing {
+        color: #f3aacd;
+        border-color: #77506a;
+        background: #2d1427;
+      }
+      .dot {
+        width: 5px;
+        height: 5px;
+        display: inline-block;
+        border-radius: 50%;
+        background: currentColor;
+      }
+      .overlay {
+        position: fixed;
+        inset: 0;
+        background: #030108b5;
+        z-index: 5;
+        display: none;
+      }
+      .overlay.open {
+        display: block;
+      }
+      .drawer {
+        position: absolute;
+        right: 0;
+        top: 0;
+        bottom: 0;
+        width: min(650px, 100%);
+        background: #120b1e;
+        border-left: 1px solid #67437d;
+        display: flex;
+        flex-direction: column;
+        box-shadow: -18px 0 70px #0006;
+      }
+      .drawer-head {
+        padding: 24px 27px;
+        border-bottom: 1px solid var(--line);
+      }
+      .drawer-head h2 {
+        margin-top: 3px;
+        overflow-wrap: anywhere;
+      }
+      .drawer-body {
+        padding: 24px 27px;
+        overflow-y: auto;
+        overflow-x: hidden;
+        flex: 1;
+        min-height: 0;
+      }
+      .drawer-footer {
+        padding: 17px 27px;
+        border-top: 1px solid var(--line);
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .drawer-tabs {
+        display: flex;
+        border-bottom: 1px solid var(--line);
+        gap: 24px;
+        margin: 18px 0 23px;
+        overflow: auto;
+      }
+      .drawer-tabs button {
+        border: 0;
+        border-radius: 0;
+        padding: 9px 0;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .drawer-tabs button.active {
+        box-shadow: 0 2px var(--pink);
+        color: var(--cyan);
+      }
+      .env-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 130px 100px;
+        align-items: center;
+        gap: 13px;
+        border-top: 1px solid var(--line);
+        padding: 20px 0;
+      }
+      .env-row h3 {
+        margin: 0;
+        font-size: 14px;
+      }
+      .env-row p {
+        font-size: 11px;
+        color: var(--muted);
+        margin: 4px 0 0;
+      }
+      .section-label {
+        margin: 22px 0 8px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .notice {
+        border: 1px solid #315760;
+        background: #0c2228;
+        color: #afe1e6;
+        border-radius: 4px;
+        padding: 12px 14px;
+        font-size: 12px;
+        line-height: 1.65;
+        margin: 18px 0;
+      }
+      .notice.warning {
+        border-color: #69502f;
+        background: #292115;
+        color: #e6caa0;
+      }
+      .notice.prototype-note {
+        border-color: #59406d;
+        background: #21142c;
+        color: #cdb6dd;
+      }
+      .empty {
+        padding: 35px 18px;
+        color: var(--muted);
+        text-align: center;
+        font-size: 13px;
+      }
+      .recipe {
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        padding: 17px 18px;
+        margin: 13px 0;
+      }
+      .recipe p {
+        font-size: 12px;
+        color: var(--muted);
+        margin: 5px 0 11px;
+      }
+      .recipe .method {
+        color: var(--cyan);
+        font-size: 11px;
+      }
+      .recipe code {
+        display: block;
+        margin-top: 11px;
+        overflow-wrap: anywhere;
+        white-space: pre-wrap;
+        font-size: 11px;
+        line-height: 1.8;
+      }
+      .mono,
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      code {
+        background: #21132d;
+        color: #8ddae3;
+        padding: 2px 5px;
+        border-radius: 3px;
+        font-size: 12px;
+      }
+      .details {
+        border-top: 1px solid var(--line);
+        margin-top: 20px;
+        padding-top: 16px;
+      }
+      .details summary {
+        cursor: pointer;
+        font-size: 12px;
+        color: var(--muted);
+        padding: 3px 0 12px;
+      }
+      .two {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 16px;
+      }
+      .check {
+        display: flex;
+        align-items: flex-start;
+        gap: 9px;
+        margin: 12px 0;
+        font-size: 12px;
+        color: #d1bfdc;
+      }
+      .check input {
+        width: 15px;
+        flex-shrink: 0;
+        margin-top: 3px;
+        accent-color: var(--pink);
+      }
+      .error {
+        color: #ffadcc;
+        background: #321326;
+        border: 1px solid #8e4969;
+        border-radius: 4px;
+        font-size: 12px;
+        padding: 11px 13px;
+        margin: 14px 0;
+      }
+      .error:empty {
+        display: none;
+      }
+      .error a {
+        color: inherit;
+      }
+      .toast {
+        position: fixed;
+        bottom: 25px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 10;
+        max-width: calc(100% - 35px);
+        background: #19332d;
+        border: 1px solid #4d9f89;
+        border-radius: 5px;
+        padding: 12px 18px;
+        box-shadow: 0 8px 30px #0007;
+        font-size: 13px;
+        display: none;
+      }
+      .method-choices {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        margin: 16px 0 24px;
+      }
+      .method-choices button {
+        padding: 13px;
+        text-align: left;
+        white-space: normal;
+        border-color: #4e385d;
+      }
+      .method-choices button.active {
+        border-color: var(--cyan);
+        background: #12262d;
+      }
+      .method-choices strong {
+        display: block;
+        font-size: 13px;
+      }
+      .method-choices span {
+        display: block;
+        color: var(--muted);
+        font-size: 11px;
+        margin-top: 3px;
+      }
+      .mapping-line {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1fr);
+        gap: 10px;
+        align-items: center;
+      }
+      .mapping-line > span {
+        text-align: center;
+        color: var(--muted);
+      }
+      .preview-box {
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        background: #0d0816;
+        padding: 13px 15px;
+        margin: 12px 0;
+        overflow-wrap: anywhere;
+        white-space: pre-wrap;
+        font:
+          12px/1.8 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+        color: #9edce2;
+      }
+      .step-note {
+        padding-left: 13px;
+        border-left: 2px solid #614071;
+        color: var(--muted);
+        font-size: 12px;
+        margin: 20px 0;
+      }
+      .guide-layout {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 22px;
+      }
+      .guide-editor {
+        min-height: 420px;
+        font:
+          12px/1.8 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+      }
+      .paper {
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        padding: 24px;
+        min-width: 0;
+        background: var(--panel);
+      }
+      .paper h3 {
+        margin-top: 22px;
+      }
+      .paper p {
+        color: #cbbfd4;
+        font-size: 13px;
+      }
+      .environment-line {
+        border-top: 1px solid var(--line);
+        padding: 20px 0;
+      }
+      .environment-line p {
+        color: var(--muted);
+        font-size: 12px;
+        margin: 4px 0;
+      }
+      .grant-list {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        margin-top: 15px;
+      }
+      .activity {
+        border-collapse: collapse;
+        width: 100%;
+        text-align: left;
+      }
+      .activity th,
+      .activity td {
+        border-bottom: 1px solid var(--line);
+        padding: 15px 12px;
+        font-size: 12px;
+      }
+      .activity th {
+        font-weight: 400;
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .spacer {
+        height: 14px;
+      }
+      .instruction {
+        max-width: 75ch;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .context-path {
+        font-size: 12px;
+        color: #cdb8db;
+        margin: 0 0 19px;
+      }
+      .tab-heading {
+        margin-bottom: 22px;
+      }
+      .button-pair {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .availability-summary {
+        display: flex;
+        gap: 7px;
+        flex-wrap: wrap;
+        margin-top: 12px;
+      }
+      .action-card {
+        border: 1px solid var(--line);
+        padding: 17px 18px;
+        border-radius: 5px;
+        margin: 14px 0;
+      }
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+      }
+      @media (max-width: 1180px) {
+        .folders {
+          width: 170px;
+        }
+        main {
+          margin-left: 234px;
+        }
+        .page {
+          padding: 27px 26px;
+        }
+        .catalog-head,
+        .resource {
+          grid-template-columns: minmax(190px, 1fr) minmax(200px, 1fr) 80px 20px;
+          gap: 12px;
+        }
+      }
+      @media (max-width: 850px) {
+        .folders {
+          display: none;
+        }
+        main {
+          margin-left: 64px;
+        }
+        .catalog-head {
+          display: none;
+        }
+        .resource {
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 13px;
+        }
+        .coverage {
+          grid-column: 1/3;
+          margin-left: 47px;
+        }
+        .usage-count {
+          grid-column: 1;
+          margin-left: 47px;
+        }
+        .chevron {
+          grid-column: 2;
+          grid-row: 1;
+        }
+        .guide-layout {
+          grid-template-columns: 1fr;
+        }
+        .health {
+          display: none;
+        }
+        .resource-name {
+          grid-column: 1;
+        }
+        .toolbar {
+          flex-wrap: wrap;
+        }
+        .search {
+          flex-basis: 100%;
+        }
+        .heading {
+          align-items: flex-start;
+        }
+      }
+      @media (max-width: 520px) {
+        .rail {
+          width: 52px;
+        }
+        .rail .logo {
+          width: 34px;
+          font-size: 23px;
+        }
+        .rail button {
+          font-size: 20px;
+        }
+        .page {
+          padding: 23px 16px 40px;
+        }
+        main {
+          margin-left: 52px;
+        }
+        .top {
+          padding: 17px 16px;
+          height: auto;
+          min-height: 65px;
+          align-items: flex-start;
+        }
+        .top > span:first-child {
+          font-size: 11px;
+        }
+        .prototype {
+          font-size: 10px;
+        }
+        .heading h1 {
+          font-size: 24px;
+        }
+        .tabs {
+          gap: 23px;
+          margin-top: 19px;
+        }
+        .tabs button {
+          font-size: 13px;
+        }
+        .heading p {
+          font-size: 13px;
+        }
+        .toolbar select {
+          flex: 1;
+        }
+        .resource {
+          padding: 17px 14px;
+        }
+        .resource-name p {
+          font-size: 11px;
+        }
+        .coverage {
+          margin-left: 0;
+        }
+        .usage-count {
+          margin-left: 0;
+        }
+        .drawer-head,
+        .drawer-body {
+          padding: 21px;
+        }
+        .drawer-footer {
+          padding: 16px 21px;
+        }
+        .env-row {
+          grid-template-columns: minmax(0, 1fr) auto;
+        }
+        .env-row > span {
+          grid-row: 2;
+          grid-column: 1;
+        }
+        .env-row > button {
+          grid-column: 2;
+          grid-row: 1/3;
+        }
+        .two {
+          grid-template-columns: 1fr;
+          gap: 0;
+        }
+        .method-choices {
+          gap: 8px;
+        }
+        .method-choices button {
+          padding: 11px;
+        }
+        .mapping-line {
+          grid-template-columns: 1fr;
+        }
+        .mapping-line > span {
+          display: none;
+        }
+        .row.start {
+          flex-wrap: wrap;
+        }
+        .activity th:nth-child(3),
+        .activity td:nth-child(3) {
+          display: none;
+        }
+        .drawer-tabs {
+          gap: 21px;
+        }
+        .drawer-tabs button {
+          font-size: 12px;
+        }
+        .tab-heading {
+          flex-wrap: wrap;
+        }
+        .guide-editor {
+          min-height: 350px;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          scroll-behavior: auto !important;
+          transition: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <nav class="rail" aria-label="Main navigation">
+      <div class="logo" title="Kioku">記</div>
+      <button title="Chat" aria-label="Chat">♧</button
+      ><button class="selected" title="Documents" aria-label="Documents">
+        ▱</button
+      ><button title="Settings" aria-label="Settings">⚙</button>
+      <div class="avatar" title="Felipe">F</div>
+    </nav>
+    <aside class="folders">
+      <small>Folders</small>
+      <div class="spacer"></div>
+      <div class="folder">▱ &nbsp; All documents</div>
+      <div class="spacer"></div>
+      <div class="folder active">⌄ &nbsp; cosm</div>
+      <div class="folder sub">▱ &nbsp; repositories</div>
+      <div class="folder sub">▱ &nbsp; observability</div>
+      <div class="folder">› &nbsp; Obol</div>
+      <div class="folder">› &nbsp; personal</div>
+    </aside>
+    <main>
+      <header class="top">
+        <span>Kioku &nbsp; / &nbsp; Documents &nbsp; / &nbsp; cosm</span
+        ><span class="prototype">V2 design prototype</span>
+      </header>
+      <div class="page">
+        <div class="crumb">Documents / cosm</div>
+        <div class="heading">
+          <div>
+            <h1>Environments & access</h1>
+            <p class="muted">
+              Credentials for your systems. Clear instructions for your agents.
+            </p>
+          </div>
+          <span class="health"
+            >● Central vault configured
+            <span
+              title="Illustrative status. This prototype does not connect to a vault."
+              >ⓘ</span
+            ></span
+          >
+        </div>
+        <nav class="tabs" role="tablist" aria-label="Access sections">
+          <button
+            class="active"
+            role="tab"
+            aria-selected="true"
+            data-tab="resources"
+          >
+            Resources</button
+          ><button role="tab" aria-selected="false" data-tab="guide">
+            Environment guide</button
+          ><button role="tab" aria-selected="false" data-tab="environments">
+            Environments</button
+          ><button role="tab" aria-selected="false" data-tab="computers">
+            Computers & access</button
+          ><button role="tab" aria-selected="false" data-tab="activity">
+            Activity
+          </button>
+        </nav>
+        <section id="resources" class="tab active" role="tabpanel">
+          <div class="toolbar">
+            <div class="search">
+              <span>⌕</span
+              ><input
+                id="search"
+                aria-label="Search resources"
+                maxlength="120"
+                placeholder="Find a resource, service or alias…"
+              />
+            </div>
+            <select id="filter" aria-label="Filter availability">
+              <option value="all">All availability</option>
+              <option value="development">Development</option>
+              <option value="staging">Staging</option>
+              <option value="production">Production</option>
+              <option value="shared">Shared</option></select
+            ><button class="primary" id="newResource">＋ Resource</button>
+          </div>
+          <div class="catalog">
+            <div class="catalog-head">
+              <span>Resource</span><span>Credentials by environment</span
+              ><span>How to use</span><span></span>
+            </div>
+            <div id="resourceRows"></div>
+          </div>
+          <p class="caption" id="resourceCount"></p>
+        </section>
+        <section id="guide" class="tab" role="tabpanel">
+          <div class="row start tab-heading">
+            <div>
+              <h2>How Cosm’s systems work</h2>
+              <p class="muted">
+                Describe the context. Agents discover exact credentials and
+                usage from the catalog.
+              </p>
+            </div>
+            <button class="primary" id="saveGuide">Save guide</button>
+          </div>
+          <div class="guide-layout">
+            <div>
+              <label for="guideEditor">Markdown</label
+              ><textarea
+                id="guideEditor"
+                class="guide-editor"
+                maxlength="65536"
+                spellcheck="false"
+              >
+# Cosm environments
+
+## Observability
+Grafana is shared across every environment. Select the environment in dashboard filters; do not look for another Grafana credential.
+
+## SES database
+SES has separate MongoDB credentials for development, staging and production.
+
+The ingester reads MONGO_URI. Business API reads database.uri from a JSON config. Use the appropriate saved usage; both refer to the same database credential for the selected environment.
+
+## SSH
+Deployment hosts use a stored SSH key. Match the environment and verify the pinned host fingerprint before connecting.
+
+## Before executing
+Choose the resource, environment and saved usage explicitly. If several match, ask. Never fall back to production.</textarea
+              >
+              <p class="hint">
+                Context only. Store secret values in the dedicated credential
+                form.
+              </p>
+            </div>
+            <article
+              id="guidePreview"
+              class="paper"
+              aria-label="Guide preview"
+            ></article>
+          </div>
+        </section>
+        <section id="environments" class="tab" role="tabpanel">
+          <div class="row start tab-heading">
+            <div>
+              <h2>Environments</h2>
+              <p class="muted">Your company’s names and boundaries.</p>
+            </div>
+            <button id="newEnvironment">＋ Environment</button>
+          </div>
+          <div id="environmentRows"></div>
+          <div class="environment-line">
+            <h3><span class="pill shared">Shared</span></h3>
+            <p>
+              A resource available across environments, such as Grafana. Its
+              credential is stored once.
+            </p>
+          </div>
+        </section>
+        <section id="computers" class="tab" role="tabpanel">
+          <div class="row start tab-heading">
+            <div>
+              <h2>Computers & access</h2>
+              <p class="muted">
+                Grant access to a resource and environment, independent of how
+                an application uses it.
+              </p>
+            </div>
+            <button id="connectComputer">Connect a computer</button>
+          </div>
+          <article class="action-card">
+            <div class="row start">
+              <div>
+                <h3>Felipe’s MacBook</h3>
+                <div class="subtle">macOS · this computer</div>
+              </div>
+              <button class="small" id="manageGrant">Manage access</button>
+            </div>
+            <div class="grant-list">
+              <span class="pill">SES MongoDB / Staging</span
+              ><span class="pill">Grafana / Shared</span
+              ><span class="pill">Deployment host / Staging</span>
+            </div>
+          </article>
+          <article class="action-card">
+            <div class="row start">
+              <div>
+                <h3>Development host</h3>
+                <div class="subtle">Linux · remote workstation</div>
+              </div>
+              <button class="small" id="revokeDevice">Revoke access</button>
+            </div>
+            <div class="grant-list" id="remoteGrants">
+              <span class="pill">SES MongoDB / Development</span
+              ><span class="pill">Grafana / Shared</span>
+            </div>
+          </article>
+          <p class="caption">
+            Revoking blocks new requests. Rotate a credential to invalidate a
+            value already delivered.
+          </p>
+        </section>
+        <section id="activity" class="tab" role="tabpanel">
+          <div class="tab-heading">
+            <h2>Access activity</h2>
+            <p class="muted">
+              Resource, environment and chosen usage. Secret values and command
+              output aren’t recorded here.
+            </p>
+          </div>
+          <table class="activity">
+            <thead>
+              <tr>
+                <th>When</th>
+                <th>Resource</th>
+                <th>Usage</th>
+                <th>Availability</th>
+                <th>Result</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="muted">2 min ago</td>
+                <td>SES MongoDB</td>
+                <td>Ingester tests · Env variable</td>
+                <td>Staging</td>
+                <td style="color: var(--green)">Allowed</td>
+              </tr>
+              <tr>
+                <td class="muted">24 min ago</td>
+                <td>Deployment host</td>
+                <td>SSH connection</td>
+                <td>Staging</td>
+                <td style="color: var(--green)">Allowed</td>
+              </tr>
+              <tr>
+                <td class="muted">1 hour ago</td>
+                <td>SES MongoDB</td>
+                <td>Business API · JSON file</td>
+                <td>Production</td>
+                <td style="color: var(--amber)">Denied</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      </div>
+    </main>
+    <div class="overlay" id="overlay">
+      <section
+        class="drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="drawerTitle"
+      >
+        <header class="drawer-head">
+          <div class="row start">
+            <div>
+              <div class="subtle" id="drawerContext">cosm / Resources</div>
+              <h2 id="drawerTitle"></h2>
+            </div>
+            <button id="closeDrawer" class="quiet" aria-label="Close dialog">
+              ✕
+            </button>
+          </div>
+        </header>
+        <div id="drawerBody" class="drawer-body"></div>
+        <footer class="drawer-footer" id="drawerFooter"></footer>
+      </section>
+    </div>
+    <div id="toast" class="toast" role="status"></div>
+    <script>
+      "use strict";
+      const $ = (s) => document.querySelector(s),
+        $$ = (s) => [...document.querySelectorAll(s)];
+      const esc = (s) =>
+        String(s).replace(
+          /[&<>"']/g,
+          (c) =>
+            ({
+              "&": "&amp;",
+              "<": "&lt;",
+              ">": "&gt;",
+              '"': "&quot;",
+              "'": "&#39;",
+            })[c],
+        );
+      const envNames = {
+        development: "Development",
+        staging: "Staging",
+        production: "Production",
+        shared: "Shared",
+      };
+      const kinds = {
+        connection: "Connection URI",
+        api: "API key",
+        ssh: "SSH key",
+        custom: "Custom fields",
+      };
+      const resources = [
+        {
+          id: "ses-mongo",
+          name: "SES MongoDB",
+          description: "Tracking and event storage for SES",
+          kind: "connection",
+          availability: ["development", "staging", "production"],
+          aliases: "mongo, database, homologação, ses",
+          credentials: {
+            development: { stored: true, updated: "Updated November 12" },
+            staging: { stored: false },
+            production: {
+              stored: true,
+              updated: "Updated November 10",
+              expiry: "Expires December 10",
+            },
+          },
+          recipes: [
+            {
+              name: "Ingester tests",
+              method: "env",
+              target: "MONGO_URI",
+              field: "connection",
+              application: "ses / ingester",
+              detail: "Inject the connection into the test process.",
+            },
+            {
+              name: "Business API",
+              method: "file",
+              target: "/database/uri",
+              format: "JSON",
+              file: "config.json",
+              field: "connection",
+              application: "business-api",
+              argument: "--config",
+              detail: "Create a temporary config copy and pass its path.",
+            },
+            {
+              name: "Database diagnostics",
+              method: "arg",
+              target: "--config",
+              source: "file",
+              field: "connection",
+              application: "diagnostics CLI",
+              detail: "Pass a temporary file path, not the credential itself.",
+            },
+          ],
+        },
+        {
+          id: "grafana",
+          name: "Grafana",
+          description: "Dashboards and logs across all environments",
+          kind: "api",
+          availability: ["shared"],
+          aliases: "logs, metrics, monitoring, observability",
+          credentials: {
+            shared: { stored: true, updated: "Updated November 8" },
+          },
+          recipes: [
+            {
+              name: "Grafana API",
+              method: "env",
+              target: "GRAFANA_TOKEN",
+              field: "token",
+              application: "Grafana tools",
+              detail: "Use environment filters in the query.",
+            },
+          ],
+        },
+        {
+          id: "deployment",
+          name: "Deployment host",
+          description: "SSH access for diagnostics and deployment",
+          kind: "ssh",
+          availability: ["staging", "production"],
+          aliases: "ssh, host, shell, deployment",
+          credentials: {
+            staging: { stored: true, updated: "Updated November 11" },
+            production: { stored: false },
+          },
+          recipes: [
+            {
+              name: "SSH connection",
+              method: "ssh",
+              target: "deploy@staging.example.test",
+              field: "private_key",
+              application: "OpenSSH",
+              port: "22",
+              fingerprint: "SHA256:illustrative-host-fingerprint",
+              detail:
+                "Materialize a protected temporary identity file. Verify the pinned host key.",
+            },
+          ],
+        },
+        {
+          id: "vendor",
+          name: "Vendor service",
+          description: "Custom authentication fields for a company tool",
+          kind: "custom",
+          availability: ["staging", "production"],
+          aliases: "vendor, integration, api",
+          credentials: {
+            staging: { stored: false },
+            production: { stored: false },
+          },
+          recipes: [],
+        },
+      ];
+      let returnFocus = null,
+        toastTimer;
+      function pill(env) {
+        return `<span class="pill ${esc(env)}">${esc(envNames[env] || env)}</span>`;
+      }
+      function showToast(text) {
+        clearTimeout(toastTimer);
+        $("#toast").textContent = text;
+        $("#toast").style.display = "block";
+        toastTimer = setTimeout(
+          () => ($("#toast").style.display = "none"),
+          4500,
+        );
+      }
+      function tab(name) {
+        $$(".tab").forEach((t) => t.classList.toggle("active", t.id === name));
+        $$("[data-tab]").forEach((t) => {
+          t.classList.toggle("active", t.dataset.tab === name);
+          t.setAttribute("aria-selected", t.dataset.tab === name);
+        });
+      }
+      $$("[data-tab]").forEach((t) => (t.onclick = () => tab(t.dataset.tab)));
+      function renderCatalog() {
+        const q = $("#search").value.trim().toLowerCase(),
+          env = $("#filter").value;
+        const list = resources.filter(
+          (r) =>
+            (r.name + " " + r.description + " " + r.aliases)
+              .toLowerCase()
+              .includes(q) &&
+            (env === "all" ||
+              r.availability.includes(env) ||
+              (env !== "shared" && r.availability.includes("shared"))),
+        );
+        $("#resourceRows").innerHTML = list.length
+          ? list
+              .map(
+                (r) =>
+                  `<article class="resource"><div class="resource-name"><span class="service-icon ${r.kind}" aria-hidden="true">${r.kind === "ssh" ? "⌘" : r.kind === "api" ? "⌁" : "◈"}</span><button data-resource="${r.id}" aria-label="Manage ${esc(r.name)}"><strong>${esc(r.name)}</strong><p>${esc(r.description)}</p></button></div><div class="coverage">${r.availability.map((e) => `<button class="${r.credentials[e]?.stored ? "" : "missing"}" data-credential="${r.id}" data-env="${e}" title="${r.credentials[e]?.stored ? "Replace" : "Add"} credential for ${esc(envNames[e] || e)}" aria-label="${r.credentials[e]?.stored ? "Replace" : "Add"} ${esc(r.name)} credential for ${esc(envNames[e] || e)}"><i class="dot"></i>${esc(envNames[e] || e)}${r.credentials[e]?.stored ? "" : " ＋"}</button>`).join("")}</div><button class="usage-count" data-usages="${r.id}">${r.recipes.length ? `${r.recipes.length} saved ${r.recipes.length === 1 ? "usage" : "usages"}` : "Add usage"}</button><button class="chevron" data-resource="${r.id}" aria-label="Open ${esc(r.name)}">›</button></article>`,
+              )
+              .join("")
+          : '<div class="empty">No matching resources. Try another name or availability.</div>';
+        $("#resourceCount").textContent =
+          `${list.length} resources · Cosm root folder`;
+        $$("[data-resource]").forEach(
+          (b) => (b.onclick = () => detail(b.dataset.resource)),
+        );
+        $$("[data-credential]").forEach(
+          (b) =>
+            (b.onclick = () =>
+              credentialForm(b.dataset.credential, b.dataset.env)),
+        );
+        $$("[data-usages]").forEach(
+          (b) => (b.onclick = () => detail(b.dataset.usages, "usage")),
+        );
+      }
+      $("#search").oninput = renderCatalog;
+      $("#filter").onchange = renderCatalog;
+      function open(title, body, footer = "<button data-close>Done</button>") {
+        if (!$("#overlay").classList.contains("open"))
+          returnFocus = document.activeElement;
+        $("#drawerTitle").textContent = title;
+        $("#drawerBody").innerHTML = body;
+        $("#drawerFooter").innerHTML = footer;
+        $("#overlay").classList.add("open");
+        $$("[data-close]").forEach((b) => (b.onclick = close));
+        $("#closeDrawer").focus();
+      }
+      function close() {
+        $("#drawerBody")
+          .querySelectorAll("[data-secret]")
+          .forEach((n) => (n.value = ""));
+        $("#drawerBody").innerHTML = "";
+        $("#drawerFooter").innerHTML = "";
+        $("#overlay").classList.remove("open");
+        if (returnFocus?.isConnected) returnFocus.focus();
+      }
+      $("#closeDrawer").onclick = close;
+      $("#overlay").onclick = (e) => {
+        if (e.target === $("#overlay")) close();
+      };
+      document.addEventListener("keydown", (e) => {
+        if (!$("#overlay").classList.contains("open")) return;
+        if (e.key === "Escape") close();
+        if (e.key === "Tab") {
+          const nodes = $$(
+            "#overlay button,#overlay input,#overlay select,#overlay textarea,#overlay summary",
+          ).filter((n) => n.offsetParent !== null && !n.disabled);
+          const first = nodes[0],
+            last = nodes.at(-1);
+          if (e.shiftKey && document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+          } else if (!e.shiftKey && document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
+      });
+      function get(id) {
+        return resources.find((r) => r.id === id);
+      }
+      function drawerTabs(selected) {
+        return `<nav class="drawer-tabs" aria-label="Resource sections">${[
+          ["credentials", "Credentials"],
+          ["usage", "How to use"],
+          ["access", "Access"],
+        ]
+          .map(
+            ([key, label]) =>
+              `<button data-detail="${key}" class="${selected === key ? "active" : ""}" aria-pressed="${selected === key}">${label}</button>`,
+          )
+          .join("")}</nav>`;
+      }
+      function methodName(method) {
+        return {
+          env: "Environment variable",
+          arg: "Command argument",
+          file: "Configuration file",
+          ssh: "SSH connection",
+        }[method];
+      }
+      function recipePreview(recipe) {
+        if (recipe.method === "env")
+          return `${recipe.target} ← credential.${recipe.field}`;
+        if (recipe.method === "file")
+          return `${recipe.file || "config.json"}  ${recipe.target} ← credential.${recipe.field}\n${recipe.argument || "--config"} <temporary-file>`;
+        if (recipe.method === "arg")
+          return `${recipe.target} ${recipe.source === "raw" ? "<credential value>" : "<temporary-file>"}`;
+        return `ssh -i <temporary-key> -p ${recipe.port || "22"} ${recipe.target}`;
+      }
+      function detail(id, section = "credentials") {
+        const r = get(id);
+        let content = "";
+        if (section === "credentials") {
+          content = `<p class="instruction">Store the credential once for each environment. Applications can use it in different ways.</p><div class="section-label">${kinds[r.kind]}</div>${r.availability.map((e) => `<div class="env-row"><div><h3>${esc(envNames[e] || e)}</h3><p>${esc(r.credentials[e]?.stored ? r.credentials[e].expiry || r.credentials[e].updated || "Saved in this preview" : "No credential yet")}</p></div><span>${r.credentials[e]?.stored ? '<span class="pill stored"><i class="dot"></i>Stored</span>' : '<span class="pill missing">Missing</span>'}</span><button class="small ${r.credentials[e]?.stored ? "" : "primary"}" data-edit-credential="${e}">${r.credentials[e]?.stored ? "Replace" : "Add credential"}</button></div>`).join("")}<div class="spacer"></div><button class="link small" id="editResource">Edit resource details</button>`;
+        } else if (section === "usage") {
+          content = `<div class="row start"><p class="instruction">Choose how an application receives the credential. A usage never stores a second copy.</p><button class="small" id="addUsage">＋ Usage</button></div>${r.recipes.length ? r.recipes.map((recipe, i) => `<article class="recipe"><div class="row"><h3>${esc(recipe.name)}</h3><button class="quiet small" data-edit-recipe="${i}" aria-label="Edit ${esc(recipe.name)}">Edit</button></div><div class="method">${methodName(recipe.method)}</div><p>${esc(recipe.application)} · ${esc(recipe.detail || "Saved usage")}</p><code>${esc(recipePreview(recipe))}</code></article>`).join("") : '<div class="empty">No saved usage yet. You can store credentials before adding one.</div>'}`;
+        } else {
+          content =
+            '<p class="instruction">Computer permissions apply to the credential and environment. Saving a usage does not expand access.</p><div class="action-card"><div class="row"><strong>Felipe’s MacBook</strong><span class="pill stored">Granted</span></div><div class="subtle">Staging credential · expires December 14</div></div><div class="notice warning">Production needs its own grant. A staging grant never falls back to production.</div><button id="goComputers">Manage computers & access</button>';
+        }
+        open(
+          r.name,
+          `<div class="row"><span class="subtle">${kinds[r.kind]}</span><span class="subtle">${r.availability.includes("shared") ? "Shared resource" : "Environment-specific"}</span></div>${drawerTabs(section)}${content}`,
+        );
+        $$("[data-detail]").forEach(
+          (b) => (b.onclick = () => detail(id, b.dataset.detail)),
+        );
+        $$("[data-edit-credential]").forEach(
+          (b) =>
+            (b.onclick = () => credentialForm(id, b.dataset.editCredential)),
+        );
+        $("#editResource")?.addEventListener("click", () => resourceForm(id));
+        $("#addUsage")?.addEventListener("click", () => usageForm(id));
+        $$("[data-edit-recipe]").forEach(
+          (b) => (b.onclick = () => usageForm(id, +b.dataset.editRecipe)),
+        );
+        $("#goComputers")?.addEventListener("click", () => {
+          close();
+          tab("computers");
+        });
+      }
+      function credentialForm(id, env) {
+        const r = get(id),
+          stored = r.credentials[env]?.stored;
+        let fields = "";
+        if (r.kind === "connection")
+          fields =
+            '<div class="field"><label for="credentialValue">Connection URI</label><input id="credentialValue" data-secret type="password" autocomplete="new-password" maxlength="4096" placeholder="Fictional connection value"><div class="hint">Saved as connection. Applications choose their own variable or file key.</div></div>';
+        if (r.kind === "api")
+          fields =
+            '<div class="field"><label for="credentialValue">API key or token</label><input id="credentialValue" data-secret type="password" autocomplete="new-password" maxlength="4096" placeholder="Fictional token"></div>';
+        if (r.kind === "ssh")
+          fields =
+            '<div class="field"><label for="credentialValue">Private key</label><textarea id="credentialValue" data-secret class="mono" spellcheck="false" autocomplete="off" maxlength="16384" placeholder="Paste a fictional SSH key for this preview"></textarea><div class="hint">The stored private key is never revealed. Use the public fingerprint to identify it.</div></div><div class="field"><label for="keyPassphrase">Passphrase <span class="muted">(optional)</span></label><input id="keyPassphrase" data-secret type="password" autocomplete="new-password" maxlength="1024"></div><div class="field"><label for="publicLabel">Key label <span class="muted">(optional)</span></label><input id="publicLabel" maxlength="120" placeholder="e.g. Staging deployment key"></div>';
+        if (r.kind === "custom")
+          fields =
+            '<div id="customFields"><div class="two"><div class="field"><label for="fieldName">Field name</label><input id="fieldName" data-field-name maxlength="128" value="token"></div><div class="field"><label for="credentialValue">Value</label><input id="credentialValue" data-secret type="password" autocomplete="new-password" maxlength="4096" placeholder="Fictional value"></div></div></div><button id="addCredentialField" type="button">+ Add field</button><div class="hint">Store named fields together. Usage recipes select only the fields they need.</div>';
+        open(
+          `${stored ? "Replace" : "Add"} credential`,
+          `<p class="context-path">${esc(r.name)} &nbsp; / &nbsp; ${pill(env)}</p><div class="notice prototype-note">Design preview only. Use fictional values; nothing is sent or saved to disk.</div>${fields}<details class="details"><summary>Expiration & notes</summary><div class="field"><label for="credentialExpiry">Expires <span class="muted">(optional)</span></label><input id="credentialExpiry" type="date"></div><div class="field"><label for="credentialNote">Non-secret note</label><input id="credentialNote" maxlength="300" placeholder="e.g. Used by the SES integration tests"></div></details><div id="formError" class="error" role="alert"></div>`,
+          '<button id="backToResource">Back</button><button class="primary" id="saveCredential">Save credential</button>',
+        );
+        let customFieldCount = 1;
+        if (r.kind === "custom")
+          $("#addCredentialField").onclick = () => {
+            if (customFieldCount >= 12)
+              return error("Use up to 12 fields in this preview.");
+            customFieldCount++;
+            const row = document.createElement("div");
+            row.className = "two";
+            row.innerHTML = `<div class="field"><label for="customName${customFieldCount}">Field name ${customFieldCount}</label><input id="customName${customFieldCount}" data-field-name maxlength="128" placeholder="client_secret"></div><div class="field"><label for="customValue${customFieldCount}">Value ${customFieldCount}</label><input id="customValue${customFieldCount}" data-secret type="password" autocomplete="new-password" maxlength="4096" placeholder="Fictional value"></div>`;
+            $("#customFields").append(row);
+            row.querySelector("input").focus();
+          };
+        $("#backToResource").onclick = () => detail(id);
+        $("#saveCredential").onclick = () => {
+          const value = $("#credentialValue");
+          if (!value.value.trim()) {
+            error("Enter a fictional credential to continue.", value);
+            return;
+          }
+          if (value.value.includes("\0")) {
+            error("Use text without NUL characters.", value);
+            return;
+          }
+          if (r.kind === "custom") {
+            const names = $$("[data-field-name]");
+            if (
+              names.some(
+                (n) => !/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(n.value.trim()),
+              )
+            )
+              return error(
+                "Use field names with letters, numbers and underscores.",
+                names.find(
+                  (n) => !/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(n.value.trim()),
+                ),
+              );
+            if (new Set(names.map((n) => n.value.trim())).size !== names.length)
+              return error("Use a different name for each field.");
+            const empty = $$("[data-secret]").find(
+              (n) => !n.value.trim() || n.value.includes("\0"),
+            );
+            if (empty)
+              return error(
+                "Enter a fictional value for every field, without NUL characters.",
+                empty,
+              );
+          }
+          const expiry = $("#credentialExpiry").value;
+          if (
+            expiry &&
+            new Date(expiry + "T23:59:59").getTime() <= Date.now()
+          ) {
+            error(
+              "Choose an expiration date in the future.",
+              $("#credentialExpiry"),
+            );
+            return;
+          }
+          $$("[data-secret]").forEach((n) => (n.value = ""));
+          r.credentials[env] = {
+            stored: true,
+            updated: "Updated just now",
+            ...(expiry ? { expiry: "Expires " + expiry } : {}),
+          };
+          renderCatalog();
+          detail(id);
+          showToast(
+            "Prototype: credential status updated. Entered values discarded.",
+          );
+        };
+      }
+      function error(text, field) {
+        $("#formError").textContent = text;
+        if (field) {
+          field.setAttribute("aria-invalid", "true");
+          field.focus();
+        }
+      }
+      function resourceForm(id) {
+        const existing = id ? get(id) : null;
+        const selected = existing?.availability.includes("shared")
+          ? "shared"
+          : "environments";
+        open(
+          existing ? "Resource details" : "Add a resource",
+          `<div class="field"><label for="resourceName">Resource name</label><input id="resourceName" maxlength="120" value="${esc(existing?.name || "")}" placeholder="e.g. SES MongoDB"></div><div class="field"><label for="resourceDescription">Description</label><input id="resourceDescription" maxlength="600" value="${esc(existing?.description || "")}" placeholder="What do agents use this for?"></div><div class="field"><label for="credentialKind">Credential type</label><select id="credentialKind">${Object.entries(
+            kinds,
+          )
+            .map(
+              ([key, name]) =>
+                `<option value="${key}" ${existing?.kind === key ? "selected" : ""}>${name}</option>`,
+            )
+            .join(
+              "",
+            )}</select></div><div class="field"><label for="availability">Available in</label><select id="availability"><option value="environments" ${selected === "environments" ? "selected" : ""}>Selected environments</option><option value="shared" ${selected === "shared" ? "selected" : ""}>Shared across environments</option></select></div><div id="envChoices">${Object.keys(
+            envNames,
+          )
+            .filter((e) => e !== "shared")
+            .map(
+              (e) =>
+                `<label class="check"><input type="checkbox" name="resourceEnv" value="${e}" ${existing?.availability.includes(e) || (!existing && e === "staging") ? "checked" : ""}>${esc(envNames[e])}</label>`,
+            )
+            .join(
+              "",
+            )}</div><div id="sharedNote" class="notice" hidden>One credential for this resource, regardless of environment.</div><details class="details"><summary>Additional details <span class="muted">(optional)</span></summary><div class="field"><label for="resourceAliases">Search aliases</label><input id="resourceAliases" maxlength="500" value="${esc(existing?.aliases || "")}" placeholder="mongo, banco, homologação"></div><div class="two"><div class="field"><label for="resourceAccount">Account</label><input id="resourceAccount" maxlength="120" placeholder="Only when relevant"></div><div class="field"><label for="resourceRegion">Region</label><input id="resourceRegion" maxlength="120" placeholder="Only when relevant"></div></div></details><div id="formError" class="error" role="alert"></div>`,
+          '<button data-close>Cancel</button><button class="primary" id="saveResource">Save resource</button>',
+        );
+        function availability() {
+          const shared = $("#availability").value === "shared";
+          $("#envChoices").hidden = shared;
+          $("#sharedNote").hidden = !shared;
+        }
+        $("#availability").onchange = availability;
+        availability();
+        $("#saveResource").onclick = () => {
+          const name = $("#resourceName").value.trim(),
+            shared = $("#availability").value === "shared",
+            envs = shared
+              ? ["shared"]
+              : $$('input[name="resourceEnv"]:checked').map((n) => n.value);
+          if (
+            !name ||
+            resources.some(
+              (r) => r.id !== id && r.name.toLowerCase() === name.toLowerCase(),
+            )
+          ) {
+            error("Enter a unique resource name.", $("#resourceName"));
+            return;
+          }
+          if (!envs.length) {
+            error("Select at least one environment.");
+            return;
+          }
+          const r = existing || {
+            id: "resource-" + Date.now(),
+            credentials: {},
+            recipes: [],
+          };
+          r.name = name;
+          r.description = $("#resourceDescription").value.trim();
+          r.kind = $("#credentialKind").value;
+          r.availability = envs;
+          r.aliases = $("#resourceAliases").value.trim();
+          envs.forEach((e) => (r.credentials[e] ??= { stored: false }));
+          if (!existing) resources.push(r);
+          renderCatalog();
+          detail(r.id);
+          showToast("Prototype: resource details updated.");
+        };
+      }
+      $("#newResource").onclick = () => resourceForm();
+      function usageForm(id, index, override) {
+        const r = get(id),
+          saved = index === undefined ? null : r.recipes[index],
+          method =
+            override || saved?.method || (r.kind === "ssh" ? "ssh" : "env");
+        open(
+          saved ? "Edit usage" : "Add a usage",
+          `<p class="context-path">${esc(r.name)} &nbsp; / &nbsp; How to use</p><div class="field"><label for="usageName">Usage name</label><input id="usageName" maxlength="120" value="${esc(saved?.name || "")}" placeholder="e.g. Ingester integration tests"></div><div class="field"><label for="usageApplication">Application or repository</label><input id="usageApplication" maxlength="120" value="${esc(saved?.application || "")}" placeholder="e.g. ses / ingester"></div><label>Delivery</label><div class="method-choices">${[
+            ["env", "Environment variable", "Inject into this command"],
+            ["arg", "Command argument", "Value or temporary file path"],
+            ["file", "Configuration file", "Set a key in a temporary copy"],
+            ["ssh", "SSH connection", "Temporary identity and pinned host"],
+          ]
+            .map(
+              ([key, title, subtitle]) =>
+                `<button class="${method === key ? "active" : ""}" data-method="${key}" aria-pressed="${method === key}"><strong>${title}</strong><span>${subtitle}</span></button>`,
+            )
+            .join(
+              "",
+            )}</div><div id="deliveryFields"></div><div class="field"><label for="usageInstructions">When should agents use this?</label><textarea id="usageInstructions" maxlength="1200" placeholder="Explain the context and the application’s expectations.">${esc(saved?.detail || "")}</textarea></div><details class="details"><summary>Advanced execution settings</summary><p class="hint">Explicit IDs and versions are checked at execution. Credential access is granted separately per computer and environment.</p></details><div id="formError" class="error" role="alert"></div>`,
+          '<button id="usageBack">Back</button><button class="primary" id="saveUsage">Save usage</button>',
+        );
+        let activeMethod = method;
+
+        function drawFields(m) {
+          activeMethod = m;
+          $$("[data-method]").forEach((b) => {
+            b.classList.toggle("active", b.dataset.method === m);
+            b.setAttribute("aria-pressed", b.dataset.method === m);
+          });
+          const field =
+            r.kind === "api"
+              ? "token"
+              : r.kind === "ssh"
+                ? "private_key"
+                : "connection";
+          let html = "";
+          if (m === "env")
+            html = `<div class="mapping-line"><div class="field"><label for="sourceField">Credential field</label><input id="sourceField" value="${esc(saved?.field || field)}" maxlength="128"></div><span>→</span><div class="field"><label for="targetName">Environment variable</label><input id="targetName" class="mono" value="${esc(saved?.method === "env" ? saved.target : "")}" placeholder="MONGO_URI" maxlength="128"></div></div><div class="preview-box">MONGO_URI ← credential.${field}</div>`;
+          if (m === "arg")
+            html = `<div class="two"><div class="field"><label for="targetName">Argument</label><input id="targetName" class="mono" value="${esc(saved?.method === "arg" ? saved.target : "--config")}" maxlength="100" placeholder="--config"></div><div class="field"><label for="argumentSource">Argument receives</label><select id="argumentSource"><option value="file">Temporary file path</option><option value="literal">Non-secret value</option><option value="raw">Credential value (exposed in argv)</option></select></div></div><div class="field"><label for="sourceField" id="argumentValueLabel">Credential field for temporary file</label><input id="sourceField" value="${esc(saved?.field || field)}" maxlength="128"></div><div id="argvNotice" class="notice">The argument contains a file path. The secret stays inside a protected temporary file.</div><label class="check" id="argvAckRow" hidden><input id="argvAck" type="checkbox">Allow this usage to place a secret in process arguments. Other processes may be able to read it.</label><div class="preview-box" id="argvPreview">--config &lt;temporary-file&gt;</div>`;
+          if (m === "file")
+            html = `<div class="two"><div class="field"><label for="configFormat">Format</label><select id="configFormat"><option>JSON</option><option>YAML</option><option>TOML</option></select></div><div class="field"><label for="configName">Temporary filename</label><input id="configName" maxlength="100" value="${esc(saved?.file || "config.json")}"></div></div><div class="mapping-line"><div class="field"><label for="sourceField">Credential field</label><input id="sourceField" maxlength="128" value="${esc(saved?.field || field)}"></div><span>→</span><div class="field"><label for="targetName">Key path</label><input id="targetName" class="mono" maxlength="200" placeholder="/database/uri" value="${esc(saved?.target || "/database/uri")}"></div></div><div class="field"><label for="baseConfig">Base configuration <span class="muted">(optional, non-secret)</span></label><textarea id="baseConfig" class="mono" spellcheck="false" maxlength="4000">{ "database": { "uri": null } }</textarea></div><div class="field"><label for="configArgument">Application’s config argument</label><input id="configArgument" class="mono" maxlength="100" value="${esc(saved?.argument || "--config")}"></div><div class="notice">A temporary copy receives the value. The repository’s original file is not overwritten.</div><div class="preview-box">config.json  /database/uri ← credential.${field}\n--config &lt;temporary-file&gt;</div>`;
+          if (m === "ssh")
+            html = `<div class="two"><div class="field"><label for="sshHost">Host</label><input id="sshHost" value="${esc(saved?.target?.split("@")[1] || "staging.example.test")}" maxlength="253"></div><div class="field"><label for="sshUser">User</label><input id="sshUser" value="${esc(saved?.target?.split("@")[0] || "deploy")}" maxlength="64"></div></div><div class="two"><div class="field"><label for="sshPort">Port</label><input id="sshPort" type="number" min="1" max="65535" value="${esc(saved?.port || "22")}"></div><div class="field"><label for="sourceField">Private-key field</label><input id="sourceField" maxlength="128" value="private_key"></div></div><div class="field"><label for="sshFingerprint">Trusted host fingerprint</label><input id="sshFingerprint" class="mono" maxlength="150" value="${esc(saved?.fingerprint || "")}" placeholder="SHA256:…"><div class="hint">Obtain it from a trusted source. Agents cannot silently accept an unknown host.</div></div><div class="notice">The CLI creates a temporary identity file with restricted permissions and removes it after the command. No persistent local service.</div><div class="preview-box">ssh -i &lt;temporary-key&gt; -p 22 deploy@staging.example.test\nStrict host verification enabled</div>`;
+          $("#deliveryFields").innerHTML = html;
+          if (m === "arg") {
+            $("#argumentSource").value =
+              saved?.method === "arg" ? saved.source || "file" : "file";
+            const update = () => {
+              const source = $("#argumentSource").value;
+              $("#argvNotice").className =
+                "notice" + (source === "raw" ? " warning" : "");
+              $("#argvNotice").textContent =
+                source === "raw"
+                  ? "A raw secret in argv may be visible in the process list, crash reports or tool tracing. Prefer stdin, an environment variable or a temporary file when supported."
+                  : source === "literal"
+                    ? "Use this only for non-secret settings such as a profile or a region."
+                    : "The argument contains a file path. The secret stays inside a protected temporary file.";
+              $("#argvAckRow").hidden = source !== "raw";
+              $("#argumentValueLabel").textContent =
+                source === "literal"
+                  ? "Non-secret value"
+                  : "Credential field" +
+                    (source === "file" ? " for temporary file" : "");
+              $("#argvPreview").textContent =
+                ($("#targetName").value || "--config") +
+                " " +
+                (source === "raw"
+                  ? "<credential value>"
+                  : source === "literal"
+                    ? "<non-secret value>"
+                    : "<temporary-file>");
+            };
+            $("#argumentSource").onchange = update;
+            $("#targetName").oninput = update;
+            update();
+          }
+        }
+        $$("[data-method]").forEach(
+          (b) => (b.onclick = () => drawFields(b.dataset.method)),
+        );
+        drawFields(method);
+        $("#usageBack").onclick = () => detail(id, "usage");
+        $("#saveUsage").onclick = () => {
+          const name = $("#usageName").value.trim(),
+            application = $("#usageApplication").value.trim(),
+            field = $("#sourceField").value.trim(),
+            target = $("#targetName")?.value.trim();
+          if (!name || !application) {
+            error("Enter a usage name and application.");
+            return;
+          }
+          if (
+            !/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(field) &&
+            !(
+              activeMethod === "arg" && $("#argumentSource").value === "literal"
+            )
+          ) {
+            error("Choose a valid credential field.", $("#sourceField"));
+            return;
+          }
+          const recipe = {
+            name,
+            application,
+            method: activeMethod,
+            field,
+            detail: $("#usageInstructions").value.trim(),
+          };
+          if (activeMethod === "env") {
+            if (
+              !/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(target) ||
+              /^(LD_|DYLD_|NODE_OPTIONS$|PATH$|HOME$|BASH_ENV$)/i.test(target)
+            ) {
+              error(
+                "Enter an allowed environment-variable name.",
+                $("#targetName"),
+              );
+              return;
+            }
+            recipe.target = target;
+          }
+          if (activeMethod === "arg") {
+            if (!/^--?[A-Za-z][A-Za-z0-9_-]*$/.test(target)) {
+              error(
+                "Use a single option such as --config or -c.",
+                $("#targetName"),
+              );
+              return;
+            }
+            recipe.target = target;
+            recipe.source = $("#argumentSource").value;
+            if (recipe.source === "raw" && !$("#argvAck").checked) {
+              error(
+                "Acknowledge the process-argument exposure, or choose a safer delivery.",
+              );
+              return;
+            }
+          }
+          if (activeMethod === "file") {
+            const format = $("#configFormat").value,
+              file = $("#configName").value.trim(),
+              argument = $("#configArgument").value.trim();
+            if (
+              !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/.test(file) ||
+              file.includes("..")
+            ) {
+              error(
+                "Use a filename without folders or parent traversal.",
+                $("#configName"),
+              );
+              return;
+            }
+            if (
+              !target ||
+              target.length > 200 ||
+              !/^--?[A-Za-z][A-Za-z0-9_-]*$/.test(argument)
+            ) {
+              error("Enter a key path and a config argument such as --config.");
+              return;
+            }
+            if (format === "JSON") {
+              if (!target.startsWith("/")) {
+                error(
+                  "Use a JSON Pointer such as /database/uri.",
+                  $("#targetName"),
+                );
+                return;
+              }
+              try {
+                JSON.parse($("#baseConfig").value || "{}");
+              } catch {
+                error(
+                  "Use valid JSON for the non-secret base configuration.",
+                  $("#baseConfig"),
+                );
+                return;
+              }
+            }
+            recipe.target = target;
+            recipe.file = file;
+            recipe.format = format;
+            recipe.argument = argument;
+          }
+          if (activeMethod === "ssh") {
+            const host = $("#sshHost").value.trim(),
+              user = $("#sshUser").value.trim(),
+              port = Number($("#sshPort").value),
+              fingerprint = $("#sshFingerprint").value.trim();
+            if (
+              !/^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$/.test(host) ||
+              !/^[_A-Za-z][_A-Za-z0-9.-]{0,63}$/.test(user) ||
+              !Number.isInteger(port) ||
+              port < 1 ||
+              port > 65535
+            ) {
+              error("Enter a host, user and port from 1 to 65535.");
+              return;
+            }
+            if (!fingerprint.startsWith("SHA256:") || fingerprint.length < 12) {
+              error(
+                "Add a trusted SHA256 host fingerprint.",
+                $("#sshFingerprint"),
+              );
+              return;
+            }
+            recipe.target = user + "@" + host;
+            recipe.port = String(port);
+            recipe.fingerprint = fingerprint;
+          }
+          if (index === undefined) r.recipes.push(recipe);
+          else r.recipes[index] = recipe;
+          renderCatalog();
+          detail(id, "usage");
+          showToast(
+            "Prototype: usage updated. Credential values were not accessed.",
+          );
+        };
+      }
+      function renderGuide() {
+        const text = esc($("#guideEditor").value);
+        $("#guidePreview").innerHTML = text
+          .split("\n\n")
+          .map((block) =>
+            block.startsWith("# ")
+              ? `<h2>${block.slice(2)}</h2>`
+              : block.startsWith("## ")
+                ? `<h3>${block.slice(3)}</h3>`
+                : `<p>${block.replace(/\n/g, "<br>")}</p>`,
+          )
+          .join("");
+      }
+      $("#guideEditor").oninput = renderGuide;
+      $("#saveGuide").onclick = () =>
+        showToast("Prototype: guide updated for this preview.");
+      function renderEnvironments() {
+        $("#environmentRows").innerHTML = Object.entries(envNames)
+          .filter(([key]) => key !== "shared")
+          .map(
+            ([key, name]) =>
+              `<div class="environment-line row"><div><h3>${esc(name)}</h3><p>${key === "production" ? "Live systems. Each computer needs an explicit grant." : key === "staging" ? "Integration tests and pre-production validation." : "Development and disposable test data."}</p></div><span class="subtle">${resources.filter((r) => r.availability.includes(key)).length} resources</span></div>`,
+          )
+          .join("");
+      }
+      $("#newEnvironment").onclick = () => {
+        open(
+          "Add an environment",
+          '<div class="field"><label for="envName">Name</label><input id="envName" maxlength="120" placeholder="e.g. QA"></div><div class="field"><label for="envSlug">Identifier</label><input id="envSlug" maxlength="40" placeholder="qa"><div class="hint">Lowercase letters, numbers and hyphens.</div></div><div id="formError" class="error" role="alert"></div>',
+          '<button data-close>Cancel</button><button class="primary" id="saveEnv">Add environment</button>',
+        );
+        $("#saveEnv").onclick = () => {
+          const name = $("#envName").value.trim(),
+            slug = $("#envSlug").value.trim();
+          if (!name || !/^[a-z][a-z0-9-]{0,39}$/.test(slug) || envNames[slug]) {
+            error("Enter a name and a unique lowercase identifier.");
+            return;
+          }
+          envNames[slug] = name;
+          $("#filter").insertAdjacentHTML(
+            "beforeend",
+            `<option value="${esc(slug)}">${esc(name)}</option>`,
+          );
+          renderEnvironments();
+          close();
+          showToast("Prototype: environment added.");
+        };
+      };
+      $("#connectComputer").onclick = () =>
+        open(
+          "Connect a computer",
+          '<p class="instruction">Run Kioku’s enrollment command on the computer you want to connect, then approve its requested resource access here.</p><div class="preview-box">kioku access enroll --root &lt;cosm-root-id&gt;</div><div class="notice">No persistent local service. Credentials are fetched only for an authorized operation.</div>',
+        );
+      $("#manageGrant").onclick = () =>
+        open(
+          "Computer access",
+          '<p class="context-path">Felipe’s MacBook / Cosm</p><h3>Resource and environment</h3><div class="action-card"><strong>SES MongoDB</strong><div class="grant-list">' +
+            pill("staging") +
+            '</div></div><p class="instruction">All saved usages still require this credential grant. Adding a recipe does not grant another environment.</p><div class="notice warning">A usage revision that broadens destinations or delivery permissions requires renewed approval.</div>',
+        );
+      $("#revokeDevice").onclick = () => {
+        open(
+          "Revoke computer access?",
+          '<p>Development host will no longer be able to request credentials for Cosm.</p><div class="notice warning">Rotate a credential to invalidate a value already delivered to a running process.</div>',
+          '<button data-close>Keep access</button><button class="primary" id="confirmRevoke">Revoke access</button>',
+        );
+        $("#confirmRevoke").onclick = () => {
+          $("#remoteGrants").innerHTML = '<span class="pill">Revoked</span>';
+          close();
+          showToast("Prototype: computer access revoked.");
+        };
+      };
+      renderCatalog();
+      renderGuide();
+      renderEnvironments();
+    </script>
+  </body>
+</html>
