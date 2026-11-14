@@ -107,6 +107,7 @@ test("AWS execution cannot inherit another account default chain", () => {
     {
       PATH: "/bin",
       AWS_PROFILE: "production",
+      AWS_REGION: "production-region",
       AWS_CONFIG_FILE: "/private/prod",
       AWS_SESSION_TOKEN: "old",
       AWS_EC2_METADATA_DISABLED: "false",
@@ -118,6 +119,7 @@ test("AWS execution cannot inherit another account default chain", () => {
     [],
   );
   assert.equal(env.AWS_PROFILE, undefined);
+  assert.equal(env.AWS_REGION, undefined);
   assert.equal(env.AWS_SESSION_TOKEN, undefined);
   assert.equal(env.AWS_CONFIG_FILE, "/dev/null");
   assert.equal(env.AWS_SHARED_CREDENTIALS_FILE, "/dev/null");

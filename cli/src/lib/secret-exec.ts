@@ -23,6 +23,7 @@ const awsSelectors = new Set([
   "AWS_SHARED_CREDENTIALS_FILE",
   "AWS_WEB_IDENTITY_TOKEN_FILE",
   "AWS_ROLE_ARN",
+  "AWS_ROLE_SESSION_NAME",
   "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
   "AWS_CONTAINER_CREDENTIALS_FULL_URI",
   "AWS_CONTAINER_AUTHORIZATION_TOKEN",
@@ -86,6 +87,8 @@ export function buildSecretEnvironment(
       "AWS_SECRET_ACCESS_KEY",
       "AWS_SESSION_TOKEN",
       "AWS_SECURITY_TOKEN",
+      "AWS_REGION",
+      "AWS_DEFAULT_REGION",
     ])
       delete env[key];
     env.AWS_CONFIG_FILE = "/dev/null";
