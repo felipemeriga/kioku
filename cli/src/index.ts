@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { Command } from "commander";
+import { enrollAccess, listAccess, forgetAccess, execAccess } from "./commands/access.js";
 import kleur from "kleur";
 import { briefing } from "./commands/briefing.js";
 import { doctor } from "./commands/doctor.js";
@@ -78,6 +79,12 @@ Environment:
 Docs: https://github.com/felipemeriga/kioku/tree/main/cli
 `
   );
+
+const access = program.command("access").description("Discover resources and enroll this computer for scoped secret access");
+access.command("list").requiredOption("--root <uuid>", "Root folder ID").action(async opts => { try { await listAccess(opts); } catch(err) { printError(err); process.exitCode=1; } });
+access.command("enroll").requiredOption("--root <uuid>", "Root folder ID").option("--label <label>", "Computer name").option("--no-browser", "Print approval URL only").option("--file-credential-store", "Allow a separate mode-0600 device credential file").action(async opts => { try { await enrollAccess(opts); } catch(err) { printError(err); process.exitCode=1; } });
+access.command("forget").requiredOption("--root <uuid>", "Root folder ID").action(opts => { try { forgetAccess(opts); } catch(err) { printError(err); process.exitCode=1; } });
+program.command("exec").description("Execute a command with authorized secrets; use -- before command arguments").requiredOption("--root <uuid>", "Root folder ID").requiredOption("--binding <uuid@revision>", "Exact binding, repeat for multiple resources", (value:string,previous:string[]) => [...previous,value], [] as string[]).argument("<command...>").action(async (command:string[],opts) => { try { await execAccess(command,opts); } catch(err) { printError(err); process.exitCode=1; } });
 
 program
   .command("quickstart")
