@@ -279,3 +279,13 @@
     display: none;
   }
 }
+
+.access-additional-details > summary {
+  cursor: pointer;
+  color: #afa0bf;
+  font-size: 13px;
+}
+.access-additional-details > summary:focus-visible {
+  outline: 2px solid #24dfef;
+  outline-offset: 4px;
+}

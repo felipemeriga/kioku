@@ -378,20 +378,23 @@ export default function ResourceDialog({
                     }
                     label="Shared across environments"
                   />
-                  <Box className="access-split-fields">
-                    <TextField
-                      label="Account"
-                      value={account}
-                      onChange={(e) => setAccount(e.target.value)}
-                      slotProps={{ htmlInput: { maxLength: 120 } }}
-                    />
-                    <TextField
-                      label="Region"
-                      value={region}
-                      onChange={(e) => setRegion(e.target.value)}
-                      slotProps={{ htmlInput: { maxLength: 120 } }}
-                    />
-                  </Box>
+                  <details className="access-additional-details">
+                    <summary>Additional details (optional)</summary>
+                    <Box className="access-split-fields" sx={{ mt: 2 }}>
+                      <TextField
+                        label="Account (optional)"
+                        value={account}
+                        onChange={(e) => setAccount(e.target.value)}
+                        slotProps={{ htmlInput: { maxLength: 120 } }}
+                      />
+                      <TextField
+                        label="Region (optional)"
+                        value={region}
+                        onChange={(e) => setRegion(e.target.value)}
+                        slotProps={{ htmlInput: { maxLength: 120 } }}
+                      />
+                    </Box>
+                  </details>
                 </>
               )}
               {mode === "detail" && resource && (
