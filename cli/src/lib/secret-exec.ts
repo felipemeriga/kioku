@@ -232,7 +232,11 @@ export async function runSecretCommand(
         for (const { source, sink } of forwards) {
           source.unpipe(sink);
           sink.destroy();
+          source.destroy();
         }
+        // Filled child pipes can otherwise keep the close event pending forever.
+        child.stdout.destroy();
+        child.stderr.destroy();
         finishIfReady();
       }, 3000);
       // Keep escalation alive even if the group leader exits before descendants.

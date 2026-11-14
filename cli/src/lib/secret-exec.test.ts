@@ -251,7 +251,7 @@ test(
       [
         process.execPath,
         "-e",
-        'process.stdout.write("nonsecret output");setInterval(()=>{},1000)',
+        'process.stdout.write("x".repeat(10*1024*1024));setInterval(()=>{},1000)',
       ],
       {
         invocation_id: "test",
