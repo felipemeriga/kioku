@@ -371,7 +371,7 @@ function RootAccessContent({ rootId }: { rootId: string }) {
           )}
           {tab === 1 && (
             <EnvironmentGuide
-              key={`${rootId}:${catalog.guide.revision}`}
+              key={rootId}
               root={rootId}
               catalog={catalog}
               onSaved={refresh}

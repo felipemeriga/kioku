@@ -24,27 +24,33 @@
 ### Task1: Contract, validation and folder entry
 Files: frontend/src/lib/rootAccess.ts, rootAccess.test.ts, App.tsx, DocumentsPage.tsx, AppLayout.tsx.
 Interfaces: GET /api/root-access/{root} yields RootAccessCatalog as confirmed by backend agent; mutation methods follow agreed contract. Page /folders/:rootId/access.
-- [ ] Write validation tests for variable names, ambiguous mappings, aliases, fields and secret-safe errors; run RED.
-- [ ] Implement validators and typed API functions without secret caching.
-- [ ] Add routed entry and root/descendant buttons.
-- [ ] Run tests and typecheck, commit.
+- [x] Write validation tests for variable names, ambiguous mappings, aliases, fields and secret-safe errors; run RED.
+- [x] Implement validators and typed API functions without secret caching.
+- [x] Add routed entry and root/descendant buttons.
+- [x] Run tests and typecheck, commit.
 
 ### Task2: Resource catalog, binding and credential dialogs
 Files: frontend/src/pages/RootAccessPage.tsx, frontend/src/components/access/ResourceDialog.tsx, access.css.
 Interfaces: RootAccessCatalog, safe mutation callbacks, resource/binding IDs and revisions.
-- [ ] Write interaction tests for search/filter, invalid mapping, hidden/discarded secret, correct environment binding and empty/error states.
-- [ ] Implement approved resource list, side notes, responsive drawer, forms, exact binding selection and dedicated credentials save.
-- [ ] Run interaction tests/typecheck/lint, commit.
+- [x] Write interaction tests for search/filter, invalid mapping, hidden/discarded secret, correct environment binding and empty/error states.
+- [x] Implement approved resource list, side notes, responsive drawer, forms, exact binding selection and dedicated credentials save.
+- [x] Run interaction tests/typecheck/lint, commit.
 
 ### Task3: Guide, environments, devices and activity
 Files: frontend/src/components/access/AccessAdministration.tsx, RootAccessPage.test.tsx.
 Interfaces: Aggregate metadata plus guide/environment/device/grant/enrollment APIs.
-- [ ] Write tests for safe Markdown, guide revision, environment validation, device revoke and grant selection.
-- [ ] Implement tabs and API mutations, safe feedback and enrollment approval route state.
-- [ ] Run frontend suite/lint/build, commit.
+- [x] Write tests for safe Markdown, guide revision, environment validation, device revoke and grant selection.
+- [x] Implement tabs and API mutations, safe feedback and enrollment approval route state.
+- [x] Run frontend suite/lint/build, commit.
 
 ### Task4: Browser acceptance and final review
 - [ ] Test approved catalog/dialog/guide and root entry in isolated browser against backend integration when available.
 - [ ] Test mobile390px and long resource/variable text; no viewport overflow.
 - [ ] Review whole diff and parent independent review; correct important failures with regression tests.
 - [ ] Push PR with measured checks and limitations; no deploy in UI subtask.
+
+## Progress
+- UI implementation commit62a49da. Focused15 tests passed; full frontend345/345, lint/typecheck/build passed.
+- Browser mocked-catalog acceptance passed desktop1512, widths1024/720/390, long names, resource drawer and guide; no JS errors or horizontal overflow. This is frontend acceptance only, not live backend integration.
+- Concurrent guide edit regression observed RED, fixed and focused8/8 passed. Preserve draft base revision and do not remount on aggregate refresh.
+- Pending parent independent review and real backend integration before deployment.

@@ -3,6 +3,7 @@ import { screen, fireEvent, waitFor } from "@testing-library/react";
 import { Route, Routes } from "react-router-dom";
 import { renderWithProviders } from "../test/renderWithProviders";
 import RootAccessPage from "./RootAccessPage";
+import { EnvironmentGuide } from "../components/access/AccessAdministration";
 import type { AccessCatalog } from "../lib/rootAccess";
 import { fetchAccess, mutateAccess } from "../lib/rootAccess";
 vi.mock("../lib/supabase", () => ({
@@ -157,6 +158,37 @@ describe("root access interface", () => {
         "POST",
         {},
       ),
+    );
+  });
+});
+
+describe("guide concurrent edits", () => {
+  it("keeps the draft and original revision when server metadata refreshes", async () => {
+    const view = renderWithProviders(
+      <EnvironmentGuide root={root} catalog={catalog} onSaved={() => {}} />,
+    );
+    fireEvent.change(screen.getByLabelText("Markdown guide"), {
+      target: { value: "My unsaved work" },
+    });
+    view.rerender(
+      <EnvironmentGuide
+        root={root}
+        catalog={{
+          ...catalog,
+          guide: { markdown: "External edit", revision: 4 },
+        }}
+        onSaved={() => {}}
+      />,
+    );
+    expect(screen.getByLabelText("Markdown guide")).toHaveValue(
+      "My unsaved work",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Save guide" }));
+    await waitFor(() =>
+      expect(mutateAccess).toHaveBeenCalledWith(root, "/guide", "PUT", {
+        markdown: "My unsaved work",
+        expected_revision: 3,
+      }),
     );
   });
 });

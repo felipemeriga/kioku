@@ -72,7 +72,7 @@ export const accessKey = (root: string) => ["root-access", root] as const;
 const path = (root: string, suffix = "") =>
   `/api/root-access/${encodeURIComponent(root)}${suffix}`;
 export async function fetchAccess(root: string): Promise<AccessCatalog> {
-  return (await apiFetch(path(root))).json();
+  return (await apiFetch(path(root), { cache: "no-store" })).json();
 }
 export async function mutateAccess<T = unknown>(
   root: string,
@@ -82,6 +82,7 @@ export async function mutateAccess<T = unknown>(
 ): Promise<T> {
   const res = await apiFetch(path(root, suffix), {
     method,
+    cache: "no-store",
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
   return res.status === 204 ? (undefined as T) : res.json();

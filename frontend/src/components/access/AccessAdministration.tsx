@@ -22,6 +22,7 @@ import type { AccessCatalog, AccessEnrollment } from "../../lib/rootAccess";
 type Props = { root: string; catalog: AccessCatalog; onSaved: () => void };
 export function EnvironmentGuide({ root, catalog, onSaved }: Props) {
   const [text, setText] = useState(catalog.guide.markdown);
+  const [baseRevision, setBaseRevision] = useState(catalog.guide.revision);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -33,10 +34,16 @@ export function EnvironmentGuide({ root, catalog, onSaved }: Props) {
     setBusy(true);
     setError("");
     try {
-      await mutateAccess(root, "/guide", "PUT", {
-        markdown: text,
-        expected_revision: catalog.guide.revision,
-      });
+      const savedGuide = await mutateAccess<{ revision?: number }>(
+        root,
+        "/guide",
+        "PUT",
+        {
+          markdown: text,
+          expected_revision: baseRevision,
+        },
+      );
+      setBaseRevision(savedGuide.revision ?? baseRevision + 1);
       onSaved();
       setSaved(true);
     } catch (e) {
