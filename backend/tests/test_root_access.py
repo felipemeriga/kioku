@@ -689,3 +689,47 @@ def test_revoking_one_computer_does_not_revoke_another(api, db, fake_provider):
     )
     assert denied.status_code == 403 and SECRET not in denied.text
     assert allowed.status_code == 200 and allowed.json()["environment"]["MONGO_URI"] == SECRET
+
+
+def test_discovery_requires_selection_for_one_resource_with_three_environments(db):
+    from services.root_access.discovery import discover_resources
+
+    original = db.rows["access_bindings"][0]
+    for slug in ("development", "production"):
+        environment_id = str(uuid4())
+        db.rows["root_environments"].append(
+            {
+                "id": environment_id,
+                "user_id": OWNER,
+                "root_folder_id": ROOT,
+                "name": slug.title(),
+                "slug": slug,
+                "sensitivity": "production" if slug == "production" else "normal",
+            }
+        )
+        binding = deepcopy(original)
+        binding.update({"id": str(uuid4()), "environment_id": environment_id})
+        db.rows["access_bindings"].append(binding)
+    all_environments = discover_resources(db, OWNER, ROOT, "SES")
+    assert len(all_environments["resources"]) == 1
+    assert len(all_environments["resources"][0]["bindings"]) == 3
+    assert all_environments["requires_explicit_selection"] is True
+    staging = discover_resources(db, OWNER, ROOT, "SES", environment="staging")
+    assert len(staging["resources"][0]["bindings"]) == 1
+    assert staging["requires_explicit_selection"] is False
+
+
+def test_discovery_requires_selection_for_shared_resource_with_two_consumers(db):
+    from services.root_access.discovery import discover_resources
+
+    db.rows["access_resources"][0].update(
+        {"name": "Grafana", "shared": True, "type": "observability"}
+    )
+    db.rows["access_bindings"][0].update({"environment_id": None, "consumer": "Dashboard API"})
+    second = deepcopy(db.rows["access_bindings"][0])
+    second.update({"id": str(uuid4()), "consumer": "Log exploration"})
+    db.rows["access_bindings"].append(second)
+    found = discover_resources(db, OWNER, ROOT, "Grafana", environment="staging")
+    assert len(found["resources"]) == 1
+    assert len(found["resources"][0]["bindings"]) == 2
+    assert found["requires_explicit_selection"] is True

@@ -80,7 +80,7 @@ def discover_resources(sb, owner, root, query="", environment=None, account=None
         "root_id": str(root),
         "environments": envs,
         "resources": results,
-        "requires_explicit_selection": len(results) > 1,
+        "requires_explicit_selection": sum(len(resource["bindings"]) for resource in results) > 1,
         "hint": (
             "Select exact binding IDs and revisions. Credentials are used only by the "
             "enrolled Kioku CLI; MCP never returns values."
