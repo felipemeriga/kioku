@@ -11,6 +11,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ReadableContent } from "./agent-evidence/ReadableContent";
+import "./BriefingPanel.css";
 import { qk } from "../lib/queryKeys";
 import {
   Alert,
@@ -470,8 +471,8 @@ export default function BriefingPanel({ folderId }: Props) {
                           {section.status === "pinned"
                             ? "Pinned"
                             : section.status === "hybrid"
-                              ? "Mixed"
-                              : "Generated"}
+                            ? "Mixed"
+                            : "Generated"}
                         </Typography>
                         <Box
                           className="section-chevron"
@@ -678,8 +679,8 @@ function SectionHeading({
         {status === "pinned"
           ? "Pinned"
           : status === "hybrid"
-            ? "Mixed"
-            : "Generated"}
+          ? "Mixed"
+          : "Generated"}
       </Typography>
       <Tooltip title="Edit section">
         <IconButton size="small" onClick={onEdit}>
@@ -695,173 +696,119 @@ function SectionHeading({
 function OverviewContent({ section }: { section: BriefingSection }) {
   const content = section.content;
   if (!content) return <Empty />;
-
-  // If content is a plain string, treat the first sentence as the lead.
   if (typeof content === "string") {
-    const trimmed = content.trim();
-    if (!trimmed) return <Empty />;
-    // Split on first sentence boundary for the lead.
-    const dotIdx = trimmed.indexOf(". ");
-    const lead =
-      dotIdx > 0 ? trimmed.slice(0, dotIdx + 1) : trimmed.slice(0, 200);
-    const rest = dotIdx > 0 ? trimmed.slice(dotIdx + 2) : "";
     return (
-      <Stack spacing={1.5} sx={{ maxWidth: "78ch" }}>
-        <Typography
-          sx={{
-            fontSize: 17,
-            fontWeight: 400,
-            lineHeight: 1.75,
-            color: brand.text,
-          }}
-        >
-          {lead}
-        </Typography>
-        {rest && <BriefingMarkdown content={rest} />}
-      </Stack>
+      <div className="briefing-introduction">
+        <BriefingMarkdown content={content} />
+      </div>
     );
   }
-
-  // Object with a 'summary' or 'description' field
-  if (
-    typeof content === "object" &&
-    content !== null &&
-    !Array.isArray(content)
-  ) {
-    const obj = content as Record<string, unknown>;
-    const lead =
-      typeof obj.purpose === "string" && obj.purpose.trim()
-        ? obj.purpose
-        : typeof obj.summary === "string"
-          ? obj.summary
-          : typeof obj.description === "string"
-            ? obj.description
-            : null;
-    const description =
-      typeof obj.description === "string" && obj.description !== lead
-        ? obj.description
-        : null;
-    if (lead) {
-      return (
-        <Stack spacing={1.5} sx={{ maxWidth: "78ch" }}>
-          <Typography
-            sx={{ fontSize: 17, lineHeight: 1.65, color: brand.text }}
-          >
-            {lead}
-          </Typography>
-          {description &&
-            (description.length > 600 ? (
-              <Box
-                component="details"
-                sx={{
-                  color: brand.muted,
-                  "& summary": { cursor: "pointer", mb: 1 },
-                }}
-              >
-                <summary>More context</summary>
-                <BriefingMarkdown content={description} />
-              </Box>
-            ) : (
-              <BriefingMarkdown content={description} />
-            ))}
-        </Stack>
-      );
-    }
-  }
-
-  // Fallback
-  return <SectionReader content={content} />;
+  if (typeof content !== "object" || Array.isArray(content))
+    return <SectionReader content={content} />;
+  const fields = Object.entries(content as Record<string, unknown>);
+  const leadKey = ["purpose", "summary", "description"].find(
+    (key) =>
+      typeof (content as Record<string, unknown>)[key] === "string" &&
+      String((content as Record<string, unknown>)[key]).trim(),
+  );
+  return (
+    <div className="briefing-introduction">
+      {leadKey && (
+        <div className="briefing-introduction-lead">
+          <BriefingMarkdown
+            content={String((content as Record<string, unknown>)[leadKey])}
+          />
+        </div>
+      )}
+      {fields
+        .filter(([key]) => key !== leadKey)
+        .map(([key, value]) =>
+          key === "description" &&
+          typeof value === "string" &&
+          value.length > 600 ? (
+            <details className="briefing-context" key={key}>
+              <summary>Full description</summary>
+              <BriefingMarkdown content={value} />
+            </details>
+          ) : (
+            <ObjectField
+              key={key}
+              label={key}
+              value={value}
+              hideHeading={key === "description"}
+            />
+          ),
+        )}
+    </div>
+  );
 }
 
-// ── Architecture (02) ───────────────────────────────────────────────────
-
+// Presentation uses the stored values verbatim; no inferred statuses or references.
 function ArchitectureContent({ section }: { section: BriefingSection }) {
   const [showAll, setShowAll] = useState(false);
   const content = section.content;
   if (!content || typeof content !== "object" || Array.isArray(content))
     return <SectionReader content={content} />;
   const record = content as Record<string, unknown>;
-  const components = Array.isArray(record.components)
-    ? record.components.filter(
-        (item): item is { name: string; role?: string; path?: string } =>
-          !!item && typeof item === "object" && typeof item.name === "string",
-      )
-    : [];
+  const components = Array.isArray(record.components) ? record.components : [];
   if (!components.length) return <SectionReader content={content} />;
-  const summary =
-    typeof record.summary === "string" ? record.summary : record.description;
+  const context = Object.entries(record).filter(
+    ([key]) => key !== "components",
+  );
   return (
-    <Stack spacing={2.5} sx={{ minWidth: 0 }}>
-      <Box
-        sx={{
-          display: "grid",
-          gridTemplateColumns:
-            "repeat(auto-fit, minmax(min(100%, 320px), 1fr))",
-          gap: 2,
-        }}
-      >
-        {(showAll ? components : components.slice(0, 6)).map(
-          (component, index) => (
-            <Box
-              key={index}
-              component="article"
-              sx={{
-                border: `1px solid ${brand.line}`,
-                borderRadius: 1,
-                p: 2.25,
-                minWidth: 0,
-                bgcolor: brand.surface2,
-              }}
-            >
-              <Typography
-                component="h3"
-                sx={{
-                  fontWeight: 650,
-                  fontSize: 17,
-                  mb: 1,
-                  overflowWrap: "anywhere",
-                }}
-              >
-                {component.name}
-              </Typography>
-              {typeof component.role === "string" &&
-                (component.role.length > 500 ? (
-                  <Box
-                    component="details"
-                    sx={{
-                      "& summary": {
-                        cursor: "pointer",
-                        color: brand.muted,
-                        py: 0.5,
-                      },
-                      "&[open] summary": { mb: 1 },
-                    }}
-                  >
-                    <summary>Responsibility and details</summary>
-                    <BriefingMarkdown content={component.role} />
-                  </Box>
-                ) : (
-                  <BriefingMarkdown content={component.role} />
-                ))}
-              {typeof component.path === "string" && (
-                <Box
-                  component="code"
-                  sx={{
-                    display: "block",
-                    mt: 1.5,
-                    fontFamily: fonts.mono,
-                    fontSize: 12,
-                    color: brand.cyan,
-                    overflowWrap: "anywhere",
-                  }}
-                >
+    <div className="briefing-components">
+      {(showAll ? components : components.slice(0, 6)).map((value, index) => {
+        if (
+          !value ||
+          typeof value !== "object" ||
+          typeof value.name !== "string"
+        )
+          return (
+            <div className="briefing-component-row" key={index}>
+              <SectionReader content={value} />
+            </div>
+          );
+        const component = value as Record<string, unknown>;
+        const extras = Object.entries(component).filter(
+          ([key]) => !["name", "role", "path"].includes(key),
+        );
+        return (
+          <article className="briefing-component-row" key={index}>
+            <div className="briefing-component-identity">
+              <h3>{String(component.name)}</h3>
+              {typeof component.path === "string" ? (
+                <code className="briefing-component-path">
                   {component.path}
-                </Box>
+                </code>
+              ) : (
+                component.path != null && (
+                  <ObjectField label="path" value={component.path} />
+                )
               )}
-            </Box>
-          ),
-        )}
-      </Box>
+            </div>
+            <div className="briefing-component-body">
+              {typeof component.role === "string" &&
+              component.role.length > 500 ? (
+                <details className="briefing-component-details">
+                  <summary>Responsibility and details</summary>
+                  <BriefingMarkdown content={component.role} />
+                </details>
+              ) : (
+                component.role != null && (
+                  <ObjectField
+                    label="role"
+                    value={component.role}
+                    hideHeading
+                  />
+                )
+              )}
+              {extras.map(([key, value]) => (
+                <ObjectField key={key} label={key} value={value} />
+              ))}
+            </div>
+          </article>
+        );
+      })}
       {components.length > 6 && (
         <Button
           aria-expanded={showAll}
@@ -870,6 +817,7 @@ function ArchitectureContent({ section }: { section: BriefingSection }) {
             alignSelf: "flex-start",
             color: brand.cyan,
             textTransform: "none",
+            mt: 1,
           }}
         >
           {showAll
@@ -877,25 +825,20 @@ function ArchitectureContent({ section }: { section: BriefingSection }) {
             : `Show all ${components.length} components`}
         </Button>
       )}
-      {Boolean(summary || record.data_flow) && (
-        <Box
-          component="details"
-          sx={{
-            maxWidth: "76ch",
-            color: brand.muted,
-            "& summary": { cursor: "pointer", fontWeight: 600, mb: 1.5 },
-          }}
-        >
+      {context.length > 0 && (
+        <details className="briefing-context">
           <summary>How components connect</summary>
-          {typeof summary === "string" && (
-            <BriefingMarkdown content={summary} />
-          )}
-          {Boolean(record.data_flow) && (
-            <SectionReader content={record.data_flow} />
-          )}
-        </Box>
+          {context.map(([key, value]) => (
+            <ObjectField
+              key={key}
+              label={key}
+              value={value}
+              hideHeading={["summary", "description"].includes(key)}
+            />
+          ))}
+        </details>
       )}
-    </Stack>
+    </div>
   );
 }
 
@@ -906,8 +849,8 @@ function MetaLine({ section }: { section: BriefingSection }) {
     section.provenance === "agent_mcp"
       ? "Updated by an agent"
       : section.provenance === "user_ui"
-        ? "Edited in Kioku"
-        : "Generated";
+      ? "Edited in Kioku"
+      : "Generated";
   const when = section.updated_at
     ? new Date(section.updated_at).toLocaleDateString()
     : "";
@@ -999,27 +942,7 @@ function SectionReader({ content }: { content: unknown }) {
       </Stack>
     );
   }
-  return <Empty />;
-}
-
-function ReadingHeading({ children }: { children: string }) {
-  return (
-    <Typography
-      component="h3"
-      sx={{
-        fontSize: 15,
-        fontWeight: 700,
-        color: brand.text,
-        borderLeft: `2px solid ${brand.magenta}`,
-        bgcolor: alpha(brand.magenta, 0.06),
-        px: 1.75,
-        py: 1,
-        mb: 1.5,
-      }}
-    >
-      {children}
-    </Typography>
-  );
+  return <BriefingMarkdown content={String(content)} />;
 }
 
 function ReadingSection({
@@ -1029,9 +952,8 @@ function ReadingSection({
   content: unknown;
   section: "deployment" | "activity";
 }) {
-  if (!content || typeof content !== "object" || Array.isArray(content)) {
+  if (!content || typeof content !== "object" || Array.isArray(content))
     return <SectionReader content={content} />;
-  }
   const fields = Object.entries(content as Record<string, unknown>).filter(
     ([, value]) =>
       value != null &&
@@ -1043,20 +965,34 @@ function ReadingSection({
     section === "deployment"
       ? ["environments", "how_to_deploy", "ci_cd_notes"]
       : ["summary", "highlights"];
-  fields.sort(([a], [b]) => {
-    const ai = order.indexOf(a);
-    const bi = order.indexOf(b);
-    return (ai < 0 ? order.length : ai) - (bi < 0 ? order.length : bi);
-  });
+  fields.sort(
+    ([a], [b]) =>
+      (order.indexOf(a) < 0 ? order.length : order.indexOf(a)) -
+      (order.indexOf(b) < 0 ? order.length : order.indexOf(b)),
+  );
   return (
-    <Stack spacing={3.5} sx={{ maxWidth: "76ch" }}>
+    <div className={`briefing-reading-fields briefing-reading-${section}`}>
       {fields.map(([label, value]) => (
-        <Box key={label} component="section">
-          <ReadingHeading>{fieldHeading(label)}</ReadingHeading>
-          <ObjectField label={label} value={value} hideHeading />
-        </Box>
+        <section className="briefing-reading-field" key={label}>
+          <h3 className="briefing-field-heading">{fieldHeading(label)}</h3>
+          <div className="briefing-field-content">
+            {section === "activity" &&
+            label === "highlights" &&
+            Array.isArray(value) ? (
+              <ol className="briefing-activity-list">
+                {value.map((item, index) => (
+                  <li key={index}>
+                    <SectionReader content={item} />
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <ObjectField label={label} value={value} hideHeading />
+            )}
+          </div>
+        </section>
       ))}
-    </Stack>
+    </div>
   );
 }
 
@@ -1129,6 +1065,7 @@ function BriefingMarkdown({
 }) {
   return (
     <Box
+      className="briefing-markdown"
       sx={{
         minWidth: 0,
         maxWidth: "100%",
@@ -1281,58 +1218,19 @@ function ObjectField({
   if (typeof value === "object") {
     return <SectionReader content={value} />;
   }
-  const str = String(value);
-  const PROSE_KEYS = new Set([
-    "summary",
-    "description",
-    "purpose",
-    "data_flow",
-    "local_dev",
-    "ci_cd_notes",
-    "how_to_deploy",
-  ]);
-  if (PROSE_KEYS.has(label) || str.length > 80) {
-    return (
-      <Box>
-        {!hideHeading && (
-          <Typography
-            sx={{
-              fontSize: "0.8125rem",
-              fontFamily: fonts.mono,
-              color: brand.muted,
-              textTransform: "none",
-              letterSpacing: "0.08em",
-              mb: 0.4,
-            }}
-          >
-            {heading}
-          </Typography>
-        )}
-        <BriefingMarkdown content={str} />
-      </Box>
-    );
-  }
   return (
-    <Typography
-      sx={{ fontSize: "0.88rem", color: brand.text, lineHeight: 1.5 }}
-    >
+    <Box className="briefing-object-field">
       {!hideHeading && (
-        <Box
-          component="span"
-          sx={{
-            fontFamily: fonts.mono,
-            color: brand.cyan,
-            fontSize: "0.75rem",
-            mr: 0.75,
-            textTransform: "none",
-            letterSpacing: "0.08em",
-          }}
+        <Typography
+          component="h4"
+          className="briefing-object-label"
+          sx={{ fontSize: 13, color: brand.muted, mb: 0.5 }}
         >
-          {label}
-        </Box>
+          {heading}
+        </Typography>
       )}
-      {str}
-    </Typography>
+      <BriefingMarkdown content={String(value)} />
+    </Box>
   );
 }
 
@@ -1397,8 +1295,8 @@ function SectionEditor({
           !draft.trim()
             ? "Add content before saving."
             : draft.length > 50000
-              ? "Keep the section under 50,000 characters."
-              : undefined
+            ? "Keep the section under 50,000 characters."
+            : undefined
         }
         onChange={(e) => setDraft(e.target.value)}
         InputProps={{
