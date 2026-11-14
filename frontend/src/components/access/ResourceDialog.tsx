@@ -132,6 +132,7 @@ export default function ResourceDialog({
       setMode("credential");
       onSaved();
     } catch (err) {
+      onSaved();
       setError(accessError(err));
     } finally {
       setBusy(false);

@@ -143,6 +143,31 @@ describe("resource-first credentials", () => {
       screen.getAllByRole("button", { name: /Add credential/ })
     ).toHaveLength(2);
   });
+  it("rejects invalid AWS bundle whitespace without sending a write", () => {
+    const c = structuredClone(catalog);
+    c.credentials = [
+      {
+        ...credential,
+        kind: "aws",
+        fields: ["access_key_id", "secret_access_key"],
+      },
+    ];
+    render(c);
+    fireEvent.click(screen.getByRole("button", { name: "Add credential" }));
+    fireEvent.change(screen.getByLabelText(/access key id/i), {
+      target: { value: "invalid key" },
+    });
+    fireEvent.change(screen.getByLabelText(/secret access key/i), {
+      target: { value: "SYNTHETIC" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save credential" }));
+    expect(
+      screen.getByText(
+        "AWS credential fields cannot contain whitespace or control characters."
+      )
+    ).toBeInTheDocument();
+    expect(mutateAccess).not.toHaveBeenCalled();
+  });
   it("uses AWS region metadata CAS before writing bundle at new revision", async () => {
     const c = structuredClone(catalog);
     c.credentials = [

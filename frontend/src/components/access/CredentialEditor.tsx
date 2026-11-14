@@ -52,6 +52,19 @@ export default function CredentialEditor({
       return;
     }
     if (
+      credential.kind === "aws" &&
+      Object.values(values).some((value) =>
+        [...value].some(
+          (char) => char.charCodeAt(0) <= 32 || char.charCodeAt(0) === 127
+        )
+      )
+    ) {
+      setError(
+        "AWS credential fields cannot contain whitespace or control characters."
+      );
+      return;
+    }
+    if (
       expiry &&
       (!Number.isFinite(Date.parse(expiry)) || Date.parse(expiry) <= Date.now())
     ) {
@@ -161,8 +174,8 @@ export default function CredentialEditor({
       ))}
       {credential.kind === "aws" && (
         <Typography color="text.secondary" variant="body2">
-          Omitting the session token removes it on replacement. Region comes
-          from resource details.
+          Omitting the session token removes it on replacement. Region is
+          configured for this environment.
         </Typography>
       )}
       {credential.kind === "aws" && (
