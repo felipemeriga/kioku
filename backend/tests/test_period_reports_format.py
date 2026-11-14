@@ -491,3 +491,44 @@ def test_current_open_observation_at_cutoff_is_not_confused_with_later_merge():
     state["status"] = "PR open, pending merge"
     state["items"][0]["text"] = "PR #285 contains only the startup command patch."
     assert validate_report(snapshot, value)
+
+
+@pytest.mark.parametrize(
+    "claim", ["The full pipeline is operational.", "The service was deployed to staging."]
+)
+def test_principal_branch_changes_are_not_runtime_observations(claim):
+    from services.period_reports import validate_runtime_provenance
+
+    with pytest.raises(ValueError, match="requires observed evidence"):
+        validate_runtime_provenance(
+            claim, [{"kind": "git_commit", "text": "Added promote.yml workflow."}]
+        )
+
+
+@pytest.mark.parametrize(
+    "claim",
+    [
+        "Merged; not deployed.",
+        "Whether deployed was not checked.",
+        "Deployed: unverified.",
+        "Migration-gated workflows merged.",
+    ],
+)
+def test_runtime_uncertainty_does_not_become_an_assertion(claim):
+    from services.period_reports import validate_runtime_provenance
+
+    validate_runtime_provenance(claim, [{"kind": "git_commit", "text": "Added workflow."}])
+
+
+def test_recorded_runtime_observations_can_support_a_rollout_claim():
+    from services.period_reports import validate_runtime_provenance
+
+    validate_runtime_provenance(
+        "Staging deployed.",
+        [
+            {
+                "kind": "journal",
+                "text": "Observed staging pipeline succeeded; live rollout not checked.",
+            }
+        ],
+    )

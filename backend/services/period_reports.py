@@ -103,6 +103,8 @@ REPORT_GUIDE = (
     "a short label; put qualifications and supporting details in its items. "
     "Do not repeat findings across topics or create generic warnings/recommendations. "
     "Journal entries are reported work. Commands show intent, not successful execution. "
+    "Do not call a system operational or deployed using commit-only citations. "
+    "Describe the merged code or workflow instead; runtime claims need recorded observations. "
     "A principal-branch commit confirms code presence, not "
     "deployment or successful runtime behavior. Distinguish observation dates from incident dates. "
     "Later unsupported claims do not override stronger evidence. Explicitly reconcile reverts. "
@@ -713,6 +715,20 @@ def validate_numeric_ranges(text, evidence):
             raise ValueError("Report numeric range lacks evidence for its unit; omit or qualify it")
 
 
+def validate_runtime_provenance(text, evidence):
+    """A Git change alone cannot establish a successful rollout or operation."""
+    if any(source["kind"] in {"journal", "original"} for source in evidence):
+        return
+    for match in re.finditer(r"\b(?:operational|deployed)\b", text, re.IGNORECASE):
+        prefix = text[max(0, match.start() - 35) : match.start()].lower()
+        suffix = text[match.end() : match.end() + 30].lower()
+        if re.search(r"\b(?:not|never|unverified|unconfirmed|pending|whether)\b[^.;]*$", prefix):
+            continue
+        if re.match(r"\s*(?:[:;,—–-]\s*)?(?:unverified|unconfirmed|unknown|pending)\b", suffix):
+            continue
+        raise ValueError("Report runtime claim requires observed evidence, not only Git changes")
+
+
 def validate_open_pr_state(snapshot, topic, sources):
     """An opening event is not proof a PR stayed open through later activity."""
     state = topic["final_state"]
@@ -795,6 +811,9 @@ def validate_report(snapshot, value):
 
     cited(value["summary_source_ids"])
     if compact_report(snapshot):
+        validate_runtime_provenance(
+            value["summary"], [sources[i] for i in value["summary_source_ids"]]
+        )
         validate_numeric_ranges(
             value["summary"], [sources[i]["text"] for i in value["summary_source_ids"]]
         )
@@ -811,6 +830,10 @@ def validate_report(snapshot, value):
                 item["source_ids"] = [source, *item["source_ids"]]
             item["evidence_quote"] = text
         if compact_report(snapshot):
+            validate_runtime_provenance(
+                " ".join(item.get(k, "") for k in ("title", "text", "detail")),
+                [sources[i] for i in item["source_ids"]],
+            )
             validate_numeric_ranges(
                 " ".join(item.get(k, "") for k in ("title", "text", "detail")),
                 [sources[i]["text"] for i in item["source_ids"]],
@@ -868,6 +891,10 @@ def validate_report(snapshot, value):
                 finding(item, 320 if compact_report(snapshot) else 500)
             if compact_report(snapshot):
                 validate_open_pr_state(snapshot, topic, sources)
+                validate_runtime_provenance(
+                    state["status"],
+                    [sources[i] for item in state["items"] for i in item["source_ids"]],
+                )
         value["format_version"] = 2
         value["merges"] = []
         for source in sources.values():
