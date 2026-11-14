@@ -37,6 +37,7 @@ import SearchIcon from "@mui/icons-material/Search";
 import GridViewIcon from "@mui/icons-material/GridView";
 import ViewListIcon from "@mui/icons-material/ViewList";
 import CreateNewFolderIcon from "@mui/icons-material/CreateNewFolder";
+import KeyIcon from "@mui/icons-material/Key";
 import HomeIcon from "@mui/icons-material/Home";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import { useDocuments } from "../hooks/useDocuments";
@@ -113,6 +114,13 @@ export default function DocumentsPage() {
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
+  useEffect(() => {
+    if (searchParams.get("new_folder") !== "1") return;
+    setNewFolderOpen(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete("new_folder");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   // Multi-select
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
@@ -459,8 +467,9 @@ export default function DocumentsPage() {
           justifyContent="space-between"
           alignItems={{ xs: "flex-start", sm: "center" }}
           gap={2}
+          sx={{ flexWrap: "wrap" }}
         >
-          <Box>
+          <Box sx={{ minWidth: 0, flex: "1 1 auto", overflowWrap: "anywhere" }}>
             <Typography
               component="h1"
               sx={{
@@ -491,7 +500,7 @@ export default function DocumentsPage() {
             direction="row"
             gap={1.25}
             alignItems="center"
-            flexWrap="nowrap"
+            flexWrap="wrap"
           >
             {ingestionTasks.length > 0 && (
               <Tooltip title="Processing status">
@@ -520,6 +529,41 @@ export default function DocumentsPage() {
               accept={ACCEPTED_TYPES}
               onChange={handleFileSelect}
             />
+            {currentFolderId &&
+              breadcrumbs[0] &&
+              !breadcrumbsQuery.isPlaceholderData && (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<KeyIcon fontSize="small" />}
+                  title={`Environments & access · ${breadcrumbs[0].name}`}
+                  onClick={() =>
+                    navigate(`/folders/${breadcrumbs[0].id}/access`)
+                  }
+                  sx={{
+                    borderColor: brand.line,
+                    color: brand.muted,
+                    maxWidth: "100%",
+                    minWidth: 0,
+                  }}
+                >
+                  <Typography
+                    component="span"
+                    data-access-label
+                    sx={{
+                      minWidth: 0,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      font: "inherit",
+                    }}
+                  >
+                    {breadcrumbs.length === 1
+                      ? "Environments & access"
+                      : `Access · ${breadcrumbs[0].name}`}
+                  </Typography>
+                </Button>
+              )}
             <Button
               size="small"
               variant="outlined"

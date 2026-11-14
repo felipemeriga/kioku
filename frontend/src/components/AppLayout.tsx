@@ -79,9 +79,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const evidenceReader = /^\/folders\/[^/]+\/agent-sessions\/[^/]+$/.test(
     location.pathname,
   );
-  const activePage = evidenceReader
-    ? "/documents"
-    : (location.pathname as AppPage) || "/";
+  const accessSettings = /^\/folders\/[^/]+\/access$/.test(location.pathname);
+  const activePage =
+    evidenceReader || accessSettings
+      ? "/documents"
+      : (location.pathname as AppPage) || "/";
 
   // Show panel on pages that have contextual content
   const showPanel =
@@ -90,8 +92,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const navigationSize = activePage === "/" ? conversationsPanel : folders;
 
   const handleNewFolder = useCallback(() => {
+    if (accessSettings) {
+      const rootId = location.pathname.split("/")[2];
+      navigate(`/documents?folder=${encodeURIComponent(rootId)}&new_folder=1`);
+      return;
+    }
     window.dispatchEvent(new CustomEvent("new-folder"));
-  }, []);
+  }, [accessSettings, location.pathname, navigate]);
 
   // Sidebar folder trash-icon path. Previously fell through to a no-op
   // because AppLayout never wired onRequestDeleteFolder — the ContextPanel
