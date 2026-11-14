@@ -1,23 +1,25 @@
 {
-  "source_sha": "47084656114606eb310110efb4b9760c3629081a",
+  "source_sha": "3036ce4f6cabaa3443cd571db4c6459eb3681edc",
   "release_branch": "main",
   "versions": {
-    "frontend": "0.5.61"
+    "cli": "0.8.33",
+    "mihari": "0.3.48"
   },
   "release_levels": {
-    "frontend": "patch"
+    "cli": "patch",
+    "mihari": "patch"
   },
   "major": false,
   "images": [
     {
-      "package": "frontend",
-      "version": "0.5.61",
-      "image": "felipemeriga1/kioku-frontend",
-      "context": "frontend",
-      "dockerfile": "frontend/Dockerfile",
-      "tag": "0.5.61-470846561146"
+      "package": "mihari",
+      "version": "0.3.48",
+      "image": "felipemeriga1/kioku-mihari",
+      "context": ".",
+      "dockerfile": "mihari/Dockerfile",
+      "tag": "0.3.48-3036ce4f6cab"
     }
   ],
-  "cli": false,
+  "cli": true,
   "cloud_directory": "mihari"
 }
