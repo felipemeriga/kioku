@@ -46,6 +46,27 @@ class Resource(StrictModel):
     account: str = Field(default="", max_length=120)
     region: str = Field(default="", max_length=120)
 
+    environment_ids: list[UUID] = Field(default_factory=list, max_length=100)
+    credential_kind: Literal["uri", "api_key", "ssh", "fields", "aws"] = "fields"
+    credential_fields: list[str] = Field(
+        default_factory=lambda: ["connection"], min_length=1, max_length=32
+    )
+
+    @field_validator("credential_fields")
+    @classmethod
+    def resource_fields(cls, value):
+        if len(set(value)) != len(value) or any(
+            not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", f) for f in value
+        ):
+            raise ValueError("Invalid credential fields")
+        return value
+
+    @model_validator(mode="after")
+    def shared_availability(self):
+        if self.shared and self.environment_ids:
+            raise ValueError("Shared resources do not select environments")
+        return self
+
     @field_validator("aliases")
     @classmethod
     def aliases_valid(cls, value):
@@ -59,6 +80,11 @@ def env_name(value: str) -> str:
         raise ValueError("Invalid environment variable name")
     if value.upper().startswith(("LD_", "DYLD_")) or value.upper() in {
         "NODE_OPTIONS",
+        "NODE_PATH",
+        "PS4",
+        "PYTHONHOME",
+        "PERL5OPT",
+        "RUBYOPT",
         "BASH_ENV",
         "ENV",
         "PYTHONSTARTUP",
@@ -82,6 +108,7 @@ def env_name(value: str) -> str:
         "AWS_ROLE_ARN",
         "AWS_ROLE_SESSION_NAME",
         "AWS_EC2_METADATA_DISABLED",
+        "AWS_EC2_METADATA_SERVICE_ENDPOINT",
         "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
         "AWS_CONTAINER_CREDENTIALS_FULL_URI",
         "AWS_CONTAINER_AUTHORIZATION_TOKEN",
