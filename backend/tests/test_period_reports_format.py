@@ -584,3 +584,29 @@ def test_one_repair_receives_all_independent_factual_problems():
         assert expected in message
     assert message.count("runtime claim requires") == 1
     assert len(message) < 1200
+
+
+@pytest.mark.parametrize(
+    "claim",
+    [
+        "Code is on main; operational effect is not independently verified.",
+        "Their operational outcomes remain unverified.",
+        "The operational guide was added to the repository.",
+    ],
+)
+def test_operational_context_is_not_mistaken_for_a_runtime_success_claim(claim):
+    from services.period_reports import validate_runtime_provenance
+
+    validate_runtime_provenance(claim, [{"kind": "git_commit", "text": "Code change merged."}])
+
+
+@pytest.mark.parametrize(
+    "claim", ["Operational", "Full pipeline operational: all environments enabled."]
+)
+def test_bare_operational_status_still_requires_runtime_observations(claim):
+    from services.period_reports import validate_runtime_provenance
+
+    with pytest.raises(ValueError, match="requires observed evidence"):
+        validate_runtime_provenance(
+            claim, [{"kind": "git_commit", "text": "Workflow code merged."}]
+        )
