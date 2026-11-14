@@ -6,6 +6,7 @@ import {
   Button,
   Checkbox,
   Chip,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -20,6 +21,8 @@ import remarkGfm from "remark-gfm";
 import { accessError, guideBytes } from "../../lib/rootAccess";
 import type { AccessCatalog, AccessEnrollment } from "../../lib/rootAccess";
 
+type GuideRevision = { revision: number; markdown: string; created_at: string };
+
 type Props = { root: string; catalog: AccessCatalog; onSaved: () => void };
 export function EnvironmentGuide({ root, catalog, onSaved }: Props) {
   const execute = useAccessRequests(root);
@@ -28,6 +31,26 @@ export function EnvironmentGuide({ root, catalog, onSaved }: Props) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyBusy, setHistoryBusy] = useState(false);
+  const [historyError, setHistoryError] = useState("");
+  const [history, setHistory] = useState<GuideRevision[]>([]);
+  const [selectedRevision, setSelectedRevision] = useState<number | null>(null);
+  const revision = history.find((item) => item.revision === selectedRevision);
+  async function loadHistory() {
+    setHistoryOpen(true);
+    setHistoryBusy(true);
+    setHistoryError("");
+    try {
+      const rows = await execute<GuideRevision[]>("/guide/revisions", "GET");
+      setHistory(rows);
+      setSelectedRevision(rows[0]?.revision ?? null);
+    } catch (e) {
+      setHistoryError(accessError(e));
+    } finally {
+      setHistoryBusy(false);
+    }
+  }
   async function save() {
     if (guideBytes(text) > 65536) {
       setError("Keep the guide within 64 KiB.");
@@ -58,9 +81,22 @@ export function EnvironmentGuide({ root, catalog, onSaved }: Props) {
             Give agents the context to choose the right resource.
           </Typography>
         </Box>
-        <Button variant="contained" onClick={() => void save()} disabled={busy}>
-          {busy ? "Saving…" : "Save guide"}
-        </Button>
+        <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+          <Button
+            variant="outlined"
+            disabled={historyBusy}
+            onClick={() => void loadHistory()}
+          >
+            Revision history
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => void save()}
+            disabled={busy}
+          >
+            {busy ? "Saving…" : "Save guide"}
+          </Button>
+        </Box>
       </Box>
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
@@ -103,6 +139,101 @@ export function EnvironmentGuide({ root, catalog, onSaved }: Props) {
           </ReactMarkdown>
         </Box>
       </Box>
+      <Dialog
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        fullWidth
+        maxWidth="md"
+        aria-labelledby="guide-history-title"
+      >
+        <DialogTitle id="guide-history-title">
+          Guide revision history
+        </DialogTitle>
+        <DialogContent sx={{ minWidth: 0 }}>
+          {historyBusy ? (
+            <Box sx={{ display: "flex", gap: 2, alignItems: "center", py: 3 }}>
+              <CircularProgress size={20} />
+              <Typography>Loading revisions…</Typography>
+            </Box>
+          ) : historyError ? (
+            <Alert
+              severity="error"
+              action={<Button onClick={() => void loadHistory()}>Retry</Button>}
+            >
+              {historyError}
+            </Alert>
+          ) : history.length ? (
+            <Box
+              sx={{
+                display: "grid",
+                gridTemplateColumns: {
+                  xs: "minmax(0,1fr)",
+                  sm: "180px minmax(0,1fr)",
+                },
+                gap: 2,
+                minWidth: 0,
+              }}
+            >
+              <Box
+                component="nav"
+                aria-label="Guide revisions"
+                sx={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 1,
+                  maxHeight: 440,
+                  overflow: "auto",
+                }}
+              >
+                {history.map((item) => (
+                  <Button
+                    key={item.revision}
+                    aria-label={`View revision ${item.revision}`}
+                    aria-pressed={selectedRevision === item.revision}
+                    variant={
+                      selectedRevision === item.revision ? "outlined" : "text"
+                    }
+                    onClick={() => setSelectedRevision(item.revision)}
+                    sx={{ justifyContent: "flex-start", textAlign: "left" }}
+                  >
+                    <Box>
+                      <Typography variant="body2">
+                        Revision {item.revision}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {new Date(item.created_at).toLocaleDateString()}
+                      </Typography>
+                    </Box>
+                  </Button>
+                ))}
+              </Box>
+              <Box
+                className="access-preview"
+                aria-label="Revision preview"
+                sx={{ maxHeight: 440, overflow: "auto" }}
+              >
+                <ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml>
+                  {revision?.markdown ?? "Choose a revision."}
+                </ReactMarkdown>
+              </Box>
+            </Box>
+          ) : (
+            <Typography color="text.secondary" sx={{ py: 3 }}>
+              No saved revisions yet.
+            </Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ mr: "auto", px: 2 }}
+          >
+            Viewing history does not change your draft.
+          </Typography>
+          <Button onClick={() => setHistoryOpen(false)}>Close history</Button>
+        </DialogActions>
+      </Dialog>
     </>
   );
 }

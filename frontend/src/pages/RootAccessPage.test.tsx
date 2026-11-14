@@ -332,3 +332,36 @@ describe("binding metadata refresh", () => {
     expect(screen.getByText("Stored in central vault")).toBeInTheDocument();
   });
 });
+
+describe("guide revision history", () => {
+  it("views an old revision without replacing the current unsaved draft", async () => {
+    vi.mocked(mutateAccess).mockResolvedValue([
+      {
+        revision: 1,
+        markdown: "# Old environment guide",
+        created_at: "2026-11-13T12:00:00Z",
+      },
+    ]);
+    renderWithProviders(
+      <EnvironmentGuide root={root} catalog={catalog} onSaved={() => {}} />,
+    );
+    fireEvent.change(screen.getByLabelText("Markdown guide"), {
+      target: { value: "My current unsaved guide" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Revision history" }));
+    expect(
+      await screen.findByRole("heading", { name: "Old environment guide" }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Close history" }));
+    expect(screen.getByLabelText("Markdown guide")).toHaveValue(
+      "My current unsaved guide",
+    );
+    expect(mutateAccess).toHaveBeenCalledWith(
+      root,
+      "/guide/revisions",
+      "GET",
+      undefined,
+      expect.any(AbortSignal),
+    );
+  });
+});
