@@ -9,6 +9,7 @@ import {
   parseBindings,
   resolveSecretAccess,
   saveSecretDevice,
+  secureApiBase,
   secretRequest,
   type SecretDevice,
 } from "../lib/secret-access.js";
@@ -19,6 +20,7 @@ function rootId(root: string) {
   return root;
 }
 async function userToken() {
+  secureApiBase(readConfig().api_base);
   await whoami();
   const cfg = readConfig();
   if (!cfg.access_token) throw Error("Run kioku login first.");

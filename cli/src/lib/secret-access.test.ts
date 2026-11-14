@@ -108,3 +108,27 @@ test("stores devices privately and isolates roots/API origins", async () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("access commands reject insecure origins before existing auth calls", async () => {
+  const { listAccess, enrollAccess } = await import("../commands/access.js");
+  const originalBase = process.env.KIOKU_API_BASE,
+    fetchBefore = globalThis.fetch;
+  let calls = 0;
+  process.env.KIOKU_API_BASE = "http://example.com";
+  globalThis.fetch = async () => {
+    calls++;
+    throw Error("should not fetch");
+  };
+  try {
+    await assert.rejects(listAccess({ root: id }), /HTTPS/);
+    await assert.rejects(
+      enrollAccess({ root: id, fileCredentialStore: true }),
+      /HTTPS/,
+    );
+    assert.equal(calls, 0);
+  } finally {
+    globalThis.fetch = fetchBefore;
+    if (originalBase === undefined) delete process.env.KIOKU_API_BASE;
+    else process.env.KIOKU_API_BASE = originalBase;
+  }
+});
