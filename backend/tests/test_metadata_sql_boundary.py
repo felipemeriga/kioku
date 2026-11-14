@@ -149,3 +149,8 @@ def test_table_alias_cannot_rename_or_reinterpret_scope_columns(query):
 def test_quoted_alias_case_is_preserved_in_scope_predicates():
     sql = scoped_metadata_sql('SELECT COUNT(*) FROM documents AS "D"', OWNER, ROOT)
     assert '"D".user_id' in sql and '"D".root_folder_id' in sql
+
+
+def test_generated_relation_is_pinned_to_public_schema():
+    sql = scoped_metadata_sql("SELECT COUNT(*) FROM documents", OWNER)
+    assert "FROM public.documents" in sql

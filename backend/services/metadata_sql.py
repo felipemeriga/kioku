@@ -214,6 +214,8 @@ def scoped_metadata_sql(
     root = str(UUID(root_folder_id)) if root_folder_id is not None else None
     tree = _parsed_metadata(sql)
     table = next(tree.find_all(exp.Table))
+    # The privileged RPC must not resolve an ambient pg_temp/search_path relation.
+    table.set("db", exp.to_identifier("public"))
     predicates = [
         exp.EQ(
             this=exp.column("user_id", table=table.alias_or_name),
