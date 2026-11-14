@@ -128,3 +128,70 @@ test("AWS execution cannot inherit another account default chain", () => {
   for (const name of ["PATH", "HOME", "COMSPEC", "IFS", "AWS_PROFILE"])
     assert.throws(() => buildSecretEnvironment({}, { [name]: "fake" }, []));
 });
+
+test("redactor never splits a non-BMP character at its retained boundary", async () => {
+  const f = createSecretRedactor(["abcdef"]);
+  let output = "";
+  f.on("data", (c) => (output += c));
+  f.write("🙂....");
+  f.end();
+  await once(f, "end");
+  assert.equal(output, "🙂....");
+});
+
+test(
+  "cancellation kills descendants even after group leader closes",
+  { timeout: 12000 },
+  async () => {
+    const { spawn } = await import("node:child_process");
+    const inner = `const {spawn}=require('node:child_process');const p=spawn(process.execPath,['-e',"process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"],{stdio:'ignore'});setTimeout(()=>process.stdout.write('ready:'+p.pid+'\\n'+' '.repeat(40)),150);process.on('SIGTERM',()=>process.exit(0));setInterval(()=>{},1000);`;
+    const module = new URL("./secret-exec.js", import.meta.url).href;
+    const outer = `import {runSecretCommand} from ${JSON.stringify(module)};process.exitCode=await runSecretCommand([process.execPath,'-e',${JSON.stringify(inner)}],{invocation_id:'test',environment:{TEST_CREDENTIAL:'synthetic'},clear_env:[],credential_expires_at:null});`;
+    const wrapper = spawn(
+      process.execPath,
+      ["--input-type=module", "-e", outer],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+    let output = "",
+      descendant = 0,
+      signalled = false;
+    wrapper.stdout.on("data", (c) => {
+      output += c.toString();
+      const found = output.match(/ready:(\d+)/);
+      if (found && !signalled) {
+        descendant = Number(found[1]);
+        signalled = true;
+        wrapper.kill("SIGTERM");
+      }
+    });
+    const deadline = setTimeout(() => wrapper.kill("SIGKILL"), 10000);
+    try {
+      const [code] = await once(wrapper, "close");
+      assert.equal(code, 143);
+      assert.ok(descendant > 0);
+      let alive = true;
+      try {
+        process.kill(descendant, 0);
+        const { execFileSync } = await import("node:child_process");
+        const state = execFileSync(
+          "ps",
+          ["-o", "stat=", "-p", String(descendant)],
+          { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+        ).trim();
+        alive = !state.startsWith("Z");
+      } catch {
+        alive = false;
+      }
+      assert.equal(alive, false);
+    } finally {
+      clearTimeout(deadline);
+      if (descendant)
+        try {
+          process.kill(descendant, "SIGKILL");
+        } catch {
+          /* already gone */
+        }
+      wrapper.kill("SIGKILL");
+    }
+  },
+);

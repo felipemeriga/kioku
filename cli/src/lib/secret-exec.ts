@@ -143,8 +143,9 @@ export function createSecretRedactor(values: string[]): Transform {
         out += "[redacted]";
         pos += found.length;
       } else {
-        out += pending[pos];
-        pos++;
+        const point = pending.codePointAt(pos)!;
+        out += String.fromCodePoint(point);
+        pos += point > 0xffff ? 2 : 1;
       }
     }
     pending = pending.slice(pos);
@@ -202,6 +203,9 @@ export async function runSecretCommand(
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stopping = false;
+    let stopCode: number | undefined;
+    let forceKilled = false;
+    let closedResult: number | undefined;
     let escalation: ReturnType<typeof setTimeout> | undefined;
     const kill = (signal: NodeJS.Signals) => {
       if (!child.pid) return;
@@ -211,22 +215,32 @@ export async function runSecretCommand(
         /* already exited */
       }
     };
-    const stop = () => {
+    const stop = (signal: NodeJS.Signals, exitCode: number) => {
       if (stopping) return;
       stopping = true;
-      kill("SIGTERM");
-      escalation = setTimeout(() => kill("SIGKILL"), 3000);
-      escalation.unref();
+      stopCode = exitCode;
+      kill(signal);
+      escalation = setTimeout(() => {
+        kill("SIGKILL");
+        forceKilled = true;
+        if (closedResult !== undefined) {
+          cleanup();
+          resolve(closedResult);
+        }
+      }, 3000);
+      // Keep escalation alive even if the group leader exits before descendants.
     };
-    const timer = setTimeout(stop, duration);
+    const interrupt = () => stop("SIGINT", 130);
+    const terminate = () => stop("SIGTERM", 143);
+    const timer = setTimeout(() => stop("SIGTERM", 124), duration);
     timer.unref();
-    process.on("SIGINT", stop);
-    process.on("SIGTERM", stop);
+    process.on("SIGINT", interrupt);
+    process.on("SIGTERM", terminate);
     const cleanup = () => {
       clearTimeout(timer);
       if (escalation) clearTimeout(escalation);
-      process.off("SIGINT", stop);
-      process.off("SIGTERM", stop);
+      process.off("SIGINT", interrupt);
+      process.off("SIGTERM", terminate);
     };
     stdout.pipe(outputs.stdout, { end: false });
     stderr.pipe(outputs.stderr, { end: false });
@@ -241,10 +255,13 @@ export async function runSecretCommand(
       );
     });
     child.once("close", (code, signal) => {
+      closedResult =
+        stopCode ??
+        code ??
+        (signal === "SIGINT" ? 130 : signal === "SIGTERM" ? 143 : 1);
+      if (stopping && !forceKilled) return;
       cleanup();
-      resolve(
-        code ?? (signal === "SIGINT" ? 130 : signal === "SIGTERM" ? 143 : 1),
-      );
+      resolve(closedResult);
     });
   });
 }
