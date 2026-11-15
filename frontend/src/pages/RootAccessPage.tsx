@@ -345,7 +345,9 @@ function RootAccessContent({ rootId }: { rootId: string }) {
                             color: stored && !pending ? "#73dab0" : "#efc27d",
                           }}
                         >
-                          {pending
+                          {r.deletion_requested_at
+                            ? "Deletion pending"
+                            : pending
                             ? "◐ Pending"
                             : stored
                             ? "● Stored"

@@ -269,6 +269,9 @@ jobs:
             supabase/migrations/20261114190000_root_access.sql \
             backend/tests/sql/root_access_acceptance.sql \
             supabase/migrations/20261114230000_root_access_v2.sql \
-            backend/tests/sql/root_access_v2_acceptance.sql; do
+            backend/tests/sql/root_access_v2_acceptance.sql \
+            supabase/migrations/20261115010000_access_resource_deletion.sql \
+            backend/tests/sql/root_access_deletion_acceptance.sql; do
             psql -h localhost -U postgres -d root_access_fixture -v ON_ERROR_STOP=1 -f "$sql"
           done
+          python3 backend/tests/sql/access_deletion_concurrency.py

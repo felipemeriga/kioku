@@ -25,6 +25,7 @@ const credential: AccessCredential = {
   legacy_binding_id: null,
 };
 const catalog: AccessCatalog = {
+  capabilities: { resource_deletion: true },
   root_id: "root",
   guide: { markdown: "", revision: 0 },
   environments: [
@@ -217,5 +218,59 @@ describe("resource-first credentials", () => {
       { expected_revision: 1, region: "us-east-1" },
       expect.any(AbortSignal)
     );
+  });
+});
+
+describe("resource deletion", () => {
+  it("requires the exact resource name and permits cancel without a request", () => {
+    render();
+    fireEvent.click(screen.getByRole("button", { name: "Delete resource" }));
+    const submit = screen.getByRole("button", { name: "Delete permanently" });
+    expect(submit).toBeDisabled();
+    fireEvent.change(
+      screen.getByLabelText("Type the resource name to confirm"),
+      { target: { value: "wrong" } }
+    );
+    expect(submit).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(mutateAccess).not.toHaveBeenCalled();
+  });
+  it("continues checkpointed deletion until every provider object is removed", async () => {
+    vi.mocked(mutateAccess)
+      .mockResolvedValueOnce({ deleted: false, remaining: 1 })
+      .mockResolvedValueOnce({ deleted: true });
+    render();
+    fireEvent.click(screen.getByRole("button", { name: "Delete resource" }));
+    fireEvent.change(
+      screen.getByLabelText("Type the resource name to confirm"),
+      { target: { value: "SES MongoDB" } }
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Delete permanently" }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(mutateAccess).toHaveBeenCalledTimes(2);
+    expect(mutateAccess).toHaveBeenCalledWith(
+      "root",
+      "/resources/resource",
+      "DELETE",
+      undefined,
+      expect.any(AbortSignal)
+    );
+  });
+  it("lets an interrupted deletion resume without enabling credential editing", async () => {
+    const c = structuredClone(catalog);
+    c.resources[0].deletion_requested_at = "2026-11-15T00:00:00Z";
+    vi.mocked(mutateAccess).mockRejectedValueOnce(
+      new Error("synthetic failure")
+    );
+    render(c);
+    expect(
+      screen.queryByRole("button", { name: "Add credential" })
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Resume deletion" }));
+    await screen.findByText("Could not complete this request. Try again.");
+    expect(
+      screen.getByRole("button", { name: "Resume deletion" })
+    ).toBeEnabled();
+    expect(onSaved).toHaveBeenCalled();
   });
 });

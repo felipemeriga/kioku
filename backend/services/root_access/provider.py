@@ -115,6 +115,23 @@ class InfisicalProvider:
         except (httpx.HTTPError, ValueError, KeyError, TypeError):
             raise ProviderUnavailable() from None
 
+    def delete(self, ref):
+        """Idempotent deletion; retries after an uncertain response accept absence."""
+        ref = self._reference(ref)
+        try:
+            with self._client() as client:
+                client.timeout = httpx.Timeout(5, connect=3)
+                response = client.request(
+                    "DELETE",
+                    "/api/v3/secrets/raw/" + ref,
+                    json=self._params(),
+                    headers={"Authorization": "Bearer " + self._token(client)},
+                )
+                if response.status_code not in {200, 204, 404}:
+                    raise ProviderUnavailable()
+        except (httpx.HTTPError, ValueError, KeyError, TypeError):
+            raise ProviderUnavailable() from None
+
     def read(self, ref):
         ref = self._reference(ref)
         try:
