@@ -113,7 +113,11 @@ def dump(body):
 def catalog(root_id: UUID, user_id: str = Depends(get_current_user)):
     s = store()
 
-    return {**s.catalog(user_id, root_id), **V2Store(s.sb).catalog_v2(user_id, root_id)}
+    return {
+        **s.catalog(user_id, root_id),
+        **V2Store(s.sb).catalog_v2(user_id, root_id),
+        "capabilities": {"resource_deletion": True},
+    }
 
 
 @router.put("/{root_id}/guide")
@@ -190,7 +194,7 @@ def edit_resource(
 ):
     s = store()
     s.root(user_id, root_id)
-    old = s.one("access_resources", user_id, root_id, resource_id)
+    old = s.active_resource(user_id, root_id, resource_id)
     if (
         old["shared"] != body.shared
         and s.query("access_bindings", user_id, root_id, "id")
@@ -232,6 +236,13 @@ def edit_resource(
         .execute()
         .data[0]
     )
+
+
+@router.delete("/{root_id}/resources/{resource_id}")
+def delete_resource(root_id: UUID, resource_id: UUID, user_id: str = Depends(get_current_user)):
+    from services.root_access.deletion import delete_resource_step
+
+    return delete_resource_step(store(), user_id, root_id, resource_id)
 
 
 @router.post("/{root_id}/bindings")

@@ -7,6 +7,7 @@ export interface AccessEnvironment {
   sensitivity: "normal" | "production";
 }
 export interface AccessResource {
+  deletion_requested_at?: string | null;
   id: string;
   name: string;
   description: string;
@@ -120,6 +121,7 @@ export interface AccessEvent {
   created_at: string;
 }
 export interface AccessCatalog {
+  capabilities?: { resource_deletion?: boolean };
   root_id: string;
   guide: { markdown: string; revision: number };
   environments: AccessEnvironment[];
@@ -215,6 +217,11 @@ export function accessError(error: unknown): string {
   if (error instanceof DOMException && error.name === "AbortError")
     return "Request cancelled.";
   if (error instanceof ApiError) {
+    const code = (error.detail as { code?: string } | null)?.code;
+    if (code === "resource_busy")
+      return "A credential write is pending. Reconcile it before deleting this resource.";
+    if (code === "resource_deleting")
+      return "Deletion is pending. Resume deletion to finish removing this resource.";
     if (error.status === 401) return "Your session expired. Sign in again.";
     if (error.status === 403 || error.status === 404)
       return "This root or resource is unavailable to your account.";

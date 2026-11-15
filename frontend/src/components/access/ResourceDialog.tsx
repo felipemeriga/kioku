@@ -60,8 +60,15 @@ export default function ResourceDialog({
   const current =
     catalog.resources.find((r) => r.id === resource?.id) ?? resource;
   const [mode, setMode] = useState<
-    "detail" | "resource" | "credential" | "usage" | "legacy"
-  >(resource ? "detail" : "resource");
+    "detail" | "resource" | "credential" | "usage" | "legacy" | "delete"
+  >(
+    resource?.deletion_requested_at
+      ? "delete"
+      : resource
+      ? "detail"
+      : "resource"
+  );
+  const viewMode = current?.deletion_requested_at ? "delete" : mode;
   const [tab, setTab] = useState(0);
   const [selected, setSelected] = useState<AccessCredential>();
   const [usage, setUsage] = useState<AccessUsage>();
@@ -83,6 +90,7 @@ export default function ResourceDialog({
   const [region, setRegion] = useState(resource?.region ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [deleteName, setDeleteName] = useState("");
   const credentials = (catalog.credentials ?? []).filter(
     (c) => c.resource_id === resource?.id
   );
@@ -108,6 +116,39 @@ export default function ResourceDialog({
         id: c.environment_id,
         name: environmentName(c.environment_id),
       });
+  }
+  async function removeResource(e: React.FormEvent) {
+    e.preventDefault();
+    if (
+      !current ||
+      (!current.deletion_requested_at && deleteName !== current.name)
+    )
+      return;
+    setBusy(true);
+    setError("");
+    try {
+      // Each request checkpoints one provider object; interrupted deletion can resume.
+      for (let step = 0; step < 1000; step++) {
+        const result = await execute<{ deleted: boolean }>(
+          `/resources/${current.id}`,
+          "DELETE"
+        );
+        if (result.deleted) {
+          onSaved();
+          onClose();
+          return;
+        }
+      }
+      setError(
+        "Deletion is still in progress. Resume to remove the remaining credentials."
+      );
+      onSaved();
+    } catch (err) {
+      setError(accessError(err));
+      onSaved();
+    } finally {
+      setBusy(false);
+    }
   }
   function back() {
     setSelected(undefined);
@@ -203,7 +244,7 @@ export default function ResourceDialog({
       setBusy(false);
     }
   }
-  if (mode === "legacy" && current)
+  if (viewMode === "legacy" && current)
     return (
       <LegacyResourceDialog
         root={root}
@@ -235,7 +276,9 @@ export default function ResourceDialog({
                 Resources
               </Typography>
               <Typography id="access-resource-title" variant="h6">
-                {current?.name ?? "Add a resource"}
+                {viewMode === "delete"
+                  ? "Delete resource"
+                  : current?.name ?? "Add a resource"}
               </Typography>
             </Box>
             <IconButton
@@ -253,7 +296,63 @@ export default function ResourceDialog({
               {error}
             </Alert>
           )}
-          {mode === "resource" && (
+          {viewMode === "delete" && current && (
+            <form
+              className="access-form"
+              onSubmit={(e) => void removeResource(e)}
+            >
+              <Typography fontWeight={600}>{current.name}</Typography>
+              <Alert severity="warning">
+                This permanently removes this resource, its stored credentials
+                in every environment, usage recipes and computer permissions.
+                Other resources and computers are kept.
+              </Alert>
+              {current.deletion_requested_at ? (
+                <Alert severity="info">
+                  Deletion has started. New credential access is blocked until
+                  removal completes.
+                </Alert>
+              ) : (
+                <TextField
+                  label="Type the resource name to confirm"
+                  value={deleteName}
+                  onChange={(e) => setDeleteName(e.target.value)}
+                  autoComplete="off"
+                  disabled={busy}
+                />
+              )}
+              {busy && (
+                <Typography role="status">
+                  Removing stored credentials…
+                </Typography>
+              )}
+              <div className="access-form-actions">
+                <Button
+                  disabled={busy}
+                  onClick={current.deletion_requested_at ? onClose : back}
+                >
+                  {current.deletion_requested_at ? "Close" : "Cancel"}
+                </Button>
+                <Button
+                  type="submit"
+                  variant="contained"
+                  color="error"
+                  disabled={
+                    busy ||
+                    (!current.deletion_requested_at &&
+                      deleteName !== current.name)
+                  }
+                >
+                  {busy
+                    ? "Deleting…"
+                    : current.deletion_requested_at
+                    ? "Resume deletion"
+                    : "Delete permanently"}
+                </Button>
+              </div>
+            </form>
+          )}
+          {viewMode === "resource" && (
             <form
               className="access-form"
               onSubmit={(e) => void saveResource(e)}
@@ -408,7 +507,7 @@ export default function ResourceDialog({
               </div>
             </form>
           )}
-          {mode === "credential" && selected && (
+          {viewMode === "credential" && selected && (
             <CredentialEditor
               key={selected.id}
               root={root}
@@ -417,7 +516,7 @@ export default function ResourceDialog({
               onBack={back}
             />
           )}
-          {mode === "usage" && selected && (
+          {viewMode === "usage" && selected && (
             <UsageEditor
               key={usage?.id ?? selected.id}
               root={root}
@@ -427,7 +526,7 @@ export default function ResourceDialog({
               onBack={back}
             />
           )}
-          {mode === "detail" && current && (
+          {viewMode === "detail" && current && (
             <>
               <div className="access-resource-meta">
                 <Typography variant="body2" color="text.secondary">
@@ -677,8 +776,21 @@ export default function ResourceDialog({
             </>
           )}
         </Box>
-        {mode === "detail" && (
+        {viewMode === "detail" && (
           <div className="access-drawer-footer">
+            {catalog.capabilities?.resource_deletion && (
+              <Button
+                color="error"
+                sx={{ mr: "auto" }}
+                onClick={() => {
+                  setError("");
+                  setDeleteName("");
+                  setMode("delete");
+                }}
+              >
+                Delete resource
+              </Button>
+            )}
             <Button onClick={onClose}>Done</Button>
           </div>
         )}

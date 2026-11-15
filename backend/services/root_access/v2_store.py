@@ -115,7 +115,7 @@ class V2Store(AccessStore):
         }
 
     def credential_valid(self, owner, root, value):
-        resource = self.one("access_resources", owner, root, value["resource_id"])
+        resource = self.active_resource(owner, root, value["resource_id"])
         env = value["environment_id"]
         if resource["shared"] != (env is None):
             fail("invalid_input", 422)
@@ -185,6 +185,7 @@ class V2Store(AccessStore):
         row = self.one("access_credentials", owner, root, id)
         if row.get("legacy_binding_id"):
             return self.write(owner, root, row["legacy_binding_id"], body)
+        self.active_resource(owner, root, row["resource_id"])
         fingerprint = self.validate_values(row, body.values)
         key = os.getenv("KIOKU_VAULT_WRITE_HMAC_KEY", "")
         if len(key) < 32:
@@ -264,6 +265,7 @@ class V2Store(AccessStore):
 
     def usage_valid(self, owner, root, value):
         credential = self.one("access_credentials", owner, root, value["credential_id"])
+        self.active_resource(owner, root, credential["resource_id"])
         delivery = value["delivery"]
         if not usage_fields(delivery) <= set(credential["fields"]):
             fail("invalid_input", 422)
@@ -348,6 +350,8 @@ class V2Store(AccessStore):
         if device["revoked_at"] or expired(device["expires_at"]):
             fail("device_revoked", 409)
         usage = self.one("access_usages", owner, root, value["usage_id"])
+        credential = self.one("access_credentials", owner, root, usage["credential_id"])
+        self.active_resource(owner, root, credential["resource_id"])
         expected_revision = value.pop("expected_usage_revision")
         if usage["revision"] != expected_revision:
             fail("binding_changed", 409)

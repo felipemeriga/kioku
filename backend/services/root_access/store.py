@@ -22,6 +22,10 @@ PUBLIC_DEVICE = "id,label,created_at,last_used_at,expires_at,revoked_at"
 def fail(code, status=400):
     messages = {
         "access_denied": "Access denied.",
+        "resource_deleting": "This resource is being deleted. Resume deletion to finish.",
+        "resource_busy": (
+            "A credential write is pending. Reconcile it before deleting this resource."
+        ),
         "binding_changed": "This mapping changed. Refresh and try again.",
         "provider_unavailable": "The credential vault is unavailable. Try again shortly.",
         "invalid_input": "Check the supplied fields.",
@@ -119,7 +123,7 @@ class AccessStore:
                 "access_resources",
                 owner,
                 root,
-                "id,name,description,type,aliases,shared,account,region,environment_ids,credential_kind,credential_fields",
+                "id,name,description,type,aliases,shared,account,region,environment_ids,credential_kind,credential_fields,deletion_requested_at",
             )
             .order("name")
             .execute()
@@ -156,8 +160,14 @@ class AccessStore:
             .data[0]
         )
 
+    def active_resource(self, owner, root, id):
+        resource = self.one("access_resources", owner, root, id)
+        if resource.get("deletion_requested_at"):
+            fail("resource_deleting", 409)
+        return resource
+
     def binding(self, owner, root, value):
-        resource = self.one("access_resources", owner, root, value["resource_id"])
+        resource = self.active_resource(owner, root, value["resource_id"])
         if (
             resource["shared"]
             and value["environment_id"] is not None
@@ -210,6 +220,7 @@ class AccessStore:
     def write(self, owner, root, binding, body):
         self.root(owner, root)
         row = self.one("access_bindings", owner, root, binding)
+        self.active_resource(owner, root, row["resource_id"])
         if set(body.values) != set(row["field_mapping"].values()):
             fail("invalid_input", 422)
         op = str(body.idempotency_key)

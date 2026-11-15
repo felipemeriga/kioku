@@ -32,7 +32,7 @@ def discover_resources(sb, owner, root, query="", environment=None, account=None
             "access_resources",
             owner,
             root,
-            "id,name,description,type,aliases,shared,account,region,environment_ids,credential_kind,credential_fields",
+            "id,name,description,type,aliases,shared,account,region,environment_ids,credential_kind,credential_fields,deletion_requested_at",
         )
         .order("name")
         .execute()
@@ -63,6 +63,8 @@ def discover_resources(sb, owner, root, query="", environment=None, account=None
     terms = set(re.findall(r"[\w-]+", normalized(query)))
     results = []
     for resource in resources:
+        if resource.get("deletion_requested_at"):
+            continue
         text = normalized(
             " ".join(
                 [
