@@ -185,7 +185,8 @@ def create_resource(root_id: UUID, body: Resource, user_id: str = Depends(get_cu
     s.root(user_id, root_id)
     for environment_id in body.environment_ids:
         s.one("root_environments", user_id, root_id, environment_id)
-    return s.insert("access_resources", user_id, root_id, dump(body))
+    row = s.insert("access_resources", user_id, root_id, dump(body))
+    return {k: v for k, v in row.items() if k != "deletion_refs"}
 
 
 @router.patch("/{root_id}/resources/{resource_id}")
@@ -227,15 +228,16 @@ def edit_resource(
         )
     ):
         fail("binding_changed", 409)
-    return (
+    rows = (
         s.sb.table("access_resources")
         .update(value)
         .eq("id", str(resource_id))
         .eq("user_id", user_id)
         .eq("root_folder_id", str(root_id))
         .execute()
-        .data[0]
+        .data
     )
+    return {k: v for k, v in rows[0].items() if k != "deletion_refs"}
 
 
 @router.delete("/{root_id}/resources/{resource_id}")
