@@ -123,3 +123,15 @@ def test_provider_deletion_scoped_and_errors_sanitized(monkeypatch, status):
         with pytest.raises(provider.ProviderUnavailable) as error:
             vault.delete(REF)
         assert "must-not-appear" not in str(error.value)
+
+
+def test_resource_update_never_returns_private_cleanup_references(api, db):  # noqa: F811
+    # Even if a deletion snapshot races a metadata edit, its refs stay server-only.
+    db.rows["access_resources"][0]["deletion_refs"] = [REF]
+    response = api.patch(
+        f"/api/root-access/{ROOT}/resources/{RESOURCE}",
+        json={"name": "Updated", "type": "database", "shared": False},
+    )
+    assert response.status_code == 200
+    assert "deletion_refs" not in response.json()
+    assert REF not in response.text
