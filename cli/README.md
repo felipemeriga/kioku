@@ -120,36 +120,13 @@ logged-out machines may be offline until their login service resumes.
 `npm test` builds and runs CLI tests. See [development](../docs/development.md),
 [operations](../docs/operations.md), and the [documentation index](../docs/README.md).
 
-### Authorized resource usages
+### Retired vault integration
 
-After enrolling a computer and granting exact resource access in Kioku, use
-`kioku access list --root ROOT_UUID` to inspect metadata. Legacy bindings remain
-supported. V2 recipes select both immutable usage and credential revisions:
+Kioku no longer offers vault, environment, or secret management. The access UI,
+MCP discovery tools, credential APIs, enrollment, and `kioku exec` are retired.
+Existing stored data is preserved; this change does not delete provider secrets.
 
-```sh
-kioku exec --root ROOT_UUID --usage USAGE_UUID@USAGE_REVISION@CREDENTIAL_REVISION -- your-command
-```
-
-Repeat `--usage` to resolve every required resource before one command starts.
-Recipes deliver environment variables, separate CLI argument tokens, or a
-protected temporary JSON/YAML/TOML configuration copy. Config paths reference
-that temporary copy; tracked configuration files are never modified. Path
-segments are decoded string arrays, with existing intermediate objects and no
-prototype keys. AWS presets use a complete key pair through the environment or
-a temporary default-profile credentials file, with inherited credential chains
-cleared and IMDS disabled.
-
-SSH recipes require a trusted pinned host public key; they never accept an
-unknown host automatically. Use `-- ssh [remote-command...]`. The CLI provides
-an isolated identity, known_hosts and, for encrypted keys, an invocation-only
-askpass helper. It does not run a resident vault service or SSH agent.
-
-Raw secret arguments require both a server grant and the explicit
-`--allow-raw-secret-argv` acknowledgement. Such arguments may be visible to
-process inspection; prefer environment variables or protected files.
-Output filtering is defense in depth, not an execution sandbox.
-
-Temporary directories are mode 0700 and files mode 0600. Normal exit, errors and
-handled cancellation remove them. A hard kill/crash can leave files: the next
-invocation removes only owned, private invocation directories whose two-hour
-expiry passed. This is cleanup, not a guarantee of secure erasure.
+Run the updated `kioku init` in existing repositories to replace the managed
+CLAUDE.md or AGENTS.md block and remove the old vault instructions.
+`kioku access forget --root ROOT_UUID` remains available to remove local device
+credentials without contacting the vault.

@@ -101,12 +101,13 @@ test("retired capture hooks are removed while session and unrelated hooks surviv
 test("agent instructions only advertise available knowledge tools", () => {
   const snippet = secondBrainSnippet();
   assert.doesNotMatch(snippet, /Mem0|save_memory|search_memory|Stop hook/);
+  assert.doesNotMatch(
+    snippet,
+    /get_environment_guide|discover_access_resources|kioku exec|authorized access/
+  );
   assert.match(snippet, /update_folder_briefing_section/);
   assert.match(snippet, /search_agent_history/);
   assert.match(snippet, /read_agent_evidence/);
-  assert.match(snippet, /get_environment_guide/);
-  assert.match(snippet, /discover_access_resources/);
-  assert.match(snippet, /never silently fall back to production/);
   assert.match(snippet, /as_of/);
   assert.match(snippet, /untrusted data/);
   assert.doesNotMatch(snippet, /Mihari maintains a smaller set/);
