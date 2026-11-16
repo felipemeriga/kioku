@@ -1,111 +1,159 @@
-import unittest
-from unittest.mock import MagicMock
+"""Exercise the real Supabase query builders against a tenant-aware fake database."""
 
+import asyncio
+import json
+from types import SimpleNamespace
+from unittest.mock import Mock
+
+import httpx
+import pytest
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
+from supabase import create_client
+from supabase.lib.client_options import SyncClientOptions
+
+from routes import notion
 from services.notion_sync.folder_paths import ensure_notion_folder_path
+from services.queue import tasks
 
 
-class TestEnsureNotionFolderPath(unittest.TestCase):
-    def test_creates_notion_root_subfolder_and_chain(self):
-        # Nothing exists; every get_or_create must insert.
-        sb = MagicMock()
-        select_chain = sb.table.return_value.select.return_value.eq.return_value.eq.return_value
-        select_chain.execute.return_value.data = []
+@pytest.fixture
+def db():
+    folders = [
+        {"id": "root", "user_id": "owner", "parent_id": None, "name": "root"},
+        {"id": "foreign", "user_id": "other", "parent_id": None, "name": "foreign"},
+        {"id": "foreign-child", "user_id": "other", "parent_id": "root", "name": "notion"},
+    ]
+    configs = []
+    writes = []
 
-        created: list[dict] = []
+    def handler(request):
+        table = request.url.path.rsplit("/", 1)[-1]
+        rows = folders if table == "folders" else configs
+        assert table in {"folders", "notion_sync_configs"}
+        if request.method == "POST":
+            record = json.loads(request.content)
+            record = {"id": f"created-{len(writes)}", **record}
+            writes.append((table, record))
+            rows.append(record)
+            return httpx.Response(201, json=[record])
+        assert request.method == "GET"
+        selected = rows[:]
+        for field, value in request.url.params.items():
+            if field in {"id", "user_id", "parent_id", "name"}:
+                assert value.startswith("eq.")
+                selected = [r for r in selected if r[field] == value[3:]]
+        if table == "folders":
+            assert request.url.params["user_id"] == "eq.owner"
+        return httpx.Response(200, json=selected)
 
-        def insert_side_effect(rec):
-            created.append(rec)
-            fake = MagicMock()
-            fake.execute.return_value.data = [{"id": f"fid-{len(created)}", **rec}]
-            return fake
+    client = create_client(
+        "https://notion.test.invalid",
+        "test-only",
+        options=SyncClientOptions(
+            httpx_client=httpx.Client(transport=httpx.MockTransport(handler))
+        ),
+    )
+    return SimpleNamespace(client=client, folders=folders, configs=configs, writes=writes)
 
-        sb.table.return_value.insert.side_effect = insert_side_effect
 
-        leaf_id, parent_path = ensure_notion_folder_path(
-            sb,
-            user_id="u1",
-            root_folder_id="root-1",
-            ancestor_titles=["Cosm", "Sprint planning"],
+def test_creates_and_reuses_only_owned_folder_chain(db):
+    arguments = dict(user_id="owner", root_folder_id="root", ancestor_titles=["Cosm", "Sprint"])
+    leaf, path = ensure_notion_folder_path(db.client, **arguments)
+    assert path == "Cosm / Sprint"
+    assert leaf == "created-2"
+    assert [record["name"] for _, record in db.writes] == ["notion", "Cosm", "Sprint"]
+    assert db.writes[0][1]["parent_id"] == "root"
+    assert all(record["user_id"] == "owner" for _, record in db.writes)
+    assert ensure_notion_folder_path(db.client, **arguments) == (leaf, path)
+    assert len(db.writes) == 3
+
+
+def test_empty_chain_returns_owned_notion_root(db):
+    assert ensure_notion_folder_path(
+        db.client, user_id="owner", root_folder_id="root", ancestor_titles=[]
+    ) == ("created-0", "")
+
+
+@pytest.mark.parametrize("root", ["foreign", "missing"])
+def test_foreign_or_missing_root_never_creates_folder(db, root):
+    with pytest.raises(HTTPException) as error:
+        ensure_notion_folder_path(
+            db.client, user_id="owner", root_folder_id=root, ancestor_titles=["x"]
         )
+    assert error.value.status_code == 404
+    assert db.writes == []
 
-        # Three inserts in order: notion/, Cosm/, Sprint planning/
-        self.assertEqual(len(created), 3)
-        self.assertEqual(created[0]["name"], "notion")
-        self.assertEqual(created[0]["parent_id"], "root-1")
-        self.assertEqual(created[1]["name"], "Cosm")
-        self.assertEqual(created[1]["parent_id"], "fid-1")
-        self.assertEqual(created[2]["name"], "Sprint planning")
-        self.assertEqual(created[2]["parent_id"], "fid-2")
-        self.assertEqual(leaf_id, "fid-3")
-        self.assertEqual(parent_path, "Cosm / Sprint planning")
 
-    def test_reuses_existing_folders(self):
-        existing_rows = {
-            ("root-1", "notion"): {"id": "existing-notion"},
-            ("existing-notion", "Cosm"): {"id": "existing-cosm"},
-        }
+@pytest.mark.parametrize("root", ["foreign", "missing", "root"])
+def test_config_checks_owner_before_encrypt_or_insert(db, monkeypatch, root):
+    monkeypatch.setattr(notion, "get_supabase", lambda: db.client)
+    encrypt = Mock(return_value="encrypted-test-token")
+    monkeypatch.setattr(notion, "encrypt_secret", encrypt)
+    body = notion.ConnectRequest(
+        root_folder_id=root,
+        notion_page_id="p",
+        notion_page_title="Page",
+        integration_token="test-only",
+    )
+    if root == "root":
+        assert notion._insert_config(body, "owner")["root_folder_id"] == "root"
+        encrypt.assert_called_once_with("test-only")
+        assert len(db.writes) == 1
+    else:
+        with pytest.raises(HTTPException) as error:
+            notion._insert_config(body, "owner")
+        assert error.value.status_code == 404
+        encrypt.assert_not_called()
+        assert db.writes == []
 
-        def build_select_chain(parent_id_value, name_value):
-            fake = MagicMock()
-            row = existing_rows.get((parent_id_value, name_value))
-            fake.execute.return_value.data = [row] if row else []
-            return fake
 
-        # supabase.table("folders").select("id") returns a chain that captures
-        # the eq() calls; we simulate by intercepting the chain.
-        def table_mock(name):
-            table = MagicMock()
-
-            def select(_cols):
-                stage = MagicMock()
-
-                def eq_parent(field, parent_val):
-                    assert field == "parent_id"
-                    stage2 = MagicMock()
-
-                    def eq_name(field2, name_val):
-                        assert field2 == "name"
-                        return build_select_chain(parent_val, name_val)
-
-                    stage2.eq.side_effect = eq_name
-                    return stage2
-
-                stage.eq.side_effect = eq_parent
-                return stage
-
-            table.select.side_effect = select
-
-            def insert(rec):
-                fake = MagicMock()
-                fake.execute.return_value.data = [{"id": "new-sp", **rec}]
-                return fake
-
-            table.insert.side_effect = insert
-            return table
-
-        sb = MagicMock()
-        sb.table.side_effect = table_mock
-
-        leaf_id, parent_path = ensure_notion_folder_path(
-            sb,
-            user_id="u1",
-            root_folder_id="root-1",
-            ancestor_titles=["Cosm", "Sprint planning"],
+@pytest.mark.parametrize("stage", ["page", "sync"])
+def test_stale_queued_foreign_root_rejected_before_notion_or_ai(db, monkeypatch, stage):
+    monkeypatch.setattr(tasks, "get_supabase_thread_safe", lambda: db.client)
+    for name in (
+        "decrypt_secret",
+        "NotionClient",
+        "contextualize_chunks",
+        "embed_batch",
+        "mark_running",
+    ):
+        monkeypatch.setattr(
+            tasks, name, Mock(side_effect=AssertionError("work started before authorization"))
         )
-        self.assertEqual(leaf_id, "new-sp")
-        self.assertEqual(parent_path, "Cosm / Sprint planning")
+    payload = {
+        "job_id": "job",
+        "config_id": "config",
+        "user_id": "owner",
+        "root_folder_id": "foreign",
+    }
+    db.configs.append({"id": "config", "user_id": "owner", "root_folder_id": "foreign"})
+    function = (
+        tasks._ingest_notion_page_task_impl if stage == "page" else tasks._notion_sync_task_impl
+    )
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(function({}, payload))
+    assert error.value.status_code == 404
+    assert db.writes == []
 
-    def test_empty_chain_returns_notion_root(self):
-        sb = MagicMock()
-        select_chain = sb.table.return_value.select.return_value.eq.return_value.eq.return_value
-        select_chain.execute.return_value.data = []
-        sb.table.return_value.insert.return_value.execute.return_value.data = [{"id": "notion-fid"}]
 
-        leaf_id, parent_path = ensure_notion_folder_path(
-            sb,
-            user_id="u1",
-            root_folder_id="root-1",
-            ancestor_titles=[],
+def test_page_picker_accepts_token_only_in_post_body(monkeypatch):
+    client = Mock()
+    client.iter_pages_edited_since.return_value = [
+        SimpleNamespace(page_id="p", title="Selected page")
+    ]
+    factory = Mock(return_value=client)
+    monkeypatch.setattr(notion, "NotionClient", factory)
+    app = FastAPI()
+    app.include_router(notion.router)
+    app.dependency_overrides[notion.get_current_user] = lambda: "owner"
+    with TestClient(app) as http:
+        response = http.post(
+            "/api/notion/pages", json={"integration_token": "test-only", "query": "Selected"}
         )
-        self.assertEqual(leaf_id, "notion-fid")
-        self.assertEqual(parent_path, "")
+        assert response.status_code == 200
+        assert response.json() == [{"id": "p", "title": "Selected page"}]
+        factory.assert_called_once_with("test-only")
+        assert http.get("/api/notion/pages?integration_token=test-only").status_code == 405
+        assert http.post("/api/notion/pages?integration_token=test-only").status_code == 422
+        assert factory.call_count == 1

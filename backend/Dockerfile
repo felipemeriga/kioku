@@ -1,12 +1,12 @@
 # syntax=docker/dockerfile:1
-FROM ghcr.io/astral-sh/uv:0.9-python3.10-bookworm-slim AS dependencies
+FROM ghcr.io/astral-sh/uv:0.9-python3.12-bookworm-slim AS dependencies
 WORKDIR /app
 ENV UV_LINK_MODE=copy
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-install-project
 
-FROM python:3.10-slim-bookworm
+FROM python:3.12-slim-bookworm
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl git openssh-client \
     libgl1 libglib2.0-0 libgomp1 && \

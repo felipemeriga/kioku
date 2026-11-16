@@ -12,6 +12,7 @@
 import { execFileSync } from "node:child_process";
 
 import { ok, info, warn } from "./banner.js";
+import { readConfig } from "./config.js";
 
 /** Normalize any GitHub-ish remote to the SSH form Mihari's key uses. */
 export function toSshRemote(remoteUrl: string): string {
@@ -25,7 +26,7 @@ export function detectDefaultBranch(repoRoot: string): string {
     const ref = execFileSync(
       "git",
       ["symbolic-ref", "refs/remotes/origin/HEAD"],
-      { cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }
+      { cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
     ).trim();
     const m = /refs\/remotes\/origin\/(.+)$/.exec(ref);
     if (m) return m[1];
@@ -37,7 +38,7 @@ export function detectDefaultBranch(repoRoot: string): string {
       execFileSync(
         "git",
         ["show-ref", "--verify", `refs/remotes/origin/${candidate}`],
-        { cwd: repoRoot, stdio: "ignore" }
+        { cwd: repoRoot, stdio: "ignore" },
       );
       return candidate;
     } catch {
@@ -62,10 +63,27 @@ export async function registerWithMihari(args: RegisterArgs): Promise<void> {
   }
   const remote = toSshRemote(args.remoteUrl);
   const branch = detectDefaultBranch(args.repoRoot);
-  const headers = {
+  const headers: Record<string, string> = {
     Authorization: `Bearer ${args.apiKey}`,
     "Content-Type": "application/json",
   };
+  const config = readConfig();
+  // A repository's MCP URL is not authority to receive the user's full session.
+  // Send it only to the exact API base configured by the owner, never a redirect.
+  try {
+    const target = new URL(args.base);
+    const trusted = new URL(config.api_base);
+    if (
+      config.access_token &&
+      !target.username &&
+      !target.password &&
+      target.href.replace(/\/$/, "") === trusted.href.replace(/\/$/, "")
+    ) {
+      headers["X-Kioku-Owner-Authorization"] = `Bearer ${config.access_token}`;
+    }
+  } catch {
+    // Invalid/foreign MCP bases never receive an owner session.
+  }
 
   let publicKey = "";
   let fingerprint = "";
@@ -73,6 +91,7 @@ export async function registerWithMihari(args: RegisterArgs): Promise<void> {
   try {
     const res = await fetch(`${args.base}/api/mihari/key`, {
       method: "POST",
+      redirect: "error",
       headers,
     });
     if (!res.ok) throw new Error(`${res.status}`);
@@ -87,7 +106,7 @@ export async function registerWithMihari(args: RegisterArgs): Promise<void> {
   } catch (err) {
     warn(
       "Couldn't reach Mihari — repo not registered.",
-      err instanceof Error ? err.message : String(err)
+      err instanceof Error ? err.message : String(err),
     );
     return;
   }
@@ -95,6 +114,7 @@ export async function registerWithMihari(args: RegisterArgs): Promise<void> {
   try {
     const res = await fetch(`${args.base}/api/mihari/repos`, {
       method: "POST",
+      redirect: "error",
       headers,
       body: JSON.stringify({
         folder_id: args.folderId,
@@ -106,7 +126,7 @@ export async function registerWithMihari(args: RegisterArgs): Promise<void> {
   } catch (err) {
     warn(
       "Mihari registration failed.",
-      err instanceof Error ? err.message : String(err)
+      err instanceof Error ? err.message : String(err),
     );
     return;
   }
@@ -115,6 +135,7 @@ export async function registerWithMihari(args: RegisterArgs): Promise<void> {
   try {
     const res = await fetch(`${args.base}/api/mihari/test-access`, {
       method: "POST",
+      redirect: "error",
       headers,
       body: JSON.stringify({ remote_url: remote, branch }),
     });
@@ -122,7 +143,7 @@ export async function registerWithMihari(args: RegisterArgs): Promise<void> {
     if (body.ok) {
       ok(
         `Mihari active — ${remote} (${branch}) re-indexes automatically ` +
-          "when it changes."
+          "when it changes.",
       );
       return;
     }
@@ -133,7 +154,7 @@ export async function registerWithMihari(args: RegisterArgs): Promise<void> {
   warn(
     created
       ? "Mihari key created, but it can't read this repo yet."
-      : "Mihari key can't read this repo yet."
+      : "Mihari key can't read this repo yet.",
   );
   console.log(
     [
@@ -150,6 +171,6 @@ export async function registerWithMihari(args: RegisterArgs): Promise<void> {
       "     (read-only) instead of an account key.",
       "  3. Re-run `kioku init` (or `kioku doctor`) to verify access.",
       "",
-    ].join("\n")
+    ].join("\n"),
   );
 }

@@ -10,8 +10,16 @@
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import {
+  closeSync,
+  constants,
+  fstatSync,
+  lstatSync,
+  openSync,
+  readSync,
+  realpathSync,
+} from "node:fs";
+import { isAbsolute, join, resolve } from "node:path";
 
 const MAX_FILE_BYTES = 300_000; // skip generated monsters / bundles
 const MAX_CHUNK_LINES = 120; // split oversized symbol bodies
@@ -42,6 +50,104 @@ const EXT_LANGUAGE: Record<string, string> = {
   sql: "sql",
   proto: "proto",
 };
+
+export function isIndexableSourceFile(file: string): boolean {
+  if (!file || isAbsolute(file) || /^[\\/]/.test(file)) return false;
+  const privateNames = new Set([
+    ".",
+    "..",
+    ".git",
+    ".claude",
+    ".codex",
+    ".ssh",
+    ".aws",
+    ".mcp.json",
+    ".npmrc",
+    ".pypirc",
+    ".netrc",
+  ]);
+  return !file
+    .toLowerCase()
+    .split(/[\\/]/)
+    .some(
+      (part) =>
+        !part ||
+        privateNames.has(part) ||
+        part.startsWith(".env") ||
+        part.includes(":"),
+    );
+}
+
+/** Read only a bounded regular file reached without repository-controlled links.
+ * Node has no portable openat: pin and compare file/directory identities around
+ * the open. Mihari additionally rejects link-bearing checkouts before indexing
+ * and serializes checkout updates; this is not a hostile concurrent-FS sandbox.
+ */
+export function readCodeSource(repoRoot: string, file: string): string | null {
+  if (!isIndexableSourceFile(file)) return null;
+  const parts = file.split(/[\\/]/);
+  if (
+    isAbsolute(file) ||
+    parts.some((part) => !part || part === "." || part === "..")
+  )
+    return null;
+  let fd: number | undefined;
+  try {
+    const root = realpathSync(repoRoot);
+    let path = root;
+    const directories = [{ path, info: lstatSync(path) }];
+    for (const part of parts.slice(0, -1)) {
+      path = join(path, part);
+      const info = lstatSync(path);
+      if (!info.isDirectory() || info.isSymbolicLink()) return null;
+      directories.push({ path, info });
+    }
+    path = join(path, parts[parts.length - 1]);
+    const before = lstatSync(path);
+    if (
+      !before.isFile() ||
+      before.isSymbolicLink() ||
+      before.size > MAX_FILE_BYTES
+    )
+      return null;
+    fd = openSync(
+      path,
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+    );
+    const opened = fstatSync(fd);
+    if (
+      !opened.isFile() ||
+      opened.dev !== before.dev ||
+      opened.ino !== before.ino ||
+      opened.size > MAX_FILE_BYTES
+    )
+      return null;
+    if (realpathSync(path) !== resolve(root, file)) return null;
+    for (const directory of directories) {
+      const current = lstatSync(directory.path);
+      if (
+        !current.isDirectory() ||
+        current.dev !== directory.info.dev ||
+        current.ino !== directory.info.ino
+      )
+        return null;
+    }
+    const bytes = Buffer.alloc(MAX_FILE_BYTES + 1);
+    let length = 0;
+    while (length < bytes.length) {
+      const count = readSync(fd, bytes, length, bytes.length - length, null);
+      if (!count) break;
+      length += count;
+    }
+    return length > MAX_FILE_BYTES
+      ? null
+      : bytes.subarray(0, length).toString("utf8");
+  } catch {
+    return null;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}
 
 interface SymbolMark {
   line: number;
@@ -79,7 +185,7 @@ function languageOf(file: string): string | null {
  *  File-level nodes (label === basename) are skipped — they aren't symbols. */
 export function symbolMarksByFile(
   nodes: CodeChunkNode[],
-  norm: (p?: string) => string
+  norm: (p?: string) => string,
 ): Map<string, SymbolMark[]> {
   const byFile = new Map<string, SymbolMark[]>();
   for (const n of nodes) {
@@ -102,7 +208,7 @@ export function symbolMarksByFile(
 export function chunkFile(
   content: string,
   marks: SymbolMark[],
-  header: (symbol: string | null, a: number, b: number) => string
+  header: (symbol: string | null, a: number, b: number) => string,
 ): ChunkOut[] {
   const lines = content.split("\n");
   if (lines.length === 0) return [];
@@ -115,7 +221,7 @@ export function chunkFile(
   const segs: { start: number; end: number; symbol: string | null }[] = [];
   for (let i = 0; i < starts.length; i++) {
     const start = starts[i];
-    const end = (i + 1 < starts.length ? starts[i + 1] - 1 : lines.length);
+    const end = i + 1 < starts.length ? starts[i + 1] - 1 : lines.length;
     if (end < start) continue;
     const sym = marks.find((m) => m.line === start)?.name ?? null;
     segs.push({ start, end, symbol: sym });
@@ -146,7 +252,8 @@ export function chunkFile(
         symbol: s.symbol,
         start_line: a,
         end_line: b,
-        content: text.length > MAX_CHUNK_CHARS ? text.slice(0, MAX_CHUNK_CHARS) : text,
+        content:
+          text.length > MAX_CHUNK_CHARS ? text.slice(0, MAX_CHUNK_CHARS) : text,
       });
       if (b >= s.end) break;
     }
@@ -177,7 +284,7 @@ export async function uploadCodeChunks(args: UploadArgs): Promise<number> {
   try {
     const res = await fetch(
       `${base}/api/cli/code-chunks?folder_id=${encodeURIComponent(folderId)}`,
-      { headers: { Authorization: `Bearer ${apiKey}` } }
+      { headers: { Authorization: `Bearer ${apiKey}` } },
     );
     if (res.ok) {
       const body = (await res.json()) as { files?: Record<string, string> };
@@ -188,23 +295,20 @@ export async function uploadCodeChunks(args: UploadArgs): Promise<number> {
   }
 
   const marks = symbolMarksByFile(args.nodes, args.norm);
+  const deletedFiles = [
+    ...new Set([
+      ...args.deletedFiles,
+      ...Object.keys(serverHashes).filter(
+        (file) => !isIndexableSourceFile(file),
+      ),
+    ]),
+  ];
   const fileOuts: FileOut[] = [];
   let skippedUnchanged = 0;
 
   for (const file of args.files) {
-    const abs = join(repoRoot, file);
-    if (!existsSync(abs)) continue;
-    try {
-      if (statSync(abs).size > MAX_FILE_BYTES) continue;
-    } catch {
-      continue;
-    }
-    let content: string;
-    try {
-      content = readFileSync(abs, "utf8");
-    } catch {
-      continue;
-    }
+    const content = readCodeSource(repoRoot, file);
+    if (content === null) continue;
     if (content.includes("\u0000")) continue; // binary NUL check
 
     const hash = createHash("sha256").update(content).digest("hex");
@@ -218,7 +322,7 @@ export async function uploadCodeChunks(args: UploadArgs): Promise<number> {
       marks.get(file) ?? [],
       (symbol, a, b) =>
         `[repo ${folderName}] [file ${file}:${a}-${b}]` +
-        (symbol ? ` [symbol ${symbol}]` : "")
+        (symbol ? ` [symbol ${symbol}]` : ""),
     );
     if (chunks.length === 0) continue;
     fileOuts.push({
@@ -229,11 +333,11 @@ export async function uploadCodeChunks(args: UploadArgs): Promise<number> {
     });
   }
 
-  if (fileOuts.length === 0 && args.deletedFiles.length === 0) {
+  if (fileOuts.length === 0 && deletedFiles.length === 0) {
     args.log.info(
       skippedUnchanged > 0
         ? `Code chunks: all ${skippedUnchanged} files unchanged on server.`
-        : "Code chunks: nothing to upload."
+        : "Code chunks: nothing to upload.",
     );
     return 0;
   }
@@ -245,7 +349,7 @@ export async function uploadCodeChunks(args: UploadArgs): Promise<number> {
       folder_id: folderId,
       files: slice,
       // deleted files ride the first request only
-      deleted_files: i === 0 ? args.deletedFiles : [],
+      deleted_files: i === 0 ? deletedFiles : [],
     };
     try {
       const res = await fetch(`${base}/api/cli/code-chunks`, {
@@ -259,7 +363,7 @@ export async function uploadCodeChunks(args: UploadArgs): Promise<number> {
       if (!res.ok) {
         args.log.warn(
           `Code-chunk upload failed (${res.status}).`,
-          (await res.text()).slice(0, 200)
+          (await res.text()).slice(0, 200),
         );
         return -1;
       }
@@ -268,7 +372,7 @@ export async function uploadCodeChunks(args: UploadArgs): Promise<number> {
     } catch (err) {
       args.log.warn(
         "Couldn't reach the backend for code-chunk upload.",
-        err instanceof Error ? err.message : String(err)
+        err instanceof Error ? err.message : String(err),
       );
       return -1;
     }

@@ -53,7 +53,7 @@ def test_unchanged_head_never_calls_paid_briefing_review(monkeypatch, tmp_path):
     )
     repo = {
         "id": "r1",
-        "remote_url": "repo",
+        "remote_url": "git@github.com:example/repo.git",
         "branch": "main",
         "user_id": "u1",
         "folder_id": "f1",
@@ -95,7 +95,11 @@ def test_activity_only_review_skips_expensive_briefing_generation(monkeypatch):
     monkeypatch.setattr(mihari, "refresh_activity", lambda *_a, **_k: activity.append(True))
     mihari.review_new_commits(
         Path("/clone"),
-        {"folder_id": "f1", "remote_url": "repo", "api_key_encrypted": "encrypted"},
+        {
+            "folder_id": "f1",
+            "remote_url": "git@github.com:example/repo.git",
+            "api_key_encrypted": "encrypted",
+        },
         "a" * 40,
         "b" * 40,
         {},
@@ -133,8 +137,9 @@ def _setup_reground(monkeypatch, posted):
     monkeypatch.setattr(mihari, "decrypt", lambda s: "KEY")
     monkeypatch.setattr(mihari.Path, "is_file", lambda self: True)
     monkeypatch.setattr(mihari.Path, "is_dir", lambda self: False)
+    monkeypatch.setattr(mihari.Path, "is_symlink", lambda self: False)
     monkeypatch.setattr(mihari.Path, "stat", lambda self: type("S", (), {"st_size": 100})())
-    monkeypatch.setattr(mihari.Path, "read_text", lambda self, **k: "content")
+    monkeypatch.setattr(mihari, "read_repo_text", lambda *args, **kwargs: "content")
 
     class _R:
         ok = True
@@ -157,7 +162,11 @@ def test_reground_skips_when_not_forced(monkeypatch):
     _setup_reground(monkeypatch, posted)
     mihari.maybe_reground_holistic(
         Path("/clone"),
-        {"folder_id": "f1", "remote_url": "r", "api_key_encrypted": "x"},
+        {
+            "folder_id": "f1",
+            "remote_url": "git@github.com:example/repo.git",
+            "api_key_encrypted": "x",
+        },
         {},
     )
     assert posted["n"] == 0  # recent watermark -> gated out
@@ -168,7 +177,11 @@ def test_reground_force_bypasses_gates(monkeypatch):
     _setup_reground(monkeypatch, posted)
     mihari.maybe_reground_holistic(
         Path("/clone"),
-        {"folder_id": "f1", "remote_url": "r", "api_key_encrypted": "x"},
+        {
+            "folder_id": "f1",
+            "remote_url": "git@github.com:example/repo.git",
+            "api_key_encrypted": "x",
+        },
         {},
         force=True,
     )
@@ -203,7 +216,11 @@ def test_reground_never_posts_when_both_sections_are_user_edited(monkeypatch):
     )
     mihari.maybe_reground_holistic(
         Path("/clone"),
-        {"folder_id": "f1", "remote_url": "r", "api_key_encrypted": "x"},
+        {
+            "folder_id": "f1",
+            "remote_url": "git@github.com:example/repo.git",
+            "api_key_encrypted": "x",
+        },
         {},
         force=True,
     )
@@ -230,7 +247,11 @@ def test_reground_old_auto_sections_upgrade_once(monkeypatch):
     )
     mihari.maybe_reground_holistic(
         Path("/clone"),
-        {"folder_id": "f1", "remote_url": "r", "api_key_encrypted": "x"},
+        {
+            "folder_id": "f1",
+            "remote_url": "git@github.com:example/repo.git",
+            "api_key_encrypted": "x",
+        },
         {},
     )
     assert posted["n"] == 1
@@ -264,7 +285,11 @@ def test_reground_does_not_replace_recent_rich_agent_briefing(monkeypatch):
     )
     mihari.maybe_reground_holistic(
         Path("/clone"),
-        {"folder_id": "f1", "remote_url": "r", "api_key_encrypted": "x"},
+        {
+            "folder_id": "f1",
+            "remote_url": "git@github.com:example/repo.git",
+            "api_key_encrypted": "x",
+        },
         {},
     )
     assert posted["n"] == 0
@@ -308,7 +333,11 @@ def test_failed_reground_attempt_has_cooldown_on_same_head(monkeypatch, tmp_path
             return {"updated": False}
 
     monkeypatch.setattr(mihari, "maintenance_post", lambda *a, **k: posted.append(k) or Response())
-    repo = {"folder_id": "f1", "remote_url": "r", "api_key_encrypted": "x"}
+    repo = {
+        "folder_id": "f1",
+        "remote_url": "git@github.com:example/repo.git",
+        "api_key_encrypted": "x",
+    }
     mihari.maybe_reground_holistic(tmp_path, repo, {})
     mihari.maybe_reground_holistic(tmp_path, repo, {})
     assert len(posted) == 1
@@ -354,7 +383,11 @@ def test_guide_upgrade_uses_grounded_repo_context_without_new_commits(monkeypatc
     )
     mihari.refresh_sections(
         tmp_path,
-        {"folder_id": "f1", "remote_url": "r", "api_key_encrypted": "x"},
+        {
+            "folder_id": "f1",
+            "remote_url": "git@github.com:example/repo.git",
+            "api_key_encrypted": "x",
+        },
         {},
         force_guide=True,
     )
@@ -398,7 +431,11 @@ def test_section_refresh_no_change_after_upgrade_makes_no_model_call(monkeypatch
     monkeypatch.setattr(mihari.requests, "post", lambda *a, **k: pytest.fail("unexpected call"))
     mihari.refresh_sections(
         tmp_path,
-        {"folder_id": "f1", "remote_url": "r", "api_key_encrypted": "x"},
+        {
+            "folder_id": "f1",
+            "remote_url": "git@github.com:example/repo.git",
+            "api_key_encrypted": "x",
+        },
         {},
         force_guide=True,
     )
@@ -446,7 +483,7 @@ def test_force_refresh_sections_uses_selective_review(monkeypatch, tmp_path):
 
     repo = {
         "id": "1",
-        "remote_url": "r",
+        "remote_url": "git@github.com:example/repo.git",
         "branch": "main",
         "user_id": "u",
         "folder_id": "f1",
@@ -483,7 +520,9 @@ def test_handle_run_unknown_folder(monkeypatch):
 
 def test_handle_run_started_and_overlap(monkeypatch):
     monkeypatch.setattr(
-        mihari, "find_repo", lambda fid: ({"remote_url": "r", "user_id": "u"}, {"k": 1})
+        mihari,
+        "find_repo",
+        lambda fid: ({"remote_url": "git@github.com:example/repo.git", "user_id": "u"}, {"k": 1}),
     )
     monkeypatch.setattr(mihari, "rest_post", lambda *a: None)
     monkeypatch.setattr(mihari, "rest_patch", lambda *a: None)
@@ -512,7 +551,11 @@ def test_handle_run_started_and_overlap(monkeypatch):
 def test_refresh_records_terminal_state_even_without_content_changes(monkeypatch, target, fails):
     writes = []
     monkeypatch.setattr(mihari, "_pass_lock", threading.Lock())
-    monkeypatch.setattr(mihari, "find_repo", lambda fid: ({"remote_url": "r", "user_id": "u"}, {}))
+    monkeypatch.setattr(
+        mihari,
+        "find_repo",
+        lambda fid: ({"remote_url": "git@github.com:example/repo.git", "user_id": "u"}, {}),
+    )
     monkeypatch.setattr(mihari, "rest_post", lambda path, rows, headers: writes.append(rows[0]))
     monkeypatch.setattr(mihari, "rest_patch", lambda path, params, row: writes.append(row))
 
@@ -707,7 +750,7 @@ def test_partial_pass_retry_skips_activity_completes_review_and_advances_sha(mon
         "id": "r1",
         "user_id": "owner",
         "folder_id": "folder",
-        "remote_url": "repo",
+        "remote_url": "git@github.com:example/repo.git",
         "branch": "main",
         "last_sha": "a" * 40,
         "api_key_encrypted": "cipher",

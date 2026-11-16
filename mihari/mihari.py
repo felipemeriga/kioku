@@ -27,6 +27,7 @@ Two run modes:
 from __future__ import annotations
 
 import base64
+import errno
 import json
 import os
 import re
@@ -36,12 +37,21 @@ import sys
 import tempfile
 import threading
 import time
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import requests
 from cryptography.fernet import Fernet
+
+try:
+    # Docker copies the shared policy beside this script.
+    from git_remote import GIT_ENV, GIT_OPTIONS, validate_git_branch, validate_git_remote
+except ModuleNotFoundError:
+    # Direct source invocation uses the canonical backend copy.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
+    from services.git_remote import GIT_ENV, GIT_OPTIONS, validate_git_branch, validate_git_remote
 
 SUPABASE_URL = os.environ["SUPABASE_URL"].rstrip("/")
 SERVICE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
@@ -409,21 +419,108 @@ def git_env(key_path: str) -> dict:
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
         "HOME": os.environ.get("HOME", "/root"),
         "GIT_SSH_COMMAND": (
-            f"ssh -i {key_path} -o IdentitiesOnly=yes -o BatchMode=yes "
+            f"ssh -F /dev/null -i {key_path} -o IdentitiesOnly=yes -o BatchMode=yes "
             "-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15"
         ),
-        "GIT_TERMINAL_PROMPT": "0",
+        **GIT_ENV,
     }
 
 
 def run_git(args: list[str], env: dict, cwd: str | None = None) -> tuple[int, str, str]:
+    env = {**env, **GIT_ENV}
+    if args[0] == "ls-remote":
+        validate_git_remote(args[1])
+    elif args[0] == "clone":
+        validate_git_branch(args[2])
+        validate_git_remote(args[3])
+    elif args[0] == "fetch":
+        validate_git_branch(args[2])
+        # Existing clones can predate the transport policy. Validate the actual
+        # origin before fetching, not only the current watched_repos record.
+        origin = subprocess.run(
+            ["git", *GIT_OPTIONS, "remote", "get-url", args[1]],
+            env=env,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if origin.returncode:
+            raise ValueError("Repository origin is unavailable")
+        validate_git_remote(origin.stdout.strip())
     proc = subprocess.run(
-        ["git", *args], env=env, cwd=cwd, capture_output=True, text=True, timeout=600
+        ["git", *GIT_OPTIONS, *args], env=env, cwd=cwd, capture_output=True, text=True, timeout=600
     )
     return proc.returncode, proc.stdout.strip(), proc.stderr.strip()
 
 
+@contextmanager
+def _repo_parent(clone: Path, relative: str, *, create: bool = False):
+    """Pin each directory while traversing untrusted checkout paths without links."""
+    parts = relative.split("/")
+    if not parts or any(part in ("", ".", "..") for part in parts):
+        raise OSError(errno.EINVAL, "Invalid repository path")
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    directory = os.open(clone, flags)
+    try:
+        for part in parts[:-1]:
+            if create:
+                try:
+                    os.mkdir(part, mode=0o700, dir_fd=directory)
+                except FileExistsError:
+                    pass
+            child = os.open(part, flags, dir_fd=directory)
+            os.close(directory)
+            directory = child
+        yield directory, parts[-1]
+    finally:
+        os.close(directory)
+
+
+def read_repo_text(clone: Path, relative: str, limit: int = 100_000) -> str:
+    with _repo_parent(clone, relative) as (directory, name):
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+        with os.fdopen(fd, "rb") as source:
+            metadata = os.fstat(source.fileno())
+            if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > limit:
+                raise OSError(errno.EINVAL, "Repository source must be a bounded regular file")
+            content = source.read(limit + 1)
+            if len(content) > limit:
+                raise OSError(errno.EFBIG, "Repository source too large")
+            return content.decode("utf-8", errors="replace")
+
+
+def write_repo_text(clone: Path, relative: str, content: str) -> None:
+    with _repo_parent(clone, relative, create=True) as (directory, name):
+        fd = os.open(
+            name,
+            os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK,
+            0o600,
+            dir_fd=directory,
+        )
+        with os.fdopen(fd, "w") as target:
+            if not stat.S_ISREG(os.fstat(target.fileno()).st_mode):
+                raise OSError(errno.EINVAL, "Repository target must be a regular file")
+            os.ftruncate(target.fileno(), 0)
+            target.write(content)
+
+
+def require_link_free_checkout(clone: Path) -> None:
+    """The external indexer cannot safely consume repository-controlled links.
+
+    The daemon serializes checkout/index operations; descriptor-based helpers
+    below additionally protect its own reads and writes from path replacement.
+    """
+    if clone.is_symlink():
+        raise OSError(errno.ELOOP, "Repository checkout cannot be a symlink")
+    for directory, dirs, files in os.walk(clone, followlinks=False):
+        for name in dirs + files:
+            if (Path(directory) / name).is_symlink():
+                raise OSError(errno.ELOOP, "Repository checkout contains a symlink")
+
+
 def seed_bindings(clone: Path, folder_id: str, folder_name: str, api_key: str) -> None:
+    require_link_free_checkout(clone)
     mcp = {
         "mcpServers": {
             "kioku": {
@@ -433,23 +530,22 @@ def seed_bindings(clone: Path, folder_id: str, folder_name: str, api_key: str) -
             }
         }
     }
-    (clone / ".mcp.json").write_text(json.dumps(mcp, indent=2) + "\n")
-    claude_dir = clone / ".claude"
-    claude_dir.mkdir(exist_ok=True)
-    state_path = claude_dir / "kioku-state.json"
+    write_repo_text(clone, ".mcp.json", json.dumps(mcp, indent=2) + "\n")
     state = {}
-    if state_path.exists():
-        try:
-            state = json.loads(state_path.read_text())
-        except json.JSONDecodeError:
+    try:
+        state = json.loads(read_repo_text(clone, ".claude/kioku-state.json"))
+        if not isinstance(state, dict):
             state = {}
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
     state.update({"folder_id": folder_id, "folder_name": folder_name})
-    state_path.write_text(json.dumps(state, indent=2) + "\n")
+    write_repo_text(clone, ".claude/kioku-state.json", json.dumps(state, indent=2) + "\n")
 
 
 def kioku_index(clone: Path) -> tuple[bool, str]:
     """Run `kioku index` with a STRIPPED environment: the parsing/upload
     subprocess must not inherit the service key or the master key."""
+    require_link_free_checkout(clone)
     env = {
         "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
         "HOME": os.environ.get("HOME", "/root"),
@@ -702,7 +798,7 @@ def refresh_sections(
                     files.append(
                         {
                             "path": f,
-                            "content": p.read_text(errors="replace")[:2500],
+                            "content": read_repo_text(clone, f, 60_000)[:2500],
                             "role": "changed" if f in changed else "context",
                         }
                     )
@@ -724,7 +820,7 @@ def refresh_sections(
                         files.append(
                             {
                                 "path": path,
-                                "content": candidate.read_text(errors="replace")[:2500],
+                                "content": read_repo_text(clone, path, 60_000)[:2500],
                                 "role": "context",
                             }
                         )
@@ -757,7 +853,7 @@ def refresh_sections(
                         files.append(
                             {
                                 "path": context_path,
-                                "content": candidate.read_text(errors="replace")[:4000],
+                                "content": read_repo_text(clone, context_path, 100_000)[:4000],
                                 "role": "context",
                             }
                         )
@@ -869,7 +965,7 @@ def maybe_reground_holistic(
     attempt_path = clone / ".git" / "kioku-reground-attempt.json"
     if not force and code == 0 and head and attempt_path.is_file():
         try:
-            attempt = json.loads(attempt_path.read_text())
+            attempt = json.loads(read_repo_text(clone, ".git/kioku-reground-attempt.json"))
             attempted = datetime.fromisoformat(attempt["at"])
             if attempt.get("head") == head and (datetime.now(timezone.utc) - attempted).days < 7:
                 return
@@ -891,7 +987,8 @@ def maybe_reground_holistic(
             paths.append(cand)
     for top in sorted(clone.iterdir()) if clone.is_dir() else []:
         if (
-            not top.is_dir()
+            top.is_symlink()
+            or not top.is_dir()
             or top.name.startswith(".")
             or top.name in {"design-system", "tests", "test", "docs", "node_modules"}
         ):
@@ -921,10 +1018,10 @@ def maybe_reground_holistic(
     # far more informative than a root manifest alone and still have a hard cap.
     for parent in ("apps", "packages", "services", "crates"):
         base = clone / parent
-        if not base.is_dir():
+        if base.is_symlink() or not base.is_dir():
             continue
         for child in sorted(base.iterdir())[:12]:
-            if not child.is_dir():
+            if child.is_symlink() or not child.is_dir():
                 continue
             for name in ("README.md", "package.json", "Cargo.toml", "pyproject.toml"):
                 candidate = child / name
@@ -936,7 +1033,7 @@ def maybe_reground_holistic(
         p = clone / f
         try:
             if p.is_file() and p.stat().st_size < 80_000:
-                files.append({"path": f, "content": p.read_text(errors="replace")[:3500]})
+                files.append({"path": f, "content": read_repo_text(clone, f, 80_000)[:3500]})
         except OSError:
             continue
     if not files:
@@ -954,8 +1051,10 @@ def maybe_reground_holistic(
     key = decrypt(repo["api_key_encrypted"])
     if code == 0 and head:
         try:
-            attempt_path.write_text(
-                json.dumps({"head": head, "at": datetime.now(timezone.utc).isoformat()})
+            write_repo_text(
+                clone,
+                ".git/kioku-reground-attempt.json",
+                json.dumps({"head": head, "at": datetime.now(timezone.utc).isoformat()}),
             )
         except OSError:
             pass  # deployment without a writable clone still functions
@@ -1047,6 +1146,8 @@ def review_new_commits(clone: Path, repo: dict, old_sha: str | None, head: str, 
 
 
 def process_repo(repo: dict, key_row: dict) -> None:
+    validate_git_remote(repo["remote_url"])
+    validate_git_branch(repo["branch"])
     rid = repo["id"]
     name = f"{repo['remote_url']} ({repo['branch']})"
     now = datetime.now(timezone.utc).isoformat()
@@ -1145,6 +1246,8 @@ def force_refresh(repo: dict, key_row: dict, target: str) -> None:
     clone to HEAD regardless of last_sha, then runs the requested target.
     Parallels process_repo's sync block on purpose so the scheduled path stays
     untouched."""
+    validate_git_remote(repo["remote_url"])
+    validate_git_branch(repo["branch"])
     rid = repo["id"]
     name = f"{repo['remote_url']} ({repo['branch']})"
     now = datetime.now(timezone.utc).isoformat()

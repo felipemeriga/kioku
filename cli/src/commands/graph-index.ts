@@ -22,7 +22,7 @@ import { readMcpEntry } from "../lib/claude.js";
 import { headSha } from "../lib/git.js";
 import { section, ok, info, warn, bad } from "../lib/banner.js";
 import { mcpUrlToRestBase } from "../lib/urls.js";
-import { uploadCodeChunks } from "../lib/code-chunks.js";
+import { isIndexableSourceFile, uploadCodeChunks } from "../lib/code-chunks.js";
 import { supplementTopLevelCalls } from "../lib/graph-call-edges.js";
 
 interface GraphNode {
@@ -332,8 +332,30 @@ async function runExtractionAndUpload(
     process.exitCode = 1;
     return;
   }
-  const allNodes = graph.nodes ?? [];
-  const allEdges = graph.links ?? graph.edges ?? [];
+  const normalizedNodes = (graph.nodes ?? []).map((node) => ({
+    ...node,
+    source_file: norm(node.source_file),
+  }));
+  const normalizedEdges = (graph.links ?? graph.edges ?? []).map((edge) =>
+    edge.source_file ? { ...edge, source_file: norm(edge.source_file) } : edge,
+  );
+  const privateNodes = normalizedNodes.filter(
+    (node) => !isIndexableSourceFile(norm(node.source_file)),
+  );
+  const privateNodeIds = new Set(privateNodes.map((node) => node.id));
+  const privateFiles = privateNodes
+    .map((node) => norm(node.source_file))
+    .filter(Boolean);
+  deletedFiles = [...new Set([...deletedFiles, ...privateFiles])];
+  const allNodes = normalizedNodes.filter((node) =>
+    isIndexableSourceFile(norm(node.source_file)),
+  );
+  const allEdges = normalizedEdges.filter(
+    (edge) =>
+      !privateNodeIds.has(edge.source) &&
+      !privateNodeIds.has(edge.target) &&
+      (!edge.source_file || isIndexableSourceFile(norm(edge.source_file))),
+  );
 
   const changedSet = new Set(changedFiles);
   const nodes = isFirst
@@ -350,7 +372,7 @@ async function runExtractionAndUpload(
   // First run: the "changed" set is every file present in the graph.
   const filesForDelta = isFirst
     ? [...new Set(allNodes.map((n) => norm(n.source_file)).filter(Boolean))]
-    : changedFiles;
+    : changedFiles.filter(isIndexableSourceFile);
 
   const base = mcpUrlToRestBase(mcp.entry.url);
   info(`Uploading ${nodes.length} symbols, ${uploadedEdges.length} edges…`);

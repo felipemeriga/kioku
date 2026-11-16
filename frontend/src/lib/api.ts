@@ -959,11 +959,10 @@ export async function listNotionPages(
   integrationToken: string,
   query: string,
 ): Promise<NotionPageOption[]> {
-  const params = new URLSearchParams({
-    integration_token: integrationToken,
-    query,
+  const res = await apiFetch("/api/notion/pages", {
+    method: "POST",
+    body: JSON.stringify({ integration_token: integrationToken, query }),
   });
-  const res = await apiFetch(`/api/notion/pages?${params.toString()}`);
   return res.json();
 }
 
@@ -1010,13 +1009,7 @@ export async function refreshFolder(
 }
 
 export type ViewableAs =
-  | "markdown"
-  | "image"
-  | "pdf"
-  | "audio"
-  | "video"
-  | "code"
-  | "text";
+  "markdown" | "image" | "pdf" | "audio" | "video" | "code" | "text";
 
 export interface DocumentContent {
   source_filename: string;

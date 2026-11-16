@@ -30,7 +30,7 @@ from services.embeddings import embed_batch
 from services.notion_sync.attachments import resolve_attachments
 from services.notion_sync.blocks_to_markdown import blocks_to_markdown
 from services.notion_sync.client import NotionClient, NotionPage
-from services.notion_sync.folder_paths import ensure_notion_folder_path
+from services.notion_sync.folder_paths import ensure_notion_folder_path, require_owned_notion_root
 from services.notion_sync.page_helpers import ancestor_chain_titles, fetch_block_tree
 from services.notion_sync.reconciliation import NotionPageSnapshot, diff_pages
 from services.queue.batching import into_batches
@@ -184,6 +184,9 @@ async def ingest_notion_page_task(ctx: dict, payload: dict) -> None:
 
 async def _ingest_notion_page_task_impl(ctx: dict, payload: dict) -> None:
     supabase = get_supabase_thread_safe()
+    require_owned_notion_root(
+        supabase, user_id=payload["user_id"], root_folder_id=payload["root_folder_id"]
+    )
     mark_running(supabase, job_id=payload["job_id"], current_step="parsing")
     notion = NotionClient(payload["integration_token"])
     page = notion.get_page(payload["page_id"])
@@ -364,6 +367,9 @@ async def _notion_sync_task_impl(ctx: dict, payload: dict) -> None:
         mark_failed(supabase, job_id=payload["job_id"], error="config not found")
         return
     cfg = cfg_rows[0]
+    require_owned_notion_root(
+        supabase, user_id=cfg["user_id"], root_folder_id=cfg["root_folder_id"]
+    )
     mark_running(supabase, job_id=payload["job_id"])
 
     token = decrypt_secret(cfg["integration_token_encrypted"])
@@ -716,9 +722,12 @@ async def embed_code_chunks_task(ctx: dict, payload: dict) -> None:
     Rows arrive WITHOUT embeddings (staged by POST /api/cli/code-chunks);
     this task is the only writer that attaches vectors.
     """
+    from services.code_sources import is_indexable_source_file
     from services.embeddings import CODE_EMBEDDING_MODEL, embed_code_batch
 
-    rows: list[dict] = payload.get("rows") or []
+    rows: list[dict] = [
+        row for row in (payload.get("rows") or []) if is_indexable_source_file(row.get("file"))
+    ]
     if not rows:
         return
     embeddings = await asyncio.to_thread(embed_code_batch, [r["content"] for r in rows])

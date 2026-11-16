@@ -23,8 +23,10 @@ from anthropic import BadRequestError
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from auth import get_current_user
 from db.client import get_supabase_thread_safe as get_supabase
 from services.crypto import decrypt_secret, encrypt_secret
+from services.git_remote import GIT_ENV, GIT_OPTIONS, validate_git_branch, validate_git_remote
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -258,6 +260,30 @@ def _api_key_auth(request: Request) -> tuple[str, str, str]:
     return row[0]["user_id"], row[0]["scope_folder_id"], raw_key
 
 
+def _owner_authorized(request: Request, user_id: str) -> bool:
+    """Validate an optional owner session without changing scoped-key identity.
+
+    A supplied invalid session is always an error, even for an idempotent call.
+    Reuse the normal JWT validator rather than maintaining a second decoder.
+    """
+    supplied = request.headers.get("X-Kioku-Owner-Authorization")
+    if supplied is None:
+        return False
+    headers = [(key, value) for key, value in request.scope["headers"] if key != b"authorization"]
+    headers.append((b"authorization", supplied.encode()))
+    owner = get_current_user(Request({**request.scope, "headers": headers}))
+    if owner != user_id:
+        raise HTTPException(403, "Owner session does not match API key owner")
+    return True
+
+
+def _require_owner(authorized: bool) -> None:
+    if not authorized:
+        raise HTTPException(
+            403, "Owner login required to authorize this Git repository; run kioku login"
+        )
+
+
 def _generate_ed25519() -> tuple[str, str, str]:
     """(private_openssh, public_openssh, fingerprint) for a fresh ed25519 key."""
     from cryptography.hazmat.primitives import serialization
@@ -289,6 +315,7 @@ def get_or_create_key(request: Request):
     first call. The same key serves every repo and every computer the user
     links from."""
     user_id, _scope, _raw = _api_key_auth(request)
+    owner_authorized = _owner_authorized(request, user_id)
     sb = get_supabase()
     existing = (
         sb.table("user_git_keys")
@@ -301,6 +328,7 @@ def get_or_create_key(request: Request):
     if existing:
         return {**existing[0], "created": False}
 
+    _require_owner(owner_authorized)
     private_pem, public_key, fingerprint = _generate_ed25519()
     sb.table("user_git_keys").insert(
         {
@@ -321,10 +349,22 @@ class TestAccessRequest(BaseModel):
     remote_url: str = Field(min_length=8, max_length=500)
     branch: str = Field(default="main", max_length=200)
 
+    @field_validator("remote_url")
+    @classmethod
+    def approved_remote(cls, value):
+        return validate_git_remote(value)
+
+    @field_validator("branch")
+    @classmethod
+    def safe_branch(cls, value):
+        return validate_git_branch(value)
+
 
 def _ls_remote_with_key(private_pem: str, remote_url: str, branch: str) -> tuple[str | None, str]:
     """(sha, error). Runs git ls-remote with the decrypted key from a private
     tmpfs file; the key file lives only for the duration of the call."""
+    validate_git_remote(remote_url)
+    validate_git_branch(branch)
     tmpdir = "/dev/shm" if os.path.isdir("/dev/shm") else None
     with tempfile.NamedTemporaryFile("w", dir=tmpdir, suffix=".key", delete=True) as f:
         f.write(private_pem)
@@ -333,14 +373,14 @@ def _ls_remote_with_key(private_pem: str, remote_url: str, branch: str) -> tuple
         env = {
             "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
             "GIT_SSH_COMMAND": (
-                f"ssh -i {f.name} -o IdentitiesOnly=yes -o BatchMode=yes "
+                f"ssh -F /dev/null -i {f.name} -o IdentitiesOnly=yes -o BatchMode=yes "
                 "-o StrictHostKeyChecking=accept-new -o ConnectTimeout=10"
             ),
-            "GIT_TERMINAL_PROMPT": "0",
+            **GIT_ENV,
         }
         try:
             proc = subprocess.run(
-                ["git", "ls-remote", remote_url, f"refs/heads/{branch}"],
+                ["git", *GIT_OPTIONS, "ls-remote", "--", remote_url, f"refs/heads/{branch}"],
                 env=env,
                 capture_output=True,
                 text=True,
@@ -361,8 +401,24 @@ def _ls_remote_with_key(private_pem: str, remote_url: str, branch: str) -> tuple
 @router.post("/test-access")
 def test_access(body: TestAccessRequest, request: Request):
     """Can the user's mihari key read this remote? Runs a real ls-remote."""
-    user_id, _scope, _raw = _api_key_auth(request)
+    user_id, scope_id, _raw = _api_key_auth(request)
+    owner_authorized = _owner_authorized(request, user_id)
     sb = get_supabase()
+    if not owner_authorized:
+        from mcp_server import _descendant_folder_ids
+
+        known = (
+            sb.table("watched_repos")
+            .select("id")
+            .eq("user_id", user_id)
+            .eq("remote_url", body.remote_url)
+            .eq("branch", body.branch)
+            .in_("folder_id", _descendant_folder_ids(sb, scope_id, user_id))
+            .limit(1)
+            .execute()
+            .data
+        )
+        _require_owner(bool(known))
     row = (
         sb.table("user_git_keys")
         .select("private_key_encrypted, public_key, fingerprint")
@@ -461,10 +517,8 @@ def refresh_documentation(body: DocumentationRefreshRequest, request: Request):
     return _run_maintenance(body, request, "documentation")
 
 
-class RegisterRepoRequest(BaseModel):
+class RegisterRepoRequest(TestAccessRequest):
     folder_id: str
-    remote_url: str = Field(min_length=8, max_length=500)
-    branch: str = Field(default="main", max_length=200)
 
 
 @router.post("/repos")
@@ -474,6 +528,7 @@ def register_repo(body: RegisterRepoRequest, request: Request):
     re-binds. Stores the CLI's own api key (encrypted) so Mihari indexes
     under the same identity — no key rotation surprises for the laptop."""
     user_id, scope_id, raw_key = _api_key_auth(request)
+    owner_authorized = _owner_authorized(request, user_id)
     sb = get_supabase()
 
     from mcp_server import _descendant_folder_ids
@@ -483,13 +538,17 @@ def register_repo(body: RegisterRepoRequest, request: Request):
 
     existing = (
         sb.table("watched_repos")
-        .select("id")
+        .select("id, folder_id, branch")
         .eq("user_id", user_id)
         .eq("remote_url", body.remote_url)
         .limit(1)
         .execute()
         .data
     )
+    if not existing or (
+        existing[0]["folder_id"] != body.folder_id or existing[0]["branch"] != body.branch
+    ):
+        _require_owner(owner_authorized)
     row = {
         "user_id": user_id,
         "folder_id": body.folder_id,
@@ -499,7 +558,18 @@ def register_repo(body: RegisterRepoRequest, request: Request):
         "last_error": None,
     }
     if existing:
-        sb.table("watched_repos").update(row).eq("id", existing[0]["id"]).execute()
+        updated = (
+            sb.table("watched_repos")
+            .update(row)
+            .eq("id", existing[0]["id"])
+            .eq("user_id", user_id)
+            .eq("folder_id", existing[0]["folder_id"])
+            .eq("branch", existing[0]["branch"])
+            .execute()
+            .data
+        )
+        if not updated:
+            raise HTTPException(409, "Repository binding changed; retry registration")
         return {"registered": True, "created": False}
     sb.table("watched_repos").insert(row).execute()
     return {"registered": True, "created": True}

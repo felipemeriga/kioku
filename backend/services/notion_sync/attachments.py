@@ -15,8 +15,8 @@ from __future__ import annotations
 import logging
 import re
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
 
+from services.notion_sync.downloads import download_attachment
 from services.parser import extract_from_image, parse_document
 
 logger = logging.getLogger(__name__)
@@ -40,7 +40,7 @@ def _replace_image(match: re.Match[str]) -> str:
         data = _download_bytes(url)
         description = extract_from_image(data, filename)
     except Exception:
-        logger.exception("Notion image vision failed for %s", url)
+        logger.exception("Notion image vision failed")
         return f"> [image] description unavailable ({url})"
     return f"> [image] {description}"
 
@@ -52,7 +52,7 @@ def _replace_pdf(match: re.Match[str]) -> str:
         data = _download_bytes(url)
         text = parse_document(data, filename)
     except Exception:
-        logger.exception("Notion pdf parse failed for %s", url)
+        logger.exception("Notion pdf parse failed")
         return f"> [pdf] content unavailable ({url})"
     return f"> [pdf: {filename}]\n\n{text}\n"
 
@@ -64,9 +64,7 @@ def _replace_file(match: re.Match[str]) -> str:
 
 
 def _download_bytes(url: str) -> bytes:
-    req = Request(url, headers={"User-Agent": "agentic-rag-notion-sync/1.0"})
-    with urlopen(req, timeout=30) as resp:  # noqa: S310 — URL comes from Notion API
-        return resp.read()
+    return download_attachment(url)
 
 
 def _filename_from_url(url: str) -> str | None:

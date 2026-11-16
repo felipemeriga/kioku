@@ -54,6 +54,7 @@ async def test_slow_upload_and_notion_io_does_not_stop_health(monkeypatch, opera
     monkeypatch.setattr(drop, "check_duplicate", lambda *_: False)
     monkeypatch.setattr(drop, "_resolve_user_from_api_key", lambda *_: ("user", None))
     monkeypatch.setattr(notion, "get_supabase", lambda: None)
+    monkeypatch.setattr(notion, "require_owned_notion_root", lambda *a, **k: None)
     targets = {
         "document_dedup": (documents, "check_duplicate"),
         "document_storage": (documents, "upload_document_to_storage"),

@@ -13,6 +13,7 @@ from auth import get_current_user
 from db.client import get_supabase_thread_safe as get_supabase
 from services.crypto import decrypt_secret, encrypt_secret
 from services.notion_sync.client import NotionClient
+from services.notion_sync.folder_paths import require_owned_notion_root
 from services.notion_sync.reconciliation import pending_pages
 from services.queue.jobs import create_job, get_active_job, is_job_stale, mark_failed
 from services.queue.settings import _redis_settings
@@ -77,6 +78,7 @@ def list_configs(user_id: str = Depends(get_current_user)):
 
 def _insert_config(body: ConnectRequest, user_id: str) -> dict:
     sb = get_supabase()
+    require_owned_notion_root(sb, user_id=user_id, root_folder_id=body.root_folder_id)
     encrypted = encrypt_secret(body.integration_token)
     try:
         inserted = (
@@ -288,21 +290,25 @@ def list_pending(config_id: str, user_id: str = Depends(get_current_user)):
         raise HTTPException(status_code=502, detail=f"Notion enumeration failed: {exc}") from exc
 
 
-@router.get("/pages", response_model=list[NotionPageOption])
+class ListPagesRequest(BaseModel):
+    integration_token: str
+    query: str = ""
+
+
+@router.post("/pages", response_model=list[NotionPageOption])
 def list_pages(
-    integration_token: str,
-    query: str = "",
+    body: ListPagesRequest,
     user_id: str = Depends(get_current_user),  # noqa: ARG001 — enforces auth
 ):
     """Proxy Notion search so the frontend can populate a page picker."""
     try:
-        client = NotionClient(integration_token)
+        client = NotionClient(body.integration_token)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Invalid Notion token: {exc}") from exc
 
     results: list[NotionPageOption] = []
     for page in client.iter_pages_edited_since(since=None):
-        if query and query.lower() not in page.title.lower():
+        if body.query and body.query.lower() not in page.title.lower():
             continue
         results.append(NotionPageOption(id=page.page_id, title=page.title))
         if len(results) >= 50:

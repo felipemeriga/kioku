@@ -13,6 +13,7 @@ from routes import mihari
 
 @pytest.mark.asyncio
 async def test_slow_mihari_git_request_does_not_stall_health(monkeypatch):
+    monkeypatch.setenv("MIHARI_ALLOWED_GIT_HOSTS", "example.com")
     app = FastAPI()
     app.include_router(mihari.router, prefix="/api/mihari")
 
@@ -38,6 +39,7 @@ async def test_slow_mihari_git_request_does_not_stall_health(monkeypatch):
         return None, "simulated remote timeout"
 
     monkeypatch.setattr(mihari, "_api_key_auth", lambda _: ("user", "scope", "key"))
+    monkeypatch.setattr(mihari, "_owner_authorized", lambda *_: True)
     monkeypatch.setattr(mihari, "get_supabase", Query)
     monkeypatch.setattr(mihari, "decrypt_secret", lambda _: "private-test-key")
     monkeypatch.setattr(mihari, "_ls_remote_with_key", slow_remote)

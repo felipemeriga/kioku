@@ -96,7 +96,7 @@ def test_retired_memory_surfaces_are_not_registered():
     import mcp_server
     from main import app
 
-    paths = {route.path for route in app.routes}
+    paths = set(app.openapi()["paths"])
     assert not any(path.startswith("/api/mem0") for path in paths)
     assert "/api/cli/session-capture" not in paths
     assert not hasattr(mcp_server, "save_memory")

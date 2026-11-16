@@ -16,6 +16,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from services.code_sources import is_indexable_source_file
+
 _LINE_RE = re.compile(r"(\d+)")
 
 
@@ -51,7 +53,7 @@ def map_node(node: dict, *, folder_id: str, user_id: str) -> dict | None:
     fields we require (id + source_file)."""
     node_id = node.get("id")
     source_file = node.get("source_file")
-    if not node_id or not source_file:
+    if not node_id or not is_indexable_source_file(source_file):
         return None
     return {
         "folder_id": folder_id,
@@ -70,6 +72,8 @@ def map_edge(edge: dict, *, folder_id: str, user_id: str) -> dict | None:
     src = edge.get("source")
     dst = edge.get("target")
     relation = edge.get("relation")
+    if edge.get("source_file") and not is_indexable_source_file(edge["source_file"]):
+        return None
     if not src or not dst or not relation:
         return None
     return {
