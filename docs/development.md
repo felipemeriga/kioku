@@ -3,7 +3,7 @@
 ## Requirements
 
 Use Docker, the Supabase CLI, `psql`, uv, and Node.js 22 (matching CI). The backend
-supports Python 3.10+; Tsukai requires Python 3.12+. Frontend and CLI dependencies
+supports Python 3.12+; Tsukai also requires Python 3.12+. Frontend and CLI dependencies
 are locked separately. Document parsing installs the backend ingestion dependency
 group, including CPU vision packages.
 
