@@ -9,8 +9,9 @@ On each scheduled pass, for every row in watched_repos:
      recorded, never silent (SSO revocations must surface).
 
 Security posture: this process holds the master decryption key and the
-service role, so REPO PARSING runs in a subprocess with a stripped
-environment — a malicious repo exploiting the parser sees no secrets.
+service role. REPO PARSING uses a stripped subprocess environment and confined
+source paths. Environment stripping is not an operating-system sandbox; parser
+processes still share the server filesystem.
 
 Env: SUPABASE_URL, SUPABASE_SERVICE_KEY, SECRETS_ENCRYPTION_KEY
      (same Fernet master key as the backend's NOTION_TOKEN_ENCRYPTION_KEY),
@@ -506,17 +507,36 @@ def write_repo_text(clone: Path, relative: str, content: str) -> None:
 
 
 def require_link_free_checkout(clone: Path) -> None:
-    """The external indexer cannot safely consume repository-controlled links.
+    """Remove links from this disposable clone before handing it to the indexer.
 
-    The daemon serializes checkout/index operations; descriptor-based helpers
-    below additionally protect its own reads and writes from path replacement.
+    Canonical files remain available, including targets of internal skill links.
+    Never follow even internal links: a source alias can point at seeded secrets,
+    and directory links can form cycles. Pin each directory and unlink only its
+    link entry, so an external target is never traversed, read, or deleted.
+
+    The daemon serializes checkout/index operations. This does not sandbox an
+    unrelated process concurrently mutating the checkout during extraction.
     """
-    if clone.is_symlink():
-        raise OSError(errno.ELOOP, "Repository checkout cannot be a symlink")
-    for directory, dirs, files in os.walk(clone, followlinks=False):
-        for name in dirs + files:
-            if (Path(directory) / name).is_symlink():
-                raise OSError(errno.ELOOP, "Repository checkout contains a symlink")
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+
+    def remove_links(directory: int) -> None:
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                metadata = os.stat(entry.name, dir_fd=directory, follow_symlinks=False)
+                if stat.S_ISLNK(metadata.st_mode):
+                    os.unlink(entry.name, dir_fd=directory)
+                elif stat.S_ISDIR(metadata.st_mode):
+                    child = os.open(entry.name, flags, dir_fd=directory)
+                    try:
+                        remove_links(child)
+                    finally:
+                        os.close(child)
+
+    directory = os.open(clone, flags)
+    try:
+        remove_links(directory)
+    finally:
+        os.close(directory)
 
 
 def seed_bindings(clone: Path, folder_id: str, folder_name: str, api_key: str) -> None:

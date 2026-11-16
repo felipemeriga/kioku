@@ -42,8 +42,9 @@ def test_seed_does_not_overwrite_link_target(worker, tmp_path, path):
     target = clone / path
     target.parent.mkdir(exist_ok=True)
     target.symlink_to(sentinel)
-    with pytest.raises(OSError):
-        worker.seed_bindings(clone, "folder", "name", "test-key")
+    worker.seed_bindings(clone, "folder", "name", "test-key")
+    assert not target.is_symlink()
+    assert target.is_file()
     assert sentinel.read_text() == '{"private":"sentinel"}'
 
 
@@ -70,11 +71,72 @@ def test_descriptor_reads_refuse_links_traversal_and_oversize(worker, tmp_path):
         worker.read_repo_text(tmp_path, "normal.txt", 4)
 
 
-def test_index_refuses_links_before_spawning(worker, monkeypatch, tmp_path):
-    (tmp_path / "secret.py").symlink_to(tmp_path / "missing")
-    monkeypatch.setattr(worker.subprocess, "run", lambda *a, **k: pytest.fail("index spawned"))
+def test_index_removes_links_preserving_canonical_files(worker, monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    clone, outside = tmp_path / "repo", tmp_path / "outside"
+    skills = clone / ".agents" / "skills"
+    skills.mkdir(parents=True)
+    outside.mkdir()
+    (outside / "secret.py").write_text("external private sentinel")
+    canonical = clone / "skills" / "lesson"
+    canonical.mkdir(parents=True)
+    (canonical / "SKILL.md").write_text("canonical skill")
+    (clone / ".mcp.json").write_text("runtime private sentinel")
+    (skills / "lesson").symlink_to("../../skills/lesson", target_is_directory=True)
+    (clone / "alias.py").symlink_to(".mcp.json")
+    (clone / "external.py").symlink_to(outside / "secret.py")
+    (clone / "external-dir").symlink_to(outside, target_is_directory=True)
+    (clone / "dangling.py").symlink_to("missing")
+    (clone / "cycle").symlink_to(".", target_is_directory=True)
+    (clone / "cycle-a").symlink_to("cycle-b")
+    (clone / "cycle-b").symlink_to("cycle-a")
+    calls = []
+
+    def index(*args, **kwargs):
+        calls.append(args)
+        assert not any(path.is_symlink() for path in clone.rglob("*"))
+        assert (canonical / "SKILL.md").read_text() == "canonical skill"
+        assert (clone / ".mcp.json").read_text() == "runtime private sentinel"
+        return SimpleNamespace(returncode=0, stdout="indexed", stderr="")
+
+    monkeypatch.setattr(worker.subprocess, "run", index)
+    assert worker.kioku_index(clone) == (True, "indexed")
+    assert len(calls) == 1
+    assert (outside / "secret.py").read_text() == "external private sentinel"
+    worker.require_link_free_checkout(clone)  # Idempotent preparation.
+
+
+def test_linked_checkout_root_is_rejected(worker, tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "sentinel").symlink_to("missing")
+    clone = tmp_path / "repo"
+    clone.symlink_to(outside, target_is_directory=True)
     with pytest.raises(OSError):
-        worker.kioku_index(tmp_path)
+        worker.require_link_free_checkout(clone)
+    assert (outside / "sentinel").is_symlink()
+
+
+def test_link_removal_pins_parent_during_replacement(worker, monkeypatch, tmp_path):
+    clone, outside = tmp_path / "repo", tmp_path / "outside"
+    (clone / "docs").mkdir(parents=True)
+    outside.mkdir()
+    (clone / "docs" / "alias").symlink_to("missing")
+    (outside / "alias").symlink_to("private-sentinel")
+    original_open = worker.os.open
+
+    def swapped_open(path, flags, *args, **kwargs):
+        result = original_open(path, flags, *args, **kwargs)
+        if path == "docs":
+            (clone / "docs").rename(clone / "old-docs")
+            (clone / "docs").symlink_to(outside, target_is_directory=True)
+        return result
+
+    monkeypatch.setattr(worker.os, "open", swapped_open)
+    worker.require_link_free_checkout(clone)
+    assert not (clone / "old-docs" / "alias").is_symlink()
+    assert (outside / "alias").is_symlink()
 
 
 def test_open_directory_is_pinned_during_path_replacement(worker, monkeypatch, tmp_path):
