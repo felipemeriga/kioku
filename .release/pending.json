@@ -1,53 +1,63 @@
 {
-  "source_sha": "0a4d463d1767bc15843200ee60711e0802010983",
+  "source_sha": "ac75015884f7dba71a37b5d6666c0ac236e8d1dd",
   "release_branch": "main",
   "versions": {
-    "backend": "0.3.108",
-    "cli": "0.8.36",
-    "frontend": "0.5.66",
-    "mcp": "0.3.108",
-    "mihari": "0.3.51"
+    "backend": "0.3.109",
+    "cli": "0.8.37",
+    "frontend": "0.5.67",
+    "mcp": "0.3.109",
+    "mihari": "0.3.52",
+    "tsukai": "0.1.28"
   },
   "release_levels": {
     "backend": "patch",
     "cli": "patch",
     "frontend": "patch",
     "mcp": "patch",
-    "mihari": "patch"
+    "mihari": "patch",
+    "tsukai": "patch"
   },
   "major": false,
   "images": [
     {
       "package": "backend",
-      "version": "0.3.108",
+      "version": "0.3.109",
       "image": "felipemeriga1/kioku-backend",
       "context": "backend",
       "dockerfile": "backend/Dockerfile",
-      "tag": "0.3.108-0a4d463d1767"
+      "tag": "0.3.109-ac75015884f7"
     },
     {
       "package": "frontend",
-      "version": "0.5.66",
+      "version": "0.5.67",
       "image": "felipemeriga1/kioku-frontend",
       "context": "frontend",
       "dockerfile": "frontend/Dockerfile",
-      "tag": "0.5.66-0a4d463d1767"
+      "tag": "0.5.67-ac75015884f7"
     },
     {
       "package": "mcp",
-      "version": "0.3.108",
+      "version": "0.3.109",
       "image": "felipemeriga1/kioku-mcp",
       "context": "backend",
       "dockerfile": "backend/Dockerfile.mcp",
-      "tag": "0.3.108-0a4d463d1767"
+      "tag": "0.3.109-ac75015884f7"
     },
     {
       "package": "mihari",
-      "version": "0.3.51",
+      "version": "0.3.52",
       "image": "felipemeriga1/kioku-mihari",
       "context": ".",
       "dockerfile": "mihari/Dockerfile",
-      "tag": "0.3.51-0a4d463d1767"
+      "tag": "0.3.52-ac75015884f7"
+    },
+    {
+      "package": "tsukai",
+      "version": "0.1.28",
+      "image": "felipemeriga1/kioku-tsukai",
+      "context": "tsukai",
+      "dockerfile": "tsukai/Dockerfile",
+      "tag": "0.1.28-ac75015884f7"
     }
   ],
   "cli": true,
