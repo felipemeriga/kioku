@@ -18,7 +18,10 @@ AGENTS.md
 CLAUDE.md
 claude-history.md
 graphify-out
-backend
+backend/*
+!backend/services
+backend/services/*
+!backend/services/git_remote.py
 frontend
 design-system
 supabase

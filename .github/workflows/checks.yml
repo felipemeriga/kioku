@@ -145,6 +145,13 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.sha }}
       - run: python3 -m unittest discover -s scripts/release -p 'test_*.py' -v
+      - name: Verify Mihari shared policy build context
+        run: |
+          docker build --file - . <<'DOCKERFILE'
+          FROM scratch
+          COPY backend/services/git_remote.py /app/git_remote.py
+          COPY mihari/mihari.py /app/mihari.py
+          DOCKERFILE
 
   tsukai-tests:
     name: Tsukai Runtime & PostgreSQL
