@@ -1,7 +1,7 @@
 /** Fill the module-level call edges Graphify currently omits for JS/TS.
  * Graphify owns function-body calls; this only examines top-level expressions. */
-import { existsSync, readFileSync } from "node:fs";
-import { basename, resolve, sep } from "node:path";
+import { basename } from "node:path";
+import { readCodeSource } from "./code-chunks.js";
 import ts from "typescript";
 
 export interface GraphNode {
@@ -62,14 +62,13 @@ export function supplementTopLevelCalls(
           `${edge.source_file}\0${edge.source_location}\0${edge.target}`,
       ),
   );
-  const root = resolve(repoRoot);
 
   for (const [file, fileNodes] of byFile) {
-    const fullPath = resolve(root, file);
-    if (!fullPath.startsWith(root + sep) || !existsSync(fullPath)) continue;
+    const content = readCodeSource(repoRoot, file);
+    if (content === null) continue;
     const source = ts.createSourceFile(
       file,
-      readFileSync(fullPath, "utf8"),
+      content,
       ts.ScriptTarget.Latest,
       false,
       scriptKind(file),

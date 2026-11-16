@@ -133,8 +133,9 @@ def _setup_reground(monkeypatch, posted):
     monkeypatch.setattr(mihari, "decrypt", lambda s: "KEY")
     monkeypatch.setattr(mihari.Path, "is_file", lambda self: True)
     monkeypatch.setattr(mihari.Path, "is_dir", lambda self: False)
+    monkeypatch.setattr(mihari.Path, "is_symlink", lambda self: False)
     monkeypatch.setattr(mihari.Path, "stat", lambda self: type("S", (), {"st_size": 100})())
-    monkeypatch.setattr(mihari.Path, "read_text", lambda self, **k: "content")
+    monkeypatch.setattr(mihari, "read_repo_text", lambda *args, **kwargs: "content")
 
     class _R:
         ok = True
