@@ -7,6 +7,7 @@ import tempfile
 import threading
 from pathlib import Path
 
+from docling.datamodel.base_models import InputFormat
 from docling.document_converter import DocumentConverter
 from langsmith import traceable
 
@@ -50,7 +51,12 @@ def parse_document(file_bytes: bytes, filename: str) -> str:
     try:
         if suffix == ".pdf":
             return _parse_pdf(tmp_path)
-        converter = DocumentConverter()
+        # Docling detects content independently of the filename. This branch
+        # must not initialize PDF/OCR, image, audio or model-loading pipelines
+        # for a file disguised with a supported text-document extension.
+        converter = DocumentConverter(
+            allowed_formats=[InputFormat.DOCX, InputFormat.HTML, InputFormat.MD]
+        )
         result = converter.convert(tmp_path)
         return result.document.export_to_markdown()
     finally:
