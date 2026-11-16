@@ -21,7 +21,7 @@ dependencies = [
     "httpx>=0.28.0",
     "jsonschema>=4.20.0",
     "openai>=1.0.0",
-    "ragas>=0.2.0",
+    "ragas>=0.4.4",
     "pyyaml>=6.0.3",
     "python-dateutil>=2.9.0.post0",
     "sqlglot==30.27.0",
