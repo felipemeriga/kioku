@@ -27,7 +27,9 @@ def download_attachment(url: str) -> bytes:
         port = parts.port or (443 if parts.scheme == "https" else 80)
         addresses = socket.getaddrinfo(parts.hostname, port, type=socket.SOCK_STREAM)
         if not addresses or any(
-            not ipaddress.ip_address(address[4][0]).is_global for address in addresses
+            not ipaddress.ip_address(address[4][0]).is_global
+            or ipaddress.ip_address(address[4][0]).is_multicast
+            for address in addresses
         ):
             raise ValueError("Attachment destination is not public")
         timeout = deadline - time.monotonic()

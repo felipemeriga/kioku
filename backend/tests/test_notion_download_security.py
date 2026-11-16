@@ -46,7 +46,17 @@ def test_non_http_and_credentials_rejected_before_connect(network, url):
 
 @pytest.mark.parametrize(
     "ip",
-    ["127.0.0.1", "10.0.0.1", "169.254.169.254", "::1", "::ffff:127.0.0.1", "fd00::1", "0.0.0.0"],
+    [
+        "127.0.0.1",
+        "10.0.0.1",
+        "169.254.169.254",
+        "::1",
+        "::ffff:127.0.0.1",
+        "fd00::1",
+        "0.0.0.0",
+        "224.0.0.1",
+        "ff02::1",
+    ],
 )
 def test_private_dns_results_cannot_be_downloaded(network, ip):
     network[0].return_value = [(2, 1, 6, "", (ip, 443))]
