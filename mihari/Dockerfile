@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Context: repository root. Builds the CLI from source, independent of npm releases.
-FROM node:20-bookworm-slim AS cli-builder
+FROM node:22-bookworm-slim AS cli-builder
 WORKDIR /build
 COPY cli/package.json cli/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci --ignore-scripts --no-audit --no-fund
@@ -33,5 +33,6 @@ RUN ln -s /opt/kioku-cli/dist/index.js /usr/local/bin/kioku && \
     node --input-type=module -e "import { ensureGraphify } from '/opt/kioku-cli/dist/commands/graph-index.js'; if (!ensureGraphify()) process.exit(1)" && \
     /opt/mihari-venv/bin/python -c "import requests, cryptography, boto3"
 COPY mihari/mihari.py /app/mihari.py
+COPY backend/services/git_remote.py /app/git_remote.py
 VOLUME /data
 CMD ["/opt/mihari-venv/bin/python", "/app/mihari.py"]

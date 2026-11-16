@@ -45,6 +45,14 @@ from pathlib import Path
 import requests
 from cryptography.fernet import Fernet
 
+try:
+    # Docker copies the shared policy beside this script.
+    from git_remote import GIT_ENV, GIT_OPTIONS, validate_git_branch, validate_git_remote
+except ModuleNotFoundError:
+    # Direct source invocation uses the canonical backend copy.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
+    from services.git_remote import GIT_ENV, GIT_OPTIONS, validate_git_branch, validate_git_remote
+
 SUPABASE_URL = os.environ["SUPABASE_URL"].rstrip("/")
 SERVICE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
 # Legacy Fernet fallback (same key value the backend calls
@@ -411,16 +419,37 @@ def git_env(key_path: str) -> dict:
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
         "HOME": os.environ.get("HOME", "/root"),
         "GIT_SSH_COMMAND": (
-            f"ssh -i {key_path} -o IdentitiesOnly=yes -o BatchMode=yes "
+            f"ssh -F /dev/null -i {key_path} -o IdentitiesOnly=yes -o BatchMode=yes "
             "-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15"
         ),
-        "GIT_TERMINAL_PROMPT": "0",
+        **GIT_ENV,
     }
 
 
 def run_git(args: list[str], env: dict, cwd: str | None = None) -> tuple[int, str, str]:
+    env = {**env, **GIT_ENV}
+    if args[0] == "ls-remote":
+        validate_git_remote(args[1])
+    elif args[0] == "clone":
+        validate_git_branch(args[2])
+        validate_git_remote(args[3])
+    elif args[0] == "fetch":
+        validate_git_branch(args[2])
+        # Existing clones can predate the transport policy. Validate the actual
+        # origin before fetching, not only the current watched_repos record.
+        origin = subprocess.run(
+            ["git", *GIT_OPTIONS, "remote", "get-url", args[1]],
+            env=env,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if origin.returncode:
+            raise ValueError("Repository origin is unavailable")
+        validate_git_remote(origin.stdout.strip())
     proc = subprocess.run(
-        ["git", *args], env=env, cwd=cwd, capture_output=True, text=True, timeout=600
+        ["git", *GIT_OPTIONS, *args], env=env, cwd=cwd, capture_output=True, text=True, timeout=600
     )
     return proc.returncode, proc.stdout.strip(), proc.stderr.strip()
 
@@ -1117,6 +1146,8 @@ def review_new_commits(clone: Path, repo: dict, old_sha: str | None, head: str, 
 
 
 def process_repo(repo: dict, key_row: dict) -> None:
+    validate_git_remote(repo["remote_url"])
+    validate_git_branch(repo["branch"])
     rid = repo["id"]
     name = f"{repo['remote_url']} ({repo['branch']})"
     now = datetime.now(timezone.utc).isoformat()
@@ -1215,6 +1246,8 @@ def force_refresh(repo: dict, key_row: dict, target: str) -> None:
     clone to HEAD regardless of last_sha, then runs the requested target.
     Parallels process_repo's sync block on purpose so the scheduled path stays
     untouched."""
+    validate_git_remote(repo["remote_url"])
+    validate_git_branch(repo["branch"])
     rid = repo["id"]
     name = f"{repo['remote_url']} ({repo['branch']})"
     now = datetime.now(timezone.utc).isoformat()
