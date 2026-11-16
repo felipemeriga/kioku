@@ -12,6 +12,30 @@ vi.mock("./supabase", () => ({
   },
 }));
 
+describe("listNotionPages", () => {
+  it("sends the integration token in the POST body, never the URL", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify([{ id: "page", title: "Page" }]), {
+          status: 200,
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const pages = await api.listNotionPages("test-integration-token", "Page");
+    expect(pages).toEqual([{ id: "page", title: "Page" }]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/notion/pages",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          integration_token: "test-integration-token",
+          query: "Page",
+        }),
+      }),
+    );
+  });
+});
+
 describe("getFolderStatus", () => {
   beforeEach(() => vi.restoreAllMocks());
   it("GETs the status endpoint", async () => {
