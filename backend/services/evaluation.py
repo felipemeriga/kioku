@@ -18,8 +18,10 @@ from ragas.metrics import (
     LLMContextPrecisionWithoutReference,
 )
 
+from db.client import get_supabase_thread_safe
 from services.llm import MODEL_FOR_TASK, Task, api_only_client
 from services.rag import answer_question
+from services.scope import descendant_folder_ids, validate_scope_folder
 
 _executor = ThreadPoolExecutor(max_workers=1)
 
@@ -100,16 +102,19 @@ async def evaluate_rag_pipeline(
     Returns:
         Dict with aggregate scores and per-question details.
     """
+    scope_folder_ids = None
+    if root_folder_id:
+
+        def resolve_scope():
+            # API keys delegate only this subtree. Validate before any AI work;
+            # missing/deleted/foreign folders must never become an unscoped eval.
+            validate_scope_folder(root_folder_id, user_id)
+            return descendant_folder_ids(get_supabase_thread_safe(), root_folder_id, user_id)
+
+        scope_folder_ids = await asyncio.to_thread(resolve_scope)
+
     llm = _get_ragas_llm()
     embeddings = VoyageEmbeddings()
-
-    if root_folder_id:
-        logger.warning(
-            "evaluate_rag_pipeline received root_folder_id=%r but the agent path "
-            "doesn't propagate folder scope yet — running against all user docs. "
-            "Folder-scoped eval is a known limitation; track separately.",
-            root_folder_id,
-        )
 
     samples = []
     for item in test_questions:
@@ -121,6 +126,7 @@ async def evaluate_rag_pipeline(
             answer_question,
             user_message=question,
             user_id=user_id,
+            scope_folder_ids=scope_folder_ids,
         )
         response = result["response"]
         contexts = result["retrieved_chunks"]

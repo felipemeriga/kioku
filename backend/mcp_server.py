@@ -893,7 +893,7 @@ async def evaluate_retrieval(questions: str) -> str:
         questions: Newline-separated list of test questions.
             Optionally add ground truth after a pipe: "question | ground truth"
     """
-    if not _current_user_id.get():
+    if not _current_user_id.get() or not _current_scope_folder_id.get():
         return "Error: Not authenticated."
 
     test_questions = []
