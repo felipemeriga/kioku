@@ -609,8 +609,7 @@
   max-width: 105ch;
 }
 
-/* Root access adds a third folder action: constrain the whole toolbar, not only
-   the page scrollbox, so long root labels cannot push Upload out of view. */
+/* Keep folder actions and long breadcrumb labels within the viewport. */
 #root .documents-heading .documents-actions {
   min-width: 0;
   max-width: 100%;

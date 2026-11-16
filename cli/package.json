@@ -45,8 +45,7 @@
     "kleur": "^4.1.5",
     "smol-toml": "^1.8.0",
     "typescript": "^5.9.3",
-    "ws": "^8.22.0",
-    "yaml": "^2.9.1"
+    "ws": "^8.22.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

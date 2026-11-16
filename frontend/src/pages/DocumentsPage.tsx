@@ -37,7 +37,6 @@ import SearchIcon from "@mui/icons-material/Search";
 import GridViewIcon from "@mui/icons-material/GridView";
 import ViewListIcon from "@mui/icons-material/ViewList";
 import CreateNewFolderIcon from "@mui/icons-material/CreateNewFolder";
-import KeyIcon from "@mui/icons-material/Key";
 import HomeIcon from "@mui/icons-material/Home";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import { useDocuments } from "../hooks/useDocuments";
@@ -529,41 +528,6 @@ export default function DocumentsPage() {
               accept={ACCEPTED_TYPES}
               onChange={handleFileSelect}
             />
-            {currentFolderId &&
-              breadcrumbs[0] &&
-              !breadcrumbsQuery.isPlaceholderData && (
-                <Button
-                  size="small"
-                  variant="outlined"
-                  startIcon={<KeyIcon fontSize="small" />}
-                  title={`Environments & access · ${breadcrumbs[0].name}`}
-                  onClick={() =>
-                    navigate(`/folders/${breadcrumbs[0].id}/access`)
-                  }
-                  sx={{
-                    borderColor: brand.line,
-                    color: brand.muted,
-                    maxWidth: "100%",
-                    minWidth: 0,
-                  }}
-                >
-                  <Typography
-                    component="span"
-                    data-access-label
-                    sx={{
-                      minWidth: 0,
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                      font: "inherit",
-                    }}
-                  >
-                    {breadcrumbs.length === 1
-                      ? "Environments & access"
-                      : `Access · ${breadcrumbs[0].name}`}
-                  </Typography>
-                </Button>
-              )}
             <Button
               size="small"
               variant="outlined"

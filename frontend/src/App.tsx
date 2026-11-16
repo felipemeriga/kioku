@@ -10,7 +10,6 @@ import LoginPage from "./pages/LoginPage";
 import CliAuthPage from "./pages/CliAuthPage";
 import ChatPage from "./pages/ChatPage";
 import DocumentsPage from "./pages/DocumentsPage";
-import RootAccessPage from "./pages/RootAccessPage";
 import SettingsPage from "./pages/SettingsPage";
 import SessionEvidencePage from "./pages/SessionEvidencePage";
 
@@ -50,16 +49,6 @@ function App() {
                     <ProtectedRoute>
                       <AppLayout>
                         <SessionEvidencePage />
-                      </AppLayout>
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/folders/:rootId/access"
-                  element={
-                    <ProtectedRoute>
-                      <AppLayout>
-                        <RootAccessPage />
                       </AppLayout>
                     </ProtectedRoute>
                   }
