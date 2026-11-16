@@ -88,7 +88,6 @@ app.include_router(notion_router)
 app.include_router(ingestion_jobs_router)
 app.include_router(learnings_router)
 app.include_router(reports_router)
-# Vault access is retired; retain storage and implementation for data recovery.
 app.include_router(briefing_router)
 app.include_router(cli_router)
 app.include_router(agent_evidence_router)

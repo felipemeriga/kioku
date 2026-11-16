@@ -34,18 +34,18 @@ def test_ordinary_metadata_queries_are_structurally_scoped(query):
 @pytest.mark.parametrize(
     "query",
     [
-        "SELECT credential_hash FROM secret_devices WHERE user_id='" + OWNER + "'",
-        "SELECT provider_ref FROM access_bindings WHERE user_id='" + OWNER + "'",
+        "SELECT credential_hash FROM private_sessions WHERE user_id='" + OWNER + "'",
+        "SELECT private_value FROM private_accounts WHERE user_id='" + OWNER + "'",
         "SELECT pg_read_file('/etc/passwd') FROM documents",
         "SELECT set_config('role','postgres',false) FROM documents",
-        "SELECT public.consume_secret_enrollment('x') FROM documents",
-        "SELECT COUNT(*) FROM documents WHERE EXISTS(SELECT * FROM secret_devices)",
-        "SELECT COUNT(*) FROM documents UNION SELECT COUNT(*) FROM secret_devices",
+        "SELECT public.private_mutation('x') FROM documents",
+        "SELECT COUNT(*) FROM documents WHERE EXISTS(SELECT * FROM private_sessions)",
+        "SELECT COUNT(*) FROM documents UNION SELECT COUNT(*) FROM private_sessions",
         "WITH x AS (DELETE FROM documents RETURNING *) SELECT * FROM x",
         "SELECT * FROM documents",
         "SELECT content FROM documents",
-        "SELECT source_filename FROM documents; SELECT credential_hash FROM secret_devices",
-        "SELECT source_filename FROM documents JOIN secret_devices ON true",
+        "SELECT source_filename FROM documents; SELECT credential_hash FROM private_sessions",
+        "SELECT source_filename FROM documents JOIN private_sessions ON true",
         "SELECT source_filename FROM information_schema.documents",
         "SELECT source_filename FROM documents, generate_series(1,10000000)",
         "SELECT pg_catalog.count(*) FROM documents",
@@ -56,7 +56,7 @@ def test_ordinary_metadata_queries_are_structurally_scoped(query):
         "SELECT document_secrets FROM documents",
         "SELECT source_filename FROM documents -- user_id='"
         + OWNER
-        + "'\nUNION SELECT provider_ref FROM access_bindings",
+        + "'\nUNION SELECT private_value FROM private_accounts",
     ],
 )
 def test_non_metadata_sql_is_rejected(query):
@@ -80,7 +80,7 @@ def test_invalid_authority_never_becomes_sql():
 
 def test_model_sql_never_reaches_database_before_validation():
     response = SimpleNamespace(
-        content=[SimpleNamespace(text="SELECT provider_ref FROM access_bindings")]
+        content=[SimpleNamespace(text="SELECT private_value FROM private_accounts")]
     )
     with (
         patch("services.text_to_sql.complete", return_value=response),
@@ -126,7 +126,7 @@ def test_empty_authorized_folders_cannot_mean_global_scope():
 
 
 def test_literals_do_not_become_executable_sql():
-    name = "x'; SELECT provider_ref FROM access_bindings; --"
+    name = "x'; SELECT private_value FROM private_accounts; --"
     sql = scoped_metadata_sql("SELECT COUNT(*) FROM documents", OWNER, filename=name)
     tree = parse_one(sql, read="postgres")
     assert len(list(tree.find_all(type(tree)))) == 1

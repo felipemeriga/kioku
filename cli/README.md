@@ -119,14 +119,3 @@ logged-out machines may be offline until their login service resumes.
 
 `npm test` builds and runs CLI tests. See [development](../docs/development.md),
 [operations](../docs/operations.md), and the [documentation index](../docs/README.md).
-
-### Retired vault integration
-
-Kioku no longer offers vault, environment, or secret management. The access UI,
-MCP discovery tools, credential APIs, enrollment, and `kioku exec` are retired.
-Existing stored data is preserved; this change does not delete provider secrets.
-
-Run the updated `kioku init` in existing repositories to replace the managed
-CLAUDE.md or AGENTS.md block and remove the old vault instructions.
-`kioku access forget --root ROOT_UUID` remains available to remove local device
-credentials without contacting the vault.

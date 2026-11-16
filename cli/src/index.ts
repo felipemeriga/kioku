@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import { Command } from "commander";
-import { forgetAccess } from "./commands/access.js";
 import kleur from "kleur";
 import { briefing } from "./commands/briefing.js";
 import { doctor } from "./commands/doctor.js";
@@ -79,10 +78,6 @@ Environment:
 Docs: https://github.com/felipemeriga/kioku/tree/main/cli
 `
   );
-
-// Keep local credential cleanup available after vault retirement.
-const access = program.command("access", { hidden: true }).description("Retired vault commands");
-access.command("forget").requiredOption("--root <uuid>", "Root folder ID").action(opts => { try { forgetAccess(opts); } catch(err) { printError(err); process.exitCode=1; } });
 
 program
   .command("quickstart")

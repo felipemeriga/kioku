@@ -54,16 +54,6 @@ function App() {
                   }
                 />
                 <Route
-                  path="/folders/:rootId/access"
-                  element={
-                    <ProtectedRoute>
-                      <AppLayout>
-                        <Navigate to="/documents" replace />
-                      </AppLayout>
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
                   path="/settings"
                   element={
                     <ProtectedRoute>
