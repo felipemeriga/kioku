@@ -30,6 +30,9 @@ def _render(blocks: list[dict], depth: int) -> list[str]:
         if btype != "numbered_list_item":
             numbered_index = 0
         rendered = _render_one(block, depth, numbered_index + 1)
+        if rendered is not None and btype not in {"image", "pdf", "file"}:
+            # Text, code, captions and URLs must never impersonate attachment tokens.
+            rendered = [line.replace("[[NOTION_", "&#91;[NOTION_") for line in rendered]
         if btype == "numbered_list_item":
             numbered_index += 1
         if rendered is not None:
