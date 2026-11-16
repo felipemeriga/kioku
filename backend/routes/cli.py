@@ -25,12 +25,13 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from starlette.concurrency import run_in_threadpool
 
 from auth import get_current_user
 from db.client import get_supabase_thread_safe as get_supabase
 from services import cli_auth
+from services.code_sources import is_indexable_source_file
 
 router = APIRouter(prefix="/api/cli")
 
@@ -725,6 +726,13 @@ class CodeFileIn(BaseModel):
     language: str | None = None
     file_hash: str
     chunks: list[CodeChunkIn] = Field(default_factory=list)
+
+    @field_validator("file")
+    @classmethod
+    def protect_local_credentials(cls, value):
+        if not is_indexable_source_file(value):
+            raise ValueError("Private configuration cannot be indexed as source code")
+        return value
 
 
 class CodeChunksDelta(BaseModel):

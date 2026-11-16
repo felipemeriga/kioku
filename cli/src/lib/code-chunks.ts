@@ -51,12 +51,40 @@ const EXT_LANGUAGE: Record<string, string> = {
   proto: "proto",
 };
 
+export function isIndexableSourceFile(file: string): boolean {
+  if (!file || isAbsolute(file) || /^[\\/]/.test(file)) return false;
+  const privateNames = new Set([
+    ".",
+    "..",
+    ".git",
+    ".claude",
+    ".codex",
+    ".ssh",
+    ".aws",
+    ".mcp.json",
+    ".npmrc",
+    ".pypirc",
+    ".netrc",
+  ]);
+  return !file
+    .toLowerCase()
+    .split(/[\\/]/)
+    .some(
+      (part) =>
+        !part ||
+        privateNames.has(part) ||
+        part.startsWith(".env") ||
+        part.includes(":"),
+    );
+}
+
 /** Read only a bounded regular file reached without repository-controlled links.
  * Node has no portable openat: pin and compare file/directory identities around
  * the open. Mihari additionally rejects link-bearing checkouts before indexing
  * and serializes checkout updates; this is not a hostile concurrent-FS sandbox.
  */
 export function readCodeSource(repoRoot: string, file: string): string | null {
+  if (!isIndexableSourceFile(file)) return null;
   const parts = file.split(/[\\/]/);
   if (
     isAbsolute(file) ||
@@ -267,6 +295,14 @@ export async function uploadCodeChunks(args: UploadArgs): Promise<number> {
   }
 
   const marks = symbolMarksByFile(args.nodes, args.norm);
+  const deletedFiles = [
+    ...new Set([
+      ...args.deletedFiles,
+      ...Object.keys(serverHashes).filter(
+        (file) => !isIndexableSourceFile(file),
+      ),
+    ]),
+  ];
   const fileOuts: FileOut[] = [];
   let skippedUnchanged = 0;
 
@@ -297,7 +333,7 @@ export async function uploadCodeChunks(args: UploadArgs): Promise<number> {
     });
   }
 
-  if (fileOuts.length === 0 && args.deletedFiles.length === 0) {
+  if (fileOuts.length === 0 && deletedFiles.length === 0) {
     args.log.info(
       skippedUnchanged > 0
         ? `Code chunks: all ${skippedUnchanged} files unchanged on server.`
@@ -313,7 +349,7 @@ export async function uploadCodeChunks(args: UploadArgs): Promise<number> {
       folder_id: folderId,
       files: slice,
       // deleted files ride the first request only
-      deleted_files: i === 0 ? args.deletedFiles : [],
+      deleted_files: i === 0 ? deletedFiles : [],
     };
     try {
       const res = await fetch(`${base}/api/cli/code-chunks`, {

@@ -722,9 +722,12 @@ async def embed_code_chunks_task(ctx: dict, payload: dict) -> None:
     Rows arrive WITHOUT embeddings (staged by POST /api/cli/code-chunks);
     this task is the only writer that attaches vectors.
     """
+    from services.code_sources import is_indexable_source_file
     from services.embeddings import CODE_EMBEDDING_MODEL, embed_code_batch
 
-    rows: list[dict] = payload.get("rows") or []
+    rows: list[dict] = [
+        row for row in (payload.get("rows") or []) if is_indexable_source_file(row.get("file"))
+    ]
     if not rows:
         return
     embeddings = await asyncio.to_thread(embed_code_batch, [r["content"] for r in rows])

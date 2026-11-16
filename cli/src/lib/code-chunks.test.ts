@@ -18,6 +18,10 @@ test("source reads reject links, traversal and oversized files", () => {
     mkdirSync(repo);
     writeFileSync(join(temp, "private.ts"), "private sentinel");
     writeFileSync(join(repo, "normal.ts"), "export const safe = true;");
+    writeFileSync(
+      join(repo, ".mcp.json"),
+      '{"Authorization":"Bearer private runtime key"}',
+    );
     symlinkSync(join(temp, "private.ts"), join(repo, "linked.ts"));
     symlinkSync(temp, join(repo, "linked-dir"), "dir");
     writeFileSync(join(repo, "large.ts"), "a".repeat(300_001));
@@ -31,6 +35,7 @@ test("source reads reject links, traversal and oversized files", () => {
       "../private.ts",
       join(temp, "private.ts"),
       "large.ts",
+      ".mcp.json",
     ]) {
       assert.equal(readCodeSource(repo, file), null, file);
     }
@@ -48,12 +53,18 @@ test("code upload never sends external symlink content", async () => {
     mkdirSync(repo);
     writeFileSync(join(temp, "private.ts"), "private sentinel");
     writeFileSync(join(repo, "normal.ts"), "export const safe = true;");
+    writeFileSync(
+      join(repo, ".mcp.json"),
+      '{"Authorization":"Bearer private runtime key"}',
+    );
     symlinkSync(join(temp, "private.ts"), join(repo, "linked.ts"));
     globalThis.fetch = async (_url, init) => {
       if (init?.method === "POST") payloads.push(String(init.body));
       return new Response(
         JSON.stringify(
-          init?.method === "POST" ? { chunks_queued: 1 } : { files: {} },
+          init?.method === "POST"
+            ? { chunks_queued: 1 }
+            : { files: { ".mcp.json": "previous-hash" } },
         ),
       );
     };
@@ -63,7 +74,7 @@ test("code upload never sends external symlink content", async () => {
       apiKey: "test-only",
       folderId: "folder",
       folderName: "repo",
-      files: ["normal.ts", "linked.ts", "../private.ts"],
+      files: ["normal.ts", "linked.ts", "../private.ts", ".mcp.json"],
       deletedFiles: [],
       nodes: [],
       norm: (p) => p ?? "",
@@ -72,6 +83,8 @@ test("code upload never sends external symlink content", async () => {
     assert.equal(payloads.length, 1);
     assert.match(payloads[0], /export const safe/);
     assert.doesNotMatch(payloads[0], /private sentinel|linked\.ts/);
+    assert.doesNotMatch(payloads[0], /private runtime key/);
+    assert.deepEqual(JSON.parse(payloads[0]).deleted_files, [".mcp.json"]);
   } finally {
     globalThis.fetch = previous;
     rmSync(temp, { recursive: true, force: true });

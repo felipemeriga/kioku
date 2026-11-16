@@ -44,7 +44,12 @@ def test_three_repositories_complete_with_bounded_database_writes():
         payloads = [
             {
                 "rows": [
-                    {"folder_id": f"repo-{repo}", "start_line": i, "content": "code"}
+                    {
+                        "folder_id": f"repo-{repo}",
+                        "file": "src/main.py",
+                        "start_line": i,
+                        "content": "code",
+                    }
                     for i in range(128)
                 ]
             }

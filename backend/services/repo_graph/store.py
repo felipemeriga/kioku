@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from services.code_sources import is_indexable_source_file
 from services.repo_graph.mapping import files_from_nodes, map_edge, map_node
 
 _INSERT_CHUNK = 500
@@ -49,9 +50,26 @@ def apply_delta(
     delta. `nodes`/`edges` are RAW Graphify dicts for the changed files."""
     changed = {str(f) for f in changed_files}
     deleted = {str(f) for f in deleted_files}
+    private_ids = {
+        str(node["id"])
+        for node in nodes
+        if node.get("id") and not is_indexable_source_file(node.get("source_file"))
+    }
+    deleted.update(f for f in changed if not is_indexable_source_file(f))
+    deleted.update(
+        str(node["source_file"])
+        for node in nodes
+        if node.get("source_file") and not is_indexable_source_file(node["source_file"])
+    )
 
     mapped_nodes = [r for n in nodes if (r := map_node(n, folder_id=folder_id, user_id=user_id))]
-    mapped_edges = [r for e in edges if (r := map_edge(e, folder_id=folder_id, user_id=user_id))]
+    mapped_edges = [
+        r
+        for e in edges
+        if str(e.get("source")) not in private_ids
+        and str(e.get("target")) not in private_ids
+        and (r := map_edge(e, folder_id=folder_id, user_id=user_id))
+    ]
 
     # Shrink guard: a changed file that yields ZERO nodes but currently HAS
     # nodes is almost certainly a truncated/failed parse (not a real emptying).
