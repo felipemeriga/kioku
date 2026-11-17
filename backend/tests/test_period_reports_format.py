@@ -933,10 +933,18 @@ def test_final_state_cannot_ignore_a_known_merge_in_favor_of_earlier_journal():
     snapshot, value = compact_fixture()
     snapshot["input"]["generation_version"] = 2
     value["topics"][0]["title"] = "PR #485 consumer-group work"
+    original = deepcopy(value)
+    result = validate_report(snapshot, value)
+    assert result["topics"][0]["final_state"]["items"][0]["source_ids"] == [
+        "journal:result",
+        "commit:" + "b" * 40,
+    ]
+    assert value == original
+    value["topics"][0]["final_state"]["items"][0]["text"] = (
+        "PR #485 was opened and remains mergeable."
+    )
     with pytest.raises(ValueError, match="omits principal-branch merge evidence"):
-        validate_report(snapshot, deepcopy(value))
-    value["topics"][0]["final_state"]["items"][0]["source_ids"].append("s2")
-    assert validate_report(snapshot, deepcopy(value))
+        validate_report(snapshot, value)
 
 
 def test_qualified_external_pr_does_not_inherit_a_same_number_principal_merge():
@@ -1011,3 +1019,32 @@ def test_model_reserves_quote_origin_without_dropping_context_or_raising_final_b
         ]["properties"]["source_ids"]["maxItems"]
         == 12
     )
+
+
+def test_principal_citation_binding_preserves_context_and_hard_bound():
+    from services.period_reports import validate_final_merge_evidence
+
+    commit = {"id": "commit:one", "kind": "git_commit", "text": "Change (#485)"}
+    item = {"text": "PR #485 merged to main.", "source_ids": [f"journal:{n}" for n in range(12)]}
+    topic = {"title": "Work", "final_state": {"items": [item]}}
+    before = deepcopy(topic)
+    with pytest.raises(ValueError, match="citation bound"):
+        validate_final_merge_evidence(topic, {commit["id"]: commit})
+    assert topic == before
+    item["source_ids"].pop()
+    validate_final_merge_evidence(topic, {commit["id"]: commit})
+    assert item["source_ids"] == [f"journal:{n}" for n in range(11)] + ["commit:one"]
+    validate_final_merge_evidence(topic, {commit["id"]: commit})
+    assert len(item["source_ids"]) == 12
+
+
+def test_principal_citation_binding_does_not_rewrite_contradictory_prose():
+    from services.period_reports import validate_final_merge_evidence
+
+    commit = {"id": "commit:one", "kind": "git_commit", "text": "Change (#485)"}
+    item = {"text": "PR #485 was not merged.", "source_ids": ["journal:old"]}
+    topic = {"title": "Work", "final_state": {"items": [item]}}
+    before = deepcopy(topic)
+    with pytest.raises(ValueError, match="contradicts known principal merge"):
+        validate_final_merge_evidence(topic, {commit["id"]: commit})
+    assert topic == before
