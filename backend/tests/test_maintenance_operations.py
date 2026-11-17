@@ -329,3 +329,9 @@ def test_reground_budget_stays_concise_with_legacy_essays():
         build_request(snapshot("reground", {"content": "Legacy essay. " * 10000}))["max_tokens"]
         == 4000
     )
+
+
+def test_activity_does_not_treat_its_previous_summary_as_primary_evidence():
+    request = build_request(snapshot("activity"))
+    assert "newer removal/revert commits supersede earlier" in request["prompt"]
+    assert "Never turn removal into replacement" in request["prompt"]

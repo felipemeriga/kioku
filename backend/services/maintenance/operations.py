@@ -75,7 +75,10 @@ GUIDES = {
         "Fold new commits into the current activity. Write two or three short "
         "sentences and at most five concrete highlights, newest themes first. "
         "Summarize merged changes; investigation details belong in History and Reports. Never "
-        "infer behavior absent from commit subjects."
+        "infer behavior absent from commit subjects. The current activity is a derived "
+        "summary, not authoritative evidence: newer removal/revert commits supersede earlier "
+        "feature descriptions. Never turn removal into replacement or claim removed "
+        "subfeatures survive unless supplied primary evidence explicitly establishes it."
     ),
     "how_it_runs": (
         "Write an accurate operating guide, preserving verified unaffected "
@@ -292,7 +295,15 @@ def build_request(snapshot):
                 return
             for key, child in list(node.items()):
                 if key in ("source_ids", "summary_source_ids"):
-                    child.update(minItems=1, maxItems=12, uniqueItems=True)
+                    # Preserve the final 12-source bound while reserving room
+                    # for the server-owned exact quote origin added on validation.
+                    maximum = (
+                        11
+                        if key == "source_ids"
+                        and snapshot["input"].get("model_citation_limit") == 11
+                        else 12
+                    )
+                    child.update(minItems=1, maxItems=maximum, uniqueItems=True)
                     child["items"] = {"$ref": "#/$defs/report_source"}
                 elif key == "evidence_quote":
                     node[key] = {"$ref": "#/$defs/report_quote"}
@@ -410,6 +421,10 @@ def build_request(snapshot):
             "For every PR mentioned in a topic's final state that has a principal commit, "
             "cite that commit and reconcile its merged code before earlier opened/pending "
             "journal observations. Runtime verification can remain unknown after a merge. "
+            "Resolve each topic against its latest primary evidence: a removal or revert "
+            "supersedes earlier implementation. Do not claim earlier subfeatures remain "
+            "available after their parent feature was removed without later explicit evidence. "
+            "Use exact individual PR identifiers rather than inventing inclusive PR ranges. "
             "Qualify cross-repository PRs as owner/repo#number to distinguish their scope. "
             "Copy proper names, venue names and numeric identifiers exactly from their "
             "supporting source; never move a camera, account or measurement to another entity. "

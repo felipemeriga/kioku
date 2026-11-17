@@ -561,6 +561,7 @@ def capture_report(sb, owner, folder, payload, now=None):
             "input": {
                 "format_version": 2,
                 "generation_version": 2,
+                "model_citation_limit": 11,
                 **(
                     {"review_notes_not_evidence": payload["factual_review"]["reason"]}
                     if payload.get("factual_review")
@@ -971,14 +972,10 @@ def validate_final_merge_evidence(topic, sources):
         if number in mentioned:
             known.add(number)
             if source["id"] not in cited:
-                missing.append(number)
+                missing.append((number, source["id"]))
     errors = []
-    if missing:
-        errors.append(
-            "Report final state omits principal-branch merge evidence for PR "
-            + ", ".join("#" + n for n in sorted(set(missing)))
-            + "; cite and reconcile the merged code before older journal states"
-        )
+    if re.search(r"#[1-9][0-9]*\s*[-–—]\s*#?[1-9][0-9]*\b", text):
+        errors.append("Report final state must cite exact individual PRs, not inclusive PR ranges")
     for item in state["items"]:
         numbers = set(re.findall(r"#([1-9][0-9]*)\b", item["text"])) & known
         if (
@@ -998,8 +995,33 @@ def validate_final_merge_evidence(topic, sources):
             errors.append(
                 "Report final state contradicts known principal merge #" + next(iter(numbers))
             )
+    # Bind metadata only when the final prose actually acknowledges the merge.
+    # Keep all existing context and the hard citation limit. Never rewrite a
+    # stale/open/unknown claim merely because a matching principal commit exists.
+    additions = []
+    for number, source_id in missing:
+        candidates = [
+            item for item in state["items"] if re.search(r"#" + number + r"\b", item["text"])
+        ] or state["items"]
+        target = next(
+            (item for item in candidates if re.search(r"\bmerged\b", item["text"], re.I)),
+            None,
+        )
+        if target is None:
+            errors.append(
+                "Report final state omits principal-branch merge evidence for PR #" + number
+            )
+        else:
+            additions.append((target, source_id))
+    for item in state["items"]:
+        extra = {source_id for target, source_id in additions if target is item}
+        if len(set(item["source_ids"]) | extra) > 12:
+            errors.append("Report principal merge origin exceeds the citation bound")
     if errors:
         raise ValueError("; ".join(errors))
+    for item, source_id in additions:
+        if source_id not in item["source_ids"]:
+            item["source_ids"].append(source_id)
 
 
 def validate_report(snapshot, value):

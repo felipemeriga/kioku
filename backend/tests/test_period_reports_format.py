@@ -933,10 +933,18 @@ def test_final_state_cannot_ignore_a_known_merge_in_favor_of_earlier_journal():
     snapshot, value = compact_fixture()
     snapshot["input"]["generation_version"] = 2
     value["topics"][0]["title"] = "PR #485 consumer-group work"
+    original = deepcopy(value)
+    result = validate_report(snapshot, value)
+    assert result["topics"][0]["final_state"]["items"][0]["source_ids"] == [
+        "journal:result",
+        "commit:" + "b" * 40,
+    ]
+    assert value == original
+    value["topics"][0]["final_state"]["items"][0]["text"] = (
+        "PR #485 was opened and remains mergeable."
+    )
     with pytest.raises(ValueError, match="omits principal-branch merge evidence"):
-        validate_report(snapshot, deepcopy(value))
-    value["topics"][0]["final_state"]["items"][0]["source_ids"].append("s2")
-    assert validate_report(snapshot, deepcopy(value))
+        validate_report(snapshot, value)
 
 
 def test_qualified_external_pr_does_not_inherit_a_same_number_principal_merge():
@@ -959,3 +967,114 @@ def test_citing_the_merge_does_not_allow_claiming_its_merge_status_is_unknown():
         validate_report(snapshot, deepcopy(value))
     item["text"] = "PR #485 merged to main; its merge status into staging remains unverified."
     assert validate_report(snapshot, deepcopy(value))
+
+
+def test_model_reserves_quote_origin_without_dropping_context_or_raising_final_bound():
+    snapshot, value = compact_fixture()
+    snapshot["input"].update(generation_version=2, model_citation_limit=11)
+    snapshot["input"]["sources"] = [
+        {
+            "id": f"journal:{n}",
+            "kind": "journal",
+            "date": "2026-11-13",
+            "observed_at": "2026-11-13T12:00:00Z",
+            "text": f"The change was reported complete in observation {n}.",
+        }
+        for n in range(12)
+    ]
+
+    def finding(ids, quote):
+        return {
+            "text": "The change was reported complete.",
+            "source_ids": ids,
+            "evidence_quote": quote,
+        }
+
+    value.update(
+        summary="Recorded work was reported complete by the available observations.",
+        summary_source_ids=["s0"],
+        outcomes=[],
+    )
+    topic = value["topics"][0]
+    topic["title"] = "Recorded work"
+    topic["updates"] = [
+        {
+            "date": "2026-11-13",
+            "title": "Completion reported",
+            "detail": "",
+            **finding([f"s{n}" for n in range(11)], "q11"),
+        }
+    ]
+    topic["final_state"] = {"status": "Completed", "items": [finding(["s0"], "q0")]}
+    schema = build_request(snapshot)["schema"]
+    jsonschema.validate(value, schema)
+    validated = validate_result(snapshot, value)
+    ids = validated["topics"][0]["updates"][0]["source_ids"]
+    assert len(ids) == 12 and set(ids) == {f"journal:{n}" for n in range(12)}
+    assert schema["properties"]["summary_source_ids"]["maxItems"] == 12
+    snapshot["input"].pop("model_citation_limit")
+    assert (
+        build_request(snapshot)["schema"]["properties"]["topics"]["items"]["properties"]["updates"][
+            "items"
+        ]["properties"]["source_ids"]["maxItems"]
+        == 12
+    )
+
+
+def test_principal_citation_binding_preserves_context_and_hard_bound():
+    from services.period_reports import validate_final_merge_evidence
+
+    commit = {"id": "commit:one", "kind": "git_commit", "text": "Change (#485)"}
+    item = {"text": "PR #485 merged to main.", "source_ids": [f"journal:{n}" for n in range(12)]}
+    topic = {"title": "Work", "final_state": {"items": [item]}}
+    before = deepcopy(topic)
+    with pytest.raises(ValueError, match="citation bound"):
+        validate_final_merge_evidence(topic, {commit["id"]: commit})
+    assert topic == before
+    item["source_ids"].pop()
+    validate_final_merge_evidence(topic, {commit["id"]: commit})
+    assert item["source_ids"] == [f"journal:{n}" for n in range(11)] + ["commit:one"]
+    validate_final_merge_evidence(topic, {commit["id"]: commit})
+    assert len(item["source_ids"]) == 12
+
+
+def test_principal_citation_binding_does_not_rewrite_contradictory_prose():
+    from services.period_reports import validate_final_merge_evidence
+
+    commit = {"id": "commit:one", "kind": "git_commit", "text": "Change (#485)"}
+    item = {"text": "PR #485 was not merged.", "source_ids": ["journal:old"]}
+    topic = {"title": "Work", "final_state": {"items": [item]}}
+    before = deepcopy(topic)
+    with pytest.raises(ValueError, match="contradicts known principal merge"):
+        validate_final_merge_evidence(topic, {commit["id"]: commit})
+    assert topic == before
+
+
+def test_report_prompt_reconciles_removal_and_preserves_exact_pr_identifiers():
+    snapshot, _ = compact_fixture()
+    snapshot["input"]["generation_version"] = 2
+    prompt = build_request(snapshot)["prompt"]
+    assert "removal or revert" in prompt
+    assert "without later explicit evidence" in prompt
+    assert "exact individual PR identifiers" in prompt
+
+
+@pytest.mark.parametrize("pr_range", ["#471–#477", "#471-477", "#471 — #477"])
+def test_final_states_do_not_invent_inclusive_pr_ranges(pr_range):
+    from services.period_reports import validate_final_merge_evidence
+
+    topic = {
+        "title": "Dependencies",
+        "final_state": {
+            "items": [
+                {
+                    "text": "Dependency PRs " + pr_range + " merged.",
+                    "source_ids": ["journal:result"],
+                }
+            ]
+        },
+    }
+    with pytest.raises(ValueError, match="exact individual PRs"):
+        validate_final_merge_evidence(topic, {})
+    topic["final_state"]["items"][0]["text"] = "Dependency PRs #471 and #477 merged."
+    validate_final_merge_evidence(topic, {})
