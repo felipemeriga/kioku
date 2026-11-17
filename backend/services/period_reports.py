@@ -963,7 +963,7 @@ def validate_final_merge_evidence(topic, sources):
             mentioned.update(str(n) for n in range(start, end + 1))
     qualified = re.findall(r"\b([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([1-9][0-9]*)\b", text)
     cited = {i for item in state["items"] for i in item["source_ids"]}
-    missing, known = [], set()
+    matching, known = {}, set()
     for source in sources.values():
         if source["kind"] != "git_commit":
             continue
@@ -978,8 +978,10 @@ def validate_final_merge_evidence(topic, sources):
             continue
         if number in mentioned:
             known.add(number)
-            if source["id"] not in cited:
-                missing.append((number, source["id"]))
+            matching.setdefault(number, []).append(source["id"])
+    # One principal commit proves the PR; multiple reachable/cherry-picked
+    # records must not consume extra citation slots or displace context.
+    missing = [(number, ids[0]) for number, ids in matching.items() if not cited.intersection(ids)]
     errors = []
     for start, end in ranges:
         if not 0 <= end - start < 12 or any(str(n) not in known for n in range(start, end + 1)):

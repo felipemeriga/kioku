@@ -1146,3 +1146,22 @@ def test_primary_commit_binding_does_not_require_a_literal_merged_verb():
     item["text"] = "PR #282 remains open."
     with pytest.raises(ValueError, match="contradicts known principal merge"):
         validate_final_merge_evidence(topic, sources)
+
+
+def test_multiple_pr_commit_records_need_one_primary_citation_and_preserve_context():
+    from services.period_reports import validate_final_merge_evidence
+
+    sources = {
+        f"commit:{n}": {"id": f"commit:{n}", "kind": "git_commit", "text": "Fix (#282)"}
+        for n in (1, 2)
+    }
+    context = [f"journal:{n}" for n in range(11)]
+    item = {"text": "PR #282 optimized bookkeeping.", "source_ids": context.copy()}
+    topic = {"title": "Performance", "final_state": {"items": [item]}}
+    validate_final_merge_evidence(topic, sources)
+    assert item["source_ids"] == context + ["commit:1"]
+    validate_final_merge_evidence(topic, sources)
+    assert len(item["source_ids"]) == 12
+    item["source_ids"] = ["commit:2", "journal:observed"]
+    validate_final_merge_evidence(topic, sources)
+    assert item["source_ids"] == ["commit:2", "journal:observed"]
