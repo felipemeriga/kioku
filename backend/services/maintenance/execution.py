@@ -323,7 +323,28 @@ MAINTENANCE_MODEL = "claude-sonnet-4-6"
 MAINTENANCE_MAX_TURNS = 6
 
 
-def completion_system(built):
+def direct_documentation(snapshot):
+    return (
+        snapshot.get("operation") == "reports"
+        and snapshot.get("input", {}).get("documentation_version") == 2
+        and not snapshot.get("quote_repair")
+    )
+
+
+def native_response_schema(snapshot, built):
+    return built["schema"] if direct_documentation(snapshot) else completion_schema(built["schema"])
+
+
+def completion_system(built, *, direct=False):
+    if direct:
+        return built["system"] + (
+            " Return only the factual report matching the required operation data shape. "
+            'For the internal StructuredOutput tool, supply {"result": <report object>}. '
+            "The report fields title, summary, outcomes and topics belong directly inside result. "
+            "Do not add schema_version, outcome, data, missing_inputs, failure "
+            "or warnings wrappers. "
+            "Do not write a separate draft or preamble. Publication is checked by the server."
+        )
     return built["system"] + (
         " Wrap operation data in the standardized completion envelope: "
         "schema_version=1, outcome, data, missing_inputs, failure, warnings. "
@@ -342,9 +363,10 @@ def request_matches_policy(row, *, allow_repair=False):
         )
     return (
         prompt_matches
-        and request["system_prompt"] == completion_system(built)
+        and request["system_prompt"]
+        == completion_system(built, direct=direct_documentation(row["snapshot"]))
         and request["max_tokens"] == built["max_tokens"]
-        and request["response_schema"] == completion_schema(built["schema"])
+        and request["response_schema"] == native_response_schema(row["snapshot"], built)
         and request["max_turns"] == MAINTENANCE_MAX_TURNS
         and request["model"] == MAINTENANCE_MODEL
         and request.get("reasoning_effort")
@@ -809,8 +831,8 @@ def prepare(
     identity["prompt_policy_sha256"] = digest(
         {
             "built": built,
-            "system": completion_system(built),
-            "schema": completion_schema(built["schema"]),
+            "system": completion_system(built, direct=direct_documentation(snapshot)),
+            "schema": native_response_schema(snapshot, built),
             "model": MAINTENANCE_MODEL,
             "max_turns": MAINTENANCE_MAX_TURNS,
             **reasoning,
@@ -825,13 +847,13 @@ def prepare(
         "operation": "mihari." + operation,
         "profile": "completion",
         "prompt": built["prompt"],
-        "system_prompt": completion_system(built),
+        "system_prompt": completion_system(built, direct=direct_documentation(snapshot)),
         "model": MAINTENANCE_MODEL,
         "max_tokens": built["max_tokens"],
         "max_turns": MAINTENANCE_MAX_TURNS,
         "thinking_tokens": 0,
         **reasoning,
-        "response_schema": completion_schema(built["schema"]),
+        "response_schema": native_response_schema(snapshot, built),
         "conversation_id": None,
         "folder_ids": [folder],
         "tool_allowlist": [],

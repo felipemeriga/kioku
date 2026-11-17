@@ -1229,3 +1229,31 @@ def test_simple_documentation_schema_does_not_grow_with_quote_catalogue():
     snapshot["input"]["documentation_version"] = 2
     light = len(json.dumps(build_request(snapshot)["schema"]))
     assert light < heavy / 3
+
+
+def test_documentation_native_response_has_one_data_shape_and_preserves_old_envelopes():
+    from services.maintenance.execution import completion_system, native_response_schema
+
+    snapshot, value = compact_fixture()
+    snapshot["input"].update(generation_version=2, documentation_only=True, documentation_version=2)
+    value["topics"][0]["final_state"]["status"] = "Recorded"
+    built = build_request(snapshot)
+    response_schema = native_response_schema(snapshot, built)
+    jsonschema.validate(value, response_schema)
+    assert "outcome" not in response_schema["properties"]
+    assert "Do not add schema_version" in completion_system(built, direct=True)
+    envelope = {
+        "schema_version": 1,
+        "outcome": "completed",
+        "data": value,
+        "missing_inputs": [],
+        "failure": None,
+        "warnings": [],
+    }
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(envelope, response_schema)
+    snapshot["input"].pop("documentation_version")
+    jsonschema.validate(envelope, native_response_schema(snapshot, build_request(snapshot)))
+    snapshot["input"]["documentation_version"] = 2
+    snapshot["quote_repair"] = {"findings": []}
+    assert "outcome" in native_response_schema(snapshot, built)["properties"]
