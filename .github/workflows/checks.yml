@@ -263,6 +263,8 @@ jobs:
             backend/tests/fixtures/maintenance/retry.sql \
             backend/tests/fixtures/maintenance/learnings.sql \
             backend/tests/fixtures/maintenance/absent_documentation.sql \
-            backend/tests/fixtures/maintenance/documentation_body_only.sql; do
+            backend/tests/fixtures/maintenance/documentation_body_only.sql \
+            supabase/migrations/20261117150000_active_briefing_review.sql \
+            backend/tests/fixtures/maintenance/active_review.sql; do
             psql -h localhost -U postgres -d tsukai_maintenance_fixture -v ON_ERROR_STOP=1 -f "$sql"
           done
