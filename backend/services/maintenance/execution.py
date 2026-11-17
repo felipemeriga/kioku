@@ -352,7 +352,7 @@ def request_matches_policy(row, *, allow_repair=False):
             (
                 "low"
                 if row["snapshot"].get("quote_repair")
-                or row["snapshot"]["input"].get("generation_version") == 1
+                or row["snapshot"]["input"].get("generation_version") in (1, 2)
                 else "medium"
             )
             if row["snapshot"]["operation"] == "reports"
@@ -755,13 +755,16 @@ def prepare(
     reasoning = (
         {
             "reasoning_effort": "low"
-            if snapshot.get("quote_repair") or snapshot["input"].get("generation_version") == 1
+            if snapshot.get("quote_repair") or snapshot["input"].get("generation_version") in (1, 2)
             else "medium"
         }
         if operation == "reports"
         else {}
     )
-    bounded_report = operation == "reports" and snapshot["input"].get("generation_version") == 1
+    bounded_report = operation == "reports" and snapshot["input"].get("generation_version") in (
+        1,
+        2,
+    )
     if bounded_report and not retry_preparation_id and not quote_repair_preparation_id:
         # A retry window may not duplicate a still-live or completed-unpublished
         # immutable job from the preceding window.
@@ -933,6 +936,45 @@ def prepare(
             .data
         )
     return prepared_response(owner, folder, record)
+
+
+def renew_capability(sb, owner, folder, preparation, job_id):
+    """Renew only the exact immutable job; keep the runner's 15-minute grants."""
+    rows = (
+        sb.table("maintenance_preparations")
+        .select("*")
+        .eq("id", preparation)
+        .eq("user_id", owner)
+        .eq("folder_id", folder)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows:
+        raise PermissionError("unknown maintenance preparation")
+    row = rows[0]
+    if row.get("execution_job_id") and row["execution_job_id"] != job_id:
+        raise PermissionError("maintenance job does not match preparation")
+    token = capability(owner, folder, row["request"])
+    response = httpx.get(
+        os.environ["TSUKAI_URL"].rstrip("/") + "/v1/jobs/" + job_id,
+        headers={
+            "Authorization": "Bearer " + os.environ["TSUKAI_SERVICE_TOKEN"],
+            "X-Tsukai-Capability": token,
+        },
+        timeout=30,
+    )
+    response.raise_for_status()
+    expected = hashlib.sha256(
+        json.dumps(row["request"], sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    if response.json().get("request_sha256") != expected:
+        raise PermissionError("maintenance job does not match preparation")
+    claims = jwt.decode(
+        token, os.environ["TSUKAI_CAPABILITY_KEY"], algorithms=["HS256"], audience="tsukai"
+    )
+    return {"capability": token, "expires_at": claims["exp"]}
 
 
 def publish(sb, owner, folder, preparation, job_id):

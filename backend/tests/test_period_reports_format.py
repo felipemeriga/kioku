@@ -892,3 +892,70 @@ def test_full_month_of_large_entries_preserves_all_active_days_with_bounded_expa
     assert len(selected) == 31
     assert {s["date"] for s in selected} == {f"2026-12-{d:02}" for d in range(1, 32)}
     assert 120000 < sum(len(json.dumps(s)) for s in selected) < 200000
+
+
+def test_generation_two_keeps_every_principal_commit_under_journal_pressure():
+    from services.period_reports import report_model_sources
+
+    snapshot, _ = compact_fixture()
+    snapshot["input"]["generation_version"] = 2
+    journals = [
+        {
+            "id": f"journal:{i}",
+            "kind": "journal",
+            "date": "2026-11-13",
+            "observed_at": "2026-11-13T12:00:00Z",
+            "text": "Reported work. " * 400,
+        }
+        for i in range(100)
+    ]
+    commits = [
+        {
+            "id": f"commit:{i}",
+            "kind": "git_commit",
+            "date": "2026-11-13",
+            "observed_at": "2026-11-13T15:00:00Z",
+            "text": f"Commit on principal branch: change (#{i + 10})",
+        }
+        for i in range(30)
+    ]
+    snapshot["input"]["sources"] = journals + commits
+    ids = {s["id"] for s in report_model_sources(snapshot)}
+    assert {s["id"] for s in commits}.issubset(ids)
+    assert any(i.startswith("journal:") for i in ids)
+    snapshot["input"]["generation_version"] = 1
+    assert not {s["id"] for s in commits}.issubset(
+        {s["id"] for s in report_model_sources(snapshot)}
+    )
+
+
+def test_final_state_cannot_ignore_a_known_merge_in_favor_of_earlier_journal():
+    snapshot, value = compact_fixture()
+    snapshot["input"]["generation_version"] = 2
+    value["topics"][0]["title"] = "PR #485 consumer-group work"
+    with pytest.raises(ValueError, match="omits principal-branch merge evidence"):
+        validate_report(snapshot, deepcopy(value))
+    value["topics"][0]["final_state"]["items"][0]["source_ids"].append("s2")
+    assert validate_report(snapshot, deepcopy(value))
+
+
+def test_qualified_external_pr_does_not_inherit_a_same_number_principal_merge():
+    snapshot, value = compact_fixture()
+    snapshot["input"]["generation_version"] = 2
+    snapshot["input"]["sources"][2]["url"] = "https://github.com/ours/project/commit/" + "b" * 40
+    value["topics"][0]["title"] = "External work in another/project#485"
+    item = value["topics"][0]["final_state"]["items"][0]
+    item["text"] = "another/project#485 was opened; later merge status remains unverified."
+    assert validate_report(snapshot, deepcopy(value))
+
+
+def test_citing_the_merge_does_not_allow_claiming_its_merge_status_is_unknown():
+    snapshot, value = compact_fixture()
+    snapshot["input"]["generation_version"] = 2
+    item = value["topics"][0]["final_state"]["items"][0]
+    item["source_ids"].append("s2")
+    item["text"] = "PR #485 merge status not confirmed at cutoff."
+    with pytest.raises(ValueError, match="contradicts known principal merge"):
+        validate_report(snapshot, deepcopy(value))
+    item["text"] = "PR #485 merged to main; its merge status into staging remains unverified."
+    assert validate_report(snapshot, deepcopy(value))

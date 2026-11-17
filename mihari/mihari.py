@@ -292,9 +292,26 @@ def maintenance_post(
     # caller's API timeout is not a native execution or queue lifetime; keep one
     # bounded wait across queueing, execution and result reconnects. The runner
     # still independently enforces its 300s/600s execution limits.
-    native_wait = 780
+    # Match the existing 30-minute completion queue lifetime plus the runner's
+    # unchanged 10-minute execution cap. This does not extend model execution.
+    native_wait = 1800 + 600 + 60
     deadline = time.monotonic() + native_wait
+    renew_at = time.monotonic() + 600
     while time.monotonic() < deadline:
+        if time.monotonic() >= renew_at:
+            renewed = maintenance_control_post(
+                f"{API_URL}/api/mihari/execution/renew",
+                headers=headers,
+                json={
+                    "folder_id": json["folder_id"],
+                    "preparation_id": body["preparation_id"],
+                    "job_id": job,
+                },
+                timeout=30,
+            )
+            renewed.raise_for_status()
+            runner_headers = {**runner_headers, "X-Tsukai-Capability": renewed.json()["capability"]}
+            renew_at = time.monotonic() + 600
         result = read_native_result(runner + f"/v1/jobs/{job}/result", runner_headers, deadline)
         outcome = result.json()
         status = outcome.get("status")

@@ -560,7 +560,7 @@ def capture_report(sb, owner, folder, payload, now=None):
             "operation": "reports",
             "input": {
                 "format_version": 2,
-                "generation_version": 1,
+                "generation_version": 2,
                 **(
                     {"review_notes_not_evidence": payload["factual_review"]["reason"]}
                     if payload.get("factual_review")
@@ -627,9 +627,10 @@ def report_model_sources(snapshot):
 
     # Storage/merge inventory remains complete. Only model context is bounded.
     def priority(source):
-        rank = {"journal": 0, "git_commit": 1, "github_pull_request": 2, "original": 3}.get(
-            source["kind"], 4
-        )
+        ranks = {"journal": 0, "git_commit": 1, "github_pull_request": 2, "original": 3}
+        if snapshot["input"].get("generation_version") == 2:
+            ranks.update(git_commit=0, journal=1)
+        rank = ranks.get(source["kind"], 4)
         return (
             rank,
             not source.get("outcome_anchor", False),
@@ -637,7 +638,7 @@ def report_model_sources(snapshot):
         )
 
     ordered = sorted(sources, key=priority)
-    bounded = snapshot["input"].get("generation_version") == 1
+    bounded = snapshot["input"].get("generation_version") in (1, 2)
     if bounded:
         # Give every active day a turn before taking a second source from any
         # day. A busy final week must not erase the beginning of a monthly report.
@@ -665,7 +666,19 @@ def report_model_sources(snapshot):
     if bounded:
         # Even a full month of maximum-sized journal entries needs one source
         # per active day. Expand only to that minimum, not the full catalog.
-        budget = max(120000, sum(cost(buckets[day][0], len(sources)) for day in days))
+        reserved = [buckets[day][0] for day in days]
+        if snapshot["input"].get("generation_version") == 2:
+            # Every principal-branch commit is authoritative. Never lose a
+            # merge while retaining an older journal saying its PR was open.
+            primary = [s for s in ordered if s["kind"] == "git_commit"]
+            observations = [
+                next((s for s in buckets[day] if s["kind"] != "git_commit"), buckets[day][0])
+                for day in days
+            ]
+            reserved = list({s["id"]: s for s in [*primary, *observations]}.values())
+            ids = {s["id"] for s in reserved}
+            ordered = reserved + [s for s in ordered if s["id"] not in ids]
+        budget = max(120000, sum(cost(s, len(sources)) for s in reserved))
     selected, characters = set(), 0
     for source in ordered:
         size = cost(source, len(selected))
@@ -935,6 +948,60 @@ def validate_open_pr_state(snapshot, topic, sources):
         )
 
 
+def validate_final_merge_evidence(topic, sources):
+    """A topic's last state cannot ignore its known principal-branch merge."""
+    state = topic["final_state"]
+    text = topic["title"] + " " + " ".join(item["text"] for item in state["items"])
+    mentioned = set(re.findall(r"#([1-9][0-9]*)\b", text))
+    qualified = re.findall(r"\b([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([1-9][0-9]*)\b", text)
+    cited = {i for item in state["items"] for i in item["source_ids"]}
+    missing, known = [], set()
+    for source in sources.values():
+        if source["kind"] != "git_commit":
+            continue
+        match = re.search(
+            r"\(#([1-9][0-9]*)\)|Merge pull request #([1-9][0-9]*)",
+            source["text"].splitlines()[0],
+            re.IGNORECASE,
+        )
+        number = next((v for v in match.groups() if v), None) if match else None
+        repository = re.search(r"github\.com/([^/]+/[^/]+)/commit/", source.get("url") or "")
+        if repository and any(n == number and repo != repository[1] for repo, n in qualified):
+            continue
+        if number in mentioned:
+            known.add(number)
+            if source["id"] not in cited:
+                missing.append(number)
+    errors = []
+    if missing:
+        errors.append(
+            "Report final state omits principal-branch merge evidence for PR "
+            + ", ".join("#" + n for n in sorted(set(missing)))
+            + "; cite and reconcile the merged code before older journal states"
+        )
+    for item in state["items"]:
+        numbers = set(re.findall(r"#([1-9][0-9]*)\b", item["text"])) & known
+        if (
+            len(numbers) == 1
+            and not re.search(
+                r"\b(?:to|into|on|for)\s+(?:staging|develop(?:ment)?|release)\b",
+                item["text"],
+                re.IGNORECASE,
+            )
+            and re.search(
+                r"\b(?:unmerged|not(?: yet)? merged|merge status (?:is |was |remains )?"
+                r"(?:not (?:confirmed|verified)|unconfirmed|unverified|unknown))\b",
+                item["text"],
+                re.IGNORECASE,
+            )
+        ):
+            errors.append(
+                "Report final state contradicts known principal merge #" + next(iter(numbers))
+            )
+    if errors:
+        raise ValueError("; ".join(errors))
+
+
 def validate_report(snapshot, value):
     value = deepcopy(value)
     aliases = report_aliases(snapshot)
@@ -1117,6 +1184,8 @@ def validate_report(snapshot, value):
             if compact_report(snapshot):
                 location = f"topics.{topic['id']}.final_state.status"
                 factual(validate_open_pr_state, snapshot, topic, sources)
+                if snapshot["input"].get("generation_version") == 2:
+                    factual(validate_final_merge_evidence, topic, sources)
                 factual(
                     validate_runtime_provenance,
                     state["status"],
