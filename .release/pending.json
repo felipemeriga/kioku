@@ -1,31 +1,41 @@
 {
-  "source_sha": "08f02268c23c2d7908e47e0c1ccd9c9e40b701f8",
+  "source_sha": "751e70952501a60618d586ba30643bdea480e176",
   "release_branch": "main",
   "versions": {
-    "backend": "0.3.115",
-    "mcp": "0.3.115"
+    "backend": "0.3.116",
+    "mcp": "0.3.116",
+    "mihari": "0.3.56"
   },
   "release_levels": {
     "backend": "patch",
-    "mcp": "patch"
+    "mcp": "patch",
+    "mihari": "patch"
   },
   "major": false,
   "images": [
     {
       "package": "backend",
-      "version": "0.3.115",
+      "version": "0.3.116",
       "image": "felipemeriga1/kioku-backend",
       "context": "backend",
       "dockerfile": "backend/Dockerfile",
-      "tag": "0.3.115-08f02268c23c"
+      "tag": "0.3.116-751e70952501"
     },
     {
       "package": "mcp",
-      "version": "0.3.115",
+      "version": "0.3.116",
       "image": "felipemeriga1/kioku-mcp",
       "context": "backend",
       "dockerfile": "backend/Dockerfile.mcp",
-      "tag": "0.3.115-08f02268c23c"
+      "tag": "0.3.116-751e70952501"
+    },
+    {
+      "package": "mihari",
+      "version": "0.3.56",
+      "image": "felipemeriga1/kioku-mihari",
+      "context": ".",
+      "dockerfile": "mihari/Dockerfile",
+      "tag": "0.3.56-751e70952501"
     }
   ],
   "cli": false,
