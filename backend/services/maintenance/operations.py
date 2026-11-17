@@ -328,7 +328,7 @@ def build_request(snapshot):
         state["items"]["items"]["properties"]["text"].update(
             minLength=10, maxLength=320 if compact_report(snapshot) else 500
         )
-        if snapshot["input"].get("generation_version") == 1:
+        if snapshot["input"].get("generation_version") in (1, 2):
             topic["updates"]["items"]["anyOf"] = report_date_constraints(snapshot)
             state["status"]["enum"] = [
                 "Completed",
@@ -404,6 +404,19 @@ def build_request(snapshot):
                 if evidence_choices is not None
                 else ""
             )
+        )
+        + (
+            "\nAll principal-branch commits are supplied as authoritative merge evidence. "
+            "For every PR mentioned in a topic's final state that has a principal commit, "
+            "cite that commit and reconcile its merged code before earlier opened/pending "
+            "journal observations. Runtime verification can remain unknown after a merge. "
+            "Qualify cross-repository PRs as owner/repo#number to distinguish their scope. "
+            "Copy proper names, venue names and numeric identifiers exactly from their "
+            "supporting source; never move a camera, account or measurement to another entity. "
+            "Omit incidental camera/vector values and diagnostic counts that do not explain "
+            "the main work outcome."
+            if op == "reports" and snapshot["input"].get("generation_version") == 2
+            else ""
         )
         + "\nRequired result shape: "
         + canonical(shape)

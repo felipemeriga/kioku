@@ -352,7 +352,7 @@ def request_matches_policy(row, *, allow_repair=False):
             (
                 "low"
                 if row["snapshot"].get("quote_repair")
-                or row["snapshot"]["input"].get("generation_version") == 1
+                or row["snapshot"]["input"].get("generation_version") in (1, 2)
                 else "medium"
             )
             if row["snapshot"]["operation"] == "reports"
@@ -755,13 +755,16 @@ def prepare(
     reasoning = (
         {
             "reasoning_effort": "low"
-            if snapshot.get("quote_repair") or snapshot["input"].get("generation_version") == 1
+            if snapshot.get("quote_repair") or snapshot["input"].get("generation_version") in (1, 2)
             else "medium"
         }
         if operation == "reports"
         else {}
     )
-    bounded_report = operation == "reports" and snapshot["input"].get("generation_version") == 1
+    bounded_report = operation == "reports" and snapshot["input"].get("generation_version") in (
+        1,
+        2,
+    )
     if bounded_report and not retry_preparation_id and not quote_repair_preparation_id:
         # A retry window may not duplicate a still-live or completed-unpublished
         # immutable job from the preceding window.
