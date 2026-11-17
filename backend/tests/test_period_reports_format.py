@@ -1048,3 +1048,12 @@ def test_principal_citation_binding_does_not_rewrite_contradictory_prose():
     with pytest.raises(ValueError, match="contradicts known principal merge"):
         validate_final_merge_evidence(topic, {commit["id"]: commit})
     assert topic == before
+
+
+def test_report_prompt_reconciles_removal_and_preserves_exact_pr_identifiers():
+    snapshot, _ = compact_fixture()
+    snapshot["input"]["generation_version"] = 2
+    prompt = build_request(snapshot)["prompt"]
+    assert "removal or revert" in prompt
+    assert "without later explicit evidence" in prompt
+    assert "exact individual PR identifiers" in prompt
