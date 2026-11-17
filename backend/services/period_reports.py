@@ -561,6 +561,7 @@ def capture_report(sb, owner, folder, payload, now=None):
             "input": {
                 "format_version": 2,
                 "generation_version": 2,
+                "model_citation_limit": 11,
                 **(
                     {"review_notes_not_evidence": payload["factual_review"]["reason"]}
                     if payload.get("factual_review")

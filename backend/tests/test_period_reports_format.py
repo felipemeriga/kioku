@@ -959,3 +959,55 @@ def test_citing_the_merge_does_not_allow_claiming_its_merge_status_is_unknown():
         validate_report(snapshot, deepcopy(value))
     item["text"] = "PR #485 merged to main; its merge status into staging remains unverified."
     assert validate_report(snapshot, deepcopy(value))
+
+
+def test_model_reserves_quote_origin_without_dropping_context_or_raising_final_bound():
+    snapshot, value = compact_fixture()
+    snapshot["input"].update(generation_version=2, model_citation_limit=11)
+    snapshot["input"]["sources"] = [
+        {
+            "id": f"journal:{n}",
+            "kind": "journal",
+            "date": "2026-11-13",
+            "observed_at": "2026-11-13T12:00:00Z",
+            "text": f"The change was reported complete in observation {n}.",
+        }
+        for n in range(12)
+    ]
+
+    def finding(ids, quote):
+        return {
+            "text": "The change was reported complete.",
+            "source_ids": ids,
+            "evidence_quote": quote,
+        }
+
+    value.update(
+        summary="Recorded work was reported complete by the available observations.",
+        summary_source_ids=["s0"],
+        outcomes=[],
+    )
+    topic = value["topics"][0]
+    topic["title"] = "Recorded work"
+    topic["updates"] = [
+        {
+            "date": "2026-11-13",
+            "title": "Completion reported",
+            "detail": "",
+            **finding([f"s{n}" for n in range(11)], "q11"),
+        }
+    ]
+    topic["final_state"] = {"status": "Completed", "items": [finding(["s0"], "q0")]}
+    schema = build_request(snapshot)["schema"]
+    jsonschema.validate(value, schema)
+    validated = validate_result(snapshot, value)
+    ids = validated["topics"][0]["updates"][0]["source_ids"]
+    assert len(ids) == 12 and set(ids) == {f"journal:{n}" for n in range(12)}
+    assert schema["properties"]["summary_source_ids"]["maxItems"] == 12
+    snapshot["input"].pop("model_citation_limit")
+    assert (
+        build_request(snapshot)["schema"]["properties"]["topics"]["items"]["properties"]["updates"][
+            "items"
+        ]["properties"]["source_ids"]["maxItems"]
+        == 12
+    )

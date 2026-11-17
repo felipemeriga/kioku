@@ -292,7 +292,15 @@ def build_request(snapshot):
                 return
             for key, child in list(node.items()):
                 if key in ("source_ids", "summary_source_ids"):
-                    child.update(minItems=1, maxItems=12, uniqueItems=True)
+                    # Preserve the final 12-source bound while reserving room
+                    # for the server-owned exact quote origin added on validation.
+                    maximum = (
+                        11
+                        if key == "source_ids"
+                        and snapshot["input"].get("model_citation_limit") == 11
+                        else 12
+                    )
+                    child.update(minItems=1, maxItems=maximum, uniqueItems=True)
                     child["items"] = {"$ref": "#/$defs/report_source"}
                 elif key == "evidence_quote":
                     node[key] = {"$ref": "#/$defs/report_quote"}
