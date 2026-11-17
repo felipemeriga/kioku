@@ -1074,7 +1074,51 @@ def test_final_states_do_not_invent_inclusive_pr_ranges(pr_range):
             ]
         },
     }
-    with pytest.raises(ValueError, match="exact individual PRs"):
+    with pytest.raises(ValueError, match="PR range lacks principal evidence"):
         validate_final_merge_evidence(topic, {})
     topic["final_state"]["items"][0]["text"] = "Dependency PRs #471 and #477 merged."
     validate_final_merge_evidence(topic, {})
+
+
+def test_supported_pr_range_binds_every_pr_without_inventing_missing_numbers():
+    from services.period_reports import validate_final_merge_evidence
+
+    sources = {
+        f"commit:{n}": {"id": f"commit:{n}", "kind": "git_commit", "text": f"Fix (#{n})"}
+        for n in (253, 254, 255, 256)
+    }
+    item = {"text": "PRs #253–#256 merged.", "source_ids": ["commit:253"]}
+    topic = {"title": "Recall", "final_state": {"items": [item]}}
+    validate_final_merge_evidence(topic, sources)
+    assert set(item["source_ids"]) == set(sources)
+    item["text"] = "PRs #253–#256 were not merged."
+    with pytest.raises(ValueError, match="contradicts known principal merge"):
+        validate_final_merge_evidence(topic, sources)
+    item["text"] = "PRs #253–#256 merged."
+    del sources["commit:255"]
+    with pytest.raises(ValueError, match="PR range lacks principal evidence"):
+        validate_final_merge_evidence(topic, sources)
+
+
+def test_removed_capabilities_reconcile_old_prs_with_the_cited_principal_removal():
+    from services.period_reports import validate_final_merge_evidence
+
+    sources = {
+        "commit:old": {"id": "commit:old", "kind": "git_commit", "text": "Add credentials (#347)"},
+        "commit:remove": {
+            "id": "commit:remove",
+            "kind": "git_commit",
+            "text": "Remove credential management (#360)",
+        },
+    }
+    item = {
+        "text": "PR #360 removed credential management. "
+        "PR #347 capabilities are no longer present.",
+        "source_ids": ["commit:remove"],
+    }
+    topic = {"title": "Credentials", "final_state": {"status": "Reverted", "items": [item]}}
+    validate_final_merge_evidence(topic, sources)
+    assert item["source_ids"] == ["commit:remove", "commit:old"]
+    item["source_ids"] = ["journal:old"]
+    with pytest.raises(ValueError, match="omits principal-branch merge evidence"):
+        validate_final_merge_evidence(topic, sources)
