@@ -343,7 +343,9 @@ def completion_system(built, *, direct=False):
             "Markdown fences, a preamble or commentary. The server validates the report before "
             "publication. Copy source and quote IDs and use the date of the quoted source. "
             "Use one short recorded fact per item: highlight text <=180 characters, update text "
-            "<=280, update detail <=240, final finding text <=320."
+            "<=280, update detail <=240, final finding text <=320. "
+            "The exact JSON data contract (including all bounds) follows: "
+            + json.dumps(built["schema"], separators=(",", ":"), sort_keys=True)
         )
 
     return built["system"] + (
