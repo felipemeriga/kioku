@@ -866,7 +866,8 @@ def test_activity_rebuild_includes_recent_removal_even_after_later_unrelated_com
         reads.append(args)
         return (
             0,
-            "new|Fix reports|Developer|2026-11-17\nremoved|Remove vault credentials|Developer|2026-11-16",
+            "new|Fix reports|Developer|2026-11-17\n"
+            "removed|Remove vault credentials|Developer|2026-11-16",
             "",
         )
 
