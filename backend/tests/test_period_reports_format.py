@@ -943,7 +943,7 @@ def test_final_state_cannot_ignore_a_known_merge_in_favor_of_earlier_journal():
     value["topics"][0]["final_state"]["items"][0]["text"] = (
         "PR #485 was opened and remains mergeable."
     )
-    with pytest.raises(ValueError, match="omits principal-branch merge evidence"):
+    with pytest.raises(ValueError, match="contradicts known principal merge"):
         validate_report(snapshot, value)
 
 
@@ -1122,3 +1122,63 @@ def test_removed_capabilities_reconcile_old_prs_with_the_cited_principal_removal
     item["source_ids"] = ["journal:old"]
     with pytest.raises(ValueError, match="omits principal-branch merge evidence"):
         validate_final_merge_evidence(topic, sources)
+
+
+def test_primary_commit_binding_does_not_require_a_literal_merged_verb():
+    from services.period_reports import validate_final_merge_evidence
+
+    sources = {
+        "commit:fix": {
+            "id": "commit:fix",
+            "kind": "git_commit",
+            "text": "Optimize bookkeeping (#282)",
+        }
+    }
+    item = {
+        "text": "PR #282 reduces bookkeeping round trips; live latency is unverified.",
+        "source_ids": ["journal:result"],
+    }
+    topic = {"title": "Performance", "final_state": {"status": "Completed", "items": [item]}}
+    original = item["text"]
+    validate_final_merge_evidence(topic, sources)
+    assert item["source_ids"] == ["journal:result", "commit:fix"]
+    assert item["text"] == original
+    item["text"] = "PR #282 remains open."
+    with pytest.raises(ValueError, match="contradicts known principal merge"):
+        validate_final_merge_evidence(topic, sources)
+
+
+def test_multiple_pr_commit_records_need_one_primary_citation_and_preserve_context():
+    from services.period_reports import validate_final_merge_evidence
+
+    sources = {
+        f"commit:{n}": {"id": f"commit:{n}", "kind": "git_commit", "text": "Fix (#282)"}
+        for n in (1, 2)
+    }
+    context = [f"journal:{n}" for n in range(11)]
+    item = {"text": "PR #282 optimized bookkeeping.", "source_ids": context.copy()}
+    topic = {"title": "Performance", "final_state": {"items": [item]}}
+    validate_final_merge_evidence(topic, sources)
+    assert item["source_ids"] == context + ["commit:1"]
+    validate_final_merge_evidence(topic, sources)
+    assert len(item["source_ids"]) == 12
+    item["source_ids"] = ["commit:2", "journal:observed"]
+    validate_final_merge_evidence(topic, sources)
+    assert item["source_ids"] == ["commit:2", "journal:observed"]
+
+
+def test_documentation_reports_have_a_neutral_state_without_inventing_missing_outcomes():
+    snapshot, value = compact_fixture()
+    snapshot["input"].update(generation_version=2, documentation_only=True)
+    value["topics"][0]["final_state"]["status"] = "Recorded"
+    request = build_request(snapshot)
+    jsonschema.validate(value, request["schema"])
+    assert "Do not infer, guess" in request["prompt"]
+    assert "Never invent an open item" in request["prompt"]
+    assert "not verified" in request["prompt"]
+    assert validate_result(snapshot, value)["topics"][0]["final_state"]["status"] == "Recorded"
+    snapshot["input"].pop("documentation_only")
+    status = build_request(snapshot)["schema"]["properties"]["topics"]["items"]["properties"][
+        "final_state"
+    ]["properties"]["status"]
+    assert "Recorded" not in status["enum"]
