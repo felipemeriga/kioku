@@ -741,13 +741,11 @@ def compute_freshness(clone: Path, repo: dict, env: dict) -> None:
 def refresh_activity(
     clone: Path, repo: dict, old_sha: str | None, new_sha: str, env: dict, strict: bool = False
 ) -> None:
-    """Fold the new commit range into the briefing's activity section via the
-    backend (Haiku) — the one auto-maintained section."""
+    """Rebuild recent activity from primary commits, without recursive summaries."""
     if not API_URL or not repo.get("api_key_encrypted"):
         return
-    rng = f"{old_sha}..{new_sha}" if old_sha else "-20"
     code, out, _ = run_git(
-        ["log", rng, "--pretty=format:%H|%s|%an|%aI", "--no-merges", "-50"],
+        ["log", new_sha, "--pretty=format:%H|%s|%an|%aI", "--no-merges", "-50"],
         env,
         cwd=str(clone),
     )

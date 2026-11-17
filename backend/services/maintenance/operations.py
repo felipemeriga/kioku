@@ -72,7 +72,7 @@ GUIDES = {
     )
     + ", ".join(SECTIONS),
     "activity": (
-        "Fold new commits into the current activity. Write two or three short "
+        "Summarize the supplied recent commits. Write two or three short "
         "sentences and at most five concrete highlights, newest themes first. "
         "Summarize merged changes; investigation details belong in History and Reports. Never "
         "infer behavior absent from commit subjects. The current activity is a derived "
@@ -444,6 +444,7 @@ def build_request(snapshot):
                         report_prompt_snapshot(snapshot) if op == "reports" else snapshot
                     ).items()
                     if k not in ("expected_sections", "expected_reviews")
+                    and not (op == "activity" and k == "current")
                 }
             )
         ),
