@@ -69,6 +69,18 @@ TRIGGER_PORT = int(
     os.environ.get("MIHARI_TRIGGER_PORT", os.environ.get("WATCHER_TRIGGER_PORT", "8787"))
 )
 _pass_lock = threading.Lock()
+_native_deferred_until = 0.0
+
+
+class MaintenanceDeferred(RuntimeError):
+    """Recoverable provider unavailability; never evidence of completed work."""
+
+
+def defer_native():
+    global _native_deferred_until
+    _native_deferred_until = time.monotonic() + 900
+    raise MaintenanceDeferred("Claude usage limit; native work deferred for 15 minutes")
+
 
 # Which files drive each retained concrete briefing section. refresh_sections folds a
 # section's changed files back into it (auto-maintained, like activity); the
@@ -118,6 +130,8 @@ def log(msg: str) -> None:
 
 def submit_native_job(url, headers, payload):
     """Recover a rolling runner restart without changing the admission identity."""
+    if time.monotonic() < _native_deferred_until:
+        raise MaintenanceDeferred("Claude usage cooldown; durable preparation retained")
     deadline = time.monotonic() + 60
     attempt = 0
     while True:
@@ -126,6 +140,13 @@ def submit_native_job(url, headers, payload):
         except (requests.ConnectionError, requests.Timeout):
             pass
         else:
+            if response.status_code == 429:
+                try:
+                    limited = response.json().get("detail") == "quota_limited"
+                except (ValueError, AttributeError):
+                    limited = False
+                if limited:
+                    defer_native()
             if response.status_code not in (502, 503, 504):
                 response.raise_for_status()
                 return response
@@ -287,6 +308,8 @@ def maintenance_post(
     except (ValueError, AttributeError):
         detail = ""
     failure_code = (outcome.get("error") or {}).get("code")
+    if outcome.get("status") == "failed" and failure_code == "quota_limited":
+        defer_native()
     recoverable_budget = (
         publication.status_code == 502
         and outcome.get("status") == "failed"
@@ -730,6 +753,8 @@ def refresh_activity(
             log(f"{repo['remote_url']}: activity section refreshed ({len(commits)} commits)")
         else:
             log(f"{repo['remote_url']}: activity refresh skipped — {r.text[:150]}")
+    except MaintenanceDeferred:
+        raise
     except Exception as exc:  # noqa: BLE001 — activity is best-effort
         log(f"{repo['remote_url']}: activity refresh failed — {exc}")
         if strict:
@@ -905,6 +930,8 @@ def refresh_sections(
                 raise RuntimeError(body["reason"])
             if body.get("updated"):
                 log(f"{repo['remote_url']}: {section} section refreshed ({len(files)} file(s))")
+        except MaintenanceDeferred:
+            raise
         except Exception as exc:  # noqa: BLE001 — best-effort
             log(f"{repo['remote_url']}: {section} refresh failed — {exc}")
             if strict:
@@ -1103,6 +1130,8 @@ def maybe_reground_holistic(
                 f"{repo['remote_url']}: re-grounded "
                 f"{', '.join((body or {}).get('sections', []))} (Sonnet, {int(n or 0)} commits)"
             )
+    except MaintenanceDeferred:
+        raise
     except Exception as exc:  # noqa: BLE001 — best-effort
         log(f"{repo['remote_url']}: reground failed — {exc}")
         if force:
@@ -1249,6 +1278,8 @@ def process_repo(repo: dict, key_row: dict) -> None:
         log(f"{name}: indexed {remote_sha[:10]}")
         try:
             review_new_commits(clone, repo, repo.get("last_sha"), remote_sha, plain_env)
+        except MaintenanceDeferred:
+            raise
         except Exception as exc:  # noqa: BLE001 — retain SHA so the next pass retries
             log(f"ERROR {name}: briefing review failed — {exc}")
             record({"last_error": f"briefing review: {str(exc)[:220]}"})
@@ -1566,6 +1597,75 @@ def report_pull_observations(repo: dict, rows: list, now=None) -> dict:
     return {key: value["observed_at"] for key, value in observed.items()}
 
 
+def report_retry_state(repo):
+    path = DATA / repo["user_id"] / (repo["folder_id"] + "-report-retries.json")
+    if path.is_symlink():
+        raise ValueError("Invalid report retry state")
+    try:
+        if path.exists() and path.stat().st_size <= 65536:
+            data = json.loads(path.read_text())
+            if isinstance(data, dict):
+                return path, {
+                    key: value
+                    for key, value in data.items()
+                    if isinstance(value, dict) and isinstance(value.get("retry_at"), (int, float))
+                }
+    except (ValueError, OSError):
+        log("Report retry state unavailable; planning from persisted repository evidence")
+    return path, {}
+
+
+def save_report_retry_state(path, state):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    state = dict(sorted(state.items(), key=lambda item: item[1]["retry_at"], reverse=True)[:32])
+    with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, delete=False) as tmp:
+        temporary = Path(tmp.name)
+        json.dump(state, tmp)
+    try:
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def run_report_request(repo, head, period, retry_path, retries, headers, payload):
+    key = period["kind"] + ":" + period["period_start"]
+
+    def defer(seconds):
+        retries[key] = {
+            "kind": period["kind"],
+            "period_start": period["period_start"],
+            "activity_signature": period.get("activity_signature", "unknown"),
+            "head_sha": head,
+            "retry_at": time.time() + min(21600, max(60, seconds)),
+            "cooldown_until": time.time() + min(1800, max(60, seconds)),
+        }
+        save_report_retry_state(retry_path, retries)
+
+    try:
+        response = maintenance_post(
+            f"{API_URL}/api/mihari/reports",
+            headers=headers,
+            json=payload,
+            timeout=180,
+        )
+        raise_review_response(response)
+    except MaintenanceDeferred:
+        raise
+    except Exception:
+        # A failed monthly period must not monopolize every subsequent pass.
+        # New HEAD or new activity invalidates this deferral automatically.
+        defer(3600)
+        raise
+    result = response.json()
+    if result.get("retry_after"):
+        defer(result["retry_after"])
+        log(f"{repo['remote_url']}: {period['kind']} report deferred after bounded recovery")
+    else:
+        retries.pop(key, None)
+        save_report_retry_state(retry_path, retries)
+    return response
+
+
 def refresh_repo_reports(repo: dict) -> None:
     """Generate one due period independently of principal-branch freshness."""
     if not API_URL or not repo.get("api_key_encrypted"):
@@ -1581,6 +1681,22 @@ def refresh_repo_reports(repo: dict) -> None:
     if code:
         raise RuntimeError("Report HEAD timestamp unavailable")
     headers = {"Authorization": f"Bearer {decrypt(repo['api_key_encrypted'])}"}
+    retry_path, retries = report_retry_state(repo)
+    deferred = [
+        {
+            "kind": item["kind"],
+            "period_start": item["period_start"],
+            "activity_signature": None
+            if item.get("cooldown_until", 0) > time.time()
+            else item["activity_signature"],
+        }
+        for item in retries.values()
+        if isinstance(item, dict)
+        and (item.get("head_sha") == head or item.get("cooldown_until", 0) > time.time())
+        and isinstance(item.get("retry_at"), (int, float))
+        and item["retry_at"] > time.time()
+        and all(k in item for k in ("kind", "period_start", "activity_signature"))
+    ]
     planned = maintenance_control_post(
         f"{API_URL}/api/mihari/reports/plan",
         headers=headers,
@@ -1589,6 +1705,7 @@ def refresh_repo_reports(repo: dict) -> None:
             "head_sha": head,
             "head_at": head_at,
             "timezone": repo.get("report_timezone") or "UTC",
+            "deferred_periods": deferred[:32],
         },
         timeout=30,
     )
@@ -1667,10 +1784,14 @@ def refresh_repo_reports(repo: dict) -> None:
                     )
         except (requests.RequestException, ValueError, KeyError, TypeError):
             coverage = "unavailable"
-    response = maintenance_post(
-        f"{API_URL}/api/mihari/reports",
-        headers=headers,
-        json={
+    response = run_report_request(
+        repo,
+        head,
+        period,
+        retry_path,
+        retries,
+        headers,
+        {
             "folder_id": repo["folder_id"],
             "head_sha": head,
             "head_at": head_at,
@@ -1682,7 +1803,6 @@ def refresh_repo_reports(repo: dict) -> None:
             "github_coverage": coverage,
             "git_history_mode": "first_parent",
         },
-        timeout=180,
     )
     raise_review_response(response)
     result = response.json()
@@ -1711,6 +1831,8 @@ def main() -> int:
             continue
         try:
             process_repo(repo, key_row)
+        except MaintenanceDeferred as exc:
+            log(f"DEFERRED {repo['remote_url']}: {exc}")
         except Exception as exc:  # noqa: BLE001 — one repo must never kill the run
             failures += 1
             log(f"ERROR {repo['remote_url']}: {exc}")
@@ -1718,6 +1840,8 @@ def main() -> int:
         # independently of whether process_repo found a new principal commit.
         try:
             refresh_repo_reports(repo)
+        except MaintenanceDeferred as exc:
+            log(f"DEFERRED {repo['remote_url']}: {exc}")
         except Exception as exc:  # noqa: BLE001 — retry on the next pass
             failures += 1
             log(f"ERROR {repo['remote_url']}: report review failed — {exc}")

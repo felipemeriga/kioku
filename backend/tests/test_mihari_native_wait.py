@@ -293,7 +293,12 @@ def test_budget_repair_is_once_only_for_confirmed_failures(
         lambda *a, **kw: response({"status": status, "error": {"code": code}}),
     )
     _patch_clock(monkeypatch, module)
-    with pytest.raises(RuntimeError, match=f"maintenance execution: {backend_code}"):
+    message = (
+        "Claude usage limit"
+        if code == "quota_limited" and status == "failed"
+        else f"maintenance execution: {backend_code}"
+    )
+    with pytest.raises(RuntimeError, match=message):
         module.maintenance_post(
             "http://fixture/api/mihari/learnings",
             headers={},

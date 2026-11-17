@@ -845,3 +845,39 @@ def test_live_pr_observation_uses_first_seen_time_and_retries_are_stable():
         ]
         == "2026-11-13T10:30:00+00:00"
     )
+
+
+def test_failed_monthly_period_does_not_starve_weekly_and_new_evidence_reenables_it():
+    from services.period_reports import report_candidates
+
+    rows, payload, week, month, _ = active_report_fixture()
+    payload["head_sha"] = "b" * 40
+    candidates, _ = report_candidates(
+        DB(rows, [week, month]),
+        "owner",
+        "repo",
+        payload,
+        datetime(2026, 11, 13, 14, tzinfo=timezone.utc),
+    )
+    monthly = next(c for c in candidates if c["kind"] == "monthly")
+    payload["deferred_periods"] = [
+        {k: monthly[k] for k in ("kind", "period_start", "activity_signature")}
+    ]
+    candidates, _ = report_candidates(
+        DB(rows, [week, month]),
+        "owner",
+        "repo",
+        payload,
+        datetime(2026, 11, 13, 14, tzinfo=timezone.utc),
+    )
+    assert candidates[0]["kind"] == "weekly"
+    assert all(c["kind"] != "monthly" for c in candidates)
+    payload["deferred_periods"][0]["activity_signature"] = "obsolete"
+    candidates, _ = report_candidates(
+        DB(rows, [week, month]),
+        "owner",
+        "repo",
+        payload,
+        datetime(2026, 11, 13, 14, tzinfo=timezone.utc),
+    )
+    assert any(c["kind"] == "monthly" for c in candidates)
