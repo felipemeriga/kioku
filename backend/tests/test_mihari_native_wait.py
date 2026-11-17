@@ -252,6 +252,8 @@ def test_idempotent_control_calls_retry_only_transport_and_non_json_gateway(monk
     [
         ("native_error_max_turns", "failed", 2, None),
         ("wall_timeout", "failed", 2, None),
+        ("native_error_max_structured_output_retries", "failed", 2, None),
+        ("native_error_max_structured_output_retries", "uncertain", 1, None),
         ("quota_limited", "failed", 1, None),
         ("reauth_required", "failed", 1, None),
         ("native_error_max_turns", "uncertain", 1, None),

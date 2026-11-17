@@ -521,6 +521,7 @@ def capture_report(sb, owner, folder, payload, now=None):
                 "format_version": 2,
                 "generation_version": 2,
                 "documentation_only": True,
+                "documentation_version": 2,
                 "model_citation_limit": 11,
                 **(
                     {"review_notes_not_evidence": payload["factual_review"]["reason"]}

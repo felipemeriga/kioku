@@ -1182,3 +1182,50 @@ def test_documentation_reports_have_a_neutral_state_without_inventing_missing_ou
         "final_state"
     ]["properties"]["status"]
     assert "Recorded" not in status["enum"]
+
+
+def test_simple_documentation_transport_keeps_source_and_date_validation_on_server():
+    snapshot, value = compact_fixture()
+    snapshot["input"].update(generation_version=2, documentation_only=True, documentation_version=2)
+    value["topics"][0]["final_state"]["status"] = "Merged"
+    schema = build_request(snapshot)["schema"]
+    assert "anyOf" not in schema["properties"]["topics"]["items"]["properties"]["updates"]["items"]
+    assert "enum" not in schema["$defs"]["report_quote"]
+    jsonschema.validate(value, schema)
+    assert validate_result(snapshot, value)
+    unknown = deepcopy(value)
+    unknown["topics"][0]["updates"][0]["source_ids"] = ["s99999"]
+    jsonschema.validate(unknown, schema)
+    with pytest.raises(ValueError, match="outside its model context"):
+        validate_result(snapshot, unknown)
+    wrong_day = deepcopy(value)
+    wrong_day["topics"][0]["updates"][0]["date"] = "2026-11-13"
+    jsonschema.validate(wrong_day, schema)
+    with pytest.raises(ValueError, match="quote date does not match"):
+        validate_result(snapshot, wrong_day)
+    snapshot["input"].pop("documentation_version")
+    assert (
+        "anyOf"
+        in build_request(snapshot)["schema"]["properties"]["topics"]["items"]["properties"][
+            "updates"
+        ]["items"]
+    )
+
+
+def test_simple_documentation_schema_does_not_grow_with_quote_catalogue():
+    snapshot, _ = compact_fixture()
+    snapshot["input"].update(generation_version=2, documentation_only=True)
+    snapshot["input"]["sources"] += [
+        {
+            "id": f"commit:{i:040x}",
+            "kind": "git_commit",
+            "date": "2026-11-13",
+            "observed_at": "2026-11-13T12:00:00Z",
+            "text": "Commit on principal branch: recorded change " + str(i),
+        }
+        for i in range(300)
+    ]
+    heavy = len(json.dumps(build_request(snapshot)["schema"]))
+    snapshot["input"]["documentation_version"] = 2
+    light = len(json.dumps(build_request(snapshot)["schema"]))
+    assert light < heavy / 3

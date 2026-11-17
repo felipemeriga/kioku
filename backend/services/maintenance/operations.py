@@ -289,6 +289,14 @@ def build_request(snapshot):
             "report_source": {"type": "string", "enum": ids or ["__no_source_available__"]},
             "report_quote": {"type": "string", "enum": quote_ids or ["__no_source_available__"]},
         }
+        if snapshot["input"].get("documentation_version") == 2:
+            # The model supplies references; the publication boundary checks the
+            # exact catalogue, quote ownership and date anchors against the snapshot.
+            # Avoid a large, coupled grammar causing hidden native CLI retries.
+            schema["$defs"] = {
+                "report_source": {"type": "string", "pattern": r"^s[0-9]+$"},
+                "report_quote": {"type": "string", "pattern": r"^q[0-9]+$"},
+            }
 
         def citations(node):
             if not isinstance(node, dict):
@@ -340,7 +348,8 @@ def build_request(snapshot):
             minLength=10, maxLength=320 if compact_report(snapshot) else 500
         )
         if snapshot["input"].get("generation_version") in (1, 2):
-            topic["updates"]["items"]["anyOf"] = report_date_constraints(snapshot)
+            if snapshot["input"].get("documentation_version") != 2:
+                topic["updates"]["items"]["anyOf"] = report_date_constraints(snapshot)
             state["status"]["enum"] = [
                 "Completed",
                 "Merged",

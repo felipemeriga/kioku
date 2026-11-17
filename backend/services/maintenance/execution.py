@@ -1033,6 +1033,7 @@ def publish(sb, owner, folder, preparation, job_id):
             if job.get("status") == "failed" and exc.code in {
                 "wall_timeout",
                 "native_error_max_turns",
+                "native_error_max_structured_output_retries",
                 "quota_limited",
             }:
                 sb.table("maintenance_preparations").update(
