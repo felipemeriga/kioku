@@ -955,7 +955,7 @@ def validate_final_merge_evidence(topic, sources):
     mentioned = set(re.findall(r"#([1-9][0-9]*)\b", text))
     qualified = re.findall(r"\b([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([1-9][0-9]*)\b", text)
     cited = {i for item in state["items"] for i in item["source_ids"]}
-    missing = []
+    missing, known = [], set()
     for source in sources.values():
         if source["kind"] != "git_commit":
             continue
@@ -968,14 +968,38 @@ def validate_final_merge_evidence(topic, sources):
         repository = re.search(r"github\.com/([^/]+/[^/]+)/commit/", source.get("url") or "")
         if repository and any(n == number and repo != repository[1] for repo, n in qualified):
             continue
-        if number in mentioned and source["id"] not in cited:
-            missing.append(number)
+        if number in mentioned:
+            known.add(number)
+            if source["id"] not in cited:
+                missing.append(number)
+    errors = []
     if missing:
-        raise ValueError(
+        errors.append(
             "Report final state omits principal-branch merge evidence for PR "
             + ", ".join("#" + n for n in sorted(set(missing)))
             + "; cite and reconcile the merged code before older journal states"
         )
+    for item in state["items"]:
+        numbers = set(re.findall(r"#([1-9][0-9]*)\b", item["text"])) & known
+        if (
+            len(numbers) == 1
+            and not re.search(
+                r"\b(?:to|into|on|for)\s+(?:staging|develop(?:ment)?|release)\b",
+                item["text"],
+                re.IGNORECASE,
+            )
+            and re.search(
+                r"\b(?:unmerged|not(?: yet)? merged|merge status (?:is |was |remains )?"
+                r"(?:not (?:confirmed|verified)|unconfirmed|unverified|unknown))\b",
+                item["text"],
+                re.IGNORECASE,
+            )
+        ):
+            errors.append(
+                "Report final state contradicts known principal merge #" + next(iter(numbers))
+            )
+    if errors:
+        raise ValueError("; ".join(errors))
 
 
 def validate_report(snapshot, value):

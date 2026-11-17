@@ -947,3 +947,15 @@ def test_qualified_external_pr_does_not_inherit_a_same_number_principal_merge():
     item = value["topics"][0]["final_state"]["items"][0]
     item["text"] = "another/project#485 was opened; later merge status remains unverified."
     assert validate_report(snapshot, deepcopy(value))
+
+
+def test_citing_the_merge_does_not_allow_claiming_its_merge_status_is_unknown():
+    snapshot, value = compact_fixture()
+    snapshot["input"]["generation_version"] = 2
+    item = value["topics"][0]["final_state"]["items"][0]
+    item["source_ids"].append("s2")
+    item["text"] = "PR #485 merge status not confirmed at cutoff."
+    with pytest.raises(ValueError, match="contradicts known principal merge"):
+        validate_report(snapshot, deepcopy(value))
+    item["text"] = "PR #485 merged to main; its merge status into staging remains unverified."
+    assert validate_report(snapshot, deepcopy(value))
