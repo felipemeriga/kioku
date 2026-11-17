@@ -954,6 +954,13 @@ def validate_final_merge_evidence(topic, sources):
     state = topic["final_state"]
     text = topic["title"] + " " + " ".join(item["text"] for item in state["items"])
     mentioned = set(re.findall(r"#([1-9][0-9]*)\b", text))
+    ranges = [
+        (int(start), int(end))
+        for start, end in re.findall(r"#([1-9][0-9]*)\s*[-–—]\s*#?([1-9][0-9]*)\b", text)
+    ]
+    for start, end in ranges:
+        if 0 <= end - start < 12:
+            mentioned.update(str(n) for n in range(start, end + 1))
     qualified = re.findall(r"\b([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([1-9][0-9]*)\b", text)
     cited = {i for item in state["items"] for i in item["source_ids"]}
     missing, known = [], set()
@@ -974,8 +981,9 @@ def validate_final_merge_evidence(topic, sources):
             if source["id"] not in cited:
                 missing.append((number, source["id"]))
     errors = []
-    if re.search(r"#[1-9][0-9]*\s*[-–—]\s*#?[1-9][0-9]*\b", text):
-        errors.append("Report final state must cite exact individual PRs, not inclusive PR ranges")
+    for start, end in ranges:
+        if not 0 <= end - start < 12 or any(str(n) not in known for n in range(start, end + 1)):
+            errors.append("Report PR range lacks principal evidence for every individual PR")
     for item in state["items"]:
         numbers = set(re.findall(r"#([1-9][0-9]*)\b", item["text"])) & known
         if (
@@ -995,16 +1003,41 @@ def validate_final_merge_evidence(topic, sources):
             errors.append(
                 "Report final state contradicts known principal merge #" + next(iter(numbers))
             )
-    # Bind metadata only when the final prose actually acknowledges the merge.
+    # A later, cited principal removal also reconciles historical merged work.
+    removal = state.get("status") == "Reverted" and any(
+        source_id in sources
+        and sources[source_id]["kind"] == "git_commit"
+        and re.search(
+            r"\b(?:remove|revert|delete|retire)\w*\b",
+            sources[source_id]["text"].splitlines()[0],
+            re.I,
+        )
+        for source_id in cited
+    )
+    # Bind metadata only when the final prose acknowledges the merge or removal.
     # Keep all existing context and the hard citation limit. Never rewrite a
     # stale/open/unknown claim merely because a matching principal commit exists.
     additions = []
     for number, source_id in missing:
         candidates = [
-            item for item in state["items"] if re.search(r"#" + number + r"\b", item["text"])
+            item
+            for item in state["items"]
+            if re.search(r"#" + number + r"\b", item["text"])
+            or any(
+                int(start) <= int(number) <= int(end)
+                for start, end in re.findall(
+                    r"#([1-9][0-9]*)\s*[-–—]\s*#?([1-9][0-9]*)\b", item["text"]
+                )
+            )
         ] or state["items"]
         target = next(
-            (item for item in candidates if re.search(r"\bmerged\b", item["text"], re.I)),
+            (
+                item
+                for item in candidates
+                if re.search(r"\bmerged\b", item["text"], re.I)
+                or removal
+                and re.search(r"\b(?:removed|reverted|no longer present)\b", item["text"], re.I)
+            ),
             None,
         )
         if target is None:
