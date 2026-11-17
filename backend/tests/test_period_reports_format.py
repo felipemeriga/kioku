@@ -1091,6 +1091,10 @@ def test_supported_pr_range_binds_every_pr_without_inventing_missing_numbers():
     topic = {"title": "Recall", "final_state": {"items": [item]}}
     validate_final_merge_evidence(topic, sources)
     assert set(item["source_ids"]) == set(sources)
+    item["text"] = "PRs #253–#256 were not merged."
+    with pytest.raises(ValueError, match="contradicts known principal merge"):
+        validate_final_merge_evidence(topic, sources)
+    item["text"] = "PRs #253–#256 merged."
     del sources["commit:255"]
     with pytest.raises(ValueError, match="PR range lacks principal evidence"):
         validate_final_merge_evidence(topic, sources)

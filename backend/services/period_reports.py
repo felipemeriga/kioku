@@ -987,7 +987,7 @@ def validate_final_merge_evidence(topic, sources):
     for item in state["items"]:
         numbers = set(re.findall(r"#([1-9][0-9]*)\b", item["text"])) & known
         if (
-            len(numbers) == 1
+            numbers
             and not re.search(
                 r"\b(?:to|into|on|for)\s+(?:staging|develop(?:ment)?|release)\b",
                 item["text"],
@@ -1001,7 +1001,8 @@ def validate_final_merge_evidence(topic, sources):
             )
         ):
             errors.append(
-                "Report final state contradicts known principal merge #" + next(iter(numbers))
+                "Report final state contradicts known principal merge #"
+                + sorted(numbers, key=int)[0]
             )
     # A later, cited principal removal also reconciles historical merged work.
     removal = state.get("status") == "Reverted" and any(
