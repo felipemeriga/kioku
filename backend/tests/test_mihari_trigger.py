@@ -853,3 +853,38 @@ def test_partial_pass_retry_skips_activity_completes_review_and_advances_sha(mon
         ).status_code
         == 200
     )
+
+
+def test_activity_rebuild_includes_recent_removal_even_after_later_unrelated_commit(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(mihari, "API_URL", "http://backend")
+    monkeypatch.setattr(mihari, "decrypt", lambda _: "test-key")
+    reads, requests = [], []
+
+    def run(args, env, cwd):
+        reads.append(args)
+        return (
+            0,
+            "new|Fix reports|Developer|2026-11-17\nremoved|Remove vault credentials|Developer|2026-11-16",
+            "",
+        )
+
+    def post(url, **kwargs):
+        requests.append(kwargs["json"])
+        return SimpleNamespace(raise_for_status=lambda: None, json=lambda: {"updated": True})
+
+    monkeypatch.setattr(mihari, "run_git", run)
+    monkeypatch.setattr(mihari, "maintenance_post", post)
+    repo = {
+        "folder_id": "folder",
+        "api_key_encrypted": "encrypted",
+        "remote_url": "git@example:repo",
+    }
+    mihari.refresh_activity(Path("/clone"), repo, "previous-head", "current-head", {}, strict=True)
+    assert reads[0][1] == "current-head"
+    assert "-50" in reads[0] and "previous-head..current-head" not in reads[0]
+    assert [commit["subject"] for commit in requests[0]["commits"]] == [
+        "Fix reports",
+        "Remove vault credentials",
+    ]

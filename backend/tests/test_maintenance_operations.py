@@ -335,3 +335,16 @@ def test_activity_does_not_treat_its_previous_summary_as_primary_evidence():
     request = build_request(snapshot("activity"))
     assert "newer removal/revert commits supersede earlier" in request["prompt"]
     assert "Never turn removal into replacement" in request["prompt"]
+
+
+def test_activity_excludes_prior_generated_claims_but_keeps_primary_commits_and_cas():
+    snap = snapshot(
+        "activity", {"summary": "The removed feature survives via imaginary replacement."}
+    )
+    snap["expected_sections"] = {"activity": {"updated_at": "original-revision"}}
+    snap["input"]["commits"] = [{"sha": "abc", "subject": "Remove the old feature"}]
+    original = deepcopy(snap)
+    request = build_request(snap)
+    assert "imaginary replacement" not in request["prompt"]
+    assert "Remove the old feature" in request["prompt"]
+    assert snap == original
