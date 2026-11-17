@@ -106,6 +106,11 @@ REPORT_GUIDE = (
     "independently verified. Never attach a newer version's signing, deployment or test results "
     "to an older installed version. A reported completion can be described as reported; missing "
     "independent verification does not turn it back into pending implementation. "
+    "Historical periods are as-of snapshots. A problem unresolved at the weekly cutoff stays "
+    "unresolved there even if fixed next week. Put that resolution in its actual later week. "
+    "In monthly reports preserve each week's then-current state and connect the transition; "
+    "do not copy the month's final resolution into earlier weekly updates. Cite no observation "
+    "from a later day (weekly) or later ISO week (monthly) in a dated update. "
     "The final state must reconcile the latest supported evidence at cutoff. Merged code can be "
     "complete while its effect on an investigation remains uncertain. A missing verification is "
     "not automatically an open task: only describe planned follow-ups when explicitly recorded. "
@@ -199,7 +204,9 @@ def report_rows(sb, owner, folder, kind, tz):
     while True:
         page = (
             sb.table("repo_period_reports")
-            .select("id,period_start,period_end,revision,source_digest,generated_at,coverage")
+            .select(
+                "id,period_start,period_end,status,revision,source_digest,generated_at,coverage"
+            )
             .eq("user_id", owner)
             .eq("folder_id", folder)
             .eq("kind", kind)
@@ -270,7 +277,8 @@ def report_candidates(sb, owner, folder, payload, now=None):
         )
         if targeted and (not old or old["revision"] != review["expected_revision"]):
             raise ValueError("Factual review revision is stale or report is unavailable")
-        if old and not targeted and old.get("coverage", {}).get("policy") == POLICY:
+        closing = closed and old and old.get("status") == "draft"
+        if old and not targeted and not closing and old.get("coverage", {}).get("policy") == POLICY:
             coverage = old.get("coverage", {})
             head_changed = not closed and coverage.get("head_sha") != payload["head_sha"]
             if not head_changed:
@@ -396,11 +404,21 @@ def capture_report(sb, owner, folder, payload, now=None):
             .execute()
             .data
         )
-        entries = report_journals(sb, owner, folder, snapshot, terms, after, cutoff)
+        entries = [
+            e
+            for e in report_journals(sb, owner, folder, snapshot, terms, after, cutoff)
+            if after <= iso(e["captured_at"]) < cutoff
+        ]
         snapshot["entries"] = entries
-        events = snapshot.get("events", [])
+        events = [e for e in snapshot.get("events", []) if after <= iso(e["event_at"]) < cutoff]
         commits = [c for c in payload.get("commits", []) if after <= iso(c["at"]) < cutoff]
-        pulls = [p for p in payload.get("pull_requests", []) if after <= iso(p["at"]) < cutoff]
+        # A live API response describes its observation time, not a historical
+        # snapshot at mutable updated_at. Never carry today's PR state backward.
+        pulls = []
+        for pull in payload.get("pull_requests", []):
+            observed = iso(pull.get("observed_at") or now.isoformat())
+            if after <= iso(pull["at"]) < cutoff and after <= observed <= now and observed < before:
+                pulls.append({**pull, "at": observed.isoformat()})
         if not entries and not events and not commits and not pulls:
             continue
         fingerprint = digest(
@@ -860,6 +878,11 @@ def validate_report(snapshot, value):
         for quote in choices
     }
     sources = {s["id"]: s for s in snapshot["input"]["sources"]}
+    if snapshot["input"].get("cutoff"):
+        cutoff = iso(snapshot["input"]["cutoff"])
+        for source in sources.values():
+            if source.get("observed_at") and iso(source["observed_at"]) > cutoff:
+                raise ReportEvidenceError("Report contains evidence observed after its cutoff")
     if (
         not 3 <= len(value["title"].strip()) <= 160
         or not 20 <= len(value["summary"].strip()) <= 1200
@@ -985,6 +1008,25 @@ def validate_report(snapshot, value):
                     factual_errors.append(
                         f"Report update date lacks matching evidence [{location}]"
                     )
+                if compact_report(snapshot):
+                    update_day = datetime.fromisoformat(day).date()
+                    end_day = (
+                        calendar_period("weekly", update_day)[1]
+                        if snapshot["input"]["kind"] == "monthly"
+                        else update_day
+                    )
+                    _, bucket_end = instants(
+                        update_day, end_day, snapshot["input"].get("timezone", "UTC")
+                    )
+                    if any(
+                        iso(sources[i]["observed_at"]) >= bucket_end
+                        for i in update["source_ids"]
+                        if sources[i].get("observed_at")
+                    ):
+                        factual_errors.append(
+                            f"Report update cites a later time bucket [{location}; "
+                            "preserve the historical state]"
+                        )
             topic["updates"].sort(key=lambda update: update["date"])
             state = topic["final_state"]
             if not 3 <= len(state["status"]) <= 64 or not 1 <= len(state["items"]) <= 3:

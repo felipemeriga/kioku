@@ -409,6 +409,7 @@ def test_compact_report_keeps_two_evidenced_events_on_the_same_day():
     snapshot, value = compact_fixture()
     for source in snapshot["input"]["sources"]:
         source["date"] = "2026-11-12"
+        source["observed_at"] = source["observed_at"].replace("2026-11-13", "2026-11-12")
     for update in value["topics"][0]["updates"]:
         update["date"] = "2026-11-12"
     result = validate_result(snapshot, value)
@@ -495,6 +496,10 @@ def test_current_open_observation_at_cutoff_is_not_confused_with_later_merge():
     state = value["topics"][0]["final_state"]
     state["status"] = "PR open, pending merge"
     state["items"][0]["text"] = "PR #285 contains only the startup command patch."
+    # A future, unrelated merge cannot enter a point-in-time source snapshot.
+    with pytest.raises(ValueError, match="after its cutoff"):
+        validate_report(snapshot, value)
+    snapshot["input"]["sources"] = snapshot["input"]["sources"][:2]
     assert validate_report(snapshot, value)
 
 
@@ -758,3 +763,51 @@ def test_runtime_citation_repair_adds_only_existing_observed_primary_evidence():
     assert repaired["text"] == item["text"]
     assert "journal:live-check" in repaired["source_ids"]
     assert repaired["evidence_quote"] in snapshot["input"]["sources"][-1]["text"]
+
+
+def test_monthly_week_bucket_cannot_cite_the_following_weeks_resolution():
+
+    snapshot, value = fixture()
+    snapshot["report"] = {"coverage": {"policy": 8}}
+    snapshot["input"].update(kind="monthly", period_start="2026-11-01", period_end="2026-11-30")
+    # Plain source IDs remain accepted here; compact aliases are restored by validation.
+    later = {
+        "id": "journal:fixed",
+        "kind": "journal",
+        "date": "2026-11-16",
+        "observed_at": "2026-11-16T12:00:00Z",
+        "text": "The disconnect issue was resolved this Monday.",
+    }
+    snapshot["input"]["sources"].append(later)
+    update = value["topics"][0]["updates"][0]
+    update["source_ids"].append(later["id"])
+    with pytest.raises(ValueError, match="later time bucket"):
+        validate_report(snapshot, value)
+    update["source_ids"].remove(later["id"])
+    quote = report_choices(snapshot)[later["id"]][0]["id"]
+    value["topics"][0]["updates"].append(
+        {
+            "date": "2026-11-16",
+            "title": "Resolution",
+            "text": later["text"],
+            "detail": "",
+            "source_ids": [later["id"]],
+            "evidence_quote": quote,
+        }
+    )
+    value["topics"][0]["final_state"] = {
+        "status": "Resolved in the following week",
+        "items": [{"text": later["text"], "source_ids": [later["id"]], "evidence_quote": quote}],
+    }
+    assert validate_report(snapshot, value)
+
+
+def test_weekly_day_does_not_use_the_following_days_result():
+    snapshot, value = compact_fixture()
+    update = value["topics"][0]["updates"][0]
+    result_source = next(
+        alias for alias, source in report_aliases(snapshot).items() if source == "journal:result"
+    )
+    update["source_ids"].append(result_source)
+    with pytest.raises(ValueError, match="later time bucket"):
+        validate_report(snapshot, value)

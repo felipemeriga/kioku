@@ -1508,6 +1508,64 @@ def report_commit_text(subject: str, message: str) -> str:
     return "Commit on principal branch: " + subject + "\n\n" + body
 
 
+def report_pull_observations(repo: dict, rows: list, now=None) -> dict:
+    """Persist first-seen time for each exact public PR state across retry/restart.
+
+    Called under the existing maintenance pass lock. Keep metadata outside clones
+    so it never enters the code index; no credentials or PR bodies are stored.
+    """
+    import hashlib
+
+    now = now or datetime.now(timezone.utc)
+    path = DATA / repo["user_id"] / (repo["folder_id"] + "-pull-observations.json")
+    if path.is_symlink():
+        raise ValueError("Invalid observation cache")
+    prior = {}
+    if path.exists():
+        if path.stat().st_size > 131072:
+            raise ValueError("Oversized observation cache")
+        cached = json.loads(path.read_text())
+        if not isinstance(cached, dict) or not isinstance(cached.get("observations"), dict):
+            raise ValueError("Invalid observation cache")
+        prior = cached["observations"]
+    observed = {}
+    for row in rows[:100]:
+        key = str(row["number"])
+        state = {
+            k: row.get(k)
+            for k in (
+                "number",
+                "state",
+                "merged_at",
+                "created_at",
+                "updated_at",
+                "title",
+                "html_url",
+            )
+        }
+        fingerprint = hashlib.sha256(json.dumps(state, sort_keys=True).encode()).hexdigest()
+        old = prior.get(key, {})
+        if not isinstance(old, dict):
+            old = {}
+        stamp = old.get("observed_at") if old.get("fingerprint") == fingerprint else None
+        if stamp and not isinstance(stamp, str):
+            stamp = None
+        if stamp:
+            parsed = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+            if parsed.tzinfo is None or parsed > now:
+                stamp = None
+        observed[key] = {"fingerprint": fingerprint, "observed_at": stamp or now.isoformat()}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, delete=False) as tmp:
+        temporary = Path(tmp.name)
+        json.dump({"schema": 1, "observations": observed}, tmp)
+    try:
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return {key: value["observed_at"] for key, value in observed.items()}
+
+
 def refresh_repo_reports(repo: dict) -> None:
     """Generate one due period independently of principal-branch freshness."""
     if not API_URL or not repo.get("api_key_encrypted"):
@@ -1590,12 +1648,14 @@ def refresh_repo_reports(repo: dict) -> None:
             )
             if response.ok:
                 rows = response.json()
+                observations = report_pull_observations(repo, rows)
                 coverage = "public_api_recent_100" if len(rows) == 100 else "public_api_available"
                 for row in rows:
                     pulls.append(
                         {
                             "number": row["number"],
                             "at": row["updated_at"],
+                            "observed_at": observations[str(row["number"])],
                             "url": row["html_url"],
                             "text": (
                                 f"GitHub PR #{row['number']}: {row['title']}. "

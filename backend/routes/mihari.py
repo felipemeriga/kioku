@@ -79,6 +79,7 @@ class ReportCommit(BaseModel):
 
 
 class ReportPull(BaseModel):
+    observed_at: datetime | None = None
     model_config = ConfigDict(extra="forbid")
     number: int = Field(ge=1, le=2147483647)
     at: datetime
@@ -138,6 +139,7 @@ class ReportRefreshRequest(BaseModel):
         if self.factual_review and len(self.factual_review.reason.strip()) < 20:
             raise ValueError("Factual review requires a meaningful reason")
         stamps = [item.at for item in [*self.commits, *self.pull_requests]]
+        stamps += [p.observed_at for p in self.pull_requests if p.observed_at]
         if self.head_at:
             stamps.append(self.head_at)
         if any(stamp.tzinfo is None for stamp in stamps):

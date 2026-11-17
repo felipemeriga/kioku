@@ -735,3 +735,113 @@ def test_factual_review_requires_explicit_period_and_bounded_reason():
             "reason": "Recheck counts against source evidence.",
         },
     )
+
+
+def test_closed_draft_is_finalized_even_when_its_activity_has_not_changed():
+    rows, payload, week, month, _ = active_report_fixture()
+    from services.period_reports import report_candidates
+
+    candidates, _ = report_candidates(
+        DB(rows, [week, month]),
+        "owner",
+        "repo",
+        payload,
+        datetime(2026, 11, 16, 11, tzinfo=timezone.utc),
+    )
+    assert any(c["kind"] == "weekly" and c["period_start"] == "2026-11-09" for c in candidates)
+
+
+def test_next_week_resolution_does_not_reopen_or_rewrite_final_week():
+    from services.period_reports import report_candidates
+
+    rows, payload, week, month, _ = active_report_fixture()
+    week["status"] = "final"
+    rows.append(
+        {
+            "entry_id": "resolved",
+            "session_id": "s",
+            "agent": "codex",
+            "captured_at": "2026-11-16T10:00:00Z",
+            "body": "The problem was resolved this Monday.",
+        }
+    )
+    payload["head_sha"] = "b" * 40
+    candidates, _ = report_candidates(
+        DB(rows, [week, month]),
+        "owner",
+        "repo",
+        payload,
+        datetime(2026, 11, 17, 12, tzinfo=timezone.utc),
+    )
+    assert not any(c["kind"] == "weekly" and c["period_start"] == "2026-11-09" for c in candidates)
+    current, _ = capture_report(
+        DB(rows, [week, month]),
+        "owner",
+        "repo",
+        payload,
+        datetime(2026, 11, 17, 12, tzinfo=timezone.utc),
+    )
+    assert current["report"]["period_start"] == "2026-11-16"
+    assert any("resolved this Monday" in s["text"] for s in current["input"]["sources"])
+
+
+def test_finalizing_prior_week_cannot_use_later_resolution_or_live_pr_state():
+    rows, payload, week, month, _ = active_report_fixture()
+    rows.append(
+        {
+            "entry_id": "resolved",
+            "session_id": "s",
+            "agent": "codex",
+            "captured_at": "2026-11-16T10:00:00Z",
+            "body": "The problem was resolved this Monday.",
+        }
+    )
+    payload.update(
+        report_kind="weekly",
+        period_start="2026-11-09",
+        pull_requests=[
+            {
+                "number": 42,
+                "at": "2026-11-13T10:00:00Z",
+                "observed_at": "2026-11-16T12:00:00Z",
+                "url": "https://github.com/o/r/pull/42",
+                "text": "Current state: closed.",
+            }
+        ],
+    )
+    closed, _ = capture_report(
+        DB(rows, [week, month]),
+        "owner",
+        "repo",
+        payload,
+        datetime(2026, 11, 17, 12, tzinfo=timezone.utc),
+    )
+    assert closed["report"]["status"] == "final"
+    assert closed["report"]["cutoff"] == "2026-11-16T00:00:00+00:00"
+    assert [s["id"] for s in closed["input"]["sources"]] == ["journal:e"]
+
+
+def test_live_pr_observation_uses_first_seen_time_and_retries_are_stable():
+    rows, payload, _, _, _ = active_report_fixture()
+    payload["pull_requests"] = [
+        {
+            "number": 42,
+            "at": "2026-11-13T08:00:00Z",
+            "observed_at": "2026-11-13T10:30:00Z",
+            "url": "https://github.com/o/r/pull/42",
+            "text": "Observed PR state.",
+        }
+    ]
+    first, _ = capture_report(
+        DB(rows), "owner", "repo", payload, datetime(2026, 11, 13, 11, tzinfo=timezone.utc)
+    )
+    later, _ = capture_report(
+        DB(rows), "owner", "repo", payload, datetime(2026, 11, 13, 12, tzinfo=timezone.utc)
+    )
+    assert first == later
+    assert (
+        next(s for s in first["input"]["sources"] if s["kind"] == "github_pull_request")[
+            "observed_at"
+        ]
+        == "2026-11-13T10:30:00+00:00"
+    )

@@ -156,3 +156,22 @@ def test_bounded_merge_context_keeps_final_subject_and_late_reversal(worker):
     assert "Final correction: run tsrs" in text
     assert "omitted" in text
     assert len(text) <= 1600
+
+
+def test_public_pr_observation_time_survives_retries_and_changes_only_with_state(worker):
+    from datetime import datetime, timezone
+
+    module, repo = worker
+    row = {"number": 7, "state": "open", "updated_at": "2026-11-13T12:00:00Z"}
+    first = module.report_pull_observations(
+        repo, [row], datetime(2026, 11, 13, 13, tzinfo=timezone.utc)
+    )
+    again = module.report_pull_observations(
+        repo, [row], datetime(2026, 11, 17, 13, tzinfo=timezone.utc)
+    )
+    assert first == again
+    row.update(state="closed", merged_at="2026-11-17T14:00:00Z", updated_at="2026-11-17T14:00:00Z")
+    changed = module.report_pull_observations(
+        repo, [row], datetime(2026, 11, 17, 15, tzinfo=timezone.utc)
+    )
+    assert changed["7"] == "2026-11-17T15:00:00+00:00"
