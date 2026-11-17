@@ -75,7 +75,10 @@ GUIDES = {
         "Fold new commits into the current activity. Write two or three short "
         "sentences and at most five concrete highlights, newest themes first. "
         "Summarize merged changes; investigation details belong in History and Reports. Never "
-        "infer behavior absent from commit subjects."
+        "infer behavior absent from commit subjects. The current activity is a derived "
+        "summary, not authoritative evidence: newer removal/revert commits supersede earlier "
+        "feature descriptions. Never turn removal into replacement or claim removed "
+        "subfeatures survive unless supplied primary evidence explicitly establishes it."
     ),
     "how_it_runs": (
         "Write an accurate operating guide, preserving verified unaffected "
