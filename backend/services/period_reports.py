@@ -974,6 +974,8 @@ def validate_final_merge_evidence(topic, sources):
             if source["id"] not in cited:
                 missing.append((number, source["id"]))
     errors = []
+    if re.search(r"#[1-9][0-9]*\s*[-–—]\s*#?[1-9][0-9]*\b", text):
+        errors.append("Report final state must cite exact individual PRs, not inclusive PR ranges")
     for item in state["items"]:
         numbers = set(re.findall(r"#([1-9][0-9]*)\b", item["text"])) & known
         if (

@@ -1057,3 +1057,24 @@ def test_report_prompt_reconciles_removal_and_preserves_exact_pr_identifiers():
     assert "removal or revert" in prompt
     assert "without later explicit evidence" in prompt
     assert "exact individual PR identifiers" in prompt
+
+
+@pytest.mark.parametrize("pr_range", ["#471–#477", "#471-477", "#471 — #477"])
+def test_final_states_do_not_invent_inclusive_pr_ranges(pr_range):
+    from services.period_reports import validate_final_merge_evidence
+
+    topic = {
+        "title": "Dependencies",
+        "final_state": {
+            "items": [
+                {
+                    "text": "Dependency PRs " + pr_range + " merged.",
+                    "source_ids": ["journal:result"],
+                }
+            ]
+        },
+    }
+    with pytest.raises(ValueError, match="exact individual PRs"):
+        validate_final_merge_evidence(topic, {})
+    topic["final_state"]["items"][0]["text"] = "Dependency PRs #471 and #477 merged."
+    validate_final_merge_evidence(topic, {})
