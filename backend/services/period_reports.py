@@ -651,19 +651,28 @@ def report_model_sources(snapshot):
             for day in days
             if index < len(buckets[day])
         ]
-    selected, characters = set(), 0
-    for source in ordered:
+
+    def cost(source, index):
         projected = {
             key: value
             for key, value in source.items()
             if key not in ("entry_id", "event_id", "session_id", "journal_date", "url")
         }
-        projected["id"] = "s" + str(len(selected))
-        cost = len(json.dumps(projected, ensure_ascii=False))
-        if characters + cost > (120000 if bounded else 400000):
+        projected["id"] = "s" + str(index)
+        return len(json.dumps(projected, ensure_ascii=False))
+
+    budget = 400000
+    if bounded:
+        # Even a full month of maximum-sized journal entries needs one source
+        # per active day. Expand only to that minimum, not the full catalog.
+        budget = max(120000, sum(cost(buckets[day][0], len(sources)) for day in days))
+    selected, characters = set(), 0
+    for source in ordered:
+        size = cost(source, len(selected))
+        if characters + size > budget:
             continue
         selected.add(source["id"])
-        characters += cost
+        characters += size
     return [source for source in sources if source["id"] in selected]
 
 
