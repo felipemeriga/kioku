@@ -943,7 +943,7 @@ def test_final_state_cannot_ignore_a_known_merge_in_favor_of_earlier_journal():
     value["topics"][0]["final_state"]["items"][0]["text"] = (
         "PR #485 was opened and remains mergeable."
     )
-    with pytest.raises(ValueError, match="omits principal-branch merge evidence"):
+    with pytest.raises(ValueError, match="contradicts known principal merge"):
         validate_report(snapshot, value)
 
 
@@ -1121,4 +1121,28 @@ def test_removed_capabilities_reconcile_old_prs_with_the_cited_principal_removal
     assert item["source_ids"] == ["commit:remove", "commit:old"]
     item["source_ids"] = ["journal:old"]
     with pytest.raises(ValueError, match="omits principal-branch merge evidence"):
+        validate_final_merge_evidence(topic, sources)
+
+
+def test_primary_commit_binding_does_not_require_a_literal_merged_verb():
+    from services.period_reports import validate_final_merge_evidence
+
+    sources = {
+        "commit:fix": {
+            "id": "commit:fix",
+            "kind": "git_commit",
+            "text": "Optimize bookkeeping (#282)",
+        }
+    }
+    item = {
+        "text": "PR #282 reduces bookkeeping round trips; live latency is unverified.",
+        "source_ids": ["journal:result"],
+    }
+    topic = {"title": "Performance", "final_state": {"status": "Completed", "items": [item]}}
+    original = item["text"]
+    validate_final_merge_evidence(topic, sources)
+    assert item["source_ids"] == ["journal:result", "commit:fix"]
+    assert item["text"] == original
+    item["text"] = "PR #282 remains open."
+    with pytest.raises(ValueError, match="contradicts known principal merge"):
         validate_final_merge_evidence(topic, sources)

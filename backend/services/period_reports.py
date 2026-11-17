@@ -995,7 +995,8 @@ def validate_final_merge_evidence(topic, sources):
             )
             and re.search(
                 r"\b(?:unmerged|not(?: yet)? merged|merge status (?:is |was |remains )?"
-                r"(?:not (?:confirmed|verified)|unconfirmed|unverified|unknown))\b",
+                r"(?:not (?:confirmed|verified)|unconfirmed|unverified|unknown)|"
+                r"(?:still|remains?) (?:open|mergeable))\b",
                 item["text"],
                 re.IGNORECASE,
             )
@@ -1015,7 +1016,7 @@ def validate_final_merge_evidence(topic, sources):
         )
         for source_id in cited
     )
-    # Bind metadata only when the final prose acknowledges the merge or removal.
+    # A primary citation is a source association, not a prose-style constraint.
     # Keep all existing context and the hard citation limit. Never rewrite a
     # stale/open/unknown claim merely because a matching principal commit exists.
     additions = []
@@ -1031,16 +1032,7 @@ def validate_final_merge_evidence(topic, sources):
                 )
             )
         ] or state["items"]
-        target = next(
-            (
-                item
-                for item in candidates
-                if re.search(r"\bmerged\b", item["text"], re.I)
-                or removal
-                and re.search(r"\b(?:removed|reverted|no longer present)\b", item["text"], re.I)
-            ),
-            None,
-        )
+        target = None if state.get("status") == "Reverted" and not removal else candidates[0]
         if target is None:
             errors.append(
                 "Report final state omits principal-branch merge evidence for PR #" + number
