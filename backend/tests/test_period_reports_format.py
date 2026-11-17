@@ -1165,3 +1165,20 @@ def test_multiple_pr_commit_records_need_one_primary_citation_and_preserve_conte
     item["source_ids"] = ["commit:2", "journal:observed"]
     validate_final_merge_evidence(topic, sources)
     assert item["source_ids"] == ["commit:2", "journal:observed"]
+
+
+def test_documentation_reports_have_a_neutral_state_without_inventing_missing_outcomes():
+    snapshot, value = compact_fixture()
+    snapshot["input"].update(generation_version=2, documentation_only=True)
+    value["topics"][0]["final_state"]["status"] = "Recorded"
+    request = build_request(snapshot)
+    jsonschema.validate(value, request["schema"])
+    assert "Do not infer, guess" in request["prompt"]
+    assert "Never invent an open item" in request["prompt"]
+    assert "not verified" in request["prompt"]
+    assert validate_result(snapshot, value)["topics"][0]["final_state"]["status"] == "Recorded"
+    snapshot["input"].pop("documentation_only")
+    status = build_request(snapshot)["schema"]["properties"]["topics"]["items"]["properties"][
+        "final_state"
+    ]["properties"]["status"]
+    assert "Recorded" not in status["enum"]

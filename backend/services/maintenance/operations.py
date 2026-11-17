@@ -349,6 +349,8 @@ def build_request(snapshot):
                 "Unverified",
                 "Reverted",
             ]
+            if snapshot["input"].get("documentation_only"):
+                state["status"]["enum"].append("Recorded")
     if op == "learnings":
         evidence_choices = _source_quotes(snapshot["input"]["new_entries"])
         updates = schema["properties"]["updates"]
