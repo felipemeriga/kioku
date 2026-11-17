@@ -16,6 +16,7 @@ from services.period_reports import (
     compact_report,
     report_aliases,
     report_choices,
+    report_date_constraints,
     report_prompt_snapshot,
     report_quote_choices,
     report_shape,
@@ -327,6 +328,16 @@ def build_request(snapshot):
         state["items"]["items"]["properties"]["text"].update(
             minLength=10, maxLength=320 if compact_report(snapshot) else 500
         )
+        if snapshot["input"].get("generation_version") == 1:
+            topic["updates"]["items"]["anyOf"] = report_date_constraints(snapshot)
+            state["status"]["enum"] = [
+                "Completed",
+                "Merged",
+                "In progress",
+                "Mixed",
+                "Unverified",
+                "Reverted",
+            ]
     if op == "learnings":
         evidence_choices = _source_quotes(snapshot["input"]["new_entries"])
         updates = schema["properties"]["updates"]

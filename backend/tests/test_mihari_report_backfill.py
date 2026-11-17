@@ -175,3 +175,109 @@ def test_public_pr_observation_time_survives_retries_and_changes_only_with_state
         repo, [row], datetime(2026, 11, 17, 15, tzinfo=timezone.utc)
     )
     assert changed["7"] == "2026-11-17T15:00:00+00:00"
+
+
+def test_failed_month_is_persistently_deferred_while_weekly_work_continues(monkeypatch, worker):
+    module, repo = worker
+
+    def git(args, *_, **__):
+        return (
+            0,
+            "a" * 40
+            if args[0] == "rev-parse"
+            else "2026-11-13T12:00:00Z"
+            if args[0] == "show"
+            else "",
+            "",
+        )
+
+    monkeypatch.setattr(module, "run_git", git)
+    monkeypatch.setattr(module.requests, "get", lambda *a, **k: SimpleNamespace(ok=False))
+    plans = []
+
+    def plan(*_, **kwargs):
+        plans.append(kwargs["json"])
+        kind = "weekly" if kwargs["json"]["deferred_periods"] else "monthly"
+        return response(
+            {
+                "period": {
+                    "kind": kind,
+                    "period_start": "2026-11-01" if kind == "monthly" else "2026-11-09",
+                    "activity_signature": "same-evidence",
+                    "after": "2026-11-01T00:00:00Z",
+                    "before": "2026-12-01T00:00:00Z",
+                }
+            }
+        )
+
+    monkeypatch.setattr(module, "maintenance_control_post", plan)
+    calls = []
+
+    def run(*_, **kwargs):
+        calls.append(kwargs["json"]["report_kind"])
+        if calls[-1] == "monthly":
+            raise RuntimeError("Rejected candidate")
+        return response({"updated": True})
+
+    monkeypatch.setattr(module, "maintenance_post", run)
+    with pytest.raises(RuntimeError, match="Rejected"):
+        module.refresh_repo_reports(repo)
+    # The second pass reads durable retry metadata, as a restarted worker does.
+    module.refresh_repo_reports(repo)
+    assert calls == ["monthly", "weekly"]
+    assert plans[1]["deferred_periods"] == [
+        {"kind": "monthly", "period_start": "2026-11-01", "activity_signature": None}
+    ]
+    path, _ = module.report_retry_state(repo)
+    assert path.stat().st_mode & 0o777 == 0o600
+
+
+def test_quota_cooldown_does_not_retry_other_native_jobs_in_same_pass(monkeypatch, worker):
+    module, _ = worker
+    calls = []
+    now = [1000.0]
+    monkeypatch.setattr(
+        module, "time", SimpleNamespace(monotonic=lambda: now[0], sleep=lambda _: None)
+    )
+
+    def submit(*a, **k):
+        calls.append(k)
+        if len(calls) == 1:
+            return SimpleNamespace(status_code=429, json=lambda: {"detail": "quota_limited"})
+        return SimpleNamespace(status_code=202, raise_for_status=lambda: None)
+
+    monkeypatch.setattr(module.requests, "post", submit)
+    for _ in range(2):
+        with pytest.raises(module.MaintenanceDeferred):
+            module.submit_native_job("runner", {}, {})
+    assert len(calls) == 1
+    now[0] += 901
+    assert module.submit_native_job("runner", {}, {}).status_code == 202
+
+
+def test_api_billing_cooldown_is_repository_scoped_and_never_uses_native_fallback(
+    monkeypatch, worker
+):
+    module, _ = worker
+    calls = []
+    monkeypatch.setattr(
+        module, "maintenance_control_post", lambda *a, **k: response({"engine": "api"})
+    )
+
+    def api(url, **kwargs):
+        calls.append(kwargs["json"]["folder_id"])
+        return SimpleNamespace(
+            status_code=503,
+            json=lambda: {"detail": "Anthropic credits exhausted for the Kioku backend key"},
+        )
+
+    monkeypatch.setattr(module.requests, "post", api)
+    for folder in ["blocked", "blocked", "another-owner"]:
+        with pytest.raises(module.MaintenanceDeferred):
+            module.maintenance_post(
+                "http://fixture/api/mihari/reports",
+                headers={},
+                json={"folder_id": folder},
+                timeout=30,
+            )
+    assert calls == ["blocked", "another-owner"]

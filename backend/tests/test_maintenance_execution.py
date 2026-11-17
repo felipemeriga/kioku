@@ -1355,3 +1355,64 @@ def test_quote_recovery_rejects_untrusted_scope_and_repeat_requests(configured, 
         monkeypatch.setattr(execution, "request_matches_policy", lambda row: False)
     with pytest.raises(ValueError):
         execution.report_quote_repair_snapshot(db, owner, folder, "reports", payload, "original")
+
+
+def bounded_report_snapshot():
+    return {
+        "operation": "reports",
+        "input": {
+            "format_version": 2,
+            "generation_version": 1,
+            "kind": "weekly",
+            "head_sha": "a" * 40,
+            "period_start": "2026-11-09",
+            "period_end": "2026-11-15",
+            "sources": [
+                {
+                    "id": "journal:1",
+                    "kind": "journal",
+                    "date": "2026-11-13",
+                    "observed_at": "2026-11-13T12:00:00Z",
+                    "text": "The change merged; live behavior remains unverified.",
+                }
+            ],
+        },
+        "report": {"coverage": {"policy": 8}},
+        "current": {},
+        "expected_sections": {},
+    }
+
+
+def test_new_report_recovers_pending_job_across_retry_window(configured, monkeypatch):
+    snap = bounded_report_snapshot()
+    monkeypatch.setattr(execution, "capture", lambda *_: (snap, None))
+    clock = [21600 * 10 + 100]
+    monkeypatch.setattr(execution, "time", SimpleNamespace(time=lambda: clock[0]))
+    db = DB()
+    first = execution.prepare(db, "owner", "folder", "reports", snap["input"])
+    assert first["request"]["reasoning_effort"] == "low"
+    clock[0] += 21600
+    again = execution.prepare(db, "owner", "folder", "reports", snap["input"])
+    assert again["preparation_id"] == first["preparation_id"]
+    assert again["request"] == first["request"]
+    assert len(db.rows["maintenance_preparations"]) == 1
+
+
+def test_new_report_defers_exhausted_repairs_then_allows_one_fresh_window(configured, monkeypatch):
+    snap = bounded_report_snapshot()
+    monkeypatch.setattr(execution, "capture", lambda *_: (snap, None))
+    clock = [21600 * 10 + 100]
+    monkeypatch.setattr(execution, "time", SimpleNamespace(time=lambda: clock[0]))
+    db = DB()
+    first = execution.prepare(db, "owner", "folder", "reports", snap["input"])
+    db.rows["maintenance_preparations"][0]["validation_error"] = "Wrong dates"
+    second = execution.prepare(db, "owner", "folder", "reports", snap["input"])
+    db.rows["maintenance_preparations"][1]["validation_error"] = "Still wrong dates"
+    for _ in range(3):
+        result = execution.prepare(db, "owner", "folder", "reports", snap["input"])
+        assert result["engine"] == "skip" and result["retry_after"] > 0
+    assert len(db.rows["maintenance_preparations"]) == 2
+    clock[0] += 21600
+    fresh = execution.prepare(db, "owner", "folder", "reports", snap["input"])
+    assert fresh["preparation_id"] not in {first["preparation_id"], second["preparation_id"]}
+    assert len(db.rows["maintenance_preparations"]) == 3

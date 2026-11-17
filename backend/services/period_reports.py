@@ -263,6 +263,13 @@ def report_candidates(sb, owner, folder, payload, now=None):
         seen.add(key)
         old = stored[kind].get(key[1])
         meta = inventory.get(key)
+        if any(
+            (item["kind"], item["period_start"]) == key
+            and item.get("activity_signature")
+            in (None, meta["activity_signature"] if meta else "git-only")
+            for item in payload.get("deferred_periods", [])
+        ):
+            continue
         after, before = instants(start, end, tz)
         has_git = any(after <= iso(c["at"]) < before for c in payload.get("commits", []))
         if payload.get("head_at"):
@@ -308,6 +315,12 @@ def report_candidates(sb, owner, folder, payload, now=None):
 
 def next_report_period(sb, owner, folder, payload, now=None):
     candidates, _ = report_candidates(sb, owner, folder, payload, now)
+    if payload.get("report_kind") and payload.get("period_start"):
+        candidates = [
+            c
+            for c in candidates
+            if c["kind"] == payload["report_kind"] and c["period_start"] == payload["period_start"]
+        ]
     return (
         {key: value for key, value in candidates[0].items() if key != "previous"}
         if candidates
@@ -547,6 +560,7 @@ def capture_report(sb, owner, folder, payload, now=None):
             "operation": "reports",
             "input": {
                 "format_version": 2,
+                "generation_version": 1,
                 **(
                     {"review_notes_not_evidence": payload["factual_review"]["reason"]}
                     if payload.get("factual_review")
@@ -622,8 +636,23 @@ def report_model_sources(snapshot):
             -iso(source["observed_at"]).timestamp(),
         )
 
+    ordered = sorted(sources, key=priority)
+    bounded = snapshot["input"].get("generation_version") == 1
+    if bounded:
+        # Give every active day a turn before taking a second source from any
+        # day. A busy final week must not erase the beginning of a monthly report.
+        buckets = {}
+        for source in ordered:
+            buckets.setdefault(source["date"], []).append(source)
+        days = sorted(buckets, reverse=True)
+        ordered = [
+            buckets[day][index]
+            for index in range(max((len(v) for v in buckets.values()), default=0))
+            for day in days
+            if index < len(buckets[day])
+        ]
     selected, characters = set(), 0
-    for source in sorted(sources, key=priority):
+    for source in ordered:
         projected = {
             key: value
             for key, value in source.items()
@@ -631,7 +660,7 @@ def report_model_sources(snapshot):
         }
         projected["id"] = "s" + str(len(selected))
         cost = len(json.dumps(projected, ensure_ascii=False))
-        if characters + cost > 400000:
+        if characters + cost > (120000 if bounded else 400000):
             continue
         selected.add(source["id"])
         characters += cost
@@ -672,6 +701,42 @@ def report_choices(snapshot):
             for source, parts in report_parts(snapshot).items()
         }
     return report_quote_choices(snapshot["input"]["sources"])
+
+
+def report_date_constraints(snapshot):
+    """Constrain dates and citations together, before native generation."""
+    aliases = report_aliases(snapshot)
+    sources = {s["id"]: s for s in snapshot["input"]["sources"]}
+    choices = report_choices(snapshot)
+    dates = sorted({sources[i]["date"] for i in aliases.values()})
+    constraints = []
+    for day in dates:
+        if not snapshot["input"]["period_start"] <= day <= snapshot["input"]["period_end"]:
+            continue
+        anchor = datetime.fromisoformat(day).date()
+        end = (
+            calendar_period("weekly", anchor)[1]
+            if snapshot["input"]["kind"] == "monthly"
+            else anchor
+        )
+        _, boundary = instants(anchor, end, snapshot["input"].get("timezone", "UTC"))
+        allowed = [
+            alias for alias, i in aliases.items() if iso(sources[i]["observed_at"]) < boundary
+        ]
+        quotes = [
+            q["id"] for i, values in choices.items() if sources[i]["date"] == day for q in values
+        ]
+        if quotes:
+            constraints.append(
+                {
+                    "properties": {
+                        "date": {"const": day},
+                        "source_ids": {"items": {"enum": allowed}},
+                        "evidence_quote": {"enum": quotes},
+                    }
+                }
+            )
+    return constraints
 
 
 def report_prompt_snapshot(snapshot):
@@ -818,12 +883,18 @@ def validate_runtime_provenance(text, evidence):
 def validate_open_pr_state(snapshot, topic, sources):
     """An opening event is not proof a PR stayed open through later activity."""
     state = topic["final_state"]
-    if not re.search(
+    status_claim = re.search(
         r"\b(?:pr|pull request)s?\s+(?:(?:is|remains|still)\s+)?open\b"
         r"|\bopen\s+(?:pr|pull request)\b",
         state["status"],
         re.IGNORECASE,
-    ):
+    )
+    item_claim = re.search(
+        r"\b(?:pr|pull request)\s+#\d+\s+(?:is\s+(?:still\s+)?|remains\s+)open\b",
+        " ".join(item["text"] for item in state["items"]),
+        re.IGNORECASE,
+    )
+    if not status_claim and not item_claim:
         return
     numbers = set(
         re.findall(

@@ -333,10 +333,15 @@ def completion_system(built):
     )
 
 
-def request_matches_policy(row):
+def request_matches_policy(row, *, allow_repair=False):
     built, request = build_request(row["snapshot"]), row["request"]
+    prompt_matches = request["prompt"] == built["prompt"]
+    if allow_repair and row.get("repair_of"):
+        prompt_matches = request["prompt"].startswith(
+            built["prompt"] + "\nA previous independent attempt failed deterministic validation: "
+        )
     return (
-        request["prompt"] == built["prompt"]
+        prompt_matches
         and request["system_prompt"] == completion_system(built)
         and request["max_tokens"] == built["max_tokens"]
         and request["response_schema"] == completion_schema(built["schema"])
@@ -344,7 +349,12 @@ def request_matches_policy(row):
         and request["model"] == MAINTENANCE_MODEL
         and request.get("reasoning_effort")
         == (
-            ("low" if row["snapshot"].get("quote_repair") else "medium")
+            (
+                "low"
+                if row["snapshot"].get("quote_repair")
+                or row["snapshot"]["input"].get("generation_version") == 1
+                else "medium"
+            )
             if row["snapshot"]["operation"] == "reports"
             else None
         )
@@ -535,6 +545,16 @@ def prepared_response(owner, folder, record):
         "capability": capability(owner, folder, request),
         "url": os.environ["TSUKAI_URL"],
         "expires_at": int(time.time()) + 900,
+    }
+
+
+def report_deferred():
+    return {
+        "ok": True,
+        "engine": "skip",
+        "updated": False,
+        "reason": "report retry deferred after bounded recovery",
+        "retry_after": max(60, 21600 - int(time.time()) % 21600),
     }
 
 
@@ -733,10 +753,56 @@ def prepare(
     identity = {"owner": owner, "folder": folder, "snapshot": snapshot}
     # Transport/formatter policy is part of every operation's immutable identity.
     reasoning = (
-        {"reasoning_effort": "low" if snapshot.get("quote_repair") else "medium"}
+        {
+            "reasoning_effort": "low"
+            if snapshot.get("quote_repair") or snapshot["input"].get("generation_version") == 1
+            else "medium"
+        }
         if operation == "reports"
         else {}
     )
+    bounded_report = operation == "reports" and snapshot["input"].get("generation_version") == 1
+    if bounded_report and not retry_preparation_id and not quote_repair_preparation_id:
+        # A retry window may not duplicate a still-live or completed-unpublished
+        # immutable job from the preceding window.
+        pending = (
+            sb.table("maintenance_preparations")
+            .select("*")
+            .eq("user_id", owner)
+            .eq("folder_id", folder)
+            .eq("operation", operation)
+            .eq("input_digest", digest(snapshot))
+            .is_("validation_error", "null")
+            .is_("publication", "null")
+            .order("created_at", desc=True)
+            .limit(8)
+            .execute()
+            .data
+            or []
+        )
+        for row in pending:
+            if request_matches_policy(row, allow_repair=True):
+                return prepared_response(owner, folder, row)
+    if bounded_report:
+        # Explicit repair stays in its parent's window, even across a boundary.
+        window_at = time.time()
+        if retry_preparation_id:
+            parent = (
+                sb.table("maintenance_preparations")
+                .select("created_at")
+                .eq("id", retry_preparation_id)
+                .eq("user_id", owner)
+                .eq("folder_id", folder)
+                .limit(1)
+                .execute()
+                .data
+                or []
+            )
+            if parent and parent[0].get("created_at"):
+                window_at = datetime.fromisoformat(
+                    parent[0]["created_at"].replace("Z", "+00:00")
+                ).timestamp()
+        identity["retry_window"] = int(window_at // 21600)
     identity["prompt_policy_sha256"] = digest(
         {
             "built": built,
@@ -801,6 +867,8 @@ def prepare(
         record = existing[0]
         if record.get("validation_error"):
             if snapshot.get("quote_repair"):
+                if bounded_report:
+                    return report_deferred()
                 raise ValueError("Report citation repair exhausted")
             original = record
             key = digest({"repair_of": original["id"], "snapshot": snapshot})
@@ -823,6 +891,8 @@ def prepare(
             if repaired:
                 record = repaired[0]
                 if record.get("validation_error"):
+                    if bounded_report:
+                        return report_deferred()
                     raise ValueError("maintenance validation repair exhausted")
             else:
                 record = {
@@ -921,6 +991,7 @@ def publish(sb, owner, folder, preparation, job_id):
             if job.get("status") == "failed" and exc.code in {
                 "wall_timeout",
                 "native_error_max_turns",
+                "quota_limited",
             }:
                 sb.table("maintenance_preparations").update(
                     {"validation_error": f"execution {exc.code}; return a concise complete result"}

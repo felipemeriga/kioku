@@ -95,6 +95,13 @@ class ReportFactualReview(BaseModel):
     reason: str = Field(min_length=20, max_length=2000)
 
 
+class ReportDeferral(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: str = Field(pattern=r"^(weekly|monthly)$")
+    period_start: date
+    activity_signature: str | None = Field(default=None, max_length=128)
+
+
 class ReportRefreshRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -122,6 +129,7 @@ class ReportRefreshRequest(BaseModel):
     report_kind: str | None = Field(default=None, pattern=r"^(weekly|monthly)$")
     period_start: date | None = None
     factual_review: ReportFactualReview | None = None
+    deferred_periods: list[ReportDeferral] = Field(default_factory=list, max_length=32)
 
     @model_validator(mode="after")
     def valid_report_period(self):

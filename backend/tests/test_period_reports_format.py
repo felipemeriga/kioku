@@ -811,3 +811,62 @@ def test_weekly_day_does_not_use_the_following_days_result():
     update["source_ids"].append(result_source)
     with pytest.raises(ValueError, match="later time bucket"):
         validate_report(snapshot, value)
+
+
+def test_new_generation_schema_rejects_cross_date_and_future_context_before_inference():
+    snapshot, value = compact_fixture()
+    snapshot["input"]["generation_version"] = 1
+    value["topics"][0]["final_state"]["status"] = "Unverified"
+    schema = build_request(snapshot)["schema"]
+    jsonschema.validate(value, schema)
+    bad = deepcopy(value)
+    bad["topics"][0]["updates"][0]["source_ids"].append("s1")
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(bad, schema)
+    bad = deepcopy(value)
+    bad["topics"][0]["updates"][0]["evidence_quote"] = bad["topics"][0]["updates"][1][
+        "evidence_quote"
+    ]
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(bad, schema)
+    snapshot["input"]["kind"] = "monthly"
+    snapshot["input"]["period_start"] = "2026-11-01"
+    snapshot["input"]["period_end"] = "2026-11-30"
+    # Later evidence in the same week is permitted as context, but not as a
+    # quote attributed to the earlier day. A later week is never permitted.
+    jsonschema.validate(value, build_request(snapshot)["schema"])
+    snapshot["input"]["sources"][1].update(date="2026-11-16", observed_at="2026-11-16T12:00:00Z")
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(bad, build_request(snapshot)["schema"])
+
+
+def test_new_generation_context_budget_preserves_each_active_day():
+    from services.period_reports import report_model_sources
+
+    snapshot, _ = compact_fixture()
+    snapshot["input"]["generation_version"] = 1
+    snapshot["input"]["kind"] = "monthly"
+    snapshot["input"]["sources"] = [
+        {
+            "id": f"journal:{day}:{i}",
+            "kind": "journal",
+            "date": f"2026-11-{day:02}",
+            "observed_at": f"2026-11-{day:02}T12:00:00Z",
+            "text": "Recorded work. " * 300,
+        }
+        for day in range(1, 18)
+        for i in range(20)
+    ]
+    selected = report_model_sources(snapshot)
+    assert {s["date"] for s in selected} == {f"2026-11-{d:02}" for d in range(1, 18)}
+    assert sum(len(json.dumps(s)) for s in selected) <= 120000
+    assert len(selected) < len(snapshot["input"]["sources"])
+
+
+def test_neutral_status_does_not_hide_an_unsupported_open_pr_claim():
+    snapshot, value = compact_fixture()
+    snapshot["input"]["cutoff"] = "2026-11-14T00:00:00Z"
+    value["topics"][0]["final_state"]["status"] = "Unverified"
+    value["topics"][0]["final_state"]["items"][0]["text"] = "PR #485 remains open at cutoff."
+    with pytest.raises(ValueError, match="open PR state"):
+        validate_report(snapshot, value)
