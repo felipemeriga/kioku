@@ -935,6 +935,45 @@ def prepare(
     return prepared_response(owner, folder, record)
 
 
+def renew_capability(sb, owner, folder, preparation, job_id):
+    """Renew only the exact immutable job; keep the runner's 15-minute grants."""
+    rows = (
+        sb.table("maintenance_preparations")
+        .select("*")
+        .eq("id", preparation)
+        .eq("user_id", owner)
+        .eq("folder_id", folder)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows:
+        raise PermissionError("unknown maintenance preparation")
+    row = rows[0]
+    if row.get("execution_job_id") and row["execution_job_id"] != job_id:
+        raise PermissionError("maintenance job does not match preparation")
+    token = capability(owner, folder, row["request"])
+    response = httpx.get(
+        os.environ["TSUKAI_URL"].rstrip("/") + "/v1/jobs/" + job_id,
+        headers={
+            "Authorization": "Bearer " + os.environ["TSUKAI_SERVICE_TOKEN"],
+            "X-Tsukai-Capability": token,
+        },
+        timeout=30,
+    )
+    response.raise_for_status()
+    expected = hashlib.sha256(
+        json.dumps(row["request"], sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    if response.json().get("request_sha256") != expected:
+        raise PermissionError("maintenance job does not match preparation")
+    claims = jwt.decode(
+        token, os.environ["TSUKAI_CAPABILITY_KEY"], algorithms=["HS256"], audience="tsukai"
+    )
+    return {"capability": token, "expires_at": claims["exp"]}
+
+
 def publish(sb, owner, folder, preparation, job_id):
     rows = (
         sb.table("maintenance_preparations")

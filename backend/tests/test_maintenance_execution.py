@@ -1416,3 +1416,48 @@ def test_new_report_defers_exhausted_repairs_then_allows_one_fresh_window(config
     fresh = execution.prepare(db, "owner", "folder", "reports", snap["input"])
     assert fresh["preparation_id"] not in {first["preparation_id"], second["preparation_id"]}
     assert len(db.rows["maintenance_preparations"]) == 3
+
+
+def test_capability_renewal_is_short_lived_and_bound_to_exact_owned_job(configured, monkeypatch):
+    snap = {
+        "operation": "activity",
+        "input": {"head_sha": "a" * 40},
+        "current": {},
+        "expected_sections": {},
+    }
+    monkeypatch.setattr(execution, "capture", lambda *_: (snap, None))
+    db = DB()
+    prepared = execution.prepare(db, "owner", "folder", "activity", snap["input"])
+    request = prepared["request"]
+    expected = hashlib.sha256(
+        json.dumps(request, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    calls = []
+
+    def get(url, **kwargs):
+        calls.append((url, kwargs))
+        return SimpleNamespace(
+            raise_for_status=lambda: None, json=lambda: {"request_sha256": expected}
+        )
+
+    monkeypatch.setattr(execution.httpx, "get", get)
+    renewed = execution.renew_capability(
+        db, "owner", "folder", prepared["preparation_id"], "same-job"
+    )
+    claims = jwt.decode(
+        renewed["capability"],
+        "test-key-that-is-at-least-32-bytes-long",
+        algorithms=["HS256"],
+        audience="tsukai",
+    )
+    assert claims["exp"] - claims["iat"] <= 900
+    assert claims["request_sha256"] == expected
+    assert claims["folder_ids"] == ["folder"] and claims["owner_id"] == "owner"
+    assert len(calls) == 1 and calls[0][0].endswith("/v1/jobs/same-job")
+    for owner, folder in [("another-owner", "folder"), ("owner", "another-folder")]:
+        with pytest.raises(PermissionError):
+            execution.renew_capability(db, owner, folder, prepared["preparation_id"], "same-job")
+    assert len(calls) == 1
+    expected = "different-request-digest"
+    with pytest.raises(PermissionError, match="does not match"):
+        execution.renew_capability(db, "owner", "folder", prepared["preparation_id"], "other-job")

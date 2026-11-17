@@ -748,3 +748,24 @@ def publish_maintenance(body: MaintenancePublishRequest, request: Request):
                 status_code=409, detail="stale or duplicate maintenance publication"
             ) from exc
         raise
+
+
+@router.post("/execution/renew")
+def renew_maintenance(body: MaintenancePublishRequest, request: Request):
+    import httpx
+
+    from services.maintenance.execution import native_enabled, renew_capability
+
+    owner, sb = _authorized_maintenance(request, body.folder_id)
+    if not native_enabled(owner):
+        raise HTTPException(409, "native maintenance is disabled")
+    try:
+        return renew_capability(sb, owner, body.folder_id, body.preparation_id, body.job_id)
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code in (403, 404, 410):
+            raise HTTPException(403, "maintenance job does not match preparation") from exc
+        raise HTTPException(502, "native maintenance authorization unavailable") from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, "native maintenance authorization unavailable") from exc

@@ -35,8 +35,13 @@ def test_simulated_clock_does_not_replace_standard_library_functions(monkeypatch
     assert clock[0] == 2
 
 
-@pytest.mark.parametrize("operation", ["documentation", "reground", "review-plan", "learnings"])
-def test_queued_native_job_can_finish_after_old_transport_wait(monkeypatch, operation):
+@pytest.mark.parametrize("queue_seconds", [250, 1800])
+@pytest.mark.parametrize(
+    "operation", ["documentation", "reground", "review-plan", "learnings", "reports"]
+)
+def test_queued_native_job_can_finish_after_old_transport_wait(
+    monkeypatch, operation, queue_seconds
+):
     for key in ("SUPABASE_URL", "KIOKU_MCP_URL", "KIOKU_API_URL"):
         monkeypatch.setenv(key, "http://fixture")
     monkeypatch.setenv("SUPABASE_SERVICE_KEY", "fixture")
@@ -46,7 +51,7 @@ def test_queued_native_job_can_finish_after_old_transport_wait(monkeypatch, oper
     )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    clock, polls, publications, admissions = [0], [], [], []
+    clock, polls, publications, admissions, renewals = [0], [], [], [], []
 
     def response(body):
         return SimpleNamespace(
@@ -67,14 +72,20 @@ def test_queued_native_job_can_finish_after_old_transport_wait(monkeypatch, oper
         if url.endswith("/v1/jobs"):
             admissions.append(url)
             return response({"job_id": "job"})
+        if url.endswith("/renew"):
+            renewals.append(url)
+            return response({"capability": "fresh-short-lived-cap"})
         publications.append(url)
         return response({"updated": True})
 
     def get(*_, **__):
         polls.append(clock[0])
         if len(polls) == 1:
-            clock[0] = 250
+            clock[0] = queue_seconds
             return response({"status": "queued"})
+        if len(polls) == 2:
+            clock[0] += 500
+            return response({"status": "running"})
         return response({"status": "completed"})
 
     monkeypatch.setattr(module.requests, "post", post)
@@ -87,7 +98,8 @@ def test_queued_native_job_can_finish_after_old_transport_wait(monkeypatch, oper
         timeout=120,
     )
     assert result.ok
-    assert len(polls) == 2
+    assert len(polls) == 3
+    assert len(renewals) == 1
     assert admissions == ["http://runner/v1/jobs"]
     assert publications == ["http://fixture/api/mihari/execution/publish"]
 
