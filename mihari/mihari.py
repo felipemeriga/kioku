@@ -1685,7 +1685,7 @@ def run_report_request(repo, head, period, retry_path, retries, headers, payload
     return response
 
 
-def refresh_repo_reports(repo: dict) -> None:
+def refresh_repo_reports(repo: dict, *, review: dict | None = None):
     """Generate one due period independently of principal-branch freshness."""
     if not API_URL or not repo.get("api_key_encrypted"):
         return
@@ -1724,7 +1724,8 @@ def refresh_repo_reports(repo: dict) -> None:
             "head_sha": head,
             "head_at": head_at,
             "timezone": repo.get("report_timezone") or "UTC",
-            "deferred_periods": deferred[:32],
+            "deferred_periods": [] if review else deferred[:32],
+            **(review or {}),
         },
         timeout=30,
     )
@@ -1821,6 +1822,7 @@ def refresh_repo_reports(repo: dict) -> None:
             "pull_requests": pulls,
             "github_coverage": coverage,
             "git_history_mode": "first_parent",
+            **(review or {}),
         },
     )
     raise_review_response(response)
@@ -1830,6 +1832,7 @@ def refresh_repo_reports(repo: dict) -> None:
             f"{repo['remote_url']}: published {result.get('kind')} report "
             f"revision {result.get('revision')}"
         )
+    return result
 
 
 def main() -> int:

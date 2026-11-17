@@ -315,6 +315,12 @@ def report_candidates(sb, owner, folder, payload, now=None):
 
 def next_report_period(sb, owner, folder, payload, now=None):
     candidates, _ = report_candidates(sb, owner, folder, payload, now)
+    if payload.get("report_kind") and payload.get("period_start"):
+        candidates = [
+            c
+            for c in candidates
+            if c["kind"] == payload["report_kind"] and c["period_start"] == payload["period_start"]
+        ]
     return (
         {key: value for key, value in candidates[0].items() if key != "previous"}
         if candidates

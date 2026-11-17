@@ -881,3 +881,25 @@ def test_failed_monthly_period_does_not_starve_weekly_and_new_evidence_reenables
         datetime(2026, 11, 13, 14, tzinfo=timezone.utc),
     )
     assert any(c["kind"] == "monthly" for c in candidates)
+
+
+def test_factual_review_plan_selects_requested_closed_period_instead_of_current_month():
+    from services.period_reports import next_report_period
+
+    rows, payload, week, month, _ = active_report_fixture()
+    payload.update(
+        report_kind="weekly",
+        period_start="2026-11-09",
+        factual_review={
+            "expected_revision": 1,
+            "reason": "Correct historical source association without later evidence.",
+        },
+    )
+    period = next_report_period(
+        DB(rows, [week, month]),
+        "owner",
+        "repo",
+        payload,
+        datetime(2026, 11, 17, 12, tzinfo=timezone.utc),
+    )
+    assert period["kind"] == "weekly" and period["period_start"] == "2026-11-09"
