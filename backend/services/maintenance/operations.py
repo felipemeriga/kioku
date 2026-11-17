@@ -485,7 +485,15 @@ def _shape(value, expected):
 
 def validate_result(snapshot, raw):
     """Return publishable domain data; invalid/needs-input output raises."""
-    value = json.loads(raw) if isinstance(raw, str) else deepcopy(raw)
+    if isinstance(raw, str):
+        text = raw.strip()
+        if snapshot.get("input", {}).get("documentation_version") == 2:
+            fenced = re.fullmatch(r"```(?:json)?\s*\n(.*)\n```", text, re.DOTALL | re.IGNORECASE)
+            if fenced:
+                text = fenced[1]
+        value = json.loads(text)
+    else:
+        value = deepcopy(raw)
     if isinstance(value, dict) and "outcome" in value:
         if (
             value.get("outcome") != "completed"

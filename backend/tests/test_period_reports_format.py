@@ -1231,17 +1231,24 @@ def test_simple_documentation_schema_does_not_grow_with_quote_catalogue():
     assert light < heavy / 3
 
 
-def test_documentation_native_response_has_one_data_shape_and_preserves_old_envelopes():
+def test_documentation_native_uses_json_text_and_preserves_legacy_envelopes():
     from services.maintenance.execution import completion_system, native_response_schema
 
     snapshot, value = compact_fixture()
     snapshot["input"].update(generation_version=2, documentation_only=True, documentation_version=2)
     value["topics"][0]["final_state"]["status"] = "Recorded"
     built = build_request(snapshot)
-    response_schema = native_response_schema(snapshot, built)
-    jsonschema.validate(value, response_schema)
-    assert "outcome" not in response_schema["properties"]
-    assert "Do not add schema_version" in completion_system(built, direct=True)
+    assert native_response_schema(snapshot, built) is None
+    assert "Do not call tools or use StructuredOutput" in completion_system(built, direct=True)
+    expected = validate_result(snapshot, value)
+    assert validate_result(snapshot, json.dumps(value)) == expected
+    assert validate_result(snapshot, "```json\n" + json.dumps(value) + "\n```") == expected
+    with pytest.raises(ValueError):
+        validate_result(snapshot, "Here is the report: " + json.dumps(value))
+    unknown = deepcopy(value)
+    unknown["summary_source_ids"] = ["s99999"]
+    with pytest.raises(ValueError, match="outside its model context"):
+        validate_result(snapshot, json.dumps(unknown))
     envelope = {
         "schema_version": 1,
         "outcome": "completed",
@@ -1250,10 +1257,10 @@ def test_documentation_native_response_has_one_data_shape_and_preserves_old_enve
         "failure": None,
         "warnings": [],
     }
-    with pytest.raises(jsonschema.ValidationError):
-        jsonschema.validate(envelope, response_schema)
     snapshot["input"].pop("documentation_version")
     jsonschema.validate(envelope, native_response_schema(snapshot, build_request(snapshot)))
+    with pytest.raises(ValueError):
+        validate_result(snapshot, "```json\n" + json.dumps(value) + "\n```")
     snapshot["input"]["documentation_version"] = 2
     snapshot["quote_repair"] = {"findings": []}
     assert "outcome" in native_response_schema(snapshot, built)["properties"]

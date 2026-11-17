@@ -332,19 +332,20 @@ def direct_documentation(snapshot):
 
 
 def native_response_schema(snapshot, built):
-    return built["schema"] if direct_documentation(snapshot) else completion_schema(built["schema"])
+    return None if direct_documentation(snapshot) else completion_schema(built["schema"])
 
 
 def completion_system(built, *, direct=False):
     if direct:
         return built["system"] + (
-            " Return only the factual report matching the required operation data shape. "
-            'For the internal StructuredOutput tool, supply {"result": <report object>}. '
-            "The report fields title, summary, outcomes and topics belong directly inside result. "
-            "Do not add schema_version, outcome, data, missing_inputs, failure "
-            "or warnings wrappers. "
-            "Do not write a separate draft or preamble. Publication is checked by the server."
+            " Return exactly one JSON object matching the required report data shape as your "
+            "final answer. Do not call tools or use StructuredOutput. Do not add an envelope, "
+            "Markdown fences, a preamble or commentary. The server validates the report before "
+            "publication. Copy source and quote IDs and use the date of the quoted source. "
+            "Use one short recorded fact per item: highlight text <=180 characters, update text "
+            "<=280, update detail <=240, final finding text <=320."
         )
+
     return built["system"] + (
         " Wrap operation data in the standardized completion envelope: "
         "schema_version=1, outcome, data, missing_inputs, failure, warnings. "
