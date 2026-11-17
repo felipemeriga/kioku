@@ -870,3 +870,25 @@ def test_neutral_status_does_not_hide_an_unsupported_open_pr_claim():
     value["topics"][0]["final_state"]["items"][0]["text"] = "PR #485 remains open at cutoff."
     with pytest.raises(ValueError, match="open PR state"):
         validate_report(snapshot, value)
+
+
+def test_full_month_of_large_entries_preserves_all_active_days_with_bounded_expansion():
+    from services.period_reports import report_model_sources
+
+    snapshot, _ = compact_fixture()
+    snapshot["input"].update(generation_version=1, kind="monthly")
+    snapshot["input"]["sources"] = [
+        {
+            "id": f"journal:{day}:{i}",
+            "kind": "journal",
+            "date": f"2026-12-{day:02}",
+            "observed_at": f"2026-12-{day:02}T12:00:00Z",
+            "text": "Recorded work. " * 400,
+        }
+        for day in range(1, 32)
+        for i in range(10)
+    ]
+    selected = report_model_sources(snapshot)
+    assert len(selected) == 31
+    assert {s["date"] for s in selected} == {f"2026-12-{d:02}" for d in range(1, 32)}
+    assert 120000 < sum(len(json.dumps(s)) for s in selected) < 200000
