@@ -1277,3 +1277,16 @@ def test_report_repair_receives_all_oversized_text_locations():
     assert "actual=281" in message
     assert "10..180" in message
     assert "10..280" in message
+
+
+def test_documentation_json_checks_all_contract_errors_before_publication():
+    snapshot, value = compact_fixture()
+    snapshot["input"].update(generation_version=2, documentation_only=True, documentation_version=2)
+    value["outcomes"][0]["text"] = "x" * 181
+    value["topics"][0]["updates"][0]["source_ids"] *= 2
+    with pytest.raises(ValueError) as error:
+        validate_result(snapshot, json.dumps(value))
+    message = str(error.value)
+    assert "outcomes.0.text" in message
+    assert "source_ids" in message
+    assert "non-unique" in message

@@ -9,6 +9,8 @@ import json
 import re
 from copy import deepcopy
 
+from jsonschema import Draft202012Validator
+
 from services.period_reports import (
     LEGACY_REPORT_GUIDE,
     REPORT_GUIDE,
@@ -518,6 +520,18 @@ def validate_result(snapshot, raw):
     if not _shape(value, shape):
         raise ValueError("maintenance result changed required shape or types")
     if op == "reports":
+        if snapshot.get("input", {}).get("documentation_version") == 2:
+            errors = list(
+                Draft202012Validator(build_request(snapshot)["schema"]).iter_errors(value)
+            )
+            if errors:
+                raise ValueError(
+                    "Report JSON contract: "
+                    + "; ".join(
+                        f"{'.'.join(map(str, error.absolute_path))}: {error.message}"
+                        for error in errors
+                    )
+                )
         return validate_report(snapshot, value)
     current = snapshot.get("current")
     if op == "review_plan":
