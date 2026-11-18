@@ -854,6 +854,13 @@ def refresh_sections(
                         for path in tracked.splitlines()
                         if any(rule in path.lower() for rule in rules) and (clone / path).is_file()
                     ][:5]
+        if not matched and force_all and selected_sections and section in selected_sections:
+            # A selected review still needs evidence when no deployment manifest
+            # exists. The README can document local-only operation or an external
+            # deployment; its contents are context, never proof of an invented CI.
+            matched = [path for path in ("README.md", "readme.md") if (clone / path).is_file()]
+            if not matched and strict:
+                raise RuntimeError(f"No source files available for selected {section} review")
         if not matched:
             continue
         files = []
