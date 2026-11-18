@@ -1,8 +1,9 @@
 # Tsukai
 
 Durable native Claude Code execution service, integrated into main through PR #211.
-It is an optional, explicitly configured subscription execution path for chat and
-verified completion/maintenance operations. The backend defaults to API execution.
+It is the only Claude execution path for chat, ingestion, evaluation and maintenance.
+All authenticated Kioku users share the deployment subscription; tenant data and
+job permissions remain bound to each caller. Anthropic API keys are ignored.
 
 ## Read first
 

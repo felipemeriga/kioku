@@ -10,7 +10,7 @@ Auth, PostgreSQL/pgvector, and file storage.
 Mihari polls registered repositories, indexes code and graph data, and refreshes
 briefings, documentation, and learnings. Manabi runs on a user's machine and
 reports presence and repository inventory. Tsukai runs native Claude Code jobs
-for explicitly enabled operations and credential owners.
+for all authenticated tenants through the deployment subscription.
 
 ```mermaid
 flowchart LR
@@ -46,18 +46,18 @@ The full search path can rewrite and expand the query before candidate retrieval
 The MCP fast path skips those LLM enrichment calls. Date filters constrain eligible
 content; ingestion timestamps should not be described as meeting/event time.
 
-`backend/services/rag.py` implements API-backed tool-use streaming. Native chat
-uses the Tsukai conversation bridge and scoped backend tools instead. Do not
-collapse these into one fixed sequence of model calls.
+Chat and evaluation answers use the Tsukai conversation bridge and scoped backend
+tools. Evaluation conversations are temporary and deleted through the same
+owner-scoped path as product conversations. Legacy SDK streaming fails closed.
 
 ## Execution policy and native chat
 
 `backend/services/ai/registry.py` registers operations and selects an engine.
-API is the default. Native execution requires an enabled operation in
-`TSUKAI_NATIVE_TASKS` and the matching `TSUKAI_CREDENTIAL_OWNER_ID`; the runtime
-also enforces `TSUKAI_ENTITLED_OWNER_IDS`. OCR and evaluation judging are marked
-unverified for native execution. Native failures are surfaced, not retried through
-an API provider automatically.
+Claude execution is subscription-only for every authenticated owner. The credential
+funding the deployment is separate from each request's data authority. API keys and
+legacy pilot flags cannot restore API execution or automatic API fallback. Vision
+OCR and RAGAS judges use scoped native completions too. A missing or unavailable
+runner produces an explicit subscription error instead of a billed SDK request.
 
 The backend signs short-lived scope capabilities. Tsukai persists jobs, attempts,
 events, conversation mappings, and acknowledgements in PostgreSQL, starts the

@@ -6,7 +6,9 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - ANTHROPIC_API_KEY
+      - TSUKAI_URL
+      - TSUKAI_SERVICE_TOKEN
+      - TSUKAI_CAPABILITY_KEY
       - VOYAGE_API_KEY
       - TAVILY_API_KEY
       - SUPABASE_URL
@@ -26,7 +28,9 @@ services:
     ports:
       - "8001:8001"
     environment:
-      - ANTHROPIC_API_KEY
+      - TSUKAI_URL
+      - TSUKAI_SERVICE_TOKEN
+      - TSUKAI_CAPABILITY_KEY
       - VOYAGE_API_KEY
       - SUPABASE_URL
       - SUPABASE_SERVICE_KEY

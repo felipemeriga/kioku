@@ -98,3 +98,48 @@ def test_ragas_judge_preserves_scope_across_async_threads():
     )
     assert current_scope() is None
     assert judge.is_finished(result)
+
+
+def test_evaluation_answer_uses_production_native_bridge_and_cleans_up():
+    import json
+
+    from services.rag import answer_question
+
+    sb = MagicMock()
+    query = sb.table.return_value.select.return_value.eq.return_value.eq.return_value
+    query.execute.return_value.data = [
+        {"trace": {"sources": [{"content": "retrieved original"}]}}
+    ]
+    frame = {"done": True, "replace": "grounded answer", "debug": {"tool_calls": [{}]}}
+    with (
+        patch("services.rag.get_supabase_thread_safe", return_value=sb),
+        patch("services.scope.validate_scope_folder") as validate,
+        patch("services.scope.descendant_folder_ids", return_value=["folder", "child"]),
+        patch("services.ai.chat.prepare_turn", return_value={"job_id": "job"}) as prepare,
+        patch("services.ai.chat.stream_turn", return_value=["data: " + json.dumps(frame)]),
+    ):
+        result = answer_question("question", "tenant", scope_folder_ids=["folder", "child"])
+    validate.assert_called_once_with("folder", "tenant")
+    assert prepare.call_args.kwargs["owner_id"] == "tenant"
+    assert prepare.call_args.kwargs["folder_id"] == "folder"
+    assert result["response"] == "grounded answer"
+    assert result["retrieved_chunks"] == ["retrieved original"]
+    sb.table.return_value.delete.assert_called_once()
+    sb.table.return_value.delete.return_value.eq.return_value.eq.assert_called_with(
+        "user_id", "tenant"
+    )
+
+
+def test_evaluation_answer_fails_closed_and_cleans_up_on_native_failure():
+    from services.rag import answer_question
+
+    sb = MagicMock()
+    with (
+        patch("services.rag.get_supabase_thread_safe", return_value=sb),
+        patch(
+            "services.ai.chat.prepare_turn", side_effect=RuntimeError("subscription unavailable")
+        ),
+        pytest.raises(RuntimeError, match="subscription unavailable"),
+    ):
+        answer_question("question", "tenant")
+    sb.table.return_value.delete.assert_called_once()

@@ -79,7 +79,6 @@ jobs:
       - name: Run eval with gate
         env:
           VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           SUPABASE_URL=$(supabase status --output env | grep '^API_URL=' | cut -d= -f2- | tr -d '"')
           SUPABASE_SERVICE_KEY=$(supabase status --output env | grep '^SERVICE_ROLE_KEY=' | cut -d= -f2- | tr -d '"')

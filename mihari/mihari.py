@@ -261,18 +261,7 @@ def maintenance_post(
     prepared.raise_for_status()
     body = prepared.json()
     if body["engine"] == "api":
-        response = requests.post(url, headers=headers, json=json, timeout=timeout)
-        if response.status_code == 503:
-            try:
-                credit_error = str(response.json().get("detail", "")).startswith(
-                    "Anthropic credits exhausted"
-                )
-            except (ValueError, AttributeError):
-                credit_error = False
-            if credit_error:
-                _api_billing_deferred_until[json["folder_id"]] = time.monotonic() + 3600
-                raise MaintenanceDeferred("Repository owner's Anthropic API credits are exhausted")
-        return response
+        raise RuntimeError("Claude API execution is deprecated; subscription execution is required")
     if body["engine"] == "skip":
         response = requests.Response()
         response.status_code = 200

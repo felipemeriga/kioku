@@ -31,8 +31,19 @@ class TestChatOwnership(unittest.TestCase):
         from routes.chat import ChatRequest, chat
 
         sb = _sb([{"id": _CID}])  # owned
-        with patch("routes.chat.get_supabase", return_value=sb):
-            resp = chat(ChatRequest(conversation_id=_CID, content="hi"), user_id="u1")
+        with (
+            patch("routes.chat.get_supabase", return_value=sb),
+            patch("services.ai.chat.stream_preparing_turn", return_value=iter([])),
+            patch("services.ai.models.resolve_native_model", return_value="claude-haiku-current"),
+        ):
+            resp = chat(
+                ChatRequest(
+                    conversation_id=_CID,
+                    content="hi",
+                    turn_id="22222222-2222-4222-8222-222222222222",
+                ),
+                user_id="u1",
+            )
         # Owned → returns a StreamingResponse without raising; the generator is
         # lazy, so stream_rag_response isn't invoked during the test.
         self.assertIsNotNone(resp)

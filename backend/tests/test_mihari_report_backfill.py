@@ -255,29 +255,18 @@ def test_quota_cooldown_does_not_retry_other_native_jobs_in_same_pass(monkeypatc
     assert module.submit_native_job("runner", {}, {}).status_code == 202
 
 
-def test_api_billing_cooldown_is_repository_scoped_and_never_uses_native_fallback(
-    monkeypatch, worker
-):
+def test_deprecated_api_engine_is_rejected_without_any_billed_request(monkeypatch, worker):
     module, _ = worker
-    calls = []
     monkeypatch.setattr(
         module, "maintenance_control_post", lambda *a, **k: response({"engine": "api"})
     )
-
-    def api(url, **kwargs):
-        calls.append(kwargs["json"]["folder_id"])
-        return SimpleNamespace(
-            status_code=503,
-            json=lambda: {"detail": "Anthropic credits exhausted for the Kioku backend key"},
+    calls = []
+    monkeypatch.setattr(module.requests, "post", lambda *a, **k: calls.append(k))
+    with pytest.raises(RuntimeError, match="deprecated"):
+        module.maintenance_post(
+            "http://fixture/api/mihari/reports",
+            headers={},
+            json={"folder_id": "another-owner"},
+            timeout=30,
         )
-
-    monkeypatch.setattr(module.requests, "post", api)
-    for folder in ["blocked", "blocked", "another-owner"]:
-        with pytest.raises(module.MaintenanceDeferred):
-            module.maintenance_post(
-                "http://fixture/api/mihari/reports",
-                headers={},
-                json={"folder_id": folder},
-                timeout=30,
-            )
-    assert calls == ["blocked", "another-owner"]
+    assert calls == []

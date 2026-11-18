@@ -28,60 +28,16 @@ def catalog():
     }
 
 
-def test_api_users_never_access_native_catalog_or_inject_provider_models():
-    with (
-        patch("services.ai.models.engine_for", return_value="api"),
-        patch("services.ai.models.client_for") as client,
-    ):
-        assert chat_models("other-owner") == {
-            "engine": "api",
-            "models": [],
-            "request_controls": {"reasoning_effort": ["low", "medium", "high"]},
-        }
-        assert chat_operation("sonnet", "other-owner") == "rag_agent_sonnet"
-        assert chat_operation("haiku", "other-owner") == "rag_agent"
-        with pytest.raises(HTTPException) as error:
-            chat_operation("claude-opus-current", "other-owner")
-        assert error.value.status_code == 422
-        client.assert_not_called()
-
-
-def test_authenticated_api_route_keeps_other_owners_on_legacy_models(monkeypatch):
-    from fastapi import FastAPI
-    from fastapi.testclient import TestClient
-
-    from auth import get_current_user
-    from routes.chat import router
-
-    monkeypatch.setenv("TSUKAI_CREDENTIAL_OWNER_ID", "native-owner")
-    monkeypatch.setenv("TSUKAI_NATIVE_TASKS", "rag_agent,rag_agent_sonnet")
-    app = FastAPI()
-    app.include_router(router)
-    app.dependency_overrides[get_current_user] = lambda: "other-owner"
-    db = MagicMock()
-    query = db.table.return_value
-    for method in ("select", "eq", "limit"):
-        getattr(query, method).return_value = query
-    query.execute.return_value.data = [{"id": "owned"}]
-    with (
-        TestClient(app) as http,
-        patch("routes.chat.get_supabase", return_value=db),
-        patch("services.ai.models.client_for") as native_client,
-        patch("routes.chat.stream_rag_response", return_value=iter([])) as api_stream,
-    ):
-        assert http.get("/api/chat/models").json() == {
-            "engine": "api",
-            "models": [],
-            "request_controls": {"reasoning_effort": ["low", "medium", "high"]},
-        }
-        request = {"conversation_id": "11111111-1111-4111-8111-111111111111", "content": "question"}
-        assert (
-            http.post("/api/chat", json={**request, "model": "claude-opus-current"}).status_code
-            == 422
-        )
-        assert http.post("/api/chat", json={**request, "model": "sonnet"}).status_code == 200
-        assert api_stream.call_args.kwargs["model"] == "sonnet"
-        native_client.assert_not_called()
+def test_all_authenticated_owners_get_the_subscription_catalog():
+    client = MagicMock()
+    client.models.return_value = catalog()
+    with patch("services.ai.models.client_for", return_value=client) as factory:
+        assert chat_models("other-owner")["engine"] == "tsukai"
+        assert chat_operation("claude-opus-current", "other-owner") == "rag_agent"
+        assert resolve_native_model("claude-opus-current", "other-owner") == "claude-opus-current"
+        assert factory.call_args.args[0].owner_id == "other-owner"
+        with pytest.raises(HTTPException):
+            resolve_native_model("arbitrary-provider-id", "other-owner")
 
 
 def test_owner_catalog_uses_metadata_only_owner_capability_and_closes_client():
@@ -239,3 +195,40 @@ def test_mixed_version_runner_is_rejected_before_new_effort_request_can_be_prepa
     with patch("services.ai.models.chat_models", side_effect=HTTPException(503, "unavailable")):
         with pytest.raises(HTTPException):
             resolve_native_model("haiku", "owner", "high")
+
+
+def test_another_user_chat_route_uses_subscription_and_never_api_stream(monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from auth import get_current_user
+    from routes.chat import router
+
+    monkeypatch.setenv("TSUKAI_CREDENTIAL_OWNER_ID", "funding-owner")
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_current_user] = lambda: "another-user"
+    db = MagicMock()
+    query = db.table.return_value
+    for name in ("select", "eq", "limit"):
+        getattr(query, name).return_value = query
+    query.execute.return_value.data = [{"id": "owned"}]
+    client = MagicMock()
+    client.models.return_value = catalog()
+    with (
+        TestClient(app) as http,
+        patch("routes.chat.get_supabase", return_value=db),
+        patch("services.ai.models.client_for", return_value=client),
+        patch("services.ai.chat.stream_preparing_turn", return_value=iter([])) as native,
+        patch("routes.chat.stream_rag_response") as api,
+    ):
+        assert http.get("/api/chat/models").json()["engine"] == "tsukai"
+        body = {
+            "conversation_id": "11111111-1111-4111-8111-111111111111",
+            "turn_id": "22222222-2222-4222-8222-222222222222",
+            "content": "question",
+            "model": "claude-opus-current",
+        }
+        assert http.post("/api/chat", json=body).status_code == 200
+    native.assert_called_once()
+    api.assert_not_called()

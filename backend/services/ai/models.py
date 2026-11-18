@@ -26,12 +26,7 @@ def native_enabled(owner_id: str) -> bool:
 
 
 def chat_models(owner_id: str) -> dict:
-    if not native_enabled(owner_id):
-        return {
-            "engine": "api",
-            "models": [],
-            "request_controls": {"reasoning_effort": ["low", "medium", "high"]},
-        }
+    engine_for("rag_agent", owner_id)
     client = client_for(ExecutionScope(owner_id), "runtime.models.read", None)
     try:
         catalog = client.models()

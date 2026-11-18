@@ -85,11 +85,12 @@ def configured(monkeypatch):
     monkeypatch.setattr(execution, "capture_job_usage", lambda *_: True)
 
 
-def test_native_is_default_off_and_owner_only(configured, monkeypatch):
-    assert execution.native_enabled("other") is False
-    monkeypatch.setenv("TSUKAI_MIHARI_NATIVE", "true")
-    assert execution.native_enabled("owner") is True
-    assert execution.native_enabled("other") is False
+def test_native_subscription_is_shared_even_with_legacy_pilot_disabled(monkeypatch):
+    monkeypatch.setenv("TSUKAI_MIHARI_NATIVE", "false")
+    monkeypatch.setenv("TSUKAI_CREDENTIAL_OWNER_ID", "owner")
+    assert execution.native_enabled("owner")
+    assert execution.native_enabled("other")
+    assert not execution.native_enabled("")
 
 
 def test_prepare_idempotent_request_bound_no_tools_no_resume(configured, monkeypatch):
