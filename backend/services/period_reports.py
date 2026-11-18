@@ -79,7 +79,8 @@ REPORT_SHAPE = {
         }
     ],
 }
-REPORT_GUIDE = (
+# Preserve the prompt contract of immutable version-one preparations.
+DOCUMENTATION_V1_GUIDE = (
     "Document the work explicitly recorded in the supplied sources. Do not infer, guess, "
     "evaluate or reconstruct what probably happened. Use short, factual sentences and "
     "preserve each source's scope. A journal is reported work, not independent verification. "
@@ -105,6 +106,45 @@ REPORT_GUIDE = (
     "state. An explicit later removal or revert supersedes earlier implementation. "
     "Historical weeks describe only evidence available at their cutoff. A fix next week "
     "belongs next week. Monthly updates preserve each week's recorded state. Never cite "
+    "a later day (weekly) or later ISO week (monthly) in an earlier update. "
+    "Prior reports and summaries are orientation, not primary evidence. Preserve exact "
+    "names and references, avoid unsupported aggregate totals, and document only what "
+    "the sources actually establish."
+)
+
+REPORT_GUIDE = (
+    "Document the work explicitly recorded in the supplied sources. Do not infer, guess, "
+    "evaluate or reconstruct what probably happened. Use short, factual sentences and "
+    "preserve each source's scope. A journal is reported work, not independent verification. "
+    "The UI has a server-built merge timeline, a work timeline, and the latest documented "
+    "state for each topic. Keep the introduction to two short sentences (420 characters) "
+    "and at most three factual highlights. Group related work only when the sources "
+    "connect it through the same repository, PR, ticket, commit or explicit issue reference; "
+    "do not invent causal links, purposes or outcomes. Preserve supported statuses such as "
+    "opened, merged, reverted, deployed or resolved, with dated references. A merge establishes "
+    "merged code, not by itself resolution of a linked issue. Connect the same recorded work "
+    "across periods when identifiers or explicit source links establish continuity. "
+    "Weekly updates document each active day; monthly updates document each active ISO "
+    "week using the quoted source's exact date, not the week's Monday. Copy the date "
+    "printed on the selected quote part. At most 28 updates overall for a week and six per "
+    "topic for a month. Never invent activity on idle days. Every finding needs supporting "
+    "source IDs and an exact supplied evidence quote ID. Use individual PR identifiers. "
+    "A principal commit documents merged code. A recorded test documents that test. "
+    "Document deployment, resolution or runtime success only when explicitly reported. "
+    "Do not call an archive complete or a system stable from a few observations. "
+    "Do not calculate new statistics, round measurements into ranges, combine trials, "
+    "or swap entities, versions or units. Omit incidental diagnostics and repeated details. "
+    "The final state is the last explicitly documented observation before cutoff, not "
+    "your verdict. Use Recorded when no explicit status was documented. Never invent "
+    "an open item, risk, recommendation or verification task from missing information. "
+    "Do not add 'not verified' or 'still pending' just because evidence is absent. "
+    "Preserve uncertainty only where it was explicitly recorded or needed to attribute "
+    "a source's claim as reported. A dated opening event does not establish a PR's later "
+    "state. An explicit later removal or revert supersedes earlier implementation. "
+    "Historical weeks describe only evidence available at their cutoff. A fix next week "
+    "belongs next week and may link back to the earlier unresolved record. Do not rewrite "
+    "that earlier week's state. Monthly updates show the dated transition between supported "
+    "statuses while preserving each week's recorded state. Never cite "
     "a later day (weekly) or later ISO week (monthly) in an earlier update. "
     "Prior reports and summaries are orientation, not primary evidence. Preserve exact "
     "names and references, avoid unsupported aggregate totals, and document only what "
@@ -521,6 +561,8 @@ def capture_report(sb, owner, folder, payload, now=None):
                 "format_version": 2,
                 "generation_version": 2,
                 "documentation_only": True,
+                "documentation_version": 2,
+                "server_bound_updates": True,
                 "model_citation_limit": 11,
                 **(
                     {"review_notes_not_evidence": payload["factual_review"]["reason"]}
@@ -737,7 +779,12 @@ def report_prompt_snapshot(snapshot):
                 if key not in ("entry_id", "event_id", "session_id", "journal_date", "url", "text")
             },
             "id": aliases[source["id"]],
-            "parts": parts[source["id"]],
+            "parts": [
+                {**part, "date": source["date"], "source_id": aliases[source["id"]]}
+                if snapshot["input"].get("documentation_version") == 2
+                else part
+                for part in parts[source["id"]]
+            ],
         }
         for source in sorted(
             report_model_sources(snapshot),
@@ -861,6 +908,60 @@ def validate_runtime_provenance(text, evidence):
         if re.match(r"\s*(?:[:;,—–-]\s*)?(?:unverified|unconfirmed|unknown|pending)\b", suffix):
             continue
         raise ValueError("Report runtime claim requires observed evidence, not only Git changes")
+
+
+def report_pr_numbers(text):
+    result = set(re.findall(r"#([1-9][0-9]*)\b", text))
+    for first, last in re.findall(r"#([1-9][0-9]*)\s*[-–—]\s*#?([1-9][0-9]*)\b", text):
+        first, last = int(first), int(last)
+        if not 0 <= last - first <= 100:
+            raise ValueError("Report PR range exceeds bounded individual evidence")
+        result.update(str(n) for n in range(first, last + 1))
+    return result
+
+
+def report_update_sources(snapshot, update, origin, day):
+    """Bind explicit PR identifiers to primary records inside the same time bucket."""
+    sources = snapshot["input"]["sources"]
+    aliases = {source: alias for alias, source in report_aliases(snapshot).items()}
+    original = next(source for source in sources if source["id"] == origin)
+    text = " ".join(update.get(key, "") for key in ("title", "text", "detail"))
+    wanted = report_pr_numbers(text) - report_pr_numbers(original["text"])
+    qualified = re.findall(r"\b([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([1-9][0-9]*)\b", text)
+    last_day = (
+        calendar_period("weekly", datetime.fromisoformat(day).date())[1].isoformat()
+        if snapshot["input"]["kind"] == "monthly"
+        else day
+    )
+    result = [aliases[origin]]
+    for source in sources:
+        if (
+            source["kind"] != "git_commit"
+            or source["id"] not in aliases
+            or source["date"] > last_day
+        ):
+            continue
+        title = source["text"].splitlines()[0]
+        match = re.search(r"\(#([1-9][0-9]*)\)|Merge pull request #([1-9][0-9]*)", title, re.I)
+        number = next((v for v in match.groups() if v), None) if match else None
+        if number not in wanted:
+            continue
+        repository = re.search(r"github\.com/([^/]+/[^/]+)/commit/", source.get("url") or "")
+        if any(n == number and (not repository or repo != repository[1]) for repo, n in qualified):
+            continue
+        result.append(aliases[source["id"]])
+        wanted.remove(number)
+    return result
+
+
+def validate_report_pr_references(text, evidence):
+    """Every PR identifier in generated prose needs its own cited record."""
+    missing = report_pr_numbers(text) - report_pr_numbers(" ".join(evidence))
+    if missing:
+        raise ValueError(
+            "Report PR references lack cited evidence: "
+            + ", ".join("#" + n for n in sorted(missing, key=int))
+        )
 
 
 def validate_open_pr_state(snapshot, topic, sources):
@@ -1055,7 +1156,12 @@ def validate_report(snapshot, value):
             or len(ids) != len(set(ids))
             or any(i not in sources for i in ids)
         ):
-            raise ValueError("Report cites unknown or missing evidence")
+            raise ValueError(
+                "Report cites unknown or missing evidence "
+                f"[{location}; require 1..12 distinct references; count={len(ids)}; "
+                f"distinct={len(set(ids))}; unknown={sum(i not in sources for i in ids)}]. "
+                "Keep exhaustive PR lists in the merge timeline, not a single work update."
+            )
 
     factual_errors = []
     evidence_only = True
@@ -1100,6 +1206,12 @@ def validate_report(snapshot, value):
                 # context while making the exact quoted origin explicit.
                 item["source_ids"] = [source, *item["source_ids"]]
             item["evidence_quote"] = text
+        if snapshot["input"].get("server_bound_updates"):
+            factual(
+                validate_report_pr_references,
+                " ".join(item.get(k, "") for k in ("title", "text", "detail")),
+                [sources[i]["text"] for i in item["source_ids"]],
+            )
         if compact_report(snapshot):
             factual(
                 validate_runtime_provenance,
@@ -1111,8 +1223,15 @@ def validate_report(snapshot, value):
                 " ".join(item.get(k, "") for k in ("title", "text", "detail")),
                 [sources[i]["text"] for i in item["source_ids"]],
             )
-        if not 10 <= len(item["text"]) <= maximum or not 12 <= len(item["evidence_quote"]) <= 250:
-            raise ValueError("Invalid report item")
+        if not 10 <= len(item["text"]) <= maximum:
+            nonlocal evidence_only
+            evidence_only = False
+            factual_errors.append(
+                f"Report text must be 10..{maximum} characters "
+                f"[{location}; actual={len(item['text'])}]"
+            )
+        if not 12 <= len(item["evidence_quote"]) <= 250:
+            raise ValueError(f"Invalid report quote [{location}]")
         if not any(item["evidence_quote"] in sources[i]["text"] for i in item["source_ids"]):
             raise ValueError("Report lacks an exact supporting quote")
 

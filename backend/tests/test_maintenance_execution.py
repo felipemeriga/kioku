@@ -919,6 +919,8 @@ def test_exact_proof_stops_after_required_sections_not_old_retained_jobs(partial
     [
         ("failed", "wall_timeout", True),
         ("failed", "native_error_max_turns", True),
+        ("failed", "native_error_max_structured_output_retries", True),
+        ("uncertain", "native_error_max_structured_output_retries", False),
         ("uncertain", "native_error_max_turns", False),
         ("running", "client_deadline", False),
         ("uncertain", "wall_timeout", False),

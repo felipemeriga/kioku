@@ -9,7 +9,10 @@ import json
 import re
 from copy import deepcopy
 
+from jsonschema import Draft202012Validator
+
 from services.period_reports import (
+    DOCUMENTATION_V1_GUIDE,
     LEGACY_REPORT_GUIDE,
     REPORT_GUIDE,
     REPORT_SHAPE,
@@ -21,6 +24,7 @@ from services.period_reports import (
     report_quote_choices,
     report_shape,
     report_update_limit,
+    report_update_sources,
     validate_report,
 )
 
@@ -289,6 +293,14 @@ def build_request(snapshot):
             "report_source": {"type": "string", "enum": ids or ["__no_source_available__"]},
             "report_quote": {"type": "string", "enum": quote_ids or ["__no_source_available__"]},
         }
+        if snapshot["input"].get("documentation_version") == 2:
+            # The model supplies references; the publication boundary checks the
+            # exact catalogue, quote ownership and date anchors against the snapshot.
+            # Avoid a large, coupled grammar causing hidden native CLI retries.
+            schema["$defs"] = {
+                "report_source": {"type": "string", "pattern": r"^s[0-9]+$"},
+                "report_quote": {"type": "string", "pattern": r"^q[0-9]+$"},
+            }
 
         def citations(node):
             if not isinstance(node, dict):
@@ -340,7 +352,8 @@ def build_request(snapshot):
             minLength=10, maxLength=320 if compact_report(snapshot) else 500
         )
         if snapshot["input"].get("generation_version") in (1, 2):
-            topic["updates"]["items"]["anyOf"] = report_date_constraints(snapshot)
+            if snapshot["input"].get("documentation_version") != 2:
+                topic["updates"]["items"]["anyOf"] = report_date_constraints(snapshot)
             state["status"]["enum"] = [
                 "Completed",
                 "Merged",
@@ -383,6 +396,13 @@ def build_request(snapshot):
         max_tokens = min(
             12000, max(4000, (len(canonical(snapshot.get("current"))) + 2) // 3 + 1024)
         )
+    if op == "reports" and snapshot["input"].get("server_bound_updates"):
+        update_shape = shape["topics"][0]["updates"][0]
+        update_schema = schema["properties"]["topics"]["items"]["properties"]["updates"]["items"]
+        for key in ("date", "source_ids"):
+            update_shape.pop(key)
+            update_schema["properties"].pop(key)
+            update_schema["required"].remove(key)
     return {
         "system": (
             "Maintain accurate repository knowledge from supplied evidence only. "
@@ -391,7 +411,17 @@ def build_request(snapshot):
             "schema. If evidence is missing, return the standardized needs_input "
             "outcome; never invent facts."
         ),
-        "prompt": (LEGACY_REPORT_GUIDE if op == "reports" and not chronological else GUIDES[op])
+        "prompt": (
+            (
+                LEGACY_REPORT_GUIDE
+                if not chronological
+                else REPORT_GUIDE
+                if snapshot["input"].get("documentation_version") == 2
+                else DOCUMENTATION_V1_GUIDE
+            )
+            if op == "reports"
+            else GUIDES[op]
+        )
         + (
             "\nEach source has ordered parts preserving its full supplied text. "
             "Read adjacent parts together. Select an evidence_quote ID from the cited source's "
@@ -435,6 +465,14 @@ def build_request(snapshot):
             if op == "reports" and snapshot["input"].get("generation_version") == 2
             else ""
         )
+        + (
+            "\nFor timeline updates supply the exact evidence_quote ID, text, title and detail. "
+            "Do not generate a date or source_ids for updates: the server copies both from "
+            "that immutable quote's origin. Keep each update limited to work recorded in "
+            "that source; later progress belongs in a separate update with its own quote. "
+            if op == "reports" and snapshot["input"].get("server_bound_updates")
+            else ""
+        )
         + "\nRequired result shape: "
         + canonical(shape)
         + "\nEVIDENCE SNAPSHOT:\n"
@@ -476,7 +514,15 @@ def _shape(value, expected):
 
 def validate_result(snapshot, raw):
     """Return publishable domain data; invalid/needs-input output raises."""
-    value = json.loads(raw) if isinstance(raw, str) else deepcopy(raw)
+    if isinstance(raw, str):
+        text = raw.strip()
+        if snapshot.get("input", {}).get("documentation_version") == 2:
+            fenced = re.fullmatch(r"```(?:json)?\s*\n(.*)\n```", text, re.DOTALL | re.IGNORECASE)
+            if fenced:
+                text = fenced[1]
+        value = json.loads(text)
+    else:
+        value = deepcopy(raw)
     if isinstance(value, dict) and "outcome" in value:
         if (
             value.get("outcome") != "completed"
@@ -491,6 +537,30 @@ def validate_result(snapshot, raw):
         from services.report_quote_repair import validate_quote_repair
 
         return validate_quote_repair(snapshot, value)
+    model_value = deepcopy(value)
+    if op == "reports" and snapshot["input"].get("server_bound_updates"):
+        wire_shape = deepcopy(report_shape(snapshot))
+        for key in ("date", "source_ids"):
+            wire_shape["topics"][0]["updates"][0].pop(key)
+        if not _shape(value, wire_shape):
+            raise ValueError("maintenance result changed required shape or types")
+        aliases = {source: alias for alias, source in report_aliases(snapshot).items()}
+        sources = {source["id"]: source for source in snapshot["input"]["sources"]}
+        quotes = {
+            quote["id"]: (aliases[source], sources[source]["date"])
+            for source, choices in report_choices(snapshot).items()
+            for quote in choices
+        }
+        for topic in value["topics"]:
+            for update in topic["updates"]:
+                origin = quotes.get(update["evidence_quote"])
+                if origin is None:
+                    raise ValueError("Report update cites an unknown quote")
+                source = next(key for key, alias in aliases.items() if alias == origin[0])
+                update.update(
+                    source_ids=report_update_sources(snapshot, update, source, origin[1]),
+                    date=origin[1],
+                )
     shape = SHAPES.get(op)
     if op == "reports":
         shape = report_shape(snapshot)
@@ -501,7 +571,26 @@ def validate_result(snapshot, raw):
     if not _shape(value, shape):
         raise ValueError("maintenance result changed required shape or types")
     if op == "reports":
-        return validate_report(snapshot, value)
+        contract_errors = []
+        if snapshot.get("input", {}).get("documentation_version") == 2:
+            contract_errors = [
+                f"{'.'.join(map(str, error.absolute_path))}: "
+                f"{error.validator}={json.dumps(error.validator_value)}"
+                for error in Draft202012Validator(build_request(snapshot)["schema"]).iter_errors(
+                    model_value
+                )
+            ]
+        try:
+            result = validate_report(snapshot, value)
+        except ValueError as exc:
+            if not contract_errors:
+                raise
+            raise ValueError(
+                "Report JSON contract: " + "; ".join(contract_errors) + "; " + str(exc)
+            ) from exc
+        if contract_errors:
+            raise ValueError("Report JSON contract: " + "; ".join(contract_errors))
+        return result
     current = snapshot.get("current")
     if op == "review_plan":
         if any(k not in (*SECTIONS, "documentation") for k in value["selected"]):

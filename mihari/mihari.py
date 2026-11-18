@@ -349,7 +349,8 @@ def maintenance_post(
     recoverable_budget = (
         publication.status_code == 502
         and outcome.get("status") == "failed"
-        and failure_code in {"native_error_max_turns", "wall_timeout"}
+        and failure_code
+        in {"native_error_max_turns", "wall_timeout", "native_error_max_structured_output_retries"}
         and detail == f"maintenance execution: {failure_code}"
     )
     invalid_result = (

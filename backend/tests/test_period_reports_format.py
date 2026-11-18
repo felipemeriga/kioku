@@ -1182,3 +1182,233 @@ def test_documentation_reports_have_a_neutral_state_without_inventing_missing_ou
         "final_state"
     ]["properties"]["status"]
     assert "Recorded" not in status["enum"]
+
+
+def test_simple_documentation_transport_keeps_source_and_date_validation_on_server():
+    snapshot, value = compact_fixture()
+    snapshot["input"].update(generation_version=2, documentation_only=True, documentation_version=2)
+    value["topics"][0]["final_state"]["status"] = "Merged"
+    schema = build_request(snapshot)["schema"]
+    assert "anyOf" not in schema["properties"]["topics"]["items"]["properties"]["updates"]["items"]
+    assert "enum" not in schema["$defs"]["report_quote"]
+    jsonschema.validate(value, schema)
+    assert validate_result(snapshot, value)
+    unknown = deepcopy(value)
+    unknown["topics"][0]["updates"][0]["source_ids"] = ["s99999"]
+    jsonschema.validate(unknown, schema)
+    with pytest.raises(ValueError, match="outside its model context"):
+        validate_result(snapshot, unknown)
+    wrong_day = deepcopy(value)
+    wrong_day["topics"][0]["updates"][0]["date"] = "2026-11-13"
+    jsonschema.validate(wrong_day, schema)
+    with pytest.raises(ValueError, match="quote date does not match"):
+        validate_result(snapshot, wrong_day)
+    snapshot["input"].pop("documentation_version")
+    assert (
+        "anyOf"
+        in build_request(snapshot)["schema"]["properties"]["topics"]["items"]["properties"][
+            "updates"
+        ]["items"]
+    )
+
+
+def test_simple_documentation_schema_does_not_grow_with_quote_catalogue():
+    snapshot, _ = compact_fixture()
+    snapshot["input"].update(generation_version=2, documentation_only=True)
+    snapshot["input"]["sources"] += [
+        {
+            "id": f"commit:{i:040x}",
+            "kind": "git_commit",
+            "date": "2026-11-13",
+            "observed_at": "2026-11-13T12:00:00Z",
+            "text": "Commit on principal branch: recorded change " + str(i),
+        }
+        for i in range(300)
+    ]
+    heavy = len(json.dumps(build_request(snapshot)["schema"]))
+    snapshot["input"]["documentation_version"] = 2
+    light = len(json.dumps(build_request(snapshot)["schema"]))
+    assert light < heavy / 3
+
+
+def test_documentation_native_uses_json_text_and_preserves_legacy_envelopes():
+    from services.maintenance.execution import completion_system, native_response_schema
+
+    snapshot, value = compact_fixture()
+    snapshot["input"].update(generation_version=2, documentation_only=True, documentation_version=2)
+    value["topics"][0]["final_state"]["status"] = "Recorded"
+    built = build_request(snapshot)
+    assert native_response_schema(snapshot, built) is None
+    assert "Do not call tools or use StructuredOutput" in completion_system(built, direct=True)
+    expected = validate_result(snapshot, value)
+    assert validate_result(snapshot, json.dumps(value)) == expected
+    assert validate_result(snapshot, "```json\n" + json.dumps(value) + "\n```") == expected
+    with pytest.raises(ValueError):
+        validate_result(snapshot, "Here is the report: " + json.dumps(value))
+    unknown = deepcopy(value)
+    unknown["summary_source_ids"] = ["s99999"]
+    with pytest.raises(ValueError, match="outside its model context"):
+        validate_result(snapshot, json.dumps(unknown))
+    envelope = {
+        "schema_version": 1,
+        "outcome": "completed",
+        "data": value,
+        "missing_inputs": [],
+        "failure": None,
+        "warnings": [],
+    }
+    snapshot["input"].pop("documentation_version")
+    jsonschema.validate(envelope, native_response_schema(snapshot, build_request(snapshot)))
+    with pytest.raises(ValueError):
+        validate_result(snapshot, "```json\n" + json.dumps(value) + "\n```")
+    snapshot["input"]["documentation_version"] = 2
+    snapshot["quote_repair"] = {"findings": []}
+    assert "outcome" in native_response_schema(snapshot, built)["properties"]
+
+
+def test_report_repair_receives_all_oversized_text_locations():
+    snapshot, value = compact_fixture()
+    value["outcomes"][0]["text"] = "x" * 181
+    value["topics"][0]["updates"][0]["text"] = "y" * 281
+    with pytest.raises(ValueError) as error:
+        validate_result(snapshot, value)
+    message = str(error.value)
+    assert "outcomes[0]; actual=181" in message
+    assert "actual=281" in message
+    assert "10..180" in message
+    assert "10..280" in message
+
+
+def test_documentation_json_checks_all_contract_errors_before_publication():
+    snapshot, value = compact_fixture()
+    snapshot["input"].update(generation_version=2, documentation_only=True, documentation_version=2)
+    value["outcomes"][0]["text"] = "x" * 181
+    value["topics"][0]["updates"][0]["source_ids"] *= 2
+    with pytest.raises(ValueError) as error:
+        validate_result(snapshot, json.dumps(value))
+    message = str(error.value)
+    assert "outcomes.0.text" in message
+    assert "source_ids" in message
+    assert "uniqueItems=true" in message
+
+
+def test_documentation_update_metadata_is_bound_to_immutable_quote_origin():
+    snapshot, value = compact_fixture()
+    value["topics"][0]["final_state"]["status"] = "Merged"
+    expected = validate_result(snapshot, value)
+    snapshot["input"].update(
+        generation_version=2,
+        documentation_only=True,
+        documentation_version=2,
+        server_bound_updates=True,
+    )
+    wire = deepcopy(value)
+    for topic in wire["topics"]:
+        for update in topic["updates"]:
+            update.pop("date")
+            update.pop("source_ids")
+    built = build_request(snapshot)
+    jsonschema.validate(wire, built["schema"])
+    actual = validate_result(snapshot, json.dumps(wire))
+    for want, got in zip(expected["topics"], actual["topics"], strict=True):
+        for old, new in zip(want["updates"], got["updates"], strict=True):
+            assert new["date"] == old["date"]
+            assert new["source_ids"]
+            assert new["evidence_quote"] == old["evidence_quote"]
+    forged = deepcopy(wire)
+    forged["topics"][0]["updates"][0]["date"] = "1999-01-01"
+    with pytest.raises(ValueError, match="required shape"):
+        validate_result(snapshot, forged)
+    unknown = deepcopy(wire)
+    unknown["topics"][0]["updates"][0]["evidence_quote"] = "q999999"
+    with pytest.raises(ValueError, match="unknown quote"):
+        validate_result(snapshot, unknown)
+
+
+def test_server_bound_updates_cannot_swap_provenance_through_quote_only_repair():
+    from services.report_quote_repair import make_quote_repair
+
+    snapshot, value = compact_fixture()
+    snapshot["input"]["server_bound_updates"] = True
+    with pytest.raises(ValueError, match="full corrected result"):
+        make_quote_repair(snapshot, value)
+
+
+def test_report_pr_connections_require_the_actual_cited_records():
+    from services.period_reports import validate_report_pr_references
+
+    validate_report_pr_references("PR #485 merged.", ["Merged PR #485 on main."])
+    with pytest.raises(ValueError, match="#486"):
+        validate_report_pr_references("PRs #485–#486 merged.", ["Merged PR #485 on main."])
+
+
+def test_update_primary_pr_links_cannot_pull_a_later_day_or_another_repository():
+    from services.period_reports import report_update_sources
+
+    snapshot, _ = compact_fixture()
+    origin = snapshot["input"]["sources"][0]
+    primary = deepcopy(next(s for s in snapshot["input"]["sources"] if s["kind"] == "git_commit"))
+    primary.update(
+        id="commit:new",
+        text="Commit on principal branch: fix connection (#486)",
+        date="2026-11-14",
+        observed_at="2026-11-14T12:00:00Z",
+        url="https://github.com/example/repo/commit/new",
+    )
+    snapshot["input"]["sources"].append(primary)
+    update = {"text": "PR #486 merged.", "title": "Connection", "detail": ""}
+    assert len(report_update_sources(snapshot, update, origin["id"], "2026-11-13")) == 1
+    assert len(report_update_sources(snapshot, update, origin["id"], "2026-11-14")) == 2
+    update["text"] = "other/repo#486 merged."
+    assert len(report_update_sources(snapshot, update, origin["id"], "2026-11-14")) == 1
+
+
+def test_report_model_upgrade_is_isolated_from_legacy_and_other_maintenance():
+    from services.maintenance.execution import MAINTENANCE_MODEL, maintenance_model
+
+    assert maintenance_model({"operation": "activity", "input": {}}) == MAINTENANCE_MODEL
+    assert maintenance_model({"operation": "reports", "input": {}}) == MAINTENANCE_MODEL
+    assert (
+        maintenance_model({"operation": "reports", "input": {"server_bound_updates": True}})
+        == "claude-opus-5-5"
+    )
+
+
+def test_bounded_report_repair_reads_only_its_verified_candidate(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    from services.maintenance import execution
+
+    filters = []
+    query = MagicMock()
+    query.select.return_value = query
+    query.eq.side_effect = lambda key, value: (filters.append((key, value)), query)[1]
+    query.order.return_value = query
+    query.limit.return_value = query
+    query.execute.return_value = SimpleNamespace(data=[{"job_id": "verified-job"}])
+    db = SimpleNamespace(table=lambda name: query)
+    client = MagicMock()
+    client.result.return_value = SimpleNamespace(structured=None, text="candidate" * 6000)
+    monkeypatch.setenv("TSUKAI_URL", "http://test")
+    monkeypatch.setenv("TSUKAI_SERVICE_TOKEN", "test-token")
+    monkeypatch.setattr(execution, "TsukaiClient", lambda *args: client)
+    monkeypatch.setattr(execution, "capability", lambda *args: "scoped-capability")
+    row = {
+        "id": "preparation",
+        "request": {},
+        "snapshot": {"input": {"server_bound_updates": True}},
+    }
+    text = execution.failed_report_candidate(db, "owner", "folder", row)
+    assert "UNTRUSTED PREVIOUS CANDIDATE" in text
+    assert text.endswith(("candidate" * 6000)[:40000])
+    assert ("user_id", "owner") in filters
+    assert ("folder_id", "folder") in filters
+    assert ("preparation_id", "preparation") in filters
+    assert ("outcome", "completed") in filters
+    client.result.assert_called_once_with("verified-job")
+    client.close.assert_called_once()
+    query.execute.return_value = SimpleNamespace(data=[])
+    client.reset_mock()
+    assert execution.failed_report_candidate(db, "owner", "folder", row) == ""
+    client.result.assert_not_called()
