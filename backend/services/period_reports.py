@@ -92,7 +92,8 @@ REPORT_GUIDE = (
     "merged code, not by itself resolution of a linked issue. Connect the same recorded work "
     "across periods when identifiers or explicit source links establish continuity. "
     "Weekly updates document each active day; monthly updates document each active ISO "
-    "week using an actual source date. At most 28 updates overall for a week and six per "
+    "week using the quoted source's exact date, not the week's Monday. Copy the date "
+    "printed on the selected quote part. At most 28 updates overall for a week and six per "
     "topic for a month. Never invent activity on idle days. Every finding needs supporting "
     "source IDs and an exact supplied evidence quote ID. Use individual PR identifiers. "
     "A principal commit documents merged code. A recorded test documents that test. "
@@ -744,7 +745,12 @@ def report_prompt_snapshot(snapshot):
                 if key not in ("entry_id", "event_id", "session_id", "journal_date", "url", "text")
             },
             "id": aliases[source["id"]],
-            "parts": parts[source["id"]],
+            "parts": [
+                {**part, "date": source["date"], "source_id": aliases[source["id"]]}
+                if snapshot["input"].get("documentation_version") == 2
+                else part
+                for part in parts[source["id"]]
+            ],
         }
         for source in sorted(
             report_model_sources(snapshot),
