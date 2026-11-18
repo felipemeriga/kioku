@@ -416,3 +416,36 @@ def test_legacy_serialization_omits_new_field_but_explicit_effort_is_bound():
     assert request(reasoning_effort="low").model_dump(mode="json")["reasoning_effort"] == "low"
     with pytest.raises(ValueError):
         request(reasoning_effort="max")
+
+
+async def test_vision_uses_inline_stream_input_without_file_or_tool_access(tmp_path):
+    import base64
+
+    data = base64.b64encode(b"\x89PNG\r\n\x1a\nfixture").decode()
+    req = JobRequest(
+        idempotency_key="vision",
+        owner_id="another-user",
+        caller="backend",
+        operation="image_ocr",
+        prompt="INSPECT_INPUT",
+        input_images=[{"media_type": "image/png", "data": data}],
+    )
+
+    async def emit(kind, value):
+        pass
+
+    result = await NativeRunner(settings(tmp_path)).run(claim(tmp_path), req, emit)
+    inspected = json.loads(result["text"])
+    assert inspected["args"][inspected["args"].index("--input-format") + 1] == "stream-json"
+    frame = json.loads(inspected["input"])
+    assert frame["message"]["content"][0]["source"]["data"] == data
+    assert frame["message"]["content"][1]["text"] == "INSPECT_INPUT"
+    assert inspected["args"][inspected["args"].index("--tools") + 1] == ""
+    assert "ANTHROPIC_API_KEY" not in inspected["environment_names"]
+    assert "input_images" not in request().model_dump()
+    with pytest.raises(ValueError):
+        JobRequest(**{**req.model_dump(), "operation": "query_rewrite"})
+    with pytest.raises(ValueError):
+        JobRequest(
+            **{**req.model_dump(), "input_images": [{"media_type": "image/png", "data": "invalid"}]}
+        )

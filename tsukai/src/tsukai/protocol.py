@@ -1,5 +1,7 @@
 """Canonical v1 HTTP models; generated JSON schemas live under protocol/."""
 
+import base64
+import binascii
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
@@ -9,6 +11,27 @@ TERMINAL = frozenset({"completed", "failed", "cancelled", "uncertain"})
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class InputImage(StrictModel):
+    media_type: Literal["image/png", "image/jpeg", "image/gif", "image/webp"]
+    data: str = Field(min_length=1, max_length=7_000_000)
+
+    @model_validator(mode="after")
+    def valid_image(self):
+        try:
+            raw = base64.b64decode(self.data, validate=True)
+        except (ValueError, binascii.Error):
+            raise ValueError("invalid base64 image") from None
+        signatures = {
+            "image/png": raw.startswith(b"\x89PNG\r\n\x1a\n"),
+            "image/jpeg": raw.startswith(b"\xff\xd8\xff"),
+            "image/gif": raw.startswith((b"GIF87a", b"GIF89a")),
+            "image/webp": raw.startswith(b"RIFF") and raw[8:12] == b"WEBP",
+        }
+        if len(raw) > 5 * 1024 * 1024 or not signatures[self.media_type]:
+            raise ValueError("unsupported image bytes or image exceeds 5 MiB")
+        return self
 
 
 class JobRequest(StrictModel):
@@ -35,6 +58,7 @@ class JobRequest(StrictModel):
     root_job_id: str | None = None
     ai_depth: Literal[0, 1] = 0
     metadata: dict[str, Any] = Field(default_factory=dict)
+    input_images: list[InputImage] = Field(default_factory=list, max_length=4)
 
     @model_serializer(mode="wrap")
     def preserve_legacy_request(self, handler):
@@ -42,10 +66,14 @@ class JobRequest(StrictModel):
         # Old durable requests must retain their exact canonical digest.
         if self.reasoning_effort is None:
             data.pop("reasoning_effort", None)
+        if not self.input_images:
+            data.pop("input_images", None)
         return data
 
     @model_validator(mode="after")
     def coherent_profile(self):
+        if self.input_images and (self.profile != "completion" or self.operation != "image_ocr"):
+            raise ValueError("images require the bounded image_ocr completion profile")
         if (self.profile == "chat") != bool(self.conversation_id):
             raise ValueError("only chat requires conversation_id")
         if self.rebuild_from_committed_history and self.profile != "chat":

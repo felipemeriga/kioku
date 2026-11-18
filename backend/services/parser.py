@@ -139,7 +139,9 @@ IMAGE_EXTRACTION_PROMPT = (
 def extract_from_image(file_bytes: bytes, filename: str) -> str:
     """Extract text and visual description from an image using Claude Vision."""
     ext = filename.rsplit(".", 1)[-1].lower()
-    media_type = "image/png" if ext == "png" else "image/jpeg"
+    media_type = {"png": "image/png", "gif": "image/gif", "webp": "image/webp"}.get(
+        ext, "image/jpeg"
+    )
     image_data = base64.standard_b64encode(file_bytes).decode("utf-8")
 
     response = complete(
