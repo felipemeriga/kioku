@@ -910,6 +910,25 @@ def validate_runtime_provenance(text, evidence):
         raise ValueError("Report runtime claim requires observed evidence, not only Git changes")
 
 
+def validate_report_pr_references(text, evidence):
+    """Every PR identifier in generated prose needs its own cited record."""
+
+    def numbers(value):
+        result = set(re.findall(r"#([1-9][0-9]*)\b", value))
+        for first, last in re.findall(r"#([1-9][0-9]*)\s*[-–—]\s*#?([1-9][0-9]*)\b", value):
+            first, last = int(first), int(last)
+            if 0 <= last - first <= 100:
+                result.update(str(n) for n in range(first, last + 1))
+        return result
+
+    missing = numbers(text) - numbers(" ".join(evidence))
+    if missing:
+        raise ValueError(
+            "Report PR references lack cited evidence: "
+            + ", ".join("#" + n for n in sorted(missing, key=int))
+        )
+
+
 def validate_open_pr_state(snapshot, topic, sources):
     """An opening event is not proof a PR stayed open through later activity."""
     state = topic["final_state"]
@@ -1147,6 +1166,12 @@ def validate_report(snapshot, value):
                 # context while making the exact quoted origin explicit.
                 item["source_ids"] = [source, *item["source_ids"]]
             item["evidence_quote"] = text
+        if snapshot["input"].get("server_bound_updates"):
+            factual(
+                validate_report_pr_references,
+                " ".join(item.get(k, "") for k in ("title", "text", "detail")),
+                [sources[i]["text"] for i in item["source_ids"]],
+            )
         if compact_report(snapshot):
             factual(
                 validate_runtime_provenance,

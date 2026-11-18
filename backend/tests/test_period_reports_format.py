@@ -1332,3 +1332,11 @@ def test_server_bound_updates_cannot_swap_provenance_through_quote_only_repair()
     snapshot["input"]["server_bound_updates"] = True
     with pytest.raises(ValueError, match="full corrected result"):
         make_quote_repair(snapshot, value)
+
+
+def test_report_pr_connections_require_the_actual_cited_records():
+    from services.period_reports import validate_report_pr_references
+
+    validate_report_pr_references("PR #485 merged.", ["Merged PR #485 on main."])
+    with pytest.raises(ValueError, match="#486"):
+        validate_report_pr_references("PRs #485–#486 merged.", ["Merged PR #485 on main."])
