@@ -1156,7 +1156,12 @@ def validate_report(snapshot, value):
             or len(ids) != len(set(ids))
             or any(i not in sources for i in ids)
         ):
-            raise ValueError("Report cites unknown or missing evidence")
+            raise ValueError(
+                "Report cites unknown or missing evidence "
+                f"[{location}; require 1..12 distinct references; count={len(ids)}; "
+                f"distinct={len(set(ids))}; unknown={sum(i not in sources for i in ids)}]. "
+                "Keep exhaustive PR lists in the merge timeline, not a single work update."
+            )
 
     factual_errors = []
     evidence_only = True

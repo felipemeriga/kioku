@@ -1372,3 +1372,43 @@ def test_report_model_upgrade_is_isolated_from_legacy_and_other_maintenance():
         maintenance_model({"operation": "reports", "input": {"server_bound_updates": True}})
         == "claude-opus-5-5"
     )
+
+
+def test_bounded_report_repair_reads_only_its_verified_candidate(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    from services.maintenance import execution
+
+    filters = []
+    query = MagicMock()
+    query.select.return_value = query
+    query.eq.side_effect = lambda key, value: (filters.append((key, value)), query)[1]
+    query.order.return_value = query
+    query.limit.return_value = query
+    query.execute.return_value = SimpleNamespace(data=[{"job_id": "verified-job"}])
+    db = SimpleNamespace(table=lambda name: query)
+    client = MagicMock()
+    client.result.return_value = SimpleNamespace(structured=None, text="candidate" * 6000)
+    monkeypatch.setenv("TSUKAI_URL", "http://test")
+    monkeypatch.setenv("TSUKAI_SERVICE_TOKEN", "test-token")
+    monkeypatch.setattr(execution, "TsukaiClient", lambda *args: client)
+    monkeypatch.setattr(execution, "capability", lambda *args: "scoped-capability")
+    row = {
+        "id": "preparation",
+        "request": {},
+        "snapshot": {"input": {"server_bound_updates": True}},
+    }
+    text = execution.failed_report_candidate(db, "owner", "folder", row)
+    assert "UNTRUSTED PREVIOUS CANDIDATE" in text
+    assert text.endswith(("candidate" * 6000)[:40000])
+    assert ("user_id", "owner") in filters
+    assert ("folder_id", "folder") in filters
+    assert ("preparation_id", "preparation") in filters
+    assert ("outcome", "completed") in filters
+    client.result.assert_called_once_with("verified-job")
+    client.close.assert_called_once()
+    query.execute.return_value = SimpleNamespace(data=[])
+    client.reset_mock()
+    assert execution.failed_report_candidate(db, "owner", "folder", row) == ""
+    client.result.assert_not_called()
