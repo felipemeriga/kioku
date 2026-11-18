@@ -30,6 +30,8 @@ def _runtime_missing(text, ids, sources):
 def make_quote_repair(snapshot, raw):
     from services.maintenance.operations import validate_result
 
+    if snapshot["input"].get("server_bound_updates"):
+        raise ValueError("Server-bound report evidence requires a full corrected result")
     if not compact_report(snapshot):
         raise ValueError("Citation recovery requires compact report sources")
     if snapshot.get("quote_repair"):

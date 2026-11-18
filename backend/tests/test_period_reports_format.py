@@ -1323,3 +1323,12 @@ def test_documentation_update_metadata_is_bound_to_immutable_quote_origin():
     unknown["topics"][0]["updates"][0]["evidence_quote"] = "q999999"
     with pytest.raises(ValueError, match="unknown quote"):
         validate_result(snapshot, unknown)
+
+
+def test_server_bound_updates_cannot_swap_provenance_through_quote_only_repair():
+    from services.report_quote_repair import make_quote_repair
+
+    snapshot, value = compact_fixture()
+    snapshot["input"]["server_bound_updates"] = True
+    with pytest.raises(ValueError, match="full corrected result"):
+        make_quote_repair(snapshot, value)
