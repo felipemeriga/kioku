@@ -1290,3 +1290,36 @@ def test_documentation_json_checks_all_contract_errors_before_publication():
     assert "outcomes.0.text" in message
     assert "source_ids" in message
     assert "uniqueItems=true" in message
+
+
+def test_documentation_update_metadata_is_bound_to_immutable_quote_origin():
+    snapshot, value = compact_fixture()
+    value["topics"][0]["final_state"]["status"] = "Merged"
+    expected = validate_result(snapshot, value)
+    snapshot["input"].update(
+        generation_version=2,
+        documentation_only=True,
+        documentation_version=2,
+        server_bound_updates=True,
+    )
+    wire = deepcopy(value)
+    for topic in wire["topics"]:
+        for update in topic["updates"]:
+            update.pop("date")
+            update.pop("source_ids")
+    built = build_request(snapshot)
+    jsonschema.validate(wire, built["schema"])
+    actual = validate_result(snapshot, json.dumps(wire))
+    for want, got in zip(expected["topics"], actual["topics"], strict=True):
+        for old, new in zip(want["updates"], got["updates"], strict=True):
+            assert new["date"] == old["date"]
+            assert new["source_ids"]
+            assert new["evidence_quote"] == old["evidence_quote"]
+    forged = deepcopy(wire)
+    forged["topics"][0]["updates"][0]["date"] = "1999-01-01"
+    with pytest.raises(ValueError, match="required shape"):
+        validate_result(snapshot, forged)
+    unknown = deepcopy(wire)
+    unknown["topics"][0]["updates"][0]["evidence_quote"] = "q999999"
+    with pytest.raises(ValueError, match="unknown quote"):
+        validate_result(snapshot, unknown)

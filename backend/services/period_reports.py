@@ -562,6 +562,7 @@ def capture_report(sb, owner, folder, payload, now=None):
                 "generation_version": 2,
                 "documentation_only": True,
                 "documentation_version": 2,
+                "server_bound_updates": True,
                 "model_citation_limit": 11,
                 **(
                     {"review_notes_not_evidence": payload["factual_review"]["reason"]}

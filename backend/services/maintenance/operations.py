@@ -395,6 +395,13 @@ def build_request(snapshot):
         max_tokens = min(
             12000, max(4000, (len(canonical(snapshot.get("current"))) + 2) // 3 + 1024)
         )
+    if op == "reports" and snapshot["input"].get("server_bound_updates"):
+        update_shape = shape["topics"][0]["updates"][0]
+        update_schema = schema["properties"]["topics"]["items"]["properties"]["updates"]["items"]
+        for key in ("date", "source_ids"):
+            update_shape.pop(key)
+            update_schema["properties"].pop(key)
+            update_schema["required"].remove(key)
     return {
         "system": (
             "Maintain accurate repository knowledge from supplied evidence only. "
@@ -455,6 +462,14 @@ def build_request(snapshot):
             "Omit incidental camera/vector values and diagnostic counts that do not explain "
             "the main work outcome."
             if op == "reports" and snapshot["input"].get("generation_version") == 2
+            else ""
+        )
+        + (
+            "\nFor timeline updates supply the exact evidence_quote ID, text, title and detail. "
+            "Do not generate a date or source_ids for updates: the server copies both from "
+            "that immutable quote's origin. Keep each update limited to work recorded in "
+            "that source; later progress belongs in a separate update with its own quote. "
+            if op == "reports" and snapshot["input"].get("server_bound_updates")
             else ""
         )
         + "\nRequired result shape: "
@@ -521,6 +536,26 @@ def validate_result(snapshot, raw):
         from services.report_quote_repair import validate_quote_repair
 
         return validate_quote_repair(snapshot, value)
+    model_value = deepcopy(value)
+    if op == "reports" and snapshot["input"].get("server_bound_updates"):
+        wire_shape = deepcopy(report_shape(snapshot))
+        for key in ("date", "source_ids"):
+            wire_shape["topics"][0]["updates"][0].pop(key)
+        if not _shape(value, wire_shape):
+            raise ValueError("maintenance result changed required shape or types")
+        aliases = {source: alias for alias, source in report_aliases(snapshot).items()}
+        sources = {source["id"]: source for source in snapshot["input"]["sources"]}
+        quotes = {
+            quote["id"]: (aliases[source], sources[source]["date"])
+            for source, choices in report_choices(snapshot).items()
+            for quote in choices
+        }
+        for topic in value["topics"]:
+            for update in topic["updates"]:
+                origin = quotes.get(update["evidence_quote"])
+                if origin is None:
+                    raise ValueError("Report update cites an unknown quote")
+                update.update(source_ids=[origin[0]], date=origin[1])
     shape = SHAPES.get(op)
     if op == "reports":
         shape = report_shape(snapshot)
@@ -537,7 +572,7 @@ def validate_result(snapshot, raw):
                 f"{'.'.join(map(str, error.absolute_path))}: "
                 f"{error.validator}={json.dumps(error.validator_value)}"
                 for error in Draft202012Validator(build_request(snapshot)["schema"]).iter_errors(
-                    value
+                    model_value
                 )
             ]
         try:

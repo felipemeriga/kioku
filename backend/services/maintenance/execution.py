@@ -341,7 +341,7 @@ def completion_system(built, *, direct=False):
             " Return exactly one JSON object matching the required report data shape as your "
             "final answer. Do not call tools or use StructuredOutput. Do not add an envelope, "
             "Markdown fences, a preamble or commentary. The server validates the report before "
-            "publication. Copy source and quote IDs and use the date of the quoted source. "
+            "publication. Use only supplied source and quote IDs; follow the exact schema fields. "
             "Use one short recorded fact per item: highlight text <=180 characters, update text "
             "<=280, update detail <=240, final finding text <=320. "
             "The exact JSON data contract (including all bounds) follows: "
