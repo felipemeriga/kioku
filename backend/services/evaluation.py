@@ -19,7 +19,8 @@ from ragas.metrics import (
 )
 
 from db.client import get_supabase_thread_safe
-from services.llm import MODEL_FOR_TASK, Task, api_only_client
+from services.ai.evaluation import SubscriptionJudge
+from services.ai.scope import ExecutionScope
 from services.rag import answer_question
 from services.scope import descendant_folder_ids, validate_scope_folder
 
@@ -49,39 +50,8 @@ class VoyageEmbeddings(BaseRagasEmbeddings):
         return self.embed_documents(texts)
 
 
-def _get_ragas_llm():
-    """Create a RAGAS-compatible LLM using Claude Haiku (the prod singleton).
-
-    We tried OpenAI gpt-4o-mini as the judge; it didn't materially speed up
-    RAGAS (the cost is dominated by per-claim verification calls regardless
-    of model). Sticking with Haiku is simpler — one vendor, no extra API key
-    in CI for normal flow, judge matches the model under test.
-
-    RAGAS is opt-in via runner.py's `--ragas` flag; speed is no longer a
-    primary concern for the judge since RAGAS isn't in the per-PR gate.
-    """
-    from ragas.llms import llm_factory
-
-    llm = llm_factory(
-        MODEL_FOR_TASK[Task.EVAL_JUDGE],
-        provider="anthropic",
-        client=api_only_client(Task.EVAL_JUDGE),
-    )
-    # Claude API rejects requests with both temperature and top_p set;
-    # RAGAS sets both. Patch _map_provider_params to drop top_p. Also cap
-    # max_tokens to 512 — judge outputs are short structured payloads
-    # (claim lists, yes/no verdicts), and lower cap reduces variance.
-    _original_map = llm._map_provider_params
-
-    def _anthropic_params():
-        params = _original_map()
-        d = dict(params) if not isinstance(params, dict) else params
-        d.pop("top_p", None)
-        d["max_tokens"] = 512
-        return d
-
-    llm._map_provider_params = _anthropic_params
-    return llm
+def _get_ragas_llm(user_id, folder_ids=None):
+    return SubscriptionJudge(ExecutionScope(user_id, tuple(folder_ids or ())))
 
 
 @traceable(name="evaluate_rag_pipeline", run_type="chain")
@@ -113,7 +83,7 @@ async def evaluate_rag_pipeline(
 
         scope_folder_ids = await asyncio.to_thread(resolve_scope)
 
-    llm = _get_ragas_llm()
+    llm = _get_ragas_llm(user_id, scope_folder_ids)
     embeddings = VoyageEmbeddings()
 
     samples = []

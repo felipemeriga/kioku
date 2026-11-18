@@ -118,6 +118,13 @@ def _judge(payload_instructions: str, question: str, context: str, answer: str) 
 
 
 def run(user_id: str) -> int:
+    from services.ai.scope import ExecutionScope, execution_scope
+
+    with execution_scope(ExecutionScope(user_id)):
+        return _run_scoped(user_id)
+
+
+def _run_scoped(user_id: str) -> int:
     sb = get_supabase()
     stats = {"fail": 0}
 

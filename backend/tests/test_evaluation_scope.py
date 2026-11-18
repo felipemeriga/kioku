@@ -44,7 +44,7 @@ def scoped_db(monkeypatch):
 
 def fake_ai(monkeypatch):
     calls = []
-    monkeypatch.setattr(evaluation, "_get_ragas_llm", lambda: object())
+    monkeypatch.setattr(evaluation, "_get_ragas_llm", lambda *args: object())
     monkeypatch.setattr(evaluation, "VoyageEmbeddings", lambda: object())
 
     def answer(**kwargs):

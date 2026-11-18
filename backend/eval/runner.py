@@ -325,7 +325,7 @@ def _run_ragas(per_question: list[dict], questions: list[dict]) -> dict:
             return evaluate(
                 dataset=dataset,
                 metrics=metrics,
-                llm=_get_ragas_llm(),
+                llm=_get_ragas_llm(EVAL_USER_ID),
                 embeddings=VoyageEmbeddings(),
             )
         finally:
