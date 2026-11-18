@@ -12,6 +12,7 @@ from copy import deepcopy
 from jsonschema import Draft202012Validator
 
 from services.period_reports import (
+    DOCUMENTATION_V1_GUIDE,
     LEGACY_REPORT_GUIDE,
     REPORT_GUIDE,
     REPORT_SHAPE,
@@ -402,7 +403,17 @@ def build_request(snapshot):
             "schema. If evidence is missing, return the standardized needs_input "
             "outcome; never invent facts."
         ),
-        "prompt": (LEGACY_REPORT_GUIDE if op == "reports" and not chronological else GUIDES[op])
+        "prompt": (
+            (
+                LEGACY_REPORT_GUIDE
+                if not chronological
+                else REPORT_GUIDE
+                if snapshot["input"].get("documentation_version") == 2
+                else DOCUMENTATION_V1_GUIDE
+            )
+            if op == "reports"
+            else GUIDES[op]
+        )
         + (
             "\nEach source has ordered parts preserving its full supplied text. "
             "Read adjacent parts together. Select an evidence_quote ID from the cited source's "

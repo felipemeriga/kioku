@@ -79,6 +79,39 @@ REPORT_SHAPE = {
         }
     ],
 }
+# Preserve the prompt contract of immutable version-one preparations.
+DOCUMENTATION_V1_GUIDE = (
+    "Document the work explicitly recorded in the supplied sources. Do not infer, guess, "
+    "evaluate or reconstruct what probably happened. Use short, factual sentences and "
+    "preserve each source's scope. A journal is reported work, not independent verification. "
+    "The UI has a server-built merge timeline, a work timeline, and the latest documented "
+    "state for each topic. Keep the introduction to two short sentences (420 characters) "
+    "and at most three factual highlights. Group related work only when the sources "
+    "explicitly connect it; do not invent causal links, purposes or outcomes. "
+    "Weekly updates document each active day; monthly updates document each active ISO "
+    "week using an actual source date. At most 28 updates overall for a week and six per "
+    "topic for a month. Never invent activity on idle days. Every finding needs supporting "
+    "source IDs and an exact supplied evidence quote ID. Use individual PR identifiers. "
+    "A principal commit documents merged code. A recorded test documents that test. "
+    "Document deployment, resolution or runtime success only when explicitly reported. "
+    "Do not call an archive complete or a system stable from a few observations. "
+    "Do not calculate new statistics, round measurements into ranges, combine trials, "
+    "or swap entities, versions or units. Omit incidental diagnostics and repeated details. "
+    "The final state is the last explicitly documented observation before cutoff, not "
+    "your verdict. Use Recorded when no explicit status was documented. Never invent "
+    "an open item, risk, recommendation or verification task from missing information. "
+    "Do not add 'not verified' or 'still pending' just because evidence is absent. "
+    "Preserve uncertainty only where it was explicitly recorded or needed to attribute "
+    "a source's claim as reported. A dated opening event does not establish a PR's later "
+    "state. An explicit later removal or revert supersedes earlier implementation. "
+    "Historical weeks describe only evidence available at their cutoff. A fix next week "
+    "belongs next week. Monthly updates preserve each week's recorded state. Never cite "
+    "a later day (weekly) or later ISO week (monthly) in an earlier update. "
+    "Prior reports and summaries are orientation, not primary evidence. Preserve exact "
+    "names and references, avoid unsupported aggregate totals, and document only what "
+    "the sources actually establish."
+)
+
 REPORT_GUIDE = (
     "Document the work explicitly recorded in the supplied sources. Do not infer, guess, "
     "evaluate or reconstruct what probably happened. Use short, factual sentences and "
