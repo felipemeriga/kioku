@@ -1289,4 +1289,4 @@ def test_documentation_json_checks_all_contract_errors_before_publication():
     message = str(error.value)
     assert "outcomes.0.text" in message
     assert "source_ids" in message
-    assert "non-unique" in message
+    assert "uniqueItems=true" in message

@@ -539,7 +539,8 @@ def validate_result(snapshot, raw):
                 raise ValueError(
                     "Report JSON contract: "
                     + "; ".join(
-                        f"{'.'.join(map(str, error.absolute_path))}: {error.message}"
+                        f"{'.'.join(map(str, error.absolute_path))}: "
+                        f"{error.validator}={json.dumps(error.validator_value)}"
                         for error in errors
                     )
                 )
