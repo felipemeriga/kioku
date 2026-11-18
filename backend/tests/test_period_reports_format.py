@@ -1264,3 +1264,16 @@ def test_documentation_native_uses_json_text_and_preserves_legacy_envelopes():
     snapshot["input"]["documentation_version"] = 2
     snapshot["quote_repair"] = {"findings": []}
     assert "outcome" in native_response_schema(snapshot, built)["properties"]
+
+
+def test_report_repair_receives_all_oversized_text_locations():
+    snapshot, value = compact_fixture()
+    value["outcomes"][0]["text"] = "x" * 181
+    value["topics"][0]["updates"][0]["text"] = "y" * 281
+    with pytest.raises(ValueError) as error:
+        validate_result(snapshot, value)
+    message = str(error.value)
+    assert "outcomes[0]; actual=181" in message
+    assert "actual=281" in message
+    assert "10..180" in message
+    assert "10..280" in message

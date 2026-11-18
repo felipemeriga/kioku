@@ -1112,8 +1112,15 @@ def validate_report(snapshot, value):
                 " ".join(item.get(k, "") for k in ("title", "text", "detail")),
                 [sources[i]["text"] for i in item["source_ids"]],
             )
-        if not 10 <= len(item["text"]) <= maximum or not 12 <= len(item["evidence_quote"]) <= 250:
-            raise ValueError("Invalid report item")
+        if not 10 <= len(item["text"]) <= maximum:
+            nonlocal evidence_only
+            evidence_only = False
+            factual_errors.append(
+                f"Report text must be 10..{maximum} characters "
+                f"[{location}; actual={len(item['text'])}]"
+            )
+        if not 12 <= len(item["evidence_quote"]) <= 250:
+            raise ValueError(f"Invalid report quote [{location}]")
         if not any(item["evidence_quote"] in sources[i]["text"] for i in item["source_ids"]):
             raise ValueError("Report lacks an exact supporting quote")
 
