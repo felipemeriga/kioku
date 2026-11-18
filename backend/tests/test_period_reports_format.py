@@ -1340,3 +1340,35 @@ def test_report_pr_connections_require_the_actual_cited_records():
     validate_report_pr_references("PR #485 merged.", ["Merged PR #485 on main."])
     with pytest.raises(ValueError, match="#486"):
         validate_report_pr_references("PRs #485–#486 merged.", ["Merged PR #485 on main."])
+
+
+def test_update_primary_pr_links_cannot_pull_a_later_day_or_another_repository():
+    from services.period_reports import report_update_sources
+
+    snapshot, _ = compact_fixture()
+    origin = snapshot["input"]["sources"][0]
+    primary = deepcopy(next(s for s in snapshot["input"]["sources"] if s["kind"] == "git_commit"))
+    primary.update(
+        id="commit:new",
+        text="Commit on principal branch: fix connection (#486)",
+        date="2026-11-14",
+        observed_at="2026-11-14T12:00:00Z",
+        url="https://github.com/example/repo/commit/new",
+    )
+    snapshot["input"]["sources"].append(primary)
+    update = {"text": "PR #486 merged.", "title": "Connection", "detail": ""}
+    assert len(report_update_sources(snapshot, update, origin["id"], "2026-11-13")) == 1
+    assert len(report_update_sources(snapshot, update, origin["id"], "2026-11-14")) == 2
+    update["text"] = "other/repo#486 merged."
+    assert len(report_update_sources(snapshot, update, origin["id"], "2026-11-14")) == 1
+
+
+def test_report_model_upgrade_is_isolated_from_legacy_and_other_maintenance():
+    from services.maintenance.execution import MAINTENANCE_MODEL, maintenance_model
+
+    assert maintenance_model({"operation": "activity", "input": {}}) == MAINTENANCE_MODEL
+    assert maintenance_model({"operation": "reports", "input": {}}) == MAINTENANCE_MODEL
+    assert (
+        maintenance_model({"operation": "reports", "input": {"server_bound_updates": True}})
+        == "claude-opus-5-5"
+    )

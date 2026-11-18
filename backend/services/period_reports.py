@@ -910,18 +910,53 @@ def validate_runtime_provenance(text, evidence):
         raise ValueError("Report runtime claim requires observed evidence, not only Git changes")
 
 
+def report_pr_numbers(text):
+    result = set(re.findall(r"#([1-9][0-9]*)\b", text))
+    for first, last in re.findall(r"#([1-9][0-9]*)\s*[-–—]\s*#?([1-9][0-9]*)\b", text):
+        first, last = int(first), int(last)
+        if not 0 <= last - first <= 100:
+            raise ValueError("Report PR range exceeds bounded individual evidence")
+        result.update(str(n) for n in range(first, last + 1))
+    return result
+
+
+def report_update_sources(snapshot, update, origin, day):
+    """Bind explicit PR identifiers to primary records inside the same time bucket."""
+    sources = snapshot["input"]["sources"]
+    aliases = {source: alias for alias, source in report_aliases(snapshot).items()}
+    original = next(source for source in sources if source["id"] == origin)
+    text = " ".join(update.get(key, "") for key in ("title", "text", "detail"))
+    wanted = report_pr_numbers(text) - report_pr_numbers(original["text"])
+    qualified = re.findall(r"\b([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([1-9][0-9]*)\b", text)
+    last_day = (
+        calendar_period("weekly", datetime.fromisoformat(day).date())[1].isoformat()
+        if snapshot["input"]["kind"] == "monthly"
+        else day
+    )
+    result = [aliases[origin]]
+    for source in sources:
+        if (
+            source["kind"] != "git_commit"
+            or source["id"] not in aliases
+            or source["date"] > last_day
+        ):
+            continue
+        title = source["text"].splitlines()[0]
+        match = re.search(r"\(#([1-9][0-9]*)\)|Merge pull request #([1-9][0-9]*)", title, re.I)
+        number = next((v for v in match.groups() if v), None) if match else None
+        if number not in wanted:
+            continue
+        repository = re.search(r"github\.com/([^/]+/[^/]+)/commit/", source.get("url") or "")
+        if any(n == number and (not repository or repo != repository[1]) for repo, n in qualified):
+            continue
+        result.append(aliases[source["id"]])
+        wanted.remove(number)
+    return result
+
+
 def validate_report_pr_references(text, evidence):
     """Every PR identifier in generated prose needs its own cited record."""
-
-    def numbers(value):
-        result = set(re.findall(r"#([1-9][0-9]*)\b", value))
-        for first, last in re.findall(r"#([1-9][0-9]*)\s*[-–—]\s*#?([1-9][0-9]*)\b", value):
-            first, last = int(first), int(last)
-            if 0 <= last - first <= 100:
-                result.update(str(n) for n in range(first, last + 1))
-        return result
-
-    missing = numbers(text) - numbers(" ".join(evidence))
+    missing = report_pr_numbers(text) - report_pr_numbers(" ".join(evidence))
     if missing:
         raise ValueError(
             "Report PR references lack cited evidence: "

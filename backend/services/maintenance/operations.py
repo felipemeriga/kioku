@@ -24,6 +24,7 @@ from services.period_reports import (
     report_quote_choices,
     report_shape,
     report_update_limit,
+    report_update_sources,
     validate_report,
 )
 
@@ -555,7 +556,11 @@ def validate_result(snapshot, raw):
                 origin = quotes.get(update["evidence_quote"])
                 if origin is None:
                     raise ValueError("Report update cites an unknown quote")
-                update.update(source_ids=[origin[0]], date=origin[1])
+                source = next(key for key, alias in aliases.items() if alias == origin[0])
+                update.update(
+                    source_ids=report_update_sources(snapshot, update, source, origin[1]),
+                    date=origin[1],
+                )
     shape = SHAPES.get(op)
     if op == "reports":
         shape = report_shape(snapshot)

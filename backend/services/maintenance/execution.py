@@ -323,6 +323,14 @@ MAINTENANCE_MODEL = "claude-sonnet-4-6"
 MAINTENANCE_MAX_TURNS = 6
 
 
+def maintenance_model(snapshot):
+    if snapshot.get("operation") == "reports" and snapshot.get("input", {}).get(
+        "server_bound_updates"
+    ):
+        return "claude-opus-5-5"
+    return MAINTENANCE_MODEL
+
+
 def direct_documentation(snapshot):
     return (
         snapshot.get("operation") == "reports"
@@ -371,7 +379,7 @@ def request_matches_policy(row, *, allow_repair=False):
         and request["max_tokens"] == built["max_tokens"]
         and request["response_schema"] == native_response_schema(row["snapshot"], built)
         and request["max_turns"] == MAINTENANCE_MAX_TURNS
-        and request["model"] == MAINTENANCE_MODEL
+        and request["model"] == maintenance_model(row["snapshot"])
         and request.get("reasoning_effort")
         == (
             (
@@ -836,7 +844,7 @@ def prepare(
             "built": built,
             "system": completion_system(built, direct=direct_documentation(snapshot)),
             "schema": native_response_schema(snapshot, built),
-            "model": MAINTENANCE_MODEL,
+            "model": maintenance_model(snapshot),
             "max_turns": MAINTENANCE_MAX_TURNS,
             **reasoning,
         }
@@ -851,7 +859,7 @@ def prepare(
         "profile": "completion",
         "prompt": built["prompt"],
         "system_prompt": completion_system(built, direct=direct_documentation(snapshot)),
-        "model": MAINTENANCE_MODEL,
+        "model": maintenance_model(snapshot),
         "max_tokens": built["max_tokens"],
         "max_turns": MAINTENANCE_MAX_TURNS,
         "thinking_tokens": 0,
