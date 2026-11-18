@@ -56,17 +56,14 @@ def test_eof_without_terminal_fails():
     client.close()
 
 
-def test_default_api_and_owner_only_explicit_native(monkeypatch):
+def test_subscription_is_shared_and_never_falls_back_to_api(monkeypatch):
     monkeypatch.delenv("TSUKAI_NATIVE_TASKS", raising=False)
-    assert engine_for("query_rewrite", "owner") == "api"
-    monkeypatch.setenv("TSUKAI_NATIVE_TASKS", "query_rewrite,image_ocr")
-    monkeypatch.setenv("TSUKAI_CREDENTIAL_OWNER_ID", "owner")
-    assert engine_for("query_rewrite", "foreign") == "api"
-    with pytest.raises(PermissionError):
-        engine_for("query_rewrite", "foreign", explicit_native=True)
-    assert engine_for("query_rewrite", "owner") == "tsukai"
-    with pytest.raises(ValueError, match="unverified"):
-        engine_for("image_ocr", "owner")
+    monkeypatch.setenv("TSUKAI_CREDENTIAL_OWNER_ID", "funding-owner")
+    for owner in ("funding-owner", "another-user"):
+        for operation in ("query_rewrite", "image_ocr", "eval_judge"):
+            assert engine_for(operation, owner) == "tsukai"
+    with pytest.raises(PermissionError, match="authenticated owner"):
+        engine_for("query_rewrite", None)
 
 
 def test_expired_replay_fetches_canonical_result_without_new_inference():

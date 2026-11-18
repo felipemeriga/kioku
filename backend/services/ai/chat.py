@@ -841,8 +841,7 @@ def reconcile_pending():
 async def reconciliation_loop():
     while True:
         if os.getenv("TSUKAI_URL"):
-            if os.getenv("TSUKAI_NATIVE_TASKS"):
-                await asyncio.to_thread(reconcile_pending)
+            await asyncio.to_thread(reconcile_pending)
             try:
                 from services.ai.deletions import reconcile_deletions
 

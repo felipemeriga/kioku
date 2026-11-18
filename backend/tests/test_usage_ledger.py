@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from services.usage_ledger import UsageAttribution, UsageCollector, collect_usage, usage_row
 
@@ -51,17 +51,18 @@ def test_cache_write_without_ttl_breakdown_defaults_to_five_minutes():
     assert row["cache_write_1h_tokens"] == 0
 
 
-def test_chat_retrieval_call_is_collected_under_the_response():
+def test_subscription_completion_does_not_duplicate_api_usage_rows():
     from services.llm import Task, complete
 
     collector = UsageCollector()
-    client = MagicMock()
-    client.messages.create.return_value = _message()
-    with patch("services.llm.get_client", return_value=client):
+    with (
+        patch("services.llm.native_completion", return_value=SimpleNamespace(content=[])) as native,
+        patch("services.llm.get_client") as api,
+    ):
         with collect_usage(
             UsageAttribution("user", "chat", "enrichment", response_id="response"), collector
         ):
             complete(task=Task.QUERY_REWRITE, messages=[{"role": "user", "content": "query"}])
-    assert len(collector.rows) == 1
-    assert collector.rows[0]["operation"] == "query_rewrite"
-    assert collector.rows[0]["response_id"] == "response"
+    assert native.call_args.kwargs["fallback_scope"].owner_id == "user"
+    api.assert_not_called()
+    assert collector.rows == []

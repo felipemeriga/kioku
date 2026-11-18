@@ -65,3 +65,18 @@ seconds; failures back off for 30 seconds and return the prior catalog marked st
 when available, otherwise 503. Models whose descriptions require usage credits are
 marked unselectable. Static pilot allowances remain separate from dynamic catalog
 admission. The product exposes this through `GET /api/chat/models`.
+
+
+## Shared subscription and inline vision
+
+All backend-authenticated tenants may use the deployment subscription. The old
+entitled-owner list is only a fallback identity for readiness probes. Service
+authentication, signed request digests, owner/folder/caller/profile checks and
+owner-scoped result/replay/deletion remain mandatory. Funding does not confer data
+access to the funding user or any other tenant.
+
+Only `image_ocr` completion jobs accept `input_images`: up to four inline
+base64 PNG/JPEG/GIF/WebP images, at most 5 MiB each, with matching signatures.
+The native process receives images through stdin with `--input-format stream-json`;
+there is no URL download, temporary image file or additional tool permission.
+Empty image arrays are omitted from serialization to preserve existing request hashes.

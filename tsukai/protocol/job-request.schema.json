@@ -1,4 +1,33 @@
 {
+  "$defs": {
+    "InputImage": {
+      "additionalProperties": false,
+      "properties": {
+        "media_type": {
+          "enum": [
+            "image/png",
+            "image/jpeg",
+            "image/gif",
+            "image/webp"
+          ],
+          "title": "Media Type",
+          "type": "string"
+        },
+        "data": {
+          "maxLength": 7000000,
+          "minLength": 1,
+          "title": "Data",
+          "type": "string"
+        }
+      },
+      "required": [
+        "media_type",
+        "data"
+      ],
+      "title": "InputImage",
+      "type": "object"
+    }
+  },
   "additionalProperties": false,
   "properties": {
     "schema_version": {
@@ -199,6 +228,14 @@
       "additionalProperties": true,
       "title": "Metadata",
       "type": "object"
+    },
+    "input_images": {
+      "items": {
+        "$ref": "#/$defs/InputImage"
+      },
+      "maxItems": 4,
+      "title": "Input Images",
+      "type": "array"
     }
   },
   "required": [

@@ -189,10 +189,6 @@ def run(repo_id, head, area, worker_path, mcp_url=None):
     if not repos:
         raise RuntimeError("Isolated watched repository not found")
     repo = repos[0]
-    if repo["user_id"] != os.environ.get("TSUKAI_CREDENTIAL_OWNER_ID"):
-        raise RuntimeError(
-            "Fixture must belong to the configured native credential owner"
-        )
     folders = worker.rest_get(
         "folders", {"id": f"eq.{repo['folder_id']}", "select": "name", "limit": "1"}
     )

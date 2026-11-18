@@ -231,6 +231,30 @@ class NativeRunner:
                 + json.dumps(claim["repair_diagnostic"])
                 + "</repair_diagnostic>"
             )
+        if req.input_images:
+            args += ["--input-format", "stream-json"]
+            prompt = (
+                json.dumps(
+                    {
+                        "type": "user",
+                        "parent_tool_use_id": None,
+                        "message": {
+                            "role": "user",
+                            "content": [
+                                *[
+                                    {
+                                        "type": "image",
+                                        "source": {"type": "base64", **image.model_dump()},
+                                    }
+                                    for image in req.input_images
+                                ],
+                                {"type": "text", "text": prompt},
+                            ],
+                        },
+                    }
+                )
+                + "\n"
+            )
         proc = None
         started, first, bytes_seen = time.monotonic(), False, 0
         final = None

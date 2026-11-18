@@ -95,7 +95,11 @@ class Scheduler:
             await self.native.verify_version()
             if self.settings.auth_probe:
                 # Admission/attempt/event accounting includes the readiness inference.
-                owners = sorted(self.settings.entitled_owners)
+                owners = (
+                    [self.settings.credential_owner_id]
+                    if self.settings.credential_owner_id
+                    else sorted(self.settings.entitled_owners)
+                )
                 if not owners:
                     self.auth_state = "no_entitled_owner"
                 else:

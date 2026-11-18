@@ -2229,14 +2229,16 @@ def _startup_healthcheck() -> None:
         print(f"  ✗ Supabase       {str(exc)[:120]}")
         print("    Hint: check SUPABASE_URL + SUPABASE_SERVICE_KEY in .env")
 
-    # Anthropic
-    try:
-        if not os.environ.get("ANTHROPIC_API_KEY"):
-            print("  ✗ Anthropic      ANTHROPIC_API_KEY not set")
-        else:
-            print("  ✓ Anthropic      api key present")
-    except Exception as exc:  # noqa: BLE001
-        print(f"  ✗ Anthropic      {str(exc)[:120]}")
+    # Claude subscription execution (API keys are deprecated).
+    missing = [
+        name
+        for name in ("TSUKAI_URL", "TSUKAI_SERVICE_TOKEN", "TSUKAI_CAPABILITY_KEY")
+        if not os.environ.get(name)
+    ]
+    if missing:
+        print("  ✗ Claude         subscription configuration missing: " + ", ".join(missing))
+    else:
+        print("  ✓ Claude         shared subscription execution configured")
 
     # Voyage (embeddings)
     if not os.environ.get("VOYAGE_API_KEY"):

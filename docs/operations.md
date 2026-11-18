@@ -35,7 +35,7 @@ Do not apply `backend/db/local_setup.sql` to production.
    and no role memberships. Run `tsukai/ops/grant-runtime.sql` as migration owner
    with `runtime_role` set to that login. Reapply the idempotent template after
    schema upgrades. Never use the Supabase service role as the runner DB login.
-3. Configure separate service and capability secrets, explicit entitled owner IDs,
+3. Configure separate service and capability secrets, a subscription funding principal,
    native credentials, persistent native state/workspaces, and database TLS trust.
    Use the checked-in Tsukai Compose definition for mounts and restrictions.
 4. Start one runner replica and check `/health/live` and `/health/ready` privately.
@@ -43,9 +43,11 @@ Do not apply `backend/db/local_setup.sql` to production.
    not repeatedly invoke inference. `/internal/recheck-auth` performs the explicit
    recheck after credential rotation.
 5. Configure backend **and worker** with matching runner URL, transport/capability
-   credentials, credential owner, and operation allowlist. Enable only verified
-   operations through `TSUKAI_NATIVE_TASKS`. Mihari native routing has its separate
-   `TSUKAI_MIHARI_NATIVE` gate.
+   credentials. Claude always uses this shared subscription for every authenticated
+   user; `ANTHROPIC_API_KEY`, `TSUKAI_NATIVE_TASKS` and `TSUKAI_MIHARI_NATIVE` no longer
+   select an API path. `TSUKAI_CREDENTIAL_OWNER_ID` attributes runner readiness probes;
+   it never grants access to another user's data. Legacy `TSUKAI_ENTITLED_OWNER_IDS`
+   is accepted only as readiness-attribution fallback, not an access allowlist.
 6. Verify scoped chat, replay, cancellation, recovery, usage, and maintenance
    publication in an integration environment before enabling ordinary traffic.
 

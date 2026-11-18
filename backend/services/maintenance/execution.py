@@ -24,14 +24,14 @@ from services.maintenance.snapshots import capture
 
 
 def native_enabled(owner):
-    if os.getenv("TSUKAI_MIHARI_NATIVE", "").lower() not in ("1", "true"):
-        return False
-    return bool(os.getenv("TSUKAI_CREDENTIAL_OWNER_ID")) and owner == os.getenv(
-        "TSUKAI_CREDENTIAL_OWNER_ID"
-    )
+    # All tenants use the deployment subscription; owner remains execution/data scope.
+    return bool(owner)
 
 
 def capability(owner, folder, request=None):
+    from services.ai.facade import require_subscription_config
+
+    require_subscription_config()
     scope = ExecutionScope(owner, (folder,), caller="mihari")
     token = sign_capability(
         scope,
@@ -1149,69 +1149,5 @@ def publish(sb, owner, folder, preparation, job_id):
 
 
 def execute_api(sb, owner, folder, operation, payload):
-    """API-provider compatibility uses the same pure builder, validator and CAS."""
-    from services.llm import Task, complete
-    from services.usage_ledger import UsageAttribution
-
-    promoted = 0
-    snapshot, reason = capture_pending(sb, owner, folder, operation, payload)
-    if snapshot is None:
-        result = {"ok": True, "updated": False, "reason": reason}
-        if operation == "learnings":
-            result["updated_learnings"] = promote_main_learnings(sb, owner, folder, payload)
-        return result
-    captured_at = datetime.now(timezone.utc).isoformat()
-    built = build_request(snapshot)
-    if operation == "documentation":
-        from services.llm import stream_complete
-        from services.usage_ledger import save_usage, usage_row
-
-        with stream_complete(
-            task=Task(built["task"]),
-            max_tokens=built["max_tokens"],
-            system=built["system"],
-            messages=[{"role": "user", "content": built["prompt"]}],
-        ) as stream:
-            text = "".join(stream.text_stream).strip()
-            save_usage(
-                [
-                    usage_row(
-                        stream.get_final_message(),
-                        UsageAttribution(owner, "mihari", operation, folder),
-                    )
-                ]
-            )
-        try:
-            raw = json.loads(text.removeprefix("```json").removesuffix("```").strip())
-        except ValueError:
-            raw = {"content": text.removeprefix("```markdown").removesuffix("```").strip()}
-    else:
-        response = complete(
-            task=Task(built["task"]),
-            max_tokens=built["max_tokens"],
-            system=built["system"],
-            messages=[{"role": "user", "content": built["prompt"]}],
-            attribution=UsageAttribution(owner, "mihari", operation, folder),
-        )
-        text = "".join(b.text for b in response.content if hasattr(b, "text")).strip()
-        raw = text.removeprefix("```json").removesuffix("```").strip()
-    value = validate_result(snapshot, raw)
-    preparation = str(uuid4())
-    sb.table("maintenance_preparations").insert(
-        {
-            "id": preparation,
-            "user_id": owner,
-            "folder_id": folder,
-            "head_sha": payload["head_sha"],
-            "operation": operation,
-            "input_digest": digest(snapshot),
-            "idempotency_key": "api:" + preparation,
-            "created_at": captured_at,
-            "snapshot": snapshot,
-            "request": {},
-        }
-    ).execute()
-    publication = apply_result(sb, preparation, owner, "api:" + preparation, value, operation)
-    if operation == "learnings":
-        publication["updated_learnings"] = publication.get("updated_learnings", 0) + promoted
-    return publication
+    """Deprecated SDK entry point. Subscription jobs require signed prepare/publish."""
+    raise ExecutionError("api_deprecated", "Use the subscription maintenance bridge")

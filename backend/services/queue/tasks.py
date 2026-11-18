@@ -193,7 +193,8 @@ async def _ingest_notion_page_task_impl(ctx: dict, payload: dict) -> None:
     blocks = list(fetch_block_tree(notion, payload["page_id"]))
 
     markdown = blocks_to_markdown(blocks)
-    markdown = resolve_attachments(markdown)
+    with execution_scope(document_scope(payload["user_id"], payload["root_folder_id"])):
+        markdown = resolve_attachments(markdown)
 
     # Content-hash gate: Notion bumps a page's last_edited_time on no-op touches
     # (opening it, editing a child, a property change), so the reconcile diff
@@ -639,7 +640,8 @@ async def ingest_document_task(ctx: dict, payload: dict) -> None:
         media_kind = payload["media_kind"]
         filename = payload["filename"]
         if media_kind == "image":
-            text = await asyncio.to_thread(extract_from_image, file_bytes, filename)
+            with execution_scope(document_scope(payload["user_id"], payload.get("folder_id"))):
+                text = await asyncio.to_thread(extract_from_image, file_bytes, filename)
         elif media_kind == "audio":
             text = await asyncio.to_thread(transcribe_audio, file_bytes, filename)
         else:

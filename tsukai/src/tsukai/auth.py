@@ -32,21 +32,8 @@ def capability(request: Request, settings, allow_cleanup=False, allow_admin=Fals
         cap = Capability.model_validate(raw)
         if cap.exp - cap.iat > 900 or cap.exp <= cap.iat or cap.iat > time.time() + 5:
             raise ValueError("invalid lifetime")
-        if (
-            cap.owner_id not in settings.entitled_owners
-            and not (
-                allow_cleanup
-                and cap.sub == "backend"
-                and set(cap.operations).issubset({"session.delete", "account.delete"})
-            )
-            and not (
-                allow_admin
-                and cap.admin
-                and cap.sub == "backend"
-                and cap.operations == ["runtime.sessions.read"]
-            )
-        ):
-            raise HTTPException(403, "subscription_owner_not_entitled")
+        # Subscription funding is deployment-wide. A valid backend-signed grant
+        # authorizes this tenant only; authorize() still checks every scope field.
         return cap
     except (jwt.PyJWTError, ValidationError, ValueError):
         raise HTTPException(403, "scope_capability_invalid") from None

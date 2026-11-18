@@ -15,7 +15,7 @@ from langsmith import traceable
 from db.client import get_supabase_thread_safe
 from services.citations import CitationRegistry
 from services.llm import Task, complete, stream_complete
-from services.metrics import collect_request, record, submit_with_context
+from services.metrics import collect_request, submit_with_context
 from services.timing import request, stage
 from services.tools import TOOL_DEFINITIONS, execute_tool
 from services.usage_ledger import (
@@ -174,119 +174,90 @@ def answer_question(
     scope_folder_ids: list[str] | None = None,
     scope_filename: str | None = None,
 ) -> dict:
-    """Run the agent loop end-to-end, return final answer + retrieved chunks.
+    """Evaluate through the production subscription chat path, then remove the fixture."""
+    import json
+    from uuid import uuid4
 
-    This is the SHARED core used by both stream_rag_response (SSE wrapper with
-    DB side effects) and the eval harness (no SSE, no DB writes). When you
-    change agent behavior, both paths change together — the eval can never
-    drift from prod.
+    from services.ai.chat import prepare_turn, stream_turn
+    from services.scope import descendant_folder_ids, validate_scope_folder
 
-    Returns:
-        {
-            "response": str,                 # final assembled assistant text
-            "retrieved_chunks": list[str],   # raw chunks the agent received
-                                             # from knowledge_base_search tool
-                                             # results (one entry per chunk)
-            "rounds_used": int,              # how many agent loop rounds ran
-            "tool_calls": int,               # total tool invocations
-        }
-    """
-    messages = list(history or []) + [{"role": "user", "content": user_message}]
-
-    full_response = ""
-    retrieved_chunks: list[str] = []
-    max_rounds = 10
-    tool_call_count = 0
-    rounds_used = 0
-    task, max_tokens, thinking_budget = _agent_params(model, mode)
-    system_prompt, tools = _mode_config(mode)
-    citations = CitationRegistry()
-
-    for round_num in range(max_rounds):
-        rounds_used = round_num + 1
-        with stage(f"round {round_num + 1}: anthropic call"):
-            response = complete(
-                task=task,
-                max_tokens=max_tokens,
-                thinking_budget=thinking_budget,
-                system=system_prompt,
-                messages=messages,
-                tools=tools,
-            )
-
-        if response.stop_reason == "tool_use":
-            messages.append({"role": "assistant", "content": response.content})
-
-            tool_uses = [b for b in response.content if b.type == "tool_use"]
-            tool_call_count += len(tool_uses)
-
-            def _run_tool(block, _indent: int = 1) -> dict:
-                with stage(f"tool: {block.name}", indent=_indent):
-                    result_text = execute_tool(
-                        block.name,
-                        block.input,
-                        user_id,
-                        fast_mode=False,
-                        scope_folder_ids=scope_folder_ids,
-                        scope_filename=scope_filename,
-                        citations=citations,
-                    )
-                return {
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": result_text,
-                    "_tool_name": block.name,
-                }
-
-            if len(tool_uses) > 1:
-                # Claude's parallel tool use: run them concurrently instead of
-                # blocking on each in sequence.
-                with stage(f"{len(tool_uses)} tools (parallel)"):
-                    with ThreadPoolExecutor(max_workers=len(tool_uses)) as pool:
-                        futures = [submit_with_context(pool, _run_tool, b, 2) for b in tool_uses]
-                        tool_results = [f.result() for f in futures]
-            else:
-                tool_results = [_run_tool(b) for b in tool_uses]
-
-            # Capture knowledge_base_search chunks for eval / RAGAS context metrics
-            for tr in tool_results:
-                if tr.get("_tool_name") == "knowledge_base_search":
-                    content = tr.get("content", "")
-                    if isinstance(content, str) and content:
-                        chunks = [c.strip() for c in content.split("\n\n---\n\n") if c.strip()]
-                        retrieved_chunks.extend(chunks)
-
-            # Strip internal key before appending to messages (Anthropic API
-            # doesn't accept unknown fields in tool_result blocks).
-            api_tool_results = [
-                {k: v for k, v in tr.items() if k != "_tool_name"} for tr in tool_results
-            ]
-            messages.append({"role": "user", "content": api_tool_results})
-
-            continue
-
-        # Claude is done with tools — collect the final text response
-        for block in response.content:
-            if hasattr(block, "text"):
-                full_response += block.text
-        break
-    else:
-        full_response = "I was unable to complete the request after multiple attempts."
-
-    record("agent_loop", n_rounds=rounds_used, n_tool_calls=tool_call_count)
-
+    if not user_id:
+        raise PermissionError("Evaluation requires authenticated owner scope")
+    sb = get_supabase_thread_safe()
+    folder_id = None
+    if scope_folder_ids is not None:
+        if not scope_folder_ids:
+            raise ValueError("An empty evaluation scope cannot become an unscoped request")
+        folder_id = scope_folder_ids[0]
+        validate_scope_folder(folder_id, user_id)
+        if set(descendant_folder_ids(sb, folder_id, user_id)) != set(scope_folder_ids):
+            raise ValueError("Evaluation scope must be one complete owned subtree")
+    conversation_id = str(uuid4())
+    sb.table("conversations").insert({"id": conversation_id, "user_id": user_id}).execute()
     try:
-        citations.enrich_urls(get_supabase_thread_safe(), user_id)
-    except Exception:  # noqa: BLE001
-        logger.debug("citation url enrichment failed", exc_info=True)
-
-    return {
-        "response": full_response,
-        "retrieved_chunks": retrieved_chunks,
-        "rounds_used": rounds_used,
-        "tool_calls": tool_call_count,
-        "citations": citations.entries(),
-    }
+        if history:
+            sb.table("messages").insert(
+                [
+                    {
+                        "conversation_id": conversation_id,
+                        "role": row["role"],
+                        "content": row["content"],
+                    }
+                    for row in history
+                    if row["role"] in {"user", "assistant"}
+                ]
+            ).execute()
+        turn = prepare_turn(
+            owner_id=user_id,
+            conversation_id=conversation_id,
+            content=user_message,
+            turn_id=str(uuid4()),
+            model=model,
+            mode=mode,
+            folder_id=folder_id,
+            filename=scope_filename,
+            reasoning_effort="low",
+        )
+        for event in stream_turn(turn):
+            for line in event.splitlines():
+                if not line.startswith("data: "):
+                    continue
+                frame = json.loads(line[6:])
+                if frame.get("error"):
+                    raise RuntimeError(frame["error"])
+                if frame.get("done") and "replace" in frame:
+                    debug = frame.get("debug") or {}
+                    plain = turn["request"]["profile"] == "completion"
+                    query = (
+                        sb.table("tsukai_tool_traces")
+                        .select("trace")
+                        .eq("owner_id", user_id)
+                        .eq("job_id", turn["id"] if plain else turn["job_id"])
+                    )
+                    attempt = (debug.get("execution") or {}).get("attempt_id")
+                    if attempt and not plain:
+                        query = query.eq("attempt_id", attempt)
+                    traces = query.execute().data or []
+                    contexts = [
+                        source["content"]
+                        for row in traces
+                        for source in row["trace"].get("sources", [])
+                        if source.get("content")
+                    ]
+                    return {
+                        "response": frame["replace"],
+                        "retrieved_chunks": contexts,
+                        "rounds_used": 1,
+                        "tool_calls": len(debug.get("tool_calls", [])),
+                        "citations": frame.get("citations") or [],
+                    }
+        raise RuntimeError("Subscription evaluation ended without a published answer")
+    finally:
+        # Same owner-filtered deletion as the product route; database triggers
+        # enqueue native-domain cleanup rather than leaving test conversations.
+        sb.table("conversations").delete().eq("id", conversation_id).eq(
+            "user_id", user_id
+        ).execute()
 
 
 @traceable(name="stream_rag_response", run_type="chain")

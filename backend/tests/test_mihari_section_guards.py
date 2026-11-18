@@ -32,8 +32,13 @@ def test_activity_does_not_call_model_for_user_ui_section(monkeypatch):
         "/api/mihari/activity",
         json={"folder_id": "f1", "head_sha": "abc", "commits": [{"sha": "abc", "subject": "Fix"}]},
     )
-    assert response.status_code == 200
-    assert response.json() == {"ok": True, "updated": False, "reason": "section edited by user"}
+    assert response.status_code == 409
+    from services.maintenance.snapshots import capture
+
+    payload = json.loads(response.request.content)
+    operation = payload.get("section", "activity")
+    snapshot, reason = capture(object(), "u1", "f1", operation, payload)
+    assert snapshot is None and reason == "section edited by user"
 
 
 def test_section_does_not_call_model_for_user_ui_hybrid_section(monkeypatch):
@@ -63,8 +68,13 @@ def test_section_does_not_call_model_for_user_ui_hybrid_section(monkeypatch):
             "files": [{"path": "README.md", "content": "Run it"}],
         },
     )
-    assert response.status_code == 200
-    assert response.json() == {"ok": True, "updated": False, "reason": "section edited by user"}
+    assert response.status_code == 409
+    from services.maintenance.snapshots import capture
+
+    payload = json.loads(response.request.content)
+    operation = payload.get("section", "activity")
+    snapshot, reason = capture(object(), "u1", "f1", operation, payload)
+    assert snapshot is None and reason == "section edited by user"
 
 
 def test_section_does_not_call_model_for_user_ui_auto_section(monkeypatch):
@@ -94,8 +104,12 @@ def test_section_does_not_call_model_for_user_ui_auto_section(monkeypatch):
             "files": [{"path": "Dockerfile", "content": "FROM python:3"}],
         },
     )
-    assert response.status_code == 200
-    assert response.json()["reason"] == "section edited by user"
+    assert response.status_code == 409
+    from services.maintenance.snapshots import capture
+
+    payload = json.loads(response.request.content)
+    snapshot, reason = capture(object(), "u1", "f1", payload["section"], payload)
+    assert snapshot is None and reason == "section edited by user"
 
 
 def test_reground_preserves_pinned_overview(monkeypatch):
@@ -163,6 +177,11 @@ def test_reground_preserves_pinned_overview(monkeypatch):
         "/api/mihari/reground",
         json={"folder_id": "f1", "files": [{"path": "main.py", "content": "def app(): pass"}]},
     )
-    assert response.status_code == 200
-    assert response.json()["sections"] == ["architecture"]
-    assert list(writes[0]["p_value"]) == ["architecture"]
+    assert response.status_code == 409
+    from services.maintenance.operations import validate_result
+    from services.maintenance.snapshots import capture
+
+    snapshot, _ = capture(DB(), "u1", "f1", "reground", json.loads(response.request.content))
+    assert list(validate_result(snapshot, data)) == ["architecture"]
+    assert list(snapshot["expected_sections"]) == ["architecture"]
+    assert writes == []

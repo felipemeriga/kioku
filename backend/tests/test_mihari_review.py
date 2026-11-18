@@ -3,6 +3,7 @@ from contextlib import contextmanager
 from types import SimpleNamespace
 
 import httpx
+import pytest
 from anthropic import BadRequestError
 from fastapi.testclient import TestClient
 
@@ -50,6 +51,16 @@ class DB:
         self.writes = []
 
     def table(self, name):
+        if name == "maintenance_review_passes":
+            return Query(
+                [
+                    {
+                        "head_sha": "b" * 40,
+                        "selected": ["architecture", "overview"],
+                        "acknowledged": ["architecture", "overview"],
+                    }
+                ]
+            )
         if name == "repo_documentation":
             return Query([{"abstract": "API and worker architecture"}])
         if name == "repo_freshness":
@@ -108,9 +119,17 @@ def test_review_plan_can_choose_activity_only_and_still_review_full_briefing(mon
             "patch": "Optimize reranker call",
         },
     )
-    assert response.status_code == 200
-    assert response.json()["selected"] == ["activity"]
-    assert set(response.json()["reviewed"]) == {"architecture", "overview"}
+    assert response.status_code == 409
+    from services.maintenance.execution import apply_result
+    from services.maintenance.operations import validate_result
+    from services.maintenance.snapshots import capture
+
+    snapshot, _ = capture(db, "u1", "f1", "review_plan", json.loads(response.request.content))
+    result = apply_result(
+        db, "preparation", "u1", "job", validate_result(snapshot, {"selected": ["activity"]})
+    )
+    assert result["selected"] == ["activity"]
+    assert set(result["reviewed"]) == {"architecture", "overview"}
 
 
 def test_review_plan_rejects_invalid_model_reply_without_expensive_fallback(monkeypatch):
@@ -130,11 +149,16 @@ def test_review_plan_rejects_invalid_model_reply_without_expensive_fallback(monk
         "/api/mihari/review-plan",
         json={"folder_id": "f1", "head_sha": "a" * 40},
     )
-    assert response.status_code == 502
-    assert response.json()["detail"] == "invalid briefing review plan"
+    assert response.status_code == 409
+    from services.maintenance.operations import validate_result
+    from services.maintenance.snapshots import capture
+
+    snapshot, _ = capture(db, "u1", "f1", "review_plan", json.loads(response.request.content))
+    with pytest.raises(ValueError):
+        validate_result(snapshot, "Not valid JSON")
 
 
-def test_review_plan_reports_exhausted_anthropic_credits(monkeypatch):
+def test_legacy_api_review_route_is_deprecated_for_all_users(monkeypatch):
     db = DB()
     monkeypatch.setattr(mihari, "_api_key_auth", lambda _request: ("u1", "f1", "rag_test"))
     monkeypatch.setattr(mihari, "get_supabase", lambda: db)
@@ -159,8 +183,8 @@ def test_review_plan_reports_exhausted_anthropic_credits(monkeypatch):
         "/api/mihari/review-plan",
         json={"folder_id": "f1", "head_sha": "a" * 40},
     )
-    assert response.status_code == 503
-    assert "credits exhausted" in response.json()["detail"]
+    assert response.status_code == 409
+    assert response.json()["detail"] == "direct maintenance execution required"
 
 
 def test_review_completion_preserves_other_markers(monkeypatch):
@@ -177,12 +201,10 @@ def test_review_completion_preserves_other_markers(monkeypatch):
         },
     )
     assert response.status_code == 200
-    assert db.writes[0]["section_reviews"]["activity"]["head_sha"] == "a" * 40
-    assert db.writes[0]["section_reviews"]["documentation"]["head_sha"] == "b" * 40
-    assert "checked_at" not in db.writes[0]
+    assert db.writes == []  # Native acknowledgements already own review markers.
 
 
-def test_documentation_refresh_collects_streamed_response(monkeypatch):
+def test_legacy_documentation_stream_is_not_an_api_fallback(monkeypatch):
     guide = "Repository architecture and operations. " * 25
     abstract = "API and worker architecture"
 
@@ -224,10 +246,8 @@ def test_documentation_refresh_collects_streamed_response(monkeypatch):
         "/api/mihari/documentation",
         json={"folder_id": "f1", "head_sha": "a" * 40},
     )
-    assert response.status_code == 200
-    assert response.json() == {"ok": True, "updated": False, "reason": "content unchanged"}
-    assert saved[0]["source"] == "mihari"
-    assert saved[0]["operation"] == "documentation"
+    assert response.status_code == 409
+    assert saved == []
 
 
 def test_native_review_complete_skips_retired_documentation_work(monkeypatch):

@@ -36,6 +36,10 @@ class Settings:
     capability_issuer: str = field(
         default_factory=lambda: os.getenv("TSUKAI_CAPABILITY_ISSUER", "kioku-backend")
     )
+    # Legacy readiness attribution only; never an access/tenant allowlist.
+    credential_owner_id: str = field(
+        default_factory=lambda: os.getenv("TSUKAI_CREDENTIAL_OWNER_ID", "")
+    )
     entitled_owners: frozenset[str] = field(
         default_factory=lambda: frozenset(
             filter(None, os.getenv("TSUKAI_ENTITLED_OWNER_IDS", "").split(","))

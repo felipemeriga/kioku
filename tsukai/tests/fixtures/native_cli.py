@@ -104,6 +104,7 @@ if "INSPECT" in prompt:
     result["result"] = json.dumps(
         {
             "args": sys.argv[1:],
+            **({"input": prompt} if "INSPECT_INPUT" in prompt else {}),
             "environment_names": list(os.environ),
             "max_tokens": os.getenv("CLAUDE_CODE_MAX_OUTPUT_TOKENS"),
         }

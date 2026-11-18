@@ -19,7 +19,6 @@ import subprocess
 import tempfile
 from datetime import date, datetime, timezone
 
-from anthropic import BadRequestError
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -30,17 +29,6 @@ from services.git_remote import GIT_ENV, GIT_OPTIONS, validate_git_branch, valid
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-
-def _raise_if_credit_exhausted(exc: BadRequestError) -> None:
-    if "credit balance is too low" in str(exc).lower():
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "Anthropic credits exhausted for the Kioku backend key; restore billing "
-                "or replace the key with one from a credited organization."
-            ),
-        ) from exc
 
 
 def _user_edited(section: dict) -> bool:
@@ -609,32 +597,8 @@ def _authorized_maintenance(request, folder, *, require_repo=True):
 
 
 def _run_maintenance(body, request, operation):
-    from services.maintenance.execution import execute_api, native_enabled
-
-    owner, sb = _authorized_maintenance(request, body.folder_id, require_repo=False)
-    try:
-        if native_enabled(owner):
-            raise HTTPException(status_code=409, detail="direct maintenance execution required")
-        payload = body.model_dump(mode="json")
-        payload["head_sha"] = payload.get("head_sha") or "legacy"
-        if operation == "learnings":
-            total = {"ok": True, "processed_entries": 0, "updated_learnings": 0}
-            for _ in range(3):
-                result = execute_api(sb, owner, body.folder_id, operation, payload)
-                for key in ("processed_entries", "updated_learnings"):
-                    total[key] += result.get(key, 0)
-                if not result.get("processed_entries"):
-                    break
-            return total
-        return execute_api(sb, owner, body.folder_id, operation, payload)
-    except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
-    except ValueError as exc:
-        detail = "invalid briefing review plan" if operation == "review_plan" else str(exc)
-        raise HTTPException(status_code=502, detail=detail) from exc
-    except BadRequestError as exc:
-        _raise_if_credit_exhausted(exc)
-        raise
+    _authorized_maintenance(request, body.folder_id, require_repo=False)
+    raise HTTPException(status_code=409, detail="direct maintenance execution required")
 
 
 class MaintenancePrepareRequest(BaseModel):
@@ -656,7 +620,8 @@ class MaintenancePublishRequest(BaseModel):
 
 @router.post("/execution/prepare")
 def prepare_maintenance(body: MaintenancePrepareRequest, request: Request):
-    from services.maintenance.execution import native_enabled, prepare
+    from services.ai.client import ExecutionError
+    from services.maintenance.execution import prepare
 
     models = {
         "review_plan": ReviewPlanRequest,
@@ -673,10 +638,6 @@ def prepare_maintenance(body: MaintenancePrepareRequest, request: Request):
     try:
         parsed = models[body.operation].model_validate(body.payload)
         owner, sb = _authorized_maintenance(request, parsed.folder_id)
-        if not native_enabled(owner):
-            if body.quote_repair_preparation_id:
-                raise HTTPException(status_code=409, detail="Native citation recovery is disabled")
-            return {"ok": True, "engine": "api"}
         if body.operation == "reports":
             from zoneinfo import ZoneInfo
 
@@ -713,6 +674,8 @@ def prepare_maintenance(body: MaintenancePrepareRequest, request: Request):
                 retry_preparation_id=body.retry_preparation_id,
             )
         return prepare(sb, owner, parsed.folder_id, body.operation, payload)
+    except ExecutionError as exc:
+        raise HTTPException(status_code=503, detail=exc.code) from exc
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:

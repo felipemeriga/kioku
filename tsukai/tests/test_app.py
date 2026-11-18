@@ -897,3 +897,17 @@ async def test_quota_probe_recovers_after_bounded_cooldown_without_health_infere
     await asyncio.sleep(0.05)
     assert calls == 3
     assert scheduler.auth_state == "reauth_required"
+
+
+async def test_shared_subscription_accepts_new_tenant_without_sharing_job_data(app_client):
+    _, client, settings = app_client
+    settings.entitled_owners = frozenset({"funding-owner"})
+    payload = {**body(), "owner_id": "new-user"}
+    auth = headers(settings, payload)
+    admitted = await client.post("/v1/jobs", json=payload, headers=auth)
+    assert admitted.status_code == 202
+    result = await terminal(client, admitted.json()["result_url"], auth)
+    assert result["status"] == "completed"
+    foreign = {**body(), "owner_id": "funding-owner"}
+    blocked = await client.get(admitted.json()["result_url"], headers=headers(settings, foreign))
+    assert blocked.status_code == 404

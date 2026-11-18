@@ -41,8 +41,8 @@ def providers(monkeypatch):
 
 def assert_routing(providers, owner):
     native, api, factory = providers
-    assert native.complete.call_count == (2 if owner == "owner" else 0)
-    assert api.messages.create.call_count == (0 if owner == "owner" else 2)
+    assert native.complete.call_count == 2
+    assert api.messages.create.call_count == 0
     for call in factory.call_args_list:
         scope = call.args[0]
         assert scope.owner_id == owner and scope.folder_ids == ("folder",)

@@ -34,7 +34,20 @@ class Completion:
     stop_reason: str = "end_turn"
 
 
+def require_subscription_config():
+    missing = [
+        name
+        for name in ("TSUKAI_URL", "TSUKAI_SERVICE_TOKEN", "TSUKAI_CAPABILITY_KEY")
+        if not os.getenv(name)
+    ]
+    if missing:
+        raise ExecutionError(
+            "subscription_unavailable", "Missing subscription configuration: " + ", ".join(missing)
+        )
+
+
 def client_for(scope: ExecutionScope, operation: str, profile: str | None) -> TsukaiClient:
+    require_subscription_config()
     return TsukaiClient(
         os.environ["TSUKAI_URL"],
         os.environ["TSUKAI_SERVICE_TOKEN"],
@@ -56,8 +69,7 @@ def native_completion(
     fallback_scope: ExecutionScope | None = None,
 ) -> Completion | None:
     scope = operation_scope(operation) or fallback_scope
-    if engine_for(operation, scope.owner_id if scope else None) == "api":
-        return None
+    engine_for(operation, scope.owner_id if scope else None)
     if scope is None:
         raise PermissionError("native execution requires authenticated scope")
     if scope.caller == "mihari":
@@ -65,13 +77,32 @@ def native_completion(
     policy = TASK_POLICIES[operation]
     if tools or policy.tools:
         raise ExecutionError("harness_required", "chat must use the native conversation bridge")
-    # Text-only completions deliberately reject vision/tool blocks until tested.
+    input_images = []
+    prompt_messages = []
     for message in messages:
         content = message.get("content")
-        if not isinstance(content, str) and not (
-            isinstance(content, list) and all(block.get("type") == "text" for block in content)
-        ):
+        if isinstance(content, str):
+            prompt_messages.append(message)
+            continue
+        if not isinstance(content, list):
             raise ExecutionError("unsupported_content")
+        blocks = []
+        for block in content:
+            if block.get("type") == "text":
+                blocks.append(block)
+            elif (
+                operation == "image_ocr"
+                and message.get("role") == "user"
+                and block.get("type") == "image"
+            ):
+                source = block.get("source", {})
+                if source.get("type") != "base64" or set(source) != {"type", "media_type", "data"}:
+                    raise ExecutionError("unsupported_content")
+                input_images.append({"media_type": source["media_type"], "data": source["data"]})
+                blocks.append({"type": "text", "text": "[attached image]"})
+            else:
+                raise ExecutionError("unsupported_content")
+        prompt_messages.append({**message, "content": blocks})
     profile = "metadata_child" if scope.ai_depth else "completion"
     transport_max_tokens = max(max_tokens, STRUCTURED_TRANSPORT_MIN_TOKENS)
     request = {
@@ -81,7 +112,7 @@ def native_completion(
         "caller": scope.caller,
         "operation": operation,
         "profile": profile,
-        "prompt": json.dumps(messages, ensure_ascii=False),
+        "prompt": json.dumps(prompt_messages, ensure_ascii=False),
         "system_prompt": (system or "")
         + (
             "\nReturn the registered JSON completion envelope. completed requires fully resolved "
@@ -103,6 +134,8 @@ def native_completion(
         "tool_allowlist": [],
         "ai_depth": scope.ai_depth,
     }
+    if input_images:
+        request["input_images"] = input_images
     for name in ("parent_job_id", "root_job_id"):
         value = getattr(scope, name)
         if value:
