@@ -891,9 +891,16 @@ def test_activity_rebuild_includes_recent_removal_even_after_later_unrelated_com
     ]
 
 
-def test_selected_deployment_review_uses_readme_when_no_manifest_exists(monkeypatch, tmp_path):
+@pytest.mark.parametrize("readme_path", ["README.md", "hyperframes/README.md"])
+def test_selected_deployment_review_uses_readme_when_no_manifest_exists(
+    monkeypatch, tmp_path, readme_path
+):
     text = "Study notes only. No deployment instructions are documented.\n"
-    (tmp_path / "README.md").write_text(text)
+    (tmp_path / readme_path).parent.mkdir(parents=True, exist_ok=True)
+    (tmp_path / readme_path).write_text(text)
+    hidden = tmp_path / ".agents/skills/fixture/README.md"
+    hidden.parent.mkdir(parents=True)
+    hidden.write_text("Vendor documentation must not become project deployment evidence")
     monkeypatch.setattr(mihari, "API_URL", "http://api")
     monkeypatch.setattr(mihari, "decrypt", lambda _: "KEY")
     monkeypatch.setattr(
@@ -909,7 +916,15 @@ def test_selected_deployment_review_uses_readme_when_no_manifest_exists(monkeypa
     monkeypatch.setattr(
         mihari,
         "run_git",
-        lambda args, *_a, **_k: (0, "a" * 40 if args[0] == "rev-parse" else "", ""),
+        lambda args, *_a, **_k: (
+            0,
+            "a" * 40
+            if args[0] == "rev-parse"
+            else (
+                ".agents/skills/fixture/README.md\n" + readme_path if args == ["ls-files"] else ""
+            ),
+            "",
+        ),
     )
     posted = []
 
@@ -939,4 +954,4 @@ def test_selected_deployment_review_uses_readme_when_no_manifest_exists(monkeypa
     )
     assert len(posted) == 1
     assert posted[0]["section"] == "deployment"
-    assert posted[0]["files"] == [{"path": "README.md", "content": text, "role": "context"}]
+    assert posted[0]["files"] == [{"path": readme_path, "content": text, "role": "context"}]

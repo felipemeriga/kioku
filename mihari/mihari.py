@@ -862,6 +862,20 @@ def refresh_sections(
                 (path for path in ("README.md", "readme.md") if (clone / path).is_file()), None
             )
             matched = [readme] if readme else []
+            if not matched:
+                code, tracked, _ = run_git(["ls-files"], env, cwd=str(clone))
+                if code == 0:
+                    matched = sorted(
+                        (
+                            path
+                            for path in tracked.splitlines()
+                            if Path(path).name.lower() == "readme.md"
+                            and not any(part.startswith(".") for part in Path(path).parts[:-1])
+                            and (clone / path).is_file()
+                            and (clone / path).stat().st_size < 60_000
+                        ),
+                        key=lambda path: (len(Path(path).parts), path.lower()),
+                    )[:3]
             if not matched and strict:
                 raise RuntimeError(f"No source files available for selected {section} review")
         if not matched:
