@@ -107,15 +107,16 @@ def test_evaluation_answer_uses_production_native_bridge_and_cleans_up():
 
     sb = MagicMock()
     query = sb.table.return_value.select.return_value.eq.return_value.eq.return_value
-    query.execute.return_value.data = [
-        {"trace": {"sources": [{"content": "retrieved original"}]}}
-    ]
+    query.execute.return_value.data = [{"trace": {"sources": [{"content": "retrieved original"}]}}]
     frame = {"done": True, "replace": "grounded answer", "debug": {"tool_calls": [{}]}}
     with (
         patch("services.rag.get_supabase_thread_safe", return_value=sb),
         patch("services.scope.validate_scope_folder") as validate,
         patch("services.scope.descendant_folder_ids", return_value=["folder", "child"]),
-        patch("services.ai.chat.prepare_turn", return_value={"job_id": "job"}) as prepare,
+        patch(
+            "services.ai.chat.prepare_turn",
+            return_value={"job_id": "job", "request": {"profile": "chat"}},
+        ) as prepare,
         patch("services.ai.chat.stream_turn", return_value=["data: " + json.dumps(frame)]),
     ):
         result = answer_question("question", "tenant", scope_folder_ids=["folder", "child"])

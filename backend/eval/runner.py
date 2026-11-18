@@ -26,7 +26,7 @@ from typing import Any
 import yaml
 from dotenv import load_dotenv
 
-# Load .env (for VOYAGE_API_KEY / ANTHROPIC_API_KEY) BEFORE importing modules
+# Load .env (for VOYAGE_API_KEY / subscription transport) BEFORE importing modules
 # that read env at import time. Callers override SUPABASE_URL/SUPABASE_SERVICE_KEY
 # on the command line to point at the local stack instead of prod.
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")

@@ -17,7 +17,7 @@ from arq import cron
 from arq.connections import RedisSettings
 from dotenv import load_dotenv
 
-# Load .env so the arq worker process gets SUPABASE_URL, ANTHROPIC_API_KEY,
+# Load .env so the arq worker process gets SUPABASE_URL, TSUKAI_URL,
 # etc. uvicorn's main.py loads it too — this makes both entry points work.
 load_dotenv()
 

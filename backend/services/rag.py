@@ -227,15 +227,17 @@ def answer_question(
                     raise RuntimeError(frame["error"])
                 if frame.get("done") and "replace" in frame:
                     debug = frame.get("debug") or {}
-                    traces = (
+                    plain = turn["request"]["profile"] == "completion"
+                    query = (
                         sb.table("tsukai_tool_traces")
                         .select("trace")
                         .eq("owner_id", user_id)
-                        .eq("job_id", turn["job_id"])
-                        .execute()
-                        .data
-                        or []
+                        .eq("job_id", turn["id"] if plain else turn["job_id"])
                     )
+                    attempt = (debug.get("execution") or {}).get("attempt_id")
+                    if attempt and not plain:
+                        query = query.eq("attempt_id", attempt)
+                    traces = query.execute().data or []
                     contexts = [
                         source["content"]
                         for row in traces
