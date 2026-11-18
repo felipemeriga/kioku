@@ -531,20 +531,26 @@ def validate_result(snapshot, raw):
     if not _shape(value, shape):
         raise ValueError("maintenance result changed required shape or types")
     if op == "reports":
+        contract_errors = []
         if snapshot.get("input", {}).get("documentation_version") == 2:
-            errors = list(
-                Draft202012Validator(build_request(snapshot)["schema"]).iter_errors(value)
-            )
-            if errors:
-                raise ValueError(
-                    "Report JSON contract: "
-                    + "; ".join(
-                        f"{'.'.join(map(str, error.absolute_path))}: "
-                        f"{error.validator}={json.dumps(error.validator_value)}"
-                        for error in errors
-                    )
+            contract_errors = [
+                f"{'.'.join(map(str, error.absolute_path))}: "
+                f"{error.validator}={json.dumps(error.validator_value)}"
+                for error in Draft202012Validator(build_request(snapshot)["schema"]).iter_errors(
+                    value
                 )
-        return validate_report(snapshot, value)
+            ]
+        try:
+            result = validate_report(snapshot, value)
+        except ValueError as exc:
+            if not contract_errors:
+                raise
+            raise ValueError(
+                "Report JSON contract: " + "; ".join(contract_errors) + "; " + str(exc)
+            ) from exc
+        if contract_errors:
+            raise ValueError("Report JSON contract: " + "; ".join(contract_errors))
+        return result
     current = snapshot.get("current")
     if op == "review_plan":
         if any(k not in (*SECTIONS, "documentation") for k in value["selected"]):
