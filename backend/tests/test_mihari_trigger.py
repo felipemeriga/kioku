@@ -889,3 +889,54 @@ def test_activity_rebuild_includes_recent_removal_even_after_later_unrelated_com
         "Fix reports",
         "Remove vault credentials",
     ]
+
+
+def test_selected_deployment_review_uses_readme_when_no_manifest_exists(monkeypatch, tmp_path):
+    text = "Study notes only. No deployment instructions are documented.\n"
+    (tmp_path / "README.md").write_text(text)
+    monkeypatch.setattr(mihari, "API_URL", "http://api")
+    monkeypatch.setattr(mihari, "decrypt", lambda _: "KEY")
+    monkeypatch.setattr(
+        mihari,
+        "rest_get",
+        lambda *_: [
+            {
+                "generated_at": _recent_iso(),
+                "content": {"sections": {"deployment": {"content": {"how_to_deploy": "Unknown"}}}},
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        mihari,
+        "run_git",
+        lambda args, *_a, **_k: (0, "a" * 40 if args[0] == "rev-parse" else "", ""),
+    )
+    posted = []
+
+    def post(*_a, **kwargs):
+        posted.append(kwargs["json"])
+        return type(
+            "Response",
+            (),
+            {
+                "raise_for_status": lambda self: None,
+                "json": lambda self: {"ok": True, "updated": True},
+            },
+        )()
+
+    monkeypatch.setattr(mihari, "maintenance_post", post)
+    mihari.refresh_sections(
+        tmp_path,
+        {
+            "folder_id": "folder",
+            "remote_url": "git@github.com:example/study.git",
+            "api_key_encrypted": "encrypted",
+        },
+        {},
+        strict=True,
+        force_all=True,
+        selected_sections={"deployment"},
+    )
+    assert len(posted) == 1
+    assert posted[0]["section"] == "deployment"
+    assert posted[0]["files"] == [{"path": "README.md", "content": text, "role": "context"}]
