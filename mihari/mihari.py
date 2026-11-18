@@ -70,7 +70,6 @@ TRIGGER_PORT = int(
 )
 _pass_lock = threading.Lock()
 _native_deferred_until = 0.0
-_api_billing_deferred_until = {}
 
 
 class MaintenanceDeferred(RuntimeError):
@@ -236,12 +235,10 @@ def maintenance_post(
     """Direct model transport after backend authorization and immutable prepare.
 
     This is an explicit maintenance call site, not an HTTP/LLM interception.
-    API is the default engine. Runner results are never submitted as client data.
+    Subscription is the only engine. Runner results are never submitted as client data.
     """
     from json import dumps
 
-    if time.monotonic() < _api_billing_deferred_until.get(json["folder_id"], 0):
-        raise MaintenanceDeferred("Repository owner's Anthropic API billing remains unavailable")
     operation = url.rsplit("/", 1)[-1].replace("-", "_")
     if operation == "section":
         operation = json["section"]
