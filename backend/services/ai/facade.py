@@ -56,8 +56,7 @@ def native_completion(
     fallback_scope: ExecutionScope | None = None,
 ) -> Completion | None:
     scope = operation_scope(operation) or fallback_scope
-    if engine_for(operation, scope.owner_id if scope else None) == "api":
-        return None
+    engine_for(operation, scope.owner_id if scope else None)
     if scope is None:
         raise PermissionError("native execution requires authenticated scope")
     if scope.caller == "mihari":

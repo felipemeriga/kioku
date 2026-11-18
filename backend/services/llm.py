@@ -1,17 +1,11 @@
-"""Central Anthropic LLM client: singleton, task→model routing, prompt caching."""
+"""Claude task routing through the shared subscription; API billing is disabled."""
 
-import os
-from dataclasses import replace
 from enum import Enum
-from functools import cache
 
-import anthropic
-from langsmith.wrappers import wrap_anthropic
-
+from services.ai.client import ExecutionError
 from services.ai.facade import Completion, native_completion
-from services.ai.registry import TASK_POLICIES
 from services.ai.scope import ExecutionScope
-from services.usage_ledger import UsageAttribution, current_usage, save_usage, usage_row
+from services.usage_ledger import UsageAttribution, current_usage
 
 
 class Task(str, Enum):
@@ -51,79 +45,17 @@ MODEL_FOR_TASK: dict[Task, str] = {
     Task.FOLDER_SUMMARY_REGROUND: "claude-haiku-4-5-20251001",
 }
 
-# Interleaved thinking lets the model reason BETWEEN tool calls within a single
-# turn (plan → search → reflect → verify), not just once up front.
-_INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14"
 
-
-def _tracing_enabled() -> bool:
-    """True only when LangSmith tracing is explicitly turned on."""
-    return os.getenv("LANGSMITH_TRACING", "").lower() in ("1", "true", "yes") or (
-        os.getenv("LANGCHAIN_TRACING_V2", "").lower() in ("1", "true", "yes")
+def get_client():
+    """Deprecated compatibility entry point; never instantiate a billed API client."""
+    raise ExecutionError(
+        "api_deprecated", "Claude is available only through subscription execution"
     )
 
 
-@cache
-def get_client() -> anthropic.Anthropic:
-    """Lazy singleton Anthropic client.
-
-    LangSmith's ``wrap_anthropic`` (0.7.x) crashes the streaming path with
-    anthropic >=0.84 — its ``_text_stream`` raises ``AttributeError: 'NoneType'
-    object has no attribute 'outputs'`` mid-stream, which kills the SSE chat
-    response before completion. Only apply the wrapper when tracing is actually
-    enabled; otherwise use the raw client. (Re-enabling tracing needs a langsmith
-    upgrade compatible with the current anthropic SDK.)
-    """
-    client = anthropic.Anthropic(
-        api_key=os.environ["ANTHROPIC_API_KEY"],
-        timeout=60.0,
-    )
-    return wrap_anthropic(client) if _tracing_enabled() else client
-
-
-def api_only_client(task: Task) -> anthropic.Anthropic:
-    """Declared API-only SDK capability until native parity is verified.
-
-    RAGAS owns its SDK message interface; it cannot silently masquerade as a
-    Tsukai completion. Its explicit registry restriction is reviewed separately.
-    """
-    if TASK_POLICIES[task.value].native_verified:
-        raise ValueError("Use the execution facade for native-verified tasks")
+def api_only_client(task: Task):
+    """Fail closed for old SDK consumers instead of silently billing an API key."""
     return get_client()
-
-
-def _build_kwargs(
-    *,
-    task: Task,
-    messages: list[dict],
-    system: str | None,
-    tools: list[dict] | None,
-    max_tokens: int,
-    cache_system: bool,
-    thinking_budget: int | None = None,
-) -> dict:
-    kwargs: dict = {
-        "model": MODEL_FOR_TASK[task],
-        "max_tokens": max_tokens,
-        "messages": messages,
-    }
-    if system is not None:
-        if cache_system:
-            kwargs["system"] = [
-                {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
-            ]
-        else:
-            kwargs["system"] = system
-    if tools:
-        if cache_system:
-            tools = [*tools[:-1], {**tools[-1], "cache_control": {"type": "ephemeral"}}]
-        kwargs["tools"] = tools
-    if thinking_budget:
-        # Extended thinking: the model emits reasoning before its answer/tool
-        # calls. budget_tokens must be < max_tokens (thinking + output share it).
-        kwargs["thinking"] = {"type": "enabled", "budget_tokens": thinking_budget}
-        kwargs["extra_headers"] = {"anthropic-beta": _INTERLEAVED_THINKING_BETA}
-    return kwargs
 
 
 def complete(
@@ -137,7 +69,7 @@ def complete(
     thinking_budget: int | None = None,
     attribution: UsageAttribution | None = None,
     capture_usage: bool = True,
-) -> anthropic.types.Message | Completion:
+) -> Completion:
     """Run a Claude completion routed by task.
 
     When cache_system=True, attaches cache_control: ephemeral on the system prompt
@@ -168,24 +100,7 @@ def complete(
     )
     if native is not None:
         return native
-    kwargs = _build_kwargs(
-        task=task,
-        messages=messages,
-        system=system,
-        tools=tools,
-        max_tokens=max_tokens,
-        cache_system=cache_system,
-        thinking_budget=thinking_budget,
-    )
-    response = get_client().messages.create(**kwargs)
-    if capture_usage:
-        active = current_usage() if attribution is None else None
-        if active is not None:
-            scoped, collector = active
-            collector.add(usage_row(response, replace(scoped, operation=task.value)))
-        elif attribution is not None:
-            save_usage([usage_row(response, attribution)])
-    return response
+    raise ExecutionError("subscription_unavailable", "Subscription execution returned no result")
 
 
 def stream_complete(
@@ -198,19 +113,7 @@ def stream_complete(
     cache_system: bool = True,
     thinking_budget: int | None = None,
 ):
-    """Streaming variant. Returns a context manager yielding a stream —
-    caller uses `with stream_complete(...) as s: for text in s.text_stream: ...`.
-
-    All routing / cache-control / tool schema handling matches complete()
-    so you can freely swap between them without behavior drift.
-    """
-    kwargs = _build_kwargs(
-        task=task,
-        messages=messages,
-        system=system,
-        tools=tools,
-        max_tokens=max_tokens,
-        cache_system=cache_system,
-        thinking_budget=thinking_budget,
+    """Legacy SDK streaming is disabled; chat uses the native streaming bridge."""
+    raise ExecutionError(
+        "native_stream_required", "Use the subscription chat or maintenance bridge"
     )
-    return get_client().messages.stream(**kwargs)

@@ -24,11 +24,8 @@ from services.maintenance.snapshots import capture
 
 
 def native_enabled(owner):
-    if os.getenv("TSUKAI_MIHARI_NATIVE", "").lower() not in ("1", "true"):
-        return False
-    return bool(os.getenv("TSUKAI_CREDENTIAL_OWNER_ID")) and owner == os.getenv(
-        "TSUKAI_CREDENTIAL_OWNER_ID"
-    )
+    # All tenants use the deployment subscription; owner remains execution/data scope.
+    return bool(owner)
 
 
 def capability(owner, folder, request=None):
