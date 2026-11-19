@@ -73,6 +73,15 @@ await db.exec(
     "utf8"
   )
 );
+// Keep the prior implementation only in this isolated fixture to prove parity.
+const baseline = (await db.query(`SELECT pg_get_functiondef(
+  'search_agent_memory_v2(uuid,uuid[],text[],timestamptz,timestamptz,text,text,integer,integer,text[],text)'::regprocedure
+) body`)).rows[0].body;
+await db.exec(baseline.replace("public.search_agent_memory_v2(", "public.memory_search_baseline("));
+await db.exec(fs.readFileSync(new URL(
+  "../../../supabase/migrations/20261119120000_memory_search_custom_plan.sql",
+  import.meta.url
+), "utf8"));
 const owner = "11111111-1111-4111-8111-111111111111",
   other = "11111111-1111-4111-8111-111111111112";
 const first = "22222222-2222-4222-8222-222222222222",
@@ -83,13 +92,21 @@ await db.query("INSERT INTO folders VALUES($1,$3,'repo'),($2,$3,'repo')", [
   second,
   owner,
 ]);
-const call = async (name, args) =>
-  (
-    await db.query(
-      `SELECT ${name}(${args.map((_, i) => "$" + (i + 1)).join(",")}) value`,
-      args
-    )
-  ).rows[0].value;
+const invoke = async (name, args) => (await db.query(
+  `SELECT ${name}(${args.map((_, i) => "$" + (i + 1)).join(",")}) value`, args
+)).rows[0].value;
+const call = async (name, args) => {
+  const result = await invoke(name, args);
+  if (name === "search_agent_memory_v2") {
+    const before = await invoke("memory_search_baseline", args);
+    const normalize = (value) => ({ ...value, matches: value.matches.map(
+      (row) => ({ ...row, matched_terms: [...row.matched_terms].sort() })
+    ) });
+    if (JSON.stringify(normalize(before)) !== JSON.stringify(normalize(result)))
+      throw Error("optimized memory search changed results");
+  }
+  return result;
+};
 const descriptor = {
   id: "segment",
   kind: "segment",
