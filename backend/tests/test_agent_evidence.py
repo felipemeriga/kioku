@@ -619,3 +619,29 @@ def test_upload_storage_roundtrip_and_duplicate_verify_original_bytes(monkeypatc
             file.seek(0)
             assert store.upload("b", "o", file, sha256(raw), len(raw))["status"] == "stored"
     assert store.download({**obj, "storage_path": next(iter(stored))}) == raw
+
+
+@pytest.mark.parametrize(
+    ("db_code", "expected"),
+    [("57014", "evidence_query_timeout"), ("08006", "evidence_database_unavailable")],
+)
+def test_rpc_failure_reports_safe_category_without_logging_source(db_code, expected, caplog):
+    from services.agent_evidence import rpc
+
+    class ProviderFailure(Exception):
+        code = db_code
+
+    class FailedQuery:
+        def rpc(self, *_):
+            return self
+
+        def execute(self):
+            raise ProviderFailure("sensitive SQL and original transcript text")
+
+    with pytest.raises(HTTPException) as error:
+        rpc(FailedQuery(), "search_agent_memory_v2", {"p_terms": ["private query"]})
+    assert error.value.status_code == 503
+    assert error.value.detail == {"code": expected}
+    assert f"db_code={db_code}" in caplog.text
+    assert "sensitive SQL" not in caplog.text
+    assert "private query" not in caplog.text
