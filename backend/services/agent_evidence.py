@@ -6,6 +6,7 @@ import base64
 import gzip
 import io
 import json
+import logging
 import os
 import shutil
 import tempfile
@@ -27,6 +28,8 @@ from services.agent_evidence_models import (
 )
 from services.agent_evidence_parser import bounded_text
 from services.agent_evidence_presentation import fragment_presentation, present
+
+logger = logging.getLogger(__name__)
 
 
 def enabled():
@@ -57,7 +60,12 @@ def rpc(sb, name, args):
         ]:
             if "evidence_" + code in message:
                 fail(code, status)
-        raise HTTPException(503, detail={"code": "evidence_database_unavailable"}) from None
+        db_code = str(getattr(exc, "code", ""))
+        # Log categories only: provider bodies can contain SQL and source text.
+        safe_code = db_code if db_code.isalnum() and len(db_code) <= 10 else "unknown"
+        logger.warning("Evidence RPC failed rpc=%s db_code=%s", name, safe_code)
+        code = "evidence_query_timeout" if db_code == "57014" else "evidence_database_unavailable"
+        raise HTTPException(503, detail={"code": code}) from None
 
 
 def decode_stored_object(data, obj):
