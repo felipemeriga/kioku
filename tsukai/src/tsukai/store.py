@@ -152,8 +152,9 @@ class Store:
         logger = logging.getLogger("uvicorn.error")
         loop = asyncio.get_running_loop()
 
-        def report(outcome, error_type=None, sqlstate=None):
-            logger.warning(
+        def report(outcome, error_type=None, sqlstate=None, *, level=logging.WARNING):
+            logger.log(
+                level,
                 "native_transaction outcome=%s operation=%s job_id=%s attempt_id=%s "
                 "phase=%s phase_seconds=%.6f elapsed_seconds=%.6f "
                 "local_lock_seconds=%.6f connection_begin_seconds=%.6f "
@@ -205,6 +206,17 @@ class Store:
                 durations["commit"] = time.monotonic() - phase_started
             if time.monotonic() - started >= TRANSACTION_WARN_SECONDS:
                 report("committed")
+        except asyncio.CancelledError:
+            # Scheduler cleanup cancels the background heartbeat after durable
+            # completion. Preserve rollback and cancellation propagation; this
+            # control flow is not a database/attempt failure. Other cancelled
+            # writes keep their existing warning diagnostics.
+            report(
+                "cancelled" if operation == "heartbeat" else "failed",
+                "CancelledError",
+                level=logging.INFO if operation == "heartbeat" else logging.WARNING,
+            )
+            raise
         except BaseException as exc:
             sqlstate = getattr(exc, "sqlstate", None) or getattr(
                 getattr(exc, "orig", None), "sqlstate", None

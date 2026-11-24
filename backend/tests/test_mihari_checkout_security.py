@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -191,3 +192,73 @@ def test_reground_excludes_external_link_from_ai_request(worker, monkeypatch, tm
     )
     assert len(requests) == 1
     assert requests[0]["files"] == [{"path": "package.json", "content": '{"name":"safe"}'}]
+
+
+@pytest.mark.parametrize("pdf_path", ["guide.pdf", "assets/guide.PDF"])
+def test_review_keeps_pdf_inventory_without_decoding_pdf_content(
+    worker, monkeypatch, tmp_path, pdf_path
+):
+    import subprocess
+
+    def git(*args):
+        return (
+            subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    "user.name=Fixture",
+                    "-c",
+                    "user.email=fixture@example.invalid",
+                    *args,
+                ],
+                cwd=tmp_path,
+                capture_output=True,
+                check=True,
+            )
+            .stdout.decode()
+            .strip()
+        )
+
+    git("init")
+    (tmp_path / "source.py").write_text("value = 'before'\n")
+    (tmp_path / pdf_path).parent.mkdir(parents=True, exist_ok=True)
+    (tmp_path / pdf_path).write_bytes(b"%PDF-1.7\nold document\n")
+    git("add", ".")
+    git("commit", "-m", "Initial source")
+    before = git("rev-parse", "HEAD")
+    (tmp_path / "source.py").write_text("value = 'Olá after'\n")
+    # Git sees no NUL in the first 8 KiB and emits this PDF as a text diff.
+    (tmp_path / pdf_path).write_bytes(b"%PDF-1.7\n" + b"pdf-private-content\n" * 600 + b"\x80\n")
+    (tmp_path / "legacy.txt").write_bytes(b"legacy euro \x80\n")
+    git("add", ".")
+    git("commit", "-m", "Update source and manual")
+    head = git("rev-parse", "HEAD")
+    seen = []
+
+    def post(*_args, **kwargs):
+        from types import SimpleNamespace
+
+        seen.append(kwargs["json"])
+        return SimpleNamespace(
+            raise_for_status=lambda: None, json=lambda: {"selected": [], "reviewed": []}
+        )
+
+    monkeypatch.setattr(worker, "API_URL", "http://fixture")
+    monkeypatch.setattr(worker, "decrypt", lambda _: "fixture-key")
+    monkeypatch.setattr(worker, "maintenance_post", post)
+    worker.review_new_commits(
+        tmp_path,
+        {
+            "folder_id": "folder",
+            "api_key_encrypted": "encrypted",
+            "remote_url": "git@github.com:example/repo.git",
+        },
+        before,
+        head,
+        {"PATH": os.environ["PATH"]},
+    )
+    assert pdf_path in seen[0]["changed_paths"]
+    assert "pdf-private-content" not in seen[0]["patch"]
+    assert "Olá after" in seen[0]["patch"]
+    assert "legacy euro" in seen[0]["patch"]
+    assert "Update source and manual" in seen[0]["commits"][0]

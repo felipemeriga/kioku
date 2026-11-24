@@ -153,3 +153,42 @@ async def test_database_error_logs_only_class_and_sqlstate_never_sql_or_content(
     assert "operation=tool_events" in caplog.text and "phase=rollback" in caplog.text
     assert "secret-not-in-diagnostic" not in caplog.text
     assert "INSERT INTO" not in caplog.text
+
+
+async def test_completed_job_heartbeat_cancellation_is_control_flow_not_a_failure(store, caplog):
+    import logging
+
+    job = await store.admit(request())
+    attempt = (await store.claim("worker"))["attempt"]
+    await store.finish(attempt, "completed", result={"text": "done", "usage": {}})
+    caplog.set_level(logging.INFO, logger="uvicorn.error")
+    async with store._local_lock:
+        pending = asyncio.create_task(store.heartbeat(attempt))
+        await asyncio.sleep(0)
+        pending.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await pending
+    assert not store._local_lock.locked()
+    assert (await store.get(job["id"]))["status"] == "completed"
+    records = [r for r in caplog.records if "operation=heartbeat" in r.message]
+    assert any(r.levelno == logging.INFO and "outcome=cancelled" in r.message for r in records)
+    assert not any("outcome=failed" in r.message for r in records)
+
+
+async def test_actual_heartbeat_error_still_warns_and_releases_transaction(store, caplog):
+    import logging
+
+    caplog.set_level(logging.WARNING, logger="uvicorn.error")
+    with pytest.raises(RuntimeError):
+        async with store.transaction("heartbeat", job_id="job", attempt_id="attempt"):
+            raise RuntimeError("private provider SQL must not appear")
+    assert not store._local_lock.locked()
+    assert any(
+        r.levelno == logging.WARNING
+        and "outcome=failed operation=heartbeat" in r.message
+        and "error_type=RuntimeError" in r.message
+        for r in caplog.records
+    )
+    assert "private provider SQL" not in caplog.text
+    async with store.transaction("heartbeat"):
+        pass
