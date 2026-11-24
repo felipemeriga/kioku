@@ -490,13 +490,22 @@ def run_git(args: list[str], env: dict, cwd: str | None = None) -> tuple[int, st
             cwd=cwd,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=10,
         )
         if origin.returncode:
             raise ValueError("Repository origin is unavailable")
         validate_git_remote(origin.stdout.strip())
     proc = subprocess.run(
-        ["git", *GIT_OPTIONS, *args], env=env, cwd=cwd, capture_output=True, text=True, timeout=600
+        ["git", *GIT_OPTIONS, *args],
+        env=env,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=600,
     )
     return proc.returncode, proc.stdout.strip(), proc.stderr.strip()
 
@@ -1191,7 +1200,23 @@ def review_new_commits(clone: Path, repo: dict, old_sha: str | None, head: str, 
     code, paths, _ = run_git(["diff", "--name-only", base, head], env, cwd=str(clone))
     if code != 0:
         paths = ""
-    code, patch, _ = run_git(["diff", base, head], env, cwd=str(clone))
+    # Git may treat a PDF with an ASCII-only prefix as text. Keep its path in
+    # the change inventory, but never send PDF bytes or run textconv drivers as
+    # briefing evidence. Source text with legacy encodings is decoded safely.
+    code, patch, _ = run_git(
+        [
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            base,
+            head,
+            "--",
+            ".",
+            ":(exclude,icase,glob)**/*.pdf",
+        ],
+        env,
+        cwd=str(clone),
+    )
     if code != 0:
         patch = ""
     code, subjects, _ = run_git(
