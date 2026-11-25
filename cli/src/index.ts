@@ -12,6 +12,7 @@ import { onPush } from "./commands/on-push.js";
 import { openCmd } from "./commands/open.js";
 import { quickstart } from "./commands/quickstart.js";
 import { search } from "./commands/search.js";
+import { history, evidence, codeSearch } from "./commands/recall.js";
 import { sessionStart } from "./commands/session-start.js";
 import { memoryCapture, memoryWorker, memorySync } from "./commands/memory.js";
 import { evidenceCapture, evidenceWorker, evidenceSync, evidenceStatus, evidenceConfigure } from "./commands/evidence.js";
@@ -406,6 +407,46 @@ Examples:
       printError(err);
       process.exitCode = 1;
     }
+  });
+
+// JSON preserves evidence references, coverage warnings and pagination without truncation.
+program.command("history [query...]")
+  .description("Search agent originals or browse activity (JSON, same scoped MCP tool)")
+  .option("--folder <name>", "Narrow to a folder name, path or UUID")
+  .option("--from <date>", "First local day, YYYY-MM-DD")
+  .option("--through <date>", "Last local day, inclusive")
+  .option("--as-of <cutoff>", "Historical cutoff: local date or timestamp with offset")
+  .option("--timezone <iana>", "IANA timezone (default: this computer's timezone)")
+  .option("--session <id>", "Narrow to an agent session")
+  .option("--order <order>", "chronological, latest or relevance", "chronological")
+  .option("--limit <n>", "Results per page", "10")
+  .option("--offset <n>", "Pagination offset", "0")
+  .option("--json", "JSON output (default)")
+  .action(async (query, opts) => {
+    try { await history(query.join(" "), opts); }
+    catch (err) { printError(err); process.exitCode = 1; }
+  });
+
+program.command("evidence <reference>")
+  .description("Read original evidence from a history reference, retaining its cutoff (JSON)")
+  .option("--before <n>", "Neighboring records before the match", "1")
+  .option("--after <n>", "Neighboring records after the match", "1")
+  .option("--chars <n>", "Maximum returned characters", "8000")
+  .option("--json", "JSON output (default)")
+  .action(async (reference, opts) => {
+    try { await evidence(reference, opts); }
+    catch (err) { printError(err); process.exitCode = 1; }
+  });
+
+program.command("code-search <query...>")
+  .description("Search indexed code by behavior using the MCP code_search tool (JSON)")
+  .option("--folder <name>", "Narrow to a repository or folder")
+  .option("--language <language>", "Filter language, e.g. rust or python")
+  .option("--limit <n>", "Maximum results", "8")
+  .option("--json", "JSON output (default)")
+  .action(async (query, opts) => {
+    try { await codeSearch(query.join(" "), opts); }
+    catch (err) { printError(err); process.exitCode = 1; }
   });
 
 program
