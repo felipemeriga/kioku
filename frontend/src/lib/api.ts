@@ -96,7 +96,7 @@ export async function getAuthHeaders(): Promise<Record<string, string>> {
 // bounces them to /login instead of leaving them stuck with a broken session.
 async function handleAuthExpiry() {
   try {
-    await supabase.auth.signOut();
+    await supabase.auth.signOut({ scope: "local" });
   } catch {
     /* ignore */
   }
@@ -1077,19 +1077,10 @@ export async function deviceInfo(req: string): Promise<DeviceInfo> {
 }
 
 export async function deviceComplete(requestId: string): Promise<void> {
-  // The backend takes access_token + user id from the verified bearer;
-  // we pass the rest of the session so the CLI receives a full config.
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  // Only approve the pending device. The backend creates its own session.
   await apiFetch("/api/cli/auth/device/complete", {
     method: "POST",
-    body: JSON.stringify({
-      request_id: requestId,
-      refresh_token: session?.refresh_token ?? null,
-      expires_at: session?.expires_at ?? null,
-      email: session?.user?.email ?? null,
-    }),
+    body: JSON.stringify({ request_id: requestId }),
   });
 }
 
