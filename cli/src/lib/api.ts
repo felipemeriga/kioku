@@ -77,13 +77,11 @@ async function apiFetch<T>(
   if (!res.ok) {
     // Auto-refresh on 401 — silent, one-shot. If refresh succeeds we
     // replay the original call. If not, surface the actionable hint.
-    if (
-      (res.status === 401 || res.status === 403) &&
-      !init._retry &&
-      auth &&
-      cfg.refresh_token
-    ) {
-      const refreshed = await tryRefreshToken(init.signal ?? undefined);
+    if (res.status === 401 && !init._retry && auth && cfg.refresh_token) {
+      const refreshed = await tryRefreshToken(
+        cfg.access_token,
+        init.signal ?? undefined
+      );
       if (refreshed) {
         return apiFetch<T>(path, { ...init, _retry: true });
       }
@@ -95,7 +93,7 @@ async function apiFetch<T>(
     } catch {
       // not JSON
     }
-    if (res.status === 401 || res.status === 403) {
+    if (res.status === 401) {
       throw new ApiError(`Session expired (${res.status}): ${detail}`, {
         status: res.status,
         kind: "unauthorized",
@@ -111,68 +109,115 @@ async function apiFetch<T>(
   return (await res.json()) as T;
 }
 
-/**
- * Exchange refresh_token for a new access_token via Supabase's /auth/v1/token.
- * On success, persists the new tokens to config and returns true. On
- * failure (revoked, expired, network), returns false so the caller can
- * surface a friendly re-login prompt.
- */
+/** Refresh only authentication failures; outages must not look like logout. */
 let _refreshInFlight: Promise<boolean> | null = null;
 
-async function tryRefreshToken(signal?: AbortSignal): Promise<boolean> {
-  // Coalesce concurrent refreshes so 3 parallel API calls with an
-  // expired token only trigger ONE refresh round-trip.
+async function tryRefreshToken(
+  rejectedToken: string | undefined,
+  callerSignal?: AbortSignal
+): Promise<boolean> {
   if (_refreshInFlight) return _refreshInFlight;
-  _refreshInFlight = (async () => {
-    try {
-      const cfg = readConfig();
-      if (!cfg.refresh_token) return false;
-
-      // Discover Supabase URL + anon key. We fetch it from the backend
-      // once — no need to hardcode secrets in the CLI, and the anon key
-      // is safe to expose by design.
-      const authConfigRes = await fetch(`${cfg.api_base}/api/cli/auth-config`, { signal });
-      if (!authConfigRes.ok) return false;
-      const { supabase_url, supabase_anon_key } =
-        (await authConfigRes.json()) as {
-          supabase_url: string;
-          supabase_anon_key: string;
-        };
-
-      const res = await fetch(
-        `${supabase_url}/auth/v1/token?grant_type=refresh_token`,
-        {
-          method: "POST",
-          signal,
-          headers: {
-            "Content-Type": "application/json",
-            apikey: supabase_anon_key,
-          },
-          body: JSON.stringify({ refresh_token: cfg.refresh_token }),
-        }
-      );
-      if (!res.ok) return false;
-      const body = (await res.json()) as {
-        access_token?: string;
-        refresh_token?: string;
-        expires_at?: number;
-      };
-      if (!body.access_token) return false;
-
-      writeConfig({
-        ...cfg,
-        access_token: body.access_token,
-        refresh_token: body.refresh_token ?? cfg.refresh_token,
-        expires_at: body.expires_at ?? cfg.expires_at,
-      });
-      return true;
-    } catch {
-      return false;
-    } finally {
-      _refreshInFlight = null;
-    }
-  })();
+  _refreshInFlight = refreshToken(rejectedToken, callerSignal).finally(() => {
+    _refreshInFlight = null;
+  });
   return _refreshInFlight;
+}
+
+async function refreshToken(
+  rejectedToken: string | undefined,
+  callerSignal?: AbortSignal
+): Promise<boolean> {
+  const cfg = readConfig();
+  // Another request may already have rotated the stored session.
+  if (cfg.access_token && cfg.access_token !== rejectedToken) return true;
+  if (!cfg.refresh_token) return false;
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  const timer = setTimeout(abort, 10_000);
+  callerSignal?.addEventListener("abort", abort, { once: true });
+  if (callerSignal?.aborted) abort();
+  const unavailable = (status = 0) =>
+    new ApiError(
+      "Couldn't renew your session right now. Your saved login has been kept.",
+      {
+        status,
+        kind: status ? "http" : "unreachable",
+        hint: "Check your connection and retry the command. You do not need to log in again unless your session is rejected.",
+      }
+    );
+  try {
+    const authConfigRes = await fetch(`${cfg.api_base}/api/cli/auth-config`, {
+      signal: controller.signal,
+    });
+    if (!authConfigRes.ok) throw unavailable(authConfigRes.status);
+    const { supabase_url, supabase_anon_key } =
+      (await authConfigRes.json()) as {
+        supabase_url: string;
+        supabase_anon_key: string;
+      };
+    if (!supabase_url || !supabase_anon_key) throw unavailable(502);
+    const res = await fetch(
+      `${supabase_url}/auth/v1/token?grant_type=refresh_token`,
+      {
+        method: "POST",
+        signal: controller.signal,
+        headers: {
+          "Content-Type": "application/json",
+          apikey: supabase_anon_key,
+        },
+        body: JSON.stringify({ refresh_token: cfg.refresh_token }),
+      }
+    );
+    if (!res.ok) {
+      const error = (await res.json().catch(() => ({}))) as {
+        code?: string;
+        error_code?: string;
+      };
+      const code = error.code ?? error.error_code;
+      if (
+        (res.status === 400 || res.status === 401 || res.status === 403) &&
+        code &&
+        [
+          "refresh_token_not_found",
+          "refresh_token_already_used",
+          "session_not_found",
+          "session_expired",
+          "user_not_found",
+          "user_banned",
+        ].includes(code)
+      )
+        return false;
+      throw unavailable(res.status);
+    }
+    const body = (await res.json()) as {
+      access_token?: string;
+      refresh_token?: string;
+      expires_at?: number;
+      expires_in?: number;
+    };
+    if (!body.access_token || !body.refresh_token) throw unavailable(502);
+    const latest = readConfig();
+    // Never resurrect a logout or overwrite a newer login while refresh was in flight.
+    if (latest.refresh_token !== cfg.refresh_token)
+      return !!latest.access_token;
+    writeConfig({
+      ...latest,
+      access_token: body.access_token,
+      refresh_token: body.refresh_token,
+      expires_at:
+        body.expires_at ??
+        (body.expires_in === undefined
+          ? undefined
+          : Math.floor(Date.now() / 1000) + body.expires_in),
+    });
+    return true;
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    throw unavailable();
+  } finally {
+    clearTimeout(timer);
+    callerSignal?.removeEventListener("abort", abort);
+  }
 }
 
 // ── Auth ────────────────────────────────────────────────────────────
