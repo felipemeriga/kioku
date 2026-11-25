@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { configDir, readConfig } from "../lib/config.js";
-import { whoami } from "../lib/api.js";
+import { ApiError, whoami } from "../lib/api.js";
 import { detectGit } from "../lib/git.js";
 import { bad, info, ok, section, warn } from "../lib/banner.js";
 import { panel } from "../ui/panel.js";
@@ -44,8 +44,12 @@ export async function status(): Promise<void> {
     try {
       const w = await whoami();
       lines.push(`Folders  ${w.root_folders.length}`);
-    } catch {
-      lines.push(`Auth     check failed — run kioku login`);
+    } catch (err) {
+      const hint = err instanceof ApiError ? err.hint : undefined;
+      lines.push(
+        `Auth     ${err instanceof Error ? err.message : "check failed"}`
+      );
+      if (hint) lines.push(`         ${hint}`);
     }
   }
   console.log(

@@ -15,6 +15,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import kleur from "kleur";
+import { ApiError, whoami } from "../lib/api.js";
 import { readConfig } from "../lib/config.js";
 import { restBaseToMcpBase } from "../lib/urls.js";
 import { section, info } from "../lib/banner.js";
@@ -70,29 +71,18 @@ export async function doctor(): Promise<void> {
   // 3. Login token valid — only if config + backend both work
   if (configPresent && backendOk) {
     try {
-      const r = await timedFetch(`${cfg.api_base}/api/cli/whoami`, {
-        headers: { Authorization: `Bearer ${cfg.access_token}` },
+      const body = await whoami(AbortSignal.timeout(10_000));
+      checks.push({
+        name: "Login token",
+        ok: true,
+        detail: `${body.root_folders.length} root folder(s) visible`,
       });
-      if (r.status === 200) {
-        const body = (await r.json()) as { root_folders?: unknown[] };
-        checks.push({
-          name: "Login token",
-          ok: true,
-          detail: `${(body.root_folders ?? []).length} root folder(s) visible`,
-        });
-      } else {
-        checks.push({
-          name: "Login token",
-          ok: false,
-          detail: `Backend returned ${r.status}`,
-          hint: "Session expired. Run: kioku login",
-        });
-      }
     } catch (err) {
       checks.push({
         name: "Login token",
         ok: false,
         detail: err instanceof Error ? err.message : String(err),
+        hint: err instanceof ApiError ? err.hint : undefined,
       });
     }
   }
