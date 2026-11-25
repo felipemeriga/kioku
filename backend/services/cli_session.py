@@ -4,6 +4,7 @@ Never verify OTPs on the shared Supabase SDK client: that would replace its
 service-role authorization. All OTPs and session credentials stay server-side.
 """
 
+import asyncio
 import os
 import time
 
@@ -59,24 +60,37 @@ async def create_device_session(user_id: str, browser_token: str) -> dict:
         session = response.json()
         token = session.get("access_token")
         refresh = session.get("refresh_token")
-        if not token or not refresh or session.get("user", {}).get("id") != user_id:
-            raise DeviceSessionUnavailable("Device identity could not be verified")
-        # Both tokens come from this project's Auth over TLS. Claims here only
-        # check isolation; request authentication is independently verified above.
+        # These claims only determine whether cleanup can safely revoke this
+        # newly minted session. Never revoke an echoed browser token/session.
         old = jwt.decode(browser_token, options={"verify_signature": False})
-        new = jwt.decode(token, options={"verify_signature": False})
-        if (
-            new.get("sub") != user_id
-            or not new.get("session_id")
-            or new["session_id"] == old.get("session_id")
-        ):
-            raise DeviceSessionUnavailable("Device session was not independent")
-        return {
-            "access_token": token,
-            "refresh_token": refresh,
-            "expires_at": session.get("expires_at") or int(time.time()) + session["expires_in"],
-            "user": {"id": user_id, "email": user["email"]},
-        }
+        new = jwt.decode(token, options={"verify_signature": False}) if token else {}
+        independent = (
+            token != browser_token
+            and new.get("sub") == user_id
+            and bool(new.get("session_id"))
+            and new["session_id"] != old.get("session_id")
+        )
+        try:
+            if not token or not refresh or session.get("user", {}).get("id") != user_id:
+                raise DeviceSessionUnavailable("Device identity could not be verified")
+            if not independent:
+                raise DeviceSessionUnavailable("Device session was not independent")
+            return {
+                "access_token": token,
+                "refresh_token": refresh,
+                "expires_at": session.get("expires_at") or int(time.time()) + session["expires_in"],
+                "user": {"id": user_id, "email": user["email"]},
+            }
+        except BaseException:
+            if independent:
+                cleanup = asyncio.create_task(
+                    asyncio.wait_for(revoke_device_session({"access_token": token}), timeout=5)
+                )
+                try:
+                    await asyncio.shield(cleanup)
+                except (Exception, asyncio.CancelledError):
+                    pass
+            raise
 
 
 async def revoke_device_session(tokens: dict) -> None:

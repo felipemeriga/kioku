@@ -128,17 +128,30 @@ async def _delete(rec: dict) -> None:
 
 async def consume_by_device_code(device_code: str) -> dict:
     r = _get_redis()
-    request_id = await r.get(_DEV_PREFIX + hash_device_code(device_code))
+    device_key = _DEV_PREFIX + hash_device_code(device_code)
+    request_id = await r.get(device_key)
     if not request_id:
         return {"status": "expired", "tokens": None}
-    rec = await get_by_request_id(request_id)
-    if not rec:
-        return {"status": "expired", "tokens": None}
-    if rec["status"] == "authorized":
-        tokens = rec["tokens"]
-        await _delete(rec)  # single-use
-        return {"status": "authorized", "tokens": tokens}
-    return {
-        "status": "pending" if rec["status"] == "authorizing" else rec["status"],
-        "tokens": None,
-    }
+    request_key = _REQ_PREFIX + request_id
+    async with r.pipeline(transaction=True) as pipe:
+        try:
+            await pipe.watch(device_key, request_key)
+            if await pipe.get(device_key) != request_id:
+                return {"status": "expired", "tokens": None}
+            raw = await pipe.get(request_key)
+            rec = json.loads(raw) if raw else None
+            if not rec or rec["expires_at"] <= time.time():
+                return {"status": "expired", "tokens": None}
+            if rec["status"] == "authorized":
+                tokens = rec["tokens"]
+                pipe.multi()
+                pipe.delete(request_key, device_key)
+                await pipe.execute()
+                return {"status": "authorized", "tokens": tokens}
+            return {
+                "status": "pending" if rec["status"] == "authorizing" else rec["status"],
+                "tokens": None,
+            }
+        except WatchError:
+            # A competing poll/approval won; retry polling without disclosing tokens twice.
+            return {"status": "pending", "tokens": None}

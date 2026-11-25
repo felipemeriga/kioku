@@ -255,3 +255,33 @@ async def test_cancellation_releases_claim_and_revokes_only_if_minted(endpoint, 
         )
     else:
         revoke.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_parallel_polls_deliver_the_session_only_once(isolated_requests):
+    request = await cli_auth.create_request("laptop", "mac")
+    await cli_auth.authorize(request["request_id"], {"access_token": "new-session"})
+    polls = await asyncio.gather(
+        *(cli_auth.consume_by_device_code(request["device_code"]) for _ in range(2))
+    )
+    assert sum(p["status"] == "authorized" for p in polls) == 1
+    assert sum(p["tokens"] is not None for p in polls) == 1
+
+
+@pytest.mark.asyncio
+async def test_invalid_session_metadata_revokes_new_session_but_never_browser(
+    auth_http, monkeypatch
+):
+    _, responses = auth_http
+    revoke = AsyncMock()
+    monkeypatch.setattr(cli_session, "revoke_device_session", revoke)
+    responses[2].pop("expires_in")
+    with pytest.raises(KeyError):
+        await cli_session.create_device_session("owner", token("browser"))
+    revoke.assert_awaited_once_with({"access_token": token("cli")})
+    revoke.reset_mock()
+    auth_http[0].clear()
+    responses[2]["access_token"] = token("browser")
+    with pytest.raises(cli_session.DeviceSessionUnavailable):
+        await cli_session.create_device_session("owner", token("browser"))
+    revoke.assert_not_awaited()
