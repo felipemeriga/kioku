@@ -5,6 +5,7 @@ import { supabase } from "./supabase";
 vi.mock("./supabase", () => ({
   supabase: {
     auth: {
+      signOut: vi.fn(async () => ({})),
       getSession: vi.fn(async () => ({
         data: { session: { access_token: "t" } },
       })),
@@ -293,5 +294,33 @@ describe("bounded conversation reads", () => {
     await expect(api.fetchConversation("next")).resolves.toMatchObject({
       id: "next",
     });
+  });
+});
+
+
+describe("independent CLI authorization", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it("approves the request without forwarding browser credentials", async () => {
+    const mock = vi.fn(
+      async () => new Response('{"ok":true}', { status: 200 })
+    );
+    vi.stubGlobal("fetch", mock);
+    await api.deviceComplete("device-request");
+    expect(mock).toHaveBeenCalledWith(
+      "/api/cli/auth/device/complete",
+      expect.objectContaining({
+        body: JSON.stringify({ request_id: "device-request" }),
+      })
+    );
+  });
+  it("an expired browser session signs out only that device", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("{}", { status: 401 }))
+    );
+    await expect(api.apiFetch("/api/documents")).rejects.toBeInstanceOf(
+      api.ApiError
+    );
+    expect(supabase.auth.signOut).toHaveBeenCalledWith({ scope: "local" });
   });
 });

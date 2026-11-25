@@ -14,6 +14,7 @@ import secrets
 import time
 
 from redis.asyncio import from_url
+from redis.exceptions import WatchError
 
 TTL_SECONDS = 300
 _REQ_PREFIX = "cli_auth:req:"
@@ -61,23 +62,62 @@ async def _save(rec: dict) -> None:
     await _get_redis().set(_REQ_PREFIX + rec["request_id"], json.dumps(rec), ex=_remaining_ttl(rec))
 
 
+async def _transition(request_id: str, accept, update) -> bool:
+    """Compare-and-set the TTL-bound request so competing browser actions cannot win twice."""
+    r = _get_redis()
+    key = _REQ_PREFIX + request_id
+    async with r.pipeline(transaction=True) as pipe:
+        try:
+            await pipe.watch(key)
+            raw = await pipe.get(key)
+            rec = json.loads(raw) if raw else None
+            if not rec or rec["expires_at"] <= time.time() or not accept(rec):
+                return False
+            update(rec)
+            pipe.multi()
+            pipe.set(key, json.dumps(rec), ex=_remaining_ttl(rec))
+            await pipe.execute()
+            return True
+        except WatchError:
+            return False
+
+
+async def claim_authorization(request_id: str, user_id: str) -> str | None:
+    nonce = secrets.token_urlsafe(24)
+    ok = await _transition(
+        request_id,
+        lambda rec: rec["status"] == "pending",
+        lambda rec: rec.update(status="authorizing", authorization_nonce=nonce, user_id=user_id),
+    )
+    return nonce if ok else None
+
+
+async def finish_authorization(request_id: str, nonce: str, tokens: dict | None) -> bool:
+    def update(rec):
+        rec.pop("authorization_nonce", None)
+        rec.update(status="authorized" if tokens else "pending", tokens=tokens)
+
+    return await _transition(
+        request_id,
+        lambda rec: rec["status"] == "authorizing" and rec.get("authorization_nonce") == nonce,
+        update,
+    )
+
+
 async def authorize(request_id: str, tokens: dict) -> bool:
-    rec = await get_by_request_id(request_id)
-    if not rec or rec["status"] != "pending":
-        return False
-    rec["status"] = "authorized"
-    rec["tokens"] = tokens
-    await _save(rec)
-    return True
+    return await _transition(
+        request_id,
+        lambda rec: rec["status"] == "pending",
+        lambda rec: rec.update(status="authorized", tokens=tokens),
+    )
 
 
 async def deny(request_id: str) -> bool:
-    rec = await get_by_request_id(request_id)
-    if not rec or rec["status"] != "pending":
-        return False
-    rec["status"] = "denied"
-    await _save(rec)
-    return True
+    return await _transition(
+        request_id,
+        lambda rec: rec["status"] in ("pending", "authorizing"),
+        lambda rec: rec.update(status="denied", tokens=None),
+    )
 
 
 async def _delete(rec: dict) -> None:
@@ -98,4 +138,7 @@ async def consume_by_device_code(device_code: str) -> dict:
         tokens = rec["tokens"]
         await _delete(rec)  # single-use
         return {"status": "authorized", "tokens": tokens}
-    return {"status": rec["status"], "tokens": None}
+    return {
+        "status": "pending" if rec["status"] == "authorizing" else rec["status"],
+        "tokens": None,
+    }

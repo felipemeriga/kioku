@@ -4,7 +4,7 @@ The CLI authenticates via a browser-handoff device-auth flow:
 
     POST /api/cli/auth/device/start    — CLI starts a pending request
     GET  /api/cli/auth/device/info     — browser fetches display fields
-    POST /api/cli/auth/device/complete — authenticated browser binds tokens
+    POST /api/cli/auth/device/complete — authenticated browser authorizes an independent session
     POST /api/cli/auth/device/deny     — authenticated browser denies
     POST /api/cli/auth/device/token    — CLI polls until authorized/denied
 
@@ -17,6 +17,7 @@ surface needed for that.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import os
 import time as _time
@@ -30,7 +31,7 @@ from starlette.concurrency import run_in_threadpool
 
 from auth import get_current_user
 from db.client import get_supabase_thread_safe as get_supabase
-from services import cli_auth
+from services import cli_auth, cli_session
 from services.code_sources import is_indexable_source_file
 
 router = APIRouter(prefix="/api/cli")
@@ -146,9 +147,6 @@ class DeviceRequestIdRequest(BaseModel):
 
 class DeviceCompleteRequest(BaseModel):
     request_id: str = Field(min_length=8, max_length=200)
-    refresh_token: str | None = None
-    expires_at: int | None = None
-    email: str | None = None
 
 
 @router.post("/auth/device/complete")
@@ -157,21 +155,53 @@ async def device_complete(
     request: Request,
     user_id: str = Depends(get_current_user),
 ):
-    # access_token comes from the verified bearer header (can't be spoofed)
-    authz = request.headers.get("authorization", "")
-    access_token = authz[7:] if authz.lower().startswith("bearer ") else ""
-    tokens = {
-        "access_token": access_token,
-        "refresh_token": body.refresh_token,
-        "expires_at": body.expires_at,
-        "user": {"id": user_id, "email": body.email},
-    }
     try:
-        ok = await cli_auth.authorize(body.request_id, tokens)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=503, detail=f"Auth service unavailable: {exc}")
-    if not ok:
+        nonce = await cli_auth.claim_authorization(body.request_id, user_id)
+    except Exception:
+        raise HTTPException(status_code=503, detail="Auth service unavailable") from None
+    if not nonce:
         raise HTTPException(status_code=410, detail="Request not found or already handled")
+    tokens = None
+    try:
+        browser_token = request.headers["authorization"][7:]
+        tokens = await cli_session.create_device_session(user_id, browser_token)
+        ok = await cli_auth.finish_authorization(body.request_id, nonce, tokens)
+        if not ok:
+            raise HTTPException(
+                status_code=410, detail="Request expired or authorization cancelled"
+            )
+    except BaseException as exc:
+
+        async def cleanup():
+            if tokens:
+                try:
+                    await asyncio.wait_for(cli_session.revoke_device_session(tokens), timeout=5)
+                except Exception:
+                    pass  # Never include credentials or provider bodies in errors.
+            try:
+                await asyncio.wait_for(
+                    cli_auth.finish_authorization(body.request_id, nonce, None), timeout=3
+                )
+            except Exception:
+                pass
+
+        # Client cancellation must not leave an undelivered session or a stuck claim.
+        # Shield the bounded cleanup, then propagate cancellation to the caller.
+        cleanup_task = asyncio.create_task(cleanup())
+        try:
+            await asyncio.shield(cleanup_task)
+        except asyncio.CancelledError:
+            pass
+        if not isinstance(exc, Exception):
+            raise
+        if isinstance(exc, cli_session.DeviceSessionUnsupported):
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+        if isinstance(exc, HTTPException):
+            raise
+        raise HTTPException(
+            status_code=503,
+            detail="Could not create an independent CLI session. Retry authorization.",
+        ) from None
     return {"ok": True}
 
 
