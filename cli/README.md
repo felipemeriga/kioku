@@ -73,6 +73,9 @@ streamable HTTP MCP path.
 | `ls [path]` | Browse workspace folders; supports `--json` |
 | `briefing` | Read briefing; `--section <name>` or `--json` |
 | `search <query...>` | Search documents/code; `--folder`, `--limit`, `--json` |
+| `history [query...]` | Search originals or browse activity with dates, scope, cutoff and pagination; JSON |
+| `evidence <reference>` | Expand a history reference into originals and neighboring records; JSON |
+| `code-search <query...>` | Search indexed code by behavior; `--folder`, `--language`, `--limit`; JSON |
 | `open [target]` | Open the web UI; `--json` prints its URL |
 | `index` | Extract and upload the current repo's code graph |
 | `memory-sync` | Retry local daily-journal uploads |
@@ -81,6 +84,25 @@ streamable HTTP MCP path.
 Global options include `--quiet`, `--no-color`, and `--api-base`. `NO_COLOR`,
 `KIOKU_QUIET`, and `KIOKU_DEBUG` control output and diagnostics. Check each command's
 `--help` before automating options.
+
+## Recall from the terminal
+
+Read-only recall uses the same scoped MCP tools as coding agents. Commands find
+the nearest parent `.mcp.json`, so they also work from repository subdirectories.
+The key sets the authorized scope; these calls do not require a login refresh.
+
+```bash
+kioku history --from 2026-11-16 --through 2026-11-22 --timezone America/Sao_Paulo
+kioku history "NBA SSE reconnection" --folder cosm --order latest --limit 10
+kioku evidence '<reference from history>'
+kioku code-search "where are failed uploads retried" --language python
+```
+
+Dates are explicit local days; `--through` is inclusive. The computer's timezone
+is the default. `--as-of` retains a historical cutoff when evidence is expanded.
+JSON preserves references, coverage warnings and pagination. When `has_more` is
+true, follow `next_offset` with `--offset`. Pending index objects mean results may
+be incomplete. These commands return evidence rather than a generated answer.
 
 ## Journals and presence
 
