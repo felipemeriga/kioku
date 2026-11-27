@@ -1,4 +1,5 @@
 import json
+from unittest.mock import Mock
 
 import pytest
 
@@ -33,6 +34,30 @@ def test_ndcg_credits_a_repeated_hit_once_without_compressing_ranks():
     assert ndcg_at_k(["a", "a", "b"], {"a", "b"}, 3) == ndcg_at_k(
         ["a", "irrelevant", "b"], {"a", "b"}, 3
     )
+
+
+def test_score_question_fetches_enough_hits_to_measure_each_cutoff(runner, monkeypatch):
+    embedding = [0.1]
+    results = [{"content_hash": "file", "metadata": {"chunk_index": index}} for index in range(20)]
+    search = Mock(return_value=results)
+    monkeypatch.setenv("RAG_METRICS", "1")
+    monkeypatch.setattr(runner, "embed_query", lambda query: embedding)
+    monkeypatch.setattr(runner, "search_documents", search)
+    question = {
+        "id": "q001",
+        "question": "where is the answer?",
+        "difficulty": "hard",
+        "retrieval_type": "factual",
+        "relevant_chunk_ids": ["sha256:file:chunk_19"],
+    }
+
+    scores = runner._score_question(question, "fast")["scores"]
+
+    assert search.call_args.kwargs["top_k"] == 20
+    assert scores["recall_at_5"] == scores["recall_at_10"] == 0
+    assert scores["recall_at_20"] == 1
+    assert scores["mrr"] == 1 / 20
+    assert scores["ndcg_at_10"] == 0
 
 
 def test_gate_requires_both_modes_to_meet_the_floor(runner, monkeypatch, tmp_path):
