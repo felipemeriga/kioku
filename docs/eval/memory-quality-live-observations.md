@@ -87,3 +87,9 @@ Source review identifies repeated authenticated database checks and descendant-f
 ## Archive snapshot at 07:12 UTC
 
 The same read-only active-owner query returned 83 active sessions, 8,901 committed segments, and 3,057 pending both parser and memory indexing. The earlier snapshots remain separate observations of the changing archive; no production repair or parameter change was made.
+
+## Isolated authentication-metadata component profile
+
+A separate read-only child process in the deployed MCP container repeated the exact owned-key hash lookup, root-ownership lookup and existing descendant-traversal function three times. It used a one-way key digest, verified the expected owner before proceeding, and recorded counts/timings only. The raw credential was not passed to the process or included in the artifact.
+
+Key lookup took 133–164 ms, root ownership 139–153 ms, and traversal of the three-folder authorized subtree 416–448 ms. Their sums were 688–765 ms per diagnostic round. The first round includes a newly created client connection; the next two reused it. This was not an instrumented HTTP request and cannot be subtracted from the separate 1.2-second header observations to derive unexplained server overhead. It does identify nontrivial repeated metadata work; reusing already-validated scope inside the same request is a possible later optimization, while preserving revocation and scope checks.
