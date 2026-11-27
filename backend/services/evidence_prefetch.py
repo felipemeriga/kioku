@@ -12,6 +12,7 @@ MONTHS = {name.lower(): i for i, name in enumerate(calendar.month_name) if name}
 MONTH_PATTERN = "|".join(MONTHS)
 CUTOFF = r"as of|before|by the end of|by end of|até"
 ISO_DATE = r"\d{4}-\d{2}-\d{2}"
+PORTUGUESE_YESTERDAY_RANGE = r"(?:de|entre) ontem (?:pra|para|a|até|e) hoje"
 CLOCK = r"\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?"
 EXACT_CUTOFF = re.compile(
     rf"\b({CUTOFF})\s+({ISO_DATE})(?:T|\s+(?:at\s+(?:exactly\s+)?|às\s+)?)"
@@ -86,7 +87,7 @@ def date_filters(question, timezone, now=None):
     low = question.lower()
     start = end = None
     if re.search(
-        r"\b(?:(?:de|entre) ontem (?:pra|para|a|até|e) hoje"
+        rf"\b(?:{PORTUGUESE_YESTERDAY_RANGE}"
         r"|(?:from|between) yesterday (?:to|through|and) today)\b",
         low,
     ):
@@ -241,7 +242,8 @@ def prefetch(question, user_timezone, execute, *, filename=None, folders=(), rep
             r"|\b(?:o que|em que)\s+(?:(?:a gente|nós)\s+)?"
             r"(?:fizemos|fez|trabalhamos|trabalhou)\s+(?:(?:na|no)\s+)?"
             r"(?:hoje|ontem|anteontem|semana passada|(?:nesta|nessa|esta|essa) semana"
-            r"|m[eê]s passado|(?:neste|nesse|este|esse) m[eê]s)\b",
+            r"|m[eê]s passado|(?:neste|nesse|este|esse) m[eê]s"
+            rf"|{PORTUGUESE_YESTERDAY_RANGE})\b",
             question,
             re.I,
         )

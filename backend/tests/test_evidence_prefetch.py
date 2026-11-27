@@ -134,13 +134,17 @@ def test_document_scope_cannot_expand_into_history():
 
 
 @pytest.mark.parametrize(
-    "question,overview",
+    "question,overview,start,end",
     [
-        ("O que a gente fez na semana passada?", True),
-        ("O que fizemos para corrigir o Mongo ontem?", False),
+        ("O que a gente fez na semana passada?", True, "2026-10-26", "2026-11-01"),
+        ("O que fizemos de ontem até hoje?", True, "2026-11-07", "2026-11-08"),
+        ("O que fizemos de ontem pra hoje?", True, "2026-11-07", "2026-11-08"),
+        ("O que fizemos para corrigir o Mongo ontem?", False, "2026-11-07", "2026-11-07"),
     ],
 )
-def test_portuguese_activity_preserves_dates_and_topical_queries(monkeypatch, question, overview):
+def test_portuguese_activity_preserves_dates_and_topical_queries(
+    monkeypatch, question, overview, start, end
+):
     monkeypatch.setattr(
         "services.evidence_prefetch.date_filters", lambda q, tz: date_filters(q, tz, NOW)
     )
@@ -154,15 +158,14 @@ def test_portuguese_activity_preserves_dates_and_topical_queries(monkeypatch, qu
     name, args = calls[0]
     assert name == "search_agent_history"
     assert args["timezone"] == "America/Sao_Paulo"
+    assert args["from_date"] == start
+    assert args["through_date"] == end
     if overview:
         assert args["query"] == ""
         assert args["projection"] == "overview"
-        assert args["from_date"] == "2026-10-26"
-        assert args["through_date"] == "2026-11-01"
     else:
         assert args["query"] == question
         assert "projection" not in args
-        assert args["from_date"] == args["through_date"] == "2026-11-07"
 
 
 def test_vague_current_code_question_uses_scoped_source_query_once():
