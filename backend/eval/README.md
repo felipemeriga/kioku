@@ -47,6 +47,12 @@ mode against the same floors independently. Search can return fewer results.
 Reports include expected and completed job counts. A scoring job exception makes
 the run fail even if the remaining jobs score above the floors.
 
+The gate also runs four mixed-source checks in fast mode on temporary local
+fixtures. They check the vendor definition, the implementation, a comparison
+requiring both sources, and isolation between two folders. The fixtures use the
+same Voyage embeddings, Supabase search, and Voyage reranker as regular
+retrieval. Their results are reported separately from the 25-question corpus.
+
 The GitHub Actions eval supplies Voyage credentials. Full mode attempts query
 rewriting and expansion, then falls back to the original query when that provider
 is unavailable. Check `query_expansion.n_variants` and

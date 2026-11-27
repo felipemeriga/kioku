@@ -42,7 +42,7 @@ _os.environ.setdefault("LANGCHAIN_TRACING_V2", "false")
 _os.environ.setdefault("LANGSMITH_TRACING", "false")
 
 
-def _guard_against_prod() -> None:
+def _guard_against_prod(*, allow_remote: bool = True) -> None:
     """Refuse to run if SUPABASE_URL points at a remote (prod-looking) host.
 
     The eval harness ingests fixture documents and runs queries against
@@ -55,9 +55,11 @@ def _guard_against_prod() -> None:
     parsed = urlsplit(url)
     if parsed.scheme in {"http", "https"} and parsed.hostname in {"127.0.0.1", "localhost", "::1"}:
         return
-    if os.environ.get("EVAL_ALLOW_REMOTE") == "1":
+    if allow_remote and os.environ.get("EVAL_ALLOW_REMOTE") == "1":
         print(f"[eval] WARNING: SUPABASE_URL={url!r} looks remote; EVAL_ALLOW_REMOTE=1 honored.")
         return
+    if not allow_remote:
+        sys.exit("[eval] --gate requires a local Supabase URL for mixed-source fixtures.")
     sys.exit(
         f"[eval] refusing to run against non-local SUPABASE_URL={url!r}. "
         "Set SUPABASE_URL=http://127.0.0.1:54321 (and matching SUPABASE_SERVICE_KEY) "
@@ -70,6 +72,7 @@ _guard_against_prod()
 from concurrent.futures import ThreadPoolExecutor  # noqa: E402
 
 from eval.ir_metrics import mrr, ndcg_at_k, recall_at_k  # noqa: E402
+from eval.mixed_sources import run_mixed_sources  # noqa: E402
 from services.embeddings import embed_query  # noqa: E402
 from services.evaluation import VoyageEmbeddings, _get_ragas_llm  # noqa: E402
 from services.ingestion import ingest_document  # noqa: E402
@@ -388,6 +391,8 @@ def main() -> int:
         ),
     )
     args = parser.parse_args()
+    if args.gate:
+        _guard_against_prod(allow_remote=False)
 
     questions = yaml.safe_load(GOLDEN_SET.read_text())
     print(f"[eval] loaded {len(questions)} golden questions")
@@ -429,6 +434,15 @@ def main() -> int:
             entry["response"] = merged["response"]
             entry["ragas_scores"] = merged["scores"]
 
+    mixed_sources = []
+    mixed_error = None
+    if args.gate and not failures:
+        try:
+            mixed_sources = run_mixed_sources(EVAL_USER_ID)
+        except Exception as error:
+            mixed_error = type(error).__name__
+            print(f"[eval] mixed-source checks could not run: {mixed_error}")
+
     report = {
         "git_sha": _git_sha(),
         "timestamp": datetime.utcnow().isoformat() + "Z",
@@ -438,6 +452,13 @@ def main() -> int:
         "jobs_expected": len(jobs),
         "jobs_completed": len(per_question),
         "failures": failures,
+        "mixed_sources": {
+            "expected": 4 if args.gate else 0,
+            "completed": len(mixed_sources),
+            "passed": sum(case["passed"] for case in mixed_sources),
+            "error": mixed_error,
+            "cases": mixed_sources,
+        },
     }
 
     path = _write_report(report)
@@ -449,7 +470,9 @@ def main() -> int:
         return 1
     if args.gate:
         ok = _check_gate(report)
-        return 0 if ok else 1
+        mixed = report["mixed_sources"]
+        print(f"[eval] mixed-source checks passed: {mixed['passed']}/{mixed['expected']}")
+        return 0 if ok and mixed["passed"] == mixed["completed"] == mixed["expected"] else 1
     return 0
 
 
