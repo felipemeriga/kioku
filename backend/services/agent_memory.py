@@ -17,6 +17,10 @@ from services.agent_evidence import EvidenceStore, rpc
 from services.agent_evidence_parser import project_record
 from services.period_reports import report_context
 
+MAX_OFFSET = 10000
+MAX_SCOPE_FOLDERS = 100
+WORD = re.compile(r"\w+")
+
 STOP = set(
     (
         "a an the is was were did do does have has we our it this that what "
@@ -49,7 +53,7 @@ def technical_terms(query):
     """Prefer explicit code identifiers over conversational words, without a model."""
     identifiers = {
         w.lower()
-        for w in re.findall(r"[A-Za-z0-9_]+", query)
+        for w in WORD.findall(query)
         if len(w) >= 3
         and w.lower() not in STOP
         and any(c.isalpha() for c in w)
@@ -73,9 +77,7 @@ def lexical_terms(queries):
     values = set()
     for query in queries:
         low = query.lower()
-        values.update(
-            word for word in re.findall(r"[a-z0-9_]+", low) if word not in STOP and len(word) > 1
-        )
+        values.update(word for word in WORD.findall(low) if word not in STOP and len(word) > 1)
         values.update(alias for phrase, alias in aliases.items() if phrase in low)
     return sorted(values)
 
@@ -121,17 +123,19 @@ def folders_in_scope(sb, user_id, allowed, folder=None):
     allowed = list(dict.fromkeys(allowed or []))
     if not allowed:
         return []
-    if len(allowed) > 100:
+    if not folder and len(allowed) > MAX_SCOPE_FOLDERS:
         invalid("scope_too_broad")
-    rows = (
-        sb.table("folders")
-        .select("id,name,kind,parent_id")
-        .eq("user_id", user_id)
-        .in_("id", allowed)
-        .execute()
-        .data
-        or []
-    )
+    rows = []
+    for start in range(0, len(allowed), MAX_SCOPE_FOLDERS):
+        rows.extend(
+            sb.table("folders")
+            .select("id,name,kind,parent_id")
+            .eq("user_id", user_id)
+            .in_("id", allowed[start : start + MAX_SCOPE_FOLDERS])
+            .execute()
+            .data
+            or []
+        )
     if folder:
         target = text(folder, 256, "folder", False)
         targets = [r for r in rows if r["id"] == target or r["name"] == target]
@@ -143,6 +147,8 @@ def folders_in_scope(sb, user_id, allowed, folder=None):
             if descendants <= included:
                 break
             included.update(descendants)
+            if len(included) > MAX_SCOPE_FOLDERS:
+                invalid("scope_too_broad")
         rows = [r for r in rows if r["id"] in included]
     return rows
 
@@ -200,21 +206,53 @@ def journal_body(entries):
     return "\n\n".join(f"{r['captured_at']}\n{r.get('body') or ''}" for r in ordered)
 
 
-def journal_activity(
-    sb, user_id, folders, after, before, tz, limit=50, offset=0, session=None, terms=(), rows=None
+def journal_rows(
+    sb, user_id, folders, after, before, *, count=2001, newest_first=False, session_id=None
 ):
-    if rows is None:
-        q = (
+    page_size = 1000  # PostgREST's per-response cap.
+    rows = []
+    for offset in range(0, count, page_size):
+        query = (
             sb.table("agent_journal_search_entries")
             .select("folder_id,session_id,agent,title,body,captured_at,entry_id")
             .eq("user_id", user_id)
             .in_("folder_id", folders)
+            .order("captured_at", desc=newest_first)
+            .order("entry_id", desc=newest_first)
         )
         if after:
-            q = q.gte("captured_at", after)
+            query = query.gte("captured_at", after)
         if before:
-            q = q.lt("captured_at", before)
-        rows = q.order("captured_at", desc=True).limit(2001).execute().data or []
+            query = query.lt("captured_at", before)
+        if session_id:
+            query = query.eq("session_id", session_id)
+        size = min(page_size, count - offset)
+        query = query.range(offset, offset + size - 1) if offset else query.limit(size)
+        page = query.execute().data or []
+        rows.extend(page)
+        if len(page) < size:
+            break
+    return rows
+
+
+def journal_activity(
+    sb,
+    user_id,
+    folders,
+    after,
+    before,
+    tz,
+    limit=50,
+    offset=0,
+    session=None,
+    terms=(),
+    rows=None,
+    inventory_limited=False,
+):
+    newest_first = rows is None
+    if newest_first:
+        rows = journal_rows(sb, user_id, folders, after, before, newest_first=True)
+        inventory_limited = len(rows) > 2000
     unique = {}
     zone = ZoneInfo(tz)
     for r in rows[:2000]:
@@ -231,7 +269,7 @@ def journal_activity(
         if terms:
             wanted = set(terms)
             scored = [
-                (len(wanted & set(re.findall(r"[a-z0-9_]+", (e.get("body") or "").lower()))), i)
+                (len(wanted & set(WORD.findall((e.get("body") or "").lower()))), i)
                 for i, e in enumerate(entries)
             ]
             score, selected = max(scored)
@@ -249,8 +287,7 @@ def journal_activity(
                 related = [
                     i
                     for i, e in enumerate(entries)
-                    if i >= selected
-                    and anchors & set(re.findall(r"[a-z0-9_]+", (e.get("body") or "").lower()))
+                    if i >= selected and anchors & set(WORD.findall((e.get("body") or "").lower()))
                 ]
                 selected = related[-1]
             chosen = entries[selected]
@@ -278,6 +315,11 @@ def journal_activity(
                         "timezone": tz,
                         "revision": revision,
                         "start": start,
+                        **(
+                            {"sample_size": len(entries), "newest_first": newest_first}
+                            if inventory_limited
+                            else {}
+                        ),
                     }
                 ),
                 "source_kind": "journal_entries",
@@ -292,31 +334,30 @@ def journal_activity(
     activity = sorted(days, key=lambda r: (r["date"], r["folder_id"], r["session_id"]))
     if terms:
         activity.sort(key=lambda r: (r["matched_term_count"], r["captured_at"]), reverse=True)
+    next_offset = offset + limit
     return {
         "days": activity[offset : offset + limit],
         "matching_mode": "topical" if terms else "overview",
-        "has_more": len(activity) > offset + limit or len(rows) > 2000,
+        "has_more": next_offset < len(activity) and next_offset <= MAX_OFFSET,
+        **({"inventory_limited": True} if inventory_limited else {}),
         "sampled_entries": min(len(rows), 2000),
-        "next_offset": offset + limit,
+        "next_offset": next_offset if next_offset <= MAX_OFFSET else None,
     }
 
 
 def read_journal_day(sb, user_id, folders, ref, char_limit):
     after, before = bounds(ref["day"], ref["day"], tz=ref["timezone"])
-    entries = (
-        sb.table("agent_journal_search_entries")
-        .select("folder_id,session_id,agent,title,body,captured_at,entry_id")
-        .eq("user_id", user_id)
-        .eq("folder_id", ref["folder"])
-        .eq("session_id", ref["session"])
-        .gte("captured_at", after)
-        .lt("captured_at", before)
-        .order("captured_at")
-        .limit(2001)
-        .execute()
-        .data
-        or []
+    entries = journal_rows(
+        sb,
+        user_id,
+        [ref["folder"]],
+        after,
+        before,
+        count=ref.get("sample_size", 2001),
+        newest_first=ref.get("newest_first", False),
+        session_id=ref["session"],
     )
+    entries.sort(key=lambda r: (r["captured_at"], r["entry_id"]))
     body = journal_body(entries)
     if len(entries) > 2000 or hashlib.sha256(body.encode()).hexdigest() != ref["revision"]:
         invalid("journal_revision_changed_search_again", 409)
@@ -374,7 +415,7 @@ def search_memory(
         type(limit) is not int
         or not 1 <= limit <= 50
         or type(offset) is not int
-        or not 0 <= offset <= 10000
+        or not 0 <= offset <= MAX_OFFSET
     ):
         invalid("invalid_pagination")
     if order not in {"chronological", "latest", "relevance"}:
@@ -497,15 +538,18 @@ def search_memory(
         )
     if order == "chronological":
         matches.sort(key=lambda r: (r["recorded_at"] or "", r["session_id"], r["event_id"]))
+    next_offset = offset + limit
+    pagination_limited = bool(result.get("has_more")) and next_offset > MAX_OFFSET
     return {
         **result,
+        **({"has_more": False, "pagination_limited": True} if pagination_limited else {}),
         "period_reports": report_context(sb, user_id, list(scope), after, before, tz, session)
         if not query and not as_of and offset == 0
         else [],
         "search_terms": matching_terms,
         "matching_mode": mode,
         "unmatched_identifiers": result.get("unmatched_identifiers", []),
-        "next_offset": offset + limit,
+        "next_offset": next_offset if next_offset <= MAX_OFFSET else None,
         "selection": "time_diverse_relevance"
         if matching_terms and order == "chronological"
         else order,
@@ -553,8 +597,10 @@ def read_memory(sb, user_id, allowed, reference, before=1, after=1, char_limit=8
     ):
         invalid("invalid_evidence_window")
     ref = decode_reference(reference)
-    folders = folders_in_scope(sb, user_id, allowed)
-    if ref["owner"] != user_id or ref["folder"] not in {r["id"] for r in folders}:
+    if ref["owner"] != user_id or ref["folder"] not in (allowed or []):
+        invalid("memory_reference_not_found", 404)
+    folders = folders_in_scope(sb, user_id, [ref["folder"]])
+    if not folders:
         invalid("memory_reference_not_found", 404)
     if ref.get("kind") == "period_report":
         from services.period_reports import read_report_reference
