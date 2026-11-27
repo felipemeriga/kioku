@@ -294,7 +294,7 @@ wheels = [
 
 [[package]]
 name = "backend"
-version = "0.3.128"
+version = "0.3.129"
 source = { virtual = "." }
 dependencies = [
     { name = "anthropic" },
