@@ -51,7 +51,16 @@ jobs:
         run: rm -f supabase/migrations/*.sql
 
       - name: Start Supabase
+        id: supabase_start
         run: supabase start
+
+      - name: Diagnose Supabase startup failure
+        if: failure() && steps.supabase_start.outcome == 'failure'
+        run: |
+          echo "Local database-port sockets"
+          sudo ss -tanp '( sport = :54322 )' || true
+          echo "Job container port bindings"
+          docker ps -a --format '{{.Names}} {{.Ports}}'
 
       - name: Apply schema + local setup
         run: |
