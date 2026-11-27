@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -12,6 +13,8 @@ from services.agent_memory import (
     bounds,
     encode_reference,
     folders_in_scope,
+    journal_activity,
+    lexical_terms,
     read_memory,
     search_memory,
 )
@@ -29,6 +32,8 @@ class Query:
         self.rows = list(rows)
         self.one = False
         self.maximum = None
+        self.offset = 0
+        self.ordering = []
 
     def select(self, *_):
         return self
@@ -54,7 +59,12 @@ class Query:
         return self
 
     def order(self, k, desc=False):
-        self.rows.sort(key=lambda r: r.get(k) or "", reverse=desc)
+        self.ordering.append((k, desc))
+        return self
+
+    def range(self, start, end):
+        self.offset = start
+        self.maximum = end + 1
         return self
 
     def limit(self, v):
@@ -78,7 +88,9 @@ class Query:
         return self
 
     def execute(self):
-        rows = self.rows[: self.maximum] if self.maximum is not None else self.rows
+        for key, desc in reversed(self.ordering):
+            self.rows.sort(key=lambda row: row.get(key) or "", reverse=desc)
+        rows = self.rows[self.offset : self.maximum]
         return SimpleNamespace(data=rows[0] if self.one else rows)
 
 
@@ -139,8 +151,6 @@ def test_local_day_and_asof_boundaries_are_enforced():
     )
     assert bounds(as_of="2026-11-05T12:00:00-03:00")[1] == "2026-11-05T15:00:00.000001+00:00"
     start, end = bounds("2026-11-01", "2026-11-01", tz="America/New_York")
-    from datetime import datetime
-
     assert (
         datetime.fromisoformat(end) - datetime.fromisoformat(start)
     ).total_seconds() == 25 * 3600
@@ -1155,3 +1165,93 @@ def test_overview_rejects_incompatible_search_semantics(arguments):
     with pytest.raises(HTTPException) as exc:
         search_memory(Database(), OWNER, [FOLDER], projection="overview", **arguments)
     assert exc.value.status_code == 422
+
+
+def test_large_authority_can_narrow_before_applying_search_scope_cap(monkeypatch):
+    sb = Database()
+    allowed = [ROOT, SIBLING, *[f"other-{i}" for i in range(100)], FOLDER]
+    with pytest.raises(HTTPException) as exc:
+        folders_in_scope(sb, OWNER, allowed)
+    assert exc.value.detail["code"] == "scope_too_broad"
+    assert [r["id"] for r in folders_in_scope(sb, OWNER, allowed, "repo")] == [FOLDER]
+
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "test-large-scope-reference")
+    row = {
+        "folder_id": FOLDER,
+        "user_id": OWNER,
+        "session_id": "journal",
+        "agent": "codex",
+        "title": "journal",
+        "captured_at": "2026-11-06T12:00:00+00:00",
+        "entry_id": "one",
+        "body": "Dated note",
+    }
+    sb.rows["agent_journal_search_entries"] = [row]
+    day = journal_activity(sb, OWNER, [FOLDER], None, None, "UTC")["days"][0]
+    assert read_memory(sb, OWNER, allowed, day["reference"])["status"] == "ok"
+    with pytest.raises(HTTPException) as exc:
+        read_memory(sb, OWNER, [SIBLING], day["reference"])
+    assert exc.value.status_code == 404
+
+
+def test_accented_lexical_terms_are_not_split():
+    assert lexical_terms(["operação ação compactação memória revisão"]) == [
+        "ação",
+        "compactação",
+        "memória",
+        "operação",
+        "revisão",
+    ]
+
+
+def test_final_search_page_stops_at_the_offset_cap():
+    sb = Database()
+    with patch(
+        "services.agent_memory.rpc",
+        return_value={"matches": [], "total_matches": 16384, "has_more": True},
+    ):
+        page = search_memory(sb, OWNER, [FOLDER], query="relay", limit=50, offset=10000)
+    assert page["next_offset"] is None
+    assert page["has_more"] is False
+    assert page["pagination_limited"] is True
+
+
+def test_capped_inventory_reference_reads_the_selected_journal_snapshot(monkeypatch):
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "test-capped-journal-reference")
+    start = datetime(2026, 11, 6, 12, tzinfo=UTC)
+    entries = [
+        {
+            "folder_id": FOLDER,
+            "user_id": OWNER,
+            "session_id": "large-journal",
+            "agent": "codex",
+            "title": "journal",
+            "entry_id": f"{i:04d}",
+            "captured_at": (start + timedelta(seconds=i)).isoformat(),
+            "body": f"Journal control observation {i}.",
+        }
+        for i in range(2050)
+    ]
+    sb = Database()
+    sb.rows["agent_journal_search_entries"] = entries
+    snapshot = {
+        "entries": entries[:2000],
+        "entry_count": len(entries),
+        "original_days": [],
+        "original_day_count": 0,
+        "index_pending_objects": 0,
+        "snapshot_at": start.isoformat(),
+    }
+    with patch("services.agent_memory_overview.rpc", return_value=snapshot):
+        result = search_memory(sb, OWNER, [FOLDER], projection="overview")
+    assert result["inventory_complete"] is False
+    assert result["coverage"] == "inventory_limit_reached_narrow_dates"
+    day = result["activity"]["days"][0]
+    assert day["entry_count"] == 2000
+    page = read_memory(sb, OWNER, [FOLDER], day["reference"])
+    assert "Journal control observation 0." in page["evidence"][0]["excerpt"]
+    assert page["next_reference"]
+    entries[1100]["body"] = "Modified after search."
+    with pytest.raises(HTTPException) as exc:
+        read_memory(sb, OWNER, [FOLDER], day["reference"])
+    assert exc.value.detail["code"] == "journal_revision_changed_search_again"
