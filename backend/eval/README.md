@@ -26,9 +26,13 @@ From the project root:
 
 Flags compose: `--gate --capture`, `--ragas --gate`, etc.
 
-`--ragas` runs RAGAS metrics in addition to IR. Each metric makes many LLM
-judge calls per question, scaling with answer richness. Expect tens of minutes
-to hours depending on N. Use only for milestone diagnosis, not per-PR.
+`--ragas` runs RAGAS metrics in addition to IR and requires a working native
+Tsukai subscription for generation and judging. Each metric makes multiple judge
+calls per question, so a full run can take tens of minutes or longer. The command
+writes a report and exits unsuccessfully if any expected RAGAS row, context, or
+finite score is missing. If the judge returns rows with missing or nonfinite
+scores, the report keeps the per-question scores and identifies each failed cell,
+while omitting the aggregate. Numeric RAGAS thresholds remain diagnostic.
 
 The script:
 - starts the local Supabase stack if needed (`supabase start`)
@@ -41,6 +45,9 @@ The script:
 
 Reports land in `backend/eval/eval-results/<timestamp>.json` (and `latest.json`).
 The `eval-results/` dir is gitignored.
+
+The runner ingests goldens into a dedicated root folder owned by the synthetic
+eval user. IR retrieval, native generation, and judging use that scope.
 
 The IR run requests up to 20 results per question and evaluates fast and full
 mode against the same floors independently. Search can return fewer results.
