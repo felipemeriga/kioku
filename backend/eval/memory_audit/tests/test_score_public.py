@@ -1,7 +1,10 @@
 """Guard audit denominators and evidence budgets independently of public datasets."""
 
+import json
+
 import pytest
 
+from eval.memory_audit.public_data import file_sha256
 from eval.memory_audit.score_public import (
     abstention_controls,
     distribution,
@@ -10,6 +13,7 @@ from eval.memory_audit.score_public import (
     metric,
     ranked_units,
     read_integrity,
+    read_replay,
     score_groups,
 )
 
@@ -136,3 +140,105 @@ def test_verified_read_can_recover_evidence_without_relabeling_discovery():
 def test_latency_nearest_rank_percentile_reports_its_sample_size():
     assert distribution([]) == {"n": 0}
     assert distribution(range(1, 21)) == {"n": 20, "p50": 10.5, "p95": 19, "max": 20}
+
+
+@pytest.fixture
+def sealed_replay(tmp_path):
+    queries = [
+        {
+            "case_id": "q",
+            "family": "tiny",
+            "cluster": "c",
+            "stratum": "reasoning",
+            "split": "primary",
+        }
+    ]
+    query_path = tmp_path / "queries.json"
+    query_path.write_text(json.dumps(queries))
+    gold_path = tmp_path / "gold.json"
+    gold_path.write_text("{}")
+    manifest = {
+        "baseline": "sealed-baseline",
+        "datasets": {"tiny": {}},
+        "sha256": {"gold.json": file_sha256(gold_path)},
+        "policy": {"arms": {"literal": {}}},
+    }
+    (tmp_path / "freeze.json").write_text(json.dumps(manifest))
+    header = {
+        "record_type": "run",
+        "baseline": manifest["baseline"],
+        "gold_hash": manifest["sha256"]["gold.json"],
+        "query_hash": file_sha256(query_path),
+        "freeze_hash": file_sha256(tmp_path / "freeze.json"),
+        "family": "tiny",
+        "split": "all",
+        "expected_cases": 1,
+    }
+    inventory = {"record_type": "availability", "cluster": "c", "available": True}
+    trial = {
+        **queries[0],
+        "record_type": "trial",
+        "arm": "literal",
+        "availability": True,
+        "cache": "first_in_process",
+    }
+    completion = {"record_type": "completion", "cases": 1, "arms": 1}
+
+    def read(rows):
+        path = tmp_path / "result.jsonl"
+        path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+        return read_replay(path, tmp_path, manifest, query_path, queries)
+
+    return header, inventory, trial, completion, read
+
+
+def test_complete_replay_accounts_for_exactly_the_frozen_population(sealed_replay):
+    header, inventory, trial, completion, read = sealed_replay
+    _, footer, _, trials, _ = read([header, inventory, trial, completion])
+    assert footer == completion
+    assert set(trials) == {("q", "literal")}
+
+
+def test_partial_replay_cannot_silently_become_a_completed_run(sealed_replay):
+    header, inventory, trial, _, read = sealed_replay
+    assert read([header, inventory, trial])[1] is None
+
+
+@pytest.mark.parametrize("field", ["baseline", "gold_hash", "query_hash", "freeze_hash"])
+def test_mixed_frozen_inputs_are_rejected(sealed_replay, field):
+    header, inventory, trial, completion, read = sealed_replay
+    with pytest.raises(ValueError, match="header does not match"):
+        read([{**header, field: "other-run"}, inventory, trial, completion])
+
+
+def test_duplicate_trial_cannot_inflate_denominator_or_successes(sealed_replay):
+    header, inventory, trial, completion, read = sealed_replay
+    with pytest.raises(ValueError, match="Duplicate scored trial"):
+        read([header, inventory, trial, trial, completion])
+
+
+@pytest.mark.parametrize("change", [{"case_id": "foreign"}, {"arm": "oracle"}])
+def test_foreign_question_or_unregistered_arm_is_rejected(sealed_replay, change):
+    header, inventory, trial, completion, read = sealed_replay
+    with pytest.raises(ValueError, match="outside its frozen population"):
+        read([header, inventory, {**trial, **change}, completion])
+
+
+def test_forged_complete_coverage_is_rejected(sealed_replay):
+    header, inventory, _, completion, read = sealed_replay
+    with pytest.raises(ValueError, match="every frozen trial"):
+        read([header, inventory, completion])
+
+
+def test_availability_must_match_observed_inventory(sealed_replay):
+    header, inventory, trial, completion, read = sealed_replay
+    with pytest.raises(ValueError, match="source availability"):
+        read([header, inventory, {**trial, "availability": False}, completion])
+    with pytest.raises(ValueError, match="missing its source availability"):
+        read([header, trial, completion])
+
+
+def test_appended_results_after_completion_are_rejected(sealed_replay):
+    header, inventory, trial, completion, read = sealed_replay
+    with pytest.raises(ValueError, match="completion record must be the last"):
+        read([header, inventory, trial, completion, trial])
