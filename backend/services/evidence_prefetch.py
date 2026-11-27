@@ -3,11 +3,23 @@
 import calendar
 import json
 import re
-from datetime import date, datetime, timedelta
-from zoneinfo import ZoneInfo
+from datetime import UTC, date, datetime, timedelta
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from dateutil.parser import isoparse
 
 MONTHS = {name.lower(): i for i, name in enumerate(calendar.month_name) if name}
 MONTH_PATTERN = "|".join(MONTHS)
+CUTOFF = r"as of|before|by the end of|by end of|até"
+ISO_DATE = r"\d{4}-\d{2}-\d{2}"
+CLOCK = r"\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?"
+EXACT_CUTOFF = re.compile(
+    rf"\b({CUTOFF})\s+({ISO_DATE})(?:T|\s+(?:at\s+(?:exactly\s+)?|às\s+)?)"
+    rf"({CLOCK})(?:\s*(Z|UTC|[+-]\d{{2}}:?\d{{2}})(?![\w/]))?"
+    rf"(?![\w:+-]|\.\d)(?:\s+(?:in|em)\s+([a-z_]+(?:/[a-z_+-]+)+))?",
+    re.I,
+)
+
 ANSWER_INSTRUCTION = """Answer the user's current question from the supplied current-turn evidence.
 Use tools only for a specific missing fact. Cite only current evidence or new tool results.
 For a focused factual question, give one short paragraph or up to three short bullets,
@@ -40,7 +52,11 @@ def history_question(question):
             r"|\b(?:we|i)\s+(?:worked|tried|discussed|investigated|had|changed|deployed)\b"
             r"|\b(?:agent|session|journal)\s+(?:work|activity|records)\b"
             r"|\b(?:earlier|previous|past)\s+(?:work|attempts?|experiments?|investigation)\b"
-            r"|\bsessions?\s+(?:discussed|recorded|worked)\b",
+            r"|\bsessions?\s+(?:discussed|recorded|worked)\b"
+            r"|\bremember\s+(?:why|when|how|what|whether|if)\b"
+            r"|\b(?:já\s+)?(?:tentamos|mudamos|decidimos|discutimos|investigamos|"
+            r"rejeitamos|fizemos|trabalhamos|corrigimos|testamos)\b"
+            r"|\b(?:lembra|lembre|lembro)\s+(?:por que|por quê|quando|como|o que|se)\b",
             low,
         )
     )
@@ -48,7 +64,21 @@ def history_question(question):
 
 def date_filters(question, timezone, now=None):
     """Resolve only explicit years or relative periods; incident mentions are not filters."""
-    today = (now or datetime.now(ZoneInfo(timezone))).astimezone(ZoneInfo(timezone)).date()
+    zone = ZoneInfo(timezone)
+    today = (now or datetime.now(zone)).astimezone(zone).date()
+    cutoff = EXACT_CUTOFF.search(question)
+    if cutoff:
+        marker, day, clock, offset, named_zone = cutoff.groups()
+        stamp = f"{day}T{clock}{'Z' if offset and offset.upper() == 'UTC' else offset or ''}"
+        try:
+            instant = isoparse(stamp)
+            if instant.tzinfo is None:
+                instant = instant.replace(tzinfo=ZoneInfo(named_zone) if named_zone else zone)
+            if marker.lower() == "before":
+                instant = instant.astimezone(UTC) - timedelta(microseconds=1)
+            return {"as_of": instant.isoformat()}
+        except (ValueError, OverflowError, ZoneInfoNotFoundError):
+            return {"as_of": stamp}  # Let the typed tool reject an invalid cutoff.
     low = question.lower()
     start = end = None
     if "yesterday" in low:
@@ -66,11 +96,17 @@ def date_filters(question, timezone, now=None):
     elif re.search(r"\b(?:work|worked|recorded|issues|experiments)\b.*\btoday\b", low):
         start = end = today
     else:
-        iso = re.findall(r"\b\d{4}-\d{2}-\d{2}\b", low)
+        iso = re.findall(rf"\b{ISO_DATE}\b", low)
         named = re.search(
             rf"\b({MONTH_PATTERN})\s+(\d{{1,2}})(?:\s*[–—-]\s*(\d{{1,2}}))?,?\s+(\d{{4}})\b", low
         )
         month = re.search(rf"\b({MONTH_PATTERN})\s+(\d{{4}})\b", low)
+        if not re.search(rf"\b(?:{CUTOFF})\b", low) and re.search(
+            r"\b(?:outage|incident|failure|regression|bug|falha|incidente)\b.*"
+            r"\b(?:from|of|on|de|em)\s+",
+            low,
+        ):
+            return {}
         try:
             if iso:
                 start, end = date.fromisoformat(iso[0]), date.fromisoformat(iso[-1])
@@ -91,7 +127,7 @@ def date_filters(question, timezone, now=None):
         return {}
     if re.search(r"\bbefore\b", low) and start == end:
         return {"as_of": (end - timedelta(days=1)).isoformat()}
-    if re.search(r"\b(?:as of|by the end of|by end of)\b", low):
+    if re.search(r"\b(?:as of|by the end of|by end of|até)\b", low):
         return {"as_of": end.isoformat()}
     return {"from_date": start.isoformat(), "through_date": end.isoformat()}
 
@@ -183,10 +219,17 @@ def prefetch(question, user_timezone, execute, *, filename=None, folders=(), rep
             re.I,
         )
     )
+    if "as_of" in filters:
+        args["query"] = EXACT_CUTOFF.sub("", args["query"]).strip()
     if overview:
         args["query"] = ""
-        args["order"] = "chronological"
-        args["projection"] = "overview"
+        # Historical cutoffs use originals only. Overview includes revisable journals.
+        if "as_of" in filters:
+            overview = False
+            args["order"] = "latest"
+        else:
+            args["order"] = "chronological"
+            args["projection"] = "overview"
     session = re.search(r"\bsession\s+([a-z0-9][a-z0-9_.:-]{6,179})", question, re.I)
     if session:
         args["session"] = session[1]

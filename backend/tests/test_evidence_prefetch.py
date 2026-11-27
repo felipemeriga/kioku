@@ -20,6 +20,8 @@ NOW = datetime(2026, 11, 9, 2, tzinfo=timezone.utc)  # Still Sunday in São Paul
     [
         ("What did we work on this week?", True),
         ("Have we tried the smaller budget?", True),
+        ("Remember why we rejected the smaller budget?", True),
+        ("Já tentamos reaproveitar o conteúdo dessa revisão?", True),
         ("What were the issues we had yesterday?", True),
         ("Summarize earlier experiments from the agent records", True),
         ("What did the documentation say about memory?", False),
@@ -61,6 +63,19 @@ def test_source_intent(question, expected):
         ("When later sessions discussed the October incident, was its cause proven?", {}),
         ("What is our latest setting, not whether it is deployed today?", {}),
         ("Recorded on November 31, 2026", {}),
+        ("Have we fixed the SSE outage from 2026-11-12?", {}),
+        (
+            "As of 2026-11-21 at exactly 01:00:00 in America/New_York, what did we observe?",
+            {"as_of": "2026-11-21T01:00:00-05:00"},
+        ),
+        (
+            "What did we observe as of 2026-11-21T01:00:00-05:00?",
+            {"as_of": "2026-11-21T01:00:00-05:00"},
+        ),
+        (
+            "What did we observe before 2026-11-21T06:00:00Z?",
+            {"as_of": "2026-11-21T05:59:59.999999+00:00"},
+        ),
     ],
 )
 def test_time_is_local_and_incident_mentions_do_not_become_record_filters(question, expected):
@@ -269,3 +284,16 @@ def test_invalid_history_result_is_not_replaced_by_unrelated_documents():
     evidence, calls = prefetch("What did we try?", "UTC", lambda *_: "upstream unavailable")
     assert len(calls) == 1 and calls[0]["name"] == "search_agent_history"
     assert json.loads(evidence)["pages"][0]["code"] == "invalid_history_result"
+
+
+def test_prefetch_uses_discovery_for_a_cutoff_overview_question():
+    def execute(name, args):
+        assert name == "search_agent_history"
+        assert args["as_of"] == "2026-11-21"
+        assert args["query"] == ""
+        assert args["order"] == "latest"
+        assert args.get("projection", "discovery") == "discovery"
+        return json.dumps({"status": "ok", "matches": []})
+
+    _, calls = prefetch("As of 2026-11-21, what did we work on?", "UTC", execute)
+    assert len(calls) == 1
