@@ -1,14 +1,22 @@
 """Profile a read-only counterpart of the release parser's tool-result scan."""
 
 import argparse
+import json
+import re
 from pathlib import Path
 
 from psycopg import sql
+
+from services.agent_memory import bounds, lexical_terms, technical_terms
 
 from .lab import Lab
 from .public_data import BASELINE, uuid_for, write_private
 
 SIGNATURE = "public.publish_agent_evidence_index(uuid,text,jsonb,jsonb,integer,boolean)"
+MEMORY_SQL = (
+    "public.search_agent_memory_v2"
+    "(uuid,uuid[],text[],timestamptz,timestamptz,text,text,integer,integer,text[],text)"
+)
 
 
 def relevant_plan(node):
@@ -49,6 +57,104 @@ def stored_targets(lab, artifact, condition):
     return [row["id"] for row in rows]
 
 
+def candidate_prefix(lab):
+    definition = lab.pg.execute(
+        "SELECT pg_get_functiondef(%s::regprocedure) AS definition", [MEMORY_SQL]
+    ).fetchone()["definition"]
+    prefix = definition[
+        definition.index("WITH terms AS MATERIALIZED") : definition.index(
+            ", events AS MATERIALIZED"
+        )
+    ]
+    types = {
+        "p_terms": "text[]",
+        "p_identifiers": "text[]",
+        "p_user_id": "uuid",
+        "p_folder_ids": "uuid[]",
+        "p_after": "timestamptz",
+        "p_before": "timestamptz",
+        "p_session": "text",
+    }
+    prefix = re.sub(
+        r"\bp_[a-z_]+\b",
+        lambda match: f"%({match[0]})s::{types[match[0]]}",
+        prefix,
+    )
+    return sql.SQL(prefix)
+
+
+def candidate_parameters(owner, folder, question, after=None, before=None):
+    identifiers = technical_terms(question)
+    return {
+        "p_terms": sorted(set([*lexical_terms([question]), *identifiers])),
+        "p_identifiers": identifiers,
+        "p_user_id": owner,
+        "p_folder_ids": [folder],
+        "p_after": after,
+        "p_before": before,
+        "p_session": None,
+    }
+
+
+def candidate_counter(lab):
+    return candidate_prefix(lab) + sql.SQL("""
+        SELECT (SELECT count(*) FROM matched) AS pre_focus_chunks,
+               (SELECT count(*) FROM focused) AS post_focus_chunks
+    """)
+
+
+def memory_query_shape(lab):
+    artifact = "capacity-messages-16384.jsonl"
+    owner = uuid_for(artifact, "one_serial", "owner")
+    folder = uuid_for(artifact, "one_serial", "repo")
+    availability = lab.index_state(owner, folder)
+    if availability["indexed_segments"] < 64:
+        return {"status": "source_not_fully_indexed", "availability": availability}
+    broad = "Have we checked the relay checkpoint checksum?"
+    after, before = bounds("2026-12-03", "2026-12-03")
+    modes = {
+        "broad": (broad, None, None),
+        "broad_with_identifier": (broad + " LOAD_ANCHOR_42", None, None),
+        "identifier_only": ("LOAD_ANCHOR_42", None, None),
+        "last_date": (broad, after, before),
+    }
+    counter = candidate_counter(lab)
+    data = {}
+    for key, (question, lower, upper) in modes.items():
+        params = candidate_parameters(owner, folder, question, lower, upper)
+        rows = lab.pg.execute(counter, params).fetchone()
+        plan = lab.pg.execute(
+            sql.SQL("EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ") + counter, params
+        ).fetchone()
+        details = next(iter(plan.values()))[0]
+        data[key] = {
+            **rows,
+            "count_query_execution_ms": details["Execution Time"],
+            "count_query_plan": relevant_plan(details["Plan"]),
+        }
+    with lab.tools(owner, folder) as mcp:
+        last = json.loads(
+            mcp.search_agent_history(broad, order="relevance", limit=50, offset=10000)
+        )
+        subsequent = json.loads(
+            mcp.search_agent_history(
+                broad,
+                order="relevance",
+                limit=50,
+                offset=last["next_offset"],
+            )
+        )
+    paging = {
+        "last_valid_offset": 10000,
+        "returned": len(last["matches"]),
+        "total_matches": last["total_matches"],
+        "has_more": last["has_more"],
+        "next_offset": last["next_offset"],
+        "next_offset_error": subsequent.get("detail", {}).get("code"),
+    }
+    return {"status": "ok", "availability": availability, "queries": data, "pagination": paging}
+
+
 def measure(lab):
     predicate = dedup_predicate(lab)
     query = sql.SQL(
@@ -85,6 +191,7 @@ def measure(lab):
         "method": "Read-only count with the exact frozen parser's dedup predicate.",
         "parser_updates_executed": False,
         "groups": grades,
+        "search_candidate_shape": memory_query_shape(lab),
     }
 
 
