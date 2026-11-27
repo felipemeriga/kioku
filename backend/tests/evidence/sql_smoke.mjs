@@ -8,6 +8,7 @@ await db.exec('ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTI
 await db.exec(fs.readFileSync(new URL('../../../supabase/migrations/20261105090000_agent_evidence.sql',import.meta.url),'utf8'));
 await db.exec(fs.readFileSync(new URL('../../../supabase/migrations/20261105100000_agent_evidence_empty_attachments.sql',import.meta.url),'utf8'));
 await db.exec(fs.readFileSync(new URL('../../../supabase/migrations/20261105103000_agent_evidence_rpc_privileges.sql',import.meta.url),'utf8'));
+await db.exec(fs.readFileSync(new URL('../../../supabase/migrations/20261127131000_evidence_publication_custom_plan.sql',import.meta.url),'utf8'));
 const archiveSignatures=["public.prepare_agent_evidence(uuid,jsonb)", "public.commit_agent_evidence(uuid,text)", "public.publish_agent_evidence_index(uuid,text,jsonb,jsonb,integer,boolean)", "public.delete_agent_evidence(uuid,uuid,uuid)", "public.agent_evidence_days(uuid,uuid,uuid,text,date,date)", "public.claim_agent_evidence_upload(uuid,uuid,text)", "public.finish_agent_evidence_upload(uuid,uuid,text,uuid,text)", "public.expire_agent_evidence_batch(uuid)", "public.archive_agent_evidence_purge_paths()", "public.archive_agent_evidence_object_purge_path()"];
 for(const signature of archiveSignatures) {
   const permission=(await db.query(`SELECT
@@ -65,6 +66,34 @@ const event={event_id:'b'.repeat(64),stream_id:'s',generation:1,record_sequence:
 await call('publish_agent_evidence_index',[source.id,'obj',[event],{},1,true]);
 const indexed=(await db.query('SELECT * FROM agent_evidence_sessions WHERE id=$1',[source.id])).rows[0];
 if(indexed.event_count!==1||indexed.indexed_revision!==1||indexed.index_generation!==1)throw Error('index publication');
+const shortResult = {
+  ...event, event_id: 'c'.repeat(64), record_sequence: 2, event_type: 'tool_result',
+  role: 'tool', call_id: 'call', content_preview: 'x', content_length: 1,
+};
+const richResult = {
+  ...shortResult, event_id: 'd'.repeat(64), record_sequence: 3,
+  content_preview: 'xy', content_length: 2,
+};
+await db.exec(`CREATE TABLE evidence_visibility_updates(displayable boolean);
+  CREATE FUNCTION observe_visibility() RETURNS trigger LANGUAGE plpgsql AS $$
+  BEGIN INSERT INTO evidence_visibility_updates VALUES (NEW.displayable); RETURN NEW; END $$;
+  CREATE TRIGGER observe_visibility AFTER UPDATE OF displayable ON agent_evidence_events
+  FOR EACH ROW EXECUTE FUNCTION observe_visibility();`);
+const visibilityUpdates = async () =>
+  (await db.query('SELECT displayable FROM evidence_visibility_updates')).rows.map(r => r.displayable);
+await call('publish_agent_evidence_index',[source.id,'obj',[shortResult,richResult],{},1,false]);
+await call('publish_agent_evidence_index',[source.id,'obj',[],{},1,false]);
+if (JSON.stringify(await visibilityUpdates()) !== '[false]')
+  throw Error('repeated deduplication rewrote an already hidden tool result');
+await call('publish_agent_evidence_index',[source.id,'obj',[shortResult],{},1,true]);
+if (JSON.stringify(await visibilityUpdates()) !== '[false,true,false]')
+  throw Error('replayed short tool result was not hidden again');
+const visible = (await db.query(
+  "SELECT event_id FROM agent_evidence_events WHERE session_id=$1 AND event_type='tool_result' AND displayable",
+  [source.id],
+)).rows.map(r => r.event_id);
+if (JSON.stringify(visible) !== JSON.stringify([richResult.event_id]))
+  throw Error('publication did not retain the richer tool result');
 // Authenticated users cannot read another owner, including via direct SQL.
 await db.exec('GRANT USAGE ON SCHEMA public,auth TO authenticated; GRANT EXECUTE ON FUNCTION auth.uid() TO authenticated; SET ROLE authenticated;');
 await db.query("SELECT set_config('request.jwt.claim.sub',$1,false)",['33333333-3333-4333-8333-333333333333']);
