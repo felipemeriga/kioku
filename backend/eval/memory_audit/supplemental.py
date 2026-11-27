@@ -11,12 +11,14 @@ from .lab import MIGRATION_DIRECTORY
 from .public_data import (
     ARMS,
     BASELINE,
+    DATASETS,
     READ_COUNT,
     READ_WINDOW,
     RELATED,
     SEED,
     codex_record,
     file_sha256,
+    freeze_locomo,
     gold_event,
     namespace,
     opaque,
@@ -28,6 +30,10 @@ from .replay import log_line, open_output
 from .score_public import distribution, json_lines, ranked_units
 
 EXTRA_DATASETS = {
+    "locomo_captions": {
+        **DATASETS["locomo"],
+        "projection": "Complete dialogues with the authors' released captions appended as text.",
+    },
     "beam_100k": {
         "file": "beam-100k.parquet",
         "revision": "3205395e897e7318c7b094ef4e6047b9b82dbb03",
@@ -56,8 +62,7 @@ def case(family, scope, source_id, stratum, question, split, *, revision=None):
     }
 
 
-def parse_beam(rows, session_sink, add_case):
-    family = "beam_100k"
+def parse_beam(rows, session_sink, add_case, *, family="beam_100k", revision=None):
     for row in rows:
         source_id = row["conversation_id"]
         scope = namespace(family, source_id)
@@ -103,6 +108,7 @@ def parse_beam(rows, session_sink, add_case):
                         category,
                         probe["question"],
                         "primary" if rank == 0 else "holdout",
+                        revision=revision,
                     ),
                     {
                         "source_id": qid,
@@ -190,6 +196,20 @@ def freeze_family(family, spec, data_dir, output, load):
 
 
 def freeze_extra(family, data_dir, output):
+    if family == "locomo_captions":
+
+        def load_captions(path, stream, add_case):
+            freeze_locomo(
+                path,
+                add_case,
+                lambda _, row: log_line(stream, row),
+                4,
+                family=family,
+                include_captions=True,
+            )
+
+        return freeze_family(family, EXTRA_DATASETS[family], data_dir, output, load_captions)
+
     from pyarrow import parquet
 
     parse = parse_beam if family == "beam_100k" else parse_mab

@@ -118,7 +118,7 @@ def namespace(family, external_id):
     }
 
 
-def meta(family, scope, source_id, stratum, question, split, **filters):
+def meta(family, scope, source_id, stratum, question, split, *, revision=None, **filters):
     return {
         **scope,
         "case_id": opaque(family, source_id, "case"),
@@ -126,7 +126,7 @@ def meta(family, scope, source_id, stratum, question, split, **filters):
         "family": family,
         "stratum": stratum,
         "split": split,
-        "dataset_revision": DATASETS[family]["revision"],
+        "dataset_revision": revision or DATASETS[family]["revision"],
         "role_partition": "both",
         "filters": {"timezone": "UTC", **filters},
     }
@@ -235,8 +235,15 @@ def locomo_slot(key):
     return int(key.split("_")[1])
 
 
-def freeze_locomo(path, add_case, add_session, primary_per_dialogue_category):
-    family = "locomo"
+def freeze_locomo(
+    path,
+    add_case,
+    add_session,
+    primary_per_dialogue_category,
+    *,
+    family="locomo",
+    include_captions=False,
+):
     for row in json.loads(path.read_text()):
         dialogue_id = row["sample_id"]
         dialogue = row["conversation"]
@@ -256,11 +263,10 @@ def freeze_locomo(path, add_case, add_session, primary_per_dialogue_category):
             for i, turn in enumerate(dialogue[key]):
                 speaker = turn["speaker"]
                 role = "user" if speaker == dialogue["speaker_a"] else "assistant"
-                records.append(
-                    codex_record(
-                        role, speaker + ": " + turn["text"], base + timedelta(microseconds=i)
-                    )
-                )
+                content = speaker + ": " + turn["text"]
+                if include_captions and turn.get("blip_caption"):
+                    content += "\n[Image caption] " + turn["blip_caption"]
+                records.append(codex_record(role, content, base + timedelta(microseconds=i)))
                 label = turn["dia_id"]
                 if turn.get("blip_caption"):
                     captioned.add(label)
@@ -278,7 +284,13 @@ def freeze_locomo(path, add_case, add_session, primary_per_dialogue_category):
             for rank, (source_id, item) in enumerate(ranked):
                 split = "primary" if rank < primary_per_dialogue_category else "holdout"
                 case = meta(
-                    family, scope, source_id, f"category_{category}", item["question"], split
+                    family,
+                    scope,
+                    source_id,
+                    f"category_{category}",
+                    item["question"],
+                    split,
+                    revision=DATASETS["locomo"]["revision"],
                 )
                 is_adversarial = category == 5
                 keys = list(dict.fromkeys(item.get("evidence", [])))
