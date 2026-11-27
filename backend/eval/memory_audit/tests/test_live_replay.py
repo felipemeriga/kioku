@@ -104,3 +104,39 @@ def test_zero_process_exit_does_not_turn_a_tool_error_into_success(monkeypatch):
     result = live_replay.invoke(["history", "question"], 10)
     assert result["status"] == "cli_error"
     assert result["error_code"] == "evidence_query_timeout"
+
+
+def test_a_successful_source_quoting_an_old_error_is_not_a_new_error(monkeypatch):
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "status": "ok",
+                    "matches": [
+                        {"excerpt": "Earlier evidence_query_timeout; Kioku: evidence_database_busy"}
+                    ],
+                }
+            ),
+            stderr="",
+        ),
+    )
+    result = live_replay.invoke(["history", "question"], 10)
+    assert result["status"] == "ok"
+    assert result["error_code"] is None
+
+
+def test_a_new_typed_service_error_retains_its_code_without_raw_output(monkeypatch):
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args=[], returncode=1, stdout="✗ Kioku: evidence_reference_not_found\n", stderr=""
+        ),
+    )
+    result = live_replay.invoke(["evidence", "reference"], 10)
+    assert result["status"] == "cli_error"
+    assert result["error_code"] == "evidence_reference_not_found"

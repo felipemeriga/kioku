@@ -8,6 +8,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import time
 from datetime import datetime, timezone
@@ -48,17 +49,33 @@ def invoke(arguments, timeout):
     except ValueError:
         result = None
     success = process.returncode == 0 and isinstance(result, dict) and result.get("status") == "ok"
-    configuration_error = next(
-        (code for message, code in CONFIG_ERRORS.items() if message in process.stdout), None
-    )
+    configuration_error = None
+    error_code = None
+    if not success:
+        configuration_error = next(
+            (code for message, code in CONFIG_ERRORS.items() if message in process.stdout), None
+        )
+        detail = result.get("detail") if isinstance(result, dict) else None
+        structured = result.get("code") if isinstance(result, dict) else None
+        if isinstance(detail, dict):
+            structured = structured or detail.get("code")
+        rendered = re.search(r"\bKioku: ([a-z][a-z0-9_]{0,100})\b", process.stdout)
+        error_code = configuration_error
+        if (
+            not error_code
+            and isinstance(structured, str)
+            and re.fullmatch(r"[a-z][a-z0-9_]{0,100}", structured)
+        ):
+            error_code = structured
+        error_code = error_code or (rendered[1] if rendered else None)
+        error_code = error_code or next((code for code in ERRORS if code in process.stdout), None)
     return {
         "status": "ok" if success else "cli_error",
         "process_exit": process.returncode,
         "ms": elapsed,
         "stdout_bytes": len(process.stdout.encode()),
         "stderr_bytes": len(process.stderr.encode()),
-        "error_code": configuration_error
-        or next((code for code in ERRORS if code in process.stdout), None),
+        "error_code": error_code,
         "local_configuration_error": configuration_error is not None,
         "result": result,
     }
