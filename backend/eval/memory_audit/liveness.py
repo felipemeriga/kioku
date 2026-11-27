@@ -99,12 +99,14 @@ def still_pending(lab, session_id):
     ).fetchone()["pending"]
 
 
-def worker(lab_file, prefix, targets, barrier, stop):
+def worker(lab_file, prefix, targets, barrier, stop, settings):
     lane = Lab(lab_file, application_name=prefix)
     lane.rpc_observations = []
     code_counts = Counter()
     passes = 0
     try:
+        for name, value in settings.items():
+            lane.pg.execute("SELECT set_config(%s,%s,false)", [name, value])
         barrier.wait(timeout=10)
         with lane.service_role():
             while not stop.is_set():
@@ -200,17 +202,8 @@ def verify_drain(lab, targets):
     return integrity
 
 
-def condition(lab, lab_file, key, segments, records, deadline_seconds, output, shape):
-    sessions, worker_count, overlap = CONDITIONS[key]
-    root = uuid_for(output.name, key, "root")
-    owner = uuid_for(output.name, key, "owner")
-    folder = uuid_for(output.name, key, "repo")
-    lab.create_owner(owner)
-    lab.create_folder(root, owner, "capacity")
-    lab.create_folder(folder, owner, "relay-capacity", root)
-    seed_start = time.perf_counter()
-    targets = seed(lab, owner, folder, sessions, segments, records, shape)
-    seed_ms = (time.perf_counter() - seed_start) * 1000
+def drain(lab, lab_file, owner, folder, targets, key, deadline_seconds, settings=None):
+    _, worker_count, overlap = CONDITIONS[key]
     initial = lab.index_state(owner, folder)
     assignments = [
         targets if overlap else targets[index::worker_count] for index in range(worker_count)
@@ -222,7 +215,7 @@ def condition(lab, lab_file, key, segments, records, deadline_seconds, output, s
     waits = Counter()
     with ThreadPoolExecutor(max_workers=worker_count) as pool:
         jobs = [
-            pool.submit(worker, lab_file, prefix, assigned, barrier, stop)
+            pool.submit(worker, lab_file, prefix, assigned, barrier, stop, settings or {})
             for assigned in assignments
         ]
         barrier.wait(timeout=10)
@@ -242,7 +235,7 @@ def condition(lab, lab_file, key, segments, records, deadline_seconds, output, s
         workers = [job.result() for job in jobs]
         drain_ms = (time.perf_counter() - start) * 1000
     final = lab.index_state(owner, folder)
-    complete = final["indexed_segments"] == segments
+    complete = final["indexed_segments"] == final["committed_segments"]
     snapshots.append({"elapsed_ms": drain_ms, **final})
     rpcs = defaultdict(list)
     errors = Counter()
@@ -251,27 +244,12 @@ def condition(lab, lab_file, key, segments, records, deadline_seconds, output, s
             rpcs[name].append(milliseconds)
             if sqlstate:
                 errors[f"{name}/{sqlstate}"] += 1
-    records_valid = None
-    idempotent = None
-    searches = {}
-    if complete:
-        records_valid = verify_drain(lab, targets)
-        idempotent = lab.index_state(owner, folder) == final
-        searches = query_trials(lab, owner, folder, segments)
     return {
         "condition": key,
-        "source_records": segments * records,
-        "expected_visible_after_native_tool_dedup": (
-            segments * records * 3 // 4 if shape == "duplicate_results" else segments * records
-        ),
-        "record_shape": shape,
-        "seed_ms": seed_ms,
         "drain_ms": drain_ms,
         "fully_indexed": complete,
-        "file_integrity": records_valid,
-        "reindex_idempotent": idempotent,
         "scheduled_workers": worker_count,
-        "sessions": sessions,
+        "sessions": len(targets),
         "duplicate_scheduled_scope": overlap,
         "stop_requested": stop.is_set(),
         "worker_passes": workers,
@@ -279,6 +257,39 @@ def condition(lab, lab_file, key, segments, records, deadline_seconds, output, s
         "physical_wait_samples": dict(waits),
         "postgres_rpc_wall_ms": {rpc: distribution(values) for rpc, values in sorted(rpcs.items())},
         "sqlstates": dict(errors),
+    }
+
+
+def condition(lab, lab_file, key, segments, records, deadline_seconds, output, shape):
+    sessions, _, _ = CONDITIONS[key]
+    root = uuid_for(output.name, key, "root")
+    owner = uuid_for(output.name, key, "owner")
+    folder = uuid_for(output.name, key, "repo")
+    lab.create_owner(owner)
+    lab.create_folder(root, owner, "capacity")
+    lab.create_folder(folder, owner, "relay-capacity", root)
+    seed_start = time.perf_counter()
+    targets = seed(lab, owner, folder, sessions, segments, records, shape)
+    seed_ms = (time.perf_counter() - seed_start) * 1000
+    result = drain(lab, lab_file, owner, folder, targets, key, deadline_seconds)
+    records_valid = None
+    idempotent = None
+    searches = {}
+    if result["fully_indexed"]:
+        before = lab.index_state(owner, folder)
+        records_valid = verify_drain(lab, targets)
+        idempotent = lab.index_state(owner, folder) == before
+        searches = query_trials(lab, owner, folder, segments)
+    return {
+        **result,
+        "source_records": segments * records,
+        "expected_visible_after_native_tool_dedup": (
+            segments * records * 3 // 4 if shape == "duplicate_results" else segments * records
+        ),
+        "record_shape": shape,
+        "seed_ms": seed_ms,
+        "file_integrity": records_valid,
+        "reindex_idempotent": idempotent,
         "query_cost": searches,
     }
 

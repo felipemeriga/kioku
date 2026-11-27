@@ -86,10 +86,17 @@ def score_candidate_stages(
         before = set(row["pre_focus"])
         after = set(row["post_focus"])
         direct = [event["event"] for event in trial["events"]]
+        exact_first_page = set(direct[:10])
+        expanded = {
+            record["event"]
+            for read in trial["reads"]
+            for record in read["records"]
+            if read["status"] == "ok" and record["integrity"]
+        }
         if not after.issubset(before) or not set(direct).issubset(after):
             raise ValueError("Candidate pipeline disagrees with the original retrieval")
         timings.append(row["elapsed_ms"])
-        if targets.intersection(direct[:10]):
+        if targets.intersection(exact_first_page):
             state = "returned_first_10"
         elif targets.intersection(direct):
             state = "returned_after_10"
@@ -104,7 +111,15 @@ def score_candidate_stages(
             partial[key]["marked_turns"] += len(targets)
             partial[key]["before_focus"] += len(targets & before)
             partial[key]["after_focus"] += len(targets & after)
-            partial[key]["first_10"] += len(targets & set(direct[:10]))
+            partial[key]["first_10"] += len(targets & exact_first_page)
+            partial[key]["all_marks_in_focused_set"] += targets.issubset(after)
+            partial[key]["more_than_ten_marks"] += len(targets) > 10
+            partial[key]["all_marks_feasible_at_10"] += len(targets) <= 10 and targets.issubset(
+                after
+            )
+            partial[key]["new_any_from_valid_reads"] += not targets.intersection(
+                exact_first_page
+            ) and bool(targets.intersection(expanded))
     if seen != set(original):
         raise ValueError("Candidate replay omitted some frozen queries")
     return {
