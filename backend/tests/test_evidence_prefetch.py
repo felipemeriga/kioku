@@ -22,6 +22,9 @@ NOW = datetime(2026, 11, 9, 2, tzinfo=timezone.utc)  # Still Sunday in São Paul
         ("Have we tried the smaller budget?", True),
         ("Remember why we rejected the smaller budget?", True),
         ("Já tentamos reaproveitar o conteúdo dessa revisão?", True),
+        ("O que a gente fez na semana passada?", True),
+        ("Quais problemas tivemos ontem?", True),
+        ("O que a documentação diz sobre o que fizemos?", False),
         ("What were the issues we had yesterday?", True),
         ("Summarize earlier experiments from the agent records", True),
         ("What did the documentation say about memory?", False),
@@ -55,6 +58,38 @@ def test_source_intent(question, expected):
         (
             "What did we work on last month?",
             {"from_date": "2026-10-01", "through_date": "2026-10-31"},
+        ),
+        (
+            "O que a gente fez na semana passada?",
+            {"from_date": "2026-10-26", "through_date": "2026-11-01"},
+        ),
+        (
+            "Em que trabalhamos nesta semana?",
+            {"from_date": "2026-11-02", "through_date": "2026-11-08"},
+        ),
+        (
+            "O que fizemos no mês passado?",
+            {"from_date": "2026-10-01", "through_date": "2026-10-31"},
+        ),
+        ("O que fizemos neste mes?", {"from_date": "2026-11-01", "through_date": "2026-11-08"}),
+        (
+            "Quais problemas tivemos ontem?",
+            {"from_date": "2026-11-07", "through_date": "2026-11-07"},
+        ),
+        ("O que fizemos anteontem?", {"from_date": "2026-11-06", "through_date": "2026-11-06"}),
+        (
+            "What did we work on the day before yesterday?",
+            {"from_date": "2026-11-06", "through_date": "2026-11-06"},
+        ),
+        ("What did we know before the day before yesterday?", {"as_of": "2026-11-05"}),
+        ("Hoje, o que a gente fez?", {"from_date": "2026-11-08", "through_date": "2026-11-08"}),
+        (
+            "O que fizemos de ontem pra hoje?",
+            {"from_date": "2026-11-07", "through_date": "2026-11-08"},
+        ),
+        (
+            "What did we work on from yesterday through today?",
+            {"from_date": "2026-11-07", "through_date": "2026-11-08"},
         ),
         (
             "What did we work on in November 2026?",
@@ -92,6 +127,38 @@ def test_document_scope_cannot_expand_into_history():
     evidence, _ = prefetch("What did we try?", "UTC", execute, filename="only-this.pdf")
     assert calls == ["knowledge_base_search"]
     assert evidence == "Document evidence [1]"
+
+
+@pytest.mark.parametrize(
+    "question,overview",
+    [
+        ("O que a gente fez na semana passada?", True),
+        ("O que fizemos para corrigir o Mongo ontem?", False),
+    ],
+)
+def test_portuguese_activity_preserves_dates_and_topical_queries(monkeypatch, question, overview):
+    monkeypatch.setattr(
+        "services.evidence_prefetch.date_filters", lambda q, tz: date_filters(q, tz, NOW)
+    )
+    calls = []
+
+    def execute(name, args):
+        calls.append((name, args))
+        return json.dumps({"status": "ok", "matches": [], "activity": {"days": []}})
+
+    prefetch(question, "America/Sao_Paulo", execute)
+    name, args = calls[0]
+    assert name == "search_agent_history"
+    assert args["timezone"] == "America/Sao_Paulo"
+    if overview:
+        assert args["query"] == ""
+        assert args["projection"] == "overview"
+        assert args["from_date"] == "2026-10-26"
+        assert args["through_date"] == "2026-11-01"
+    else:
+        assert args["query"] == question
+        assert "projection" not in args
+        assert args["from_date"] == args["through_date"] == "2026-11-07"
 
 
 def test_vague_current_code_question_uses_scoped_source_query_once():
