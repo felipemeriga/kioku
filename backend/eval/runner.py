@@ -71,16 +71,19 @@ _guard_against_prod()
 
 from concurrent.futures import ThreadPoolExecutor  # noqa: E402
 
+from db.client import get_supabase  # noqa: E402
 from eval.ir_metrics import mrr, ndcg_at_k, recall_at_k  # noqa: E402
 from eval.mixed_sources import run_mixed_sources  # noqa: E402
+from services.ai.scope import ExecutionScope, execution_scope  # noqa: E402
 from services.embeddings import embed_query  # noqa: E402
 from services.evaluation import VoyageEmbeddings, _get_ragas_llm  # noqa: E402
-from services.ingestion import ingest_document  # noqa: E402
+from services.ingestion import compute_content_hash, ingest_document  # noqa: E402
 from services.metrics import collect_request, submit_with_context  # noqa: E402
 from services.rag import answer_question  # noqa: E402
 from services.search import search_documents  # noqa: E402
 
 EVAL_USER_ID = "00000000-0000-0000-0000-000000000001"
+EVAL_FOLDER_ID = "00000000-0000-0000-0000-000000000010"
 FIXTURE_CORPUS = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "corpus"
 GOLDEN_SET = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "golden_set.yaml"
 EVAL_RESULTS_DIR = Path(__file__).resolve().parent / "eval-results"
@@ -89,20 +92,68 @@ BASELINE_PATH = Path(__file__).resolve().parent / "baseline.json"
 K_VALUES = (5, 10, 20)
 IR_METRICS = tuple(f"recall_at_{k}" for k in K_VALUES) + ("mrr", "ndcg_at_10")
 MODES = ("fast", "full")
+RAGAS_METRICS = ("faithfulness", "answer_relevancy", "context_precision", "context_recall")
+
+
+class RagasCoverageError(ValueError):
+    """The requested run did not produce all required observations."""
 
 
 def _ingest_corpus() -> None:
-    """Ingest every file in the fixture corpus under EVAL_USER_ID."""
+    """Put the golden corpus in the same owned subtree used for retrieval and chat."""
+    sb = get_supabase()
+    sb.table("folders").upsert(
+        {"id": EVAL_FOLDER_ID, "user_id": EVAL_USER_ID, "name": "Golden retrieval fixtures"},
+        ignore_duplicates=True,
+    ).execute()
+    folders = (
+        sb.table("folders")
+        .select("id")
+        .eq("id", EVAL_FOLDER_ID)
+        .eq("user_id", EVAL_USER_ID)
+        .is_("parent_id", "null")
+        .execute()
+        .data
+    )
+    if not folders:
+        raise ValueError("The golden fixture folder is not an owned root")
     files = sorted(p for p in FIXTURE_CORPUS.iterdir() if p.is_file())
     print(f"[eval] ingesting {len(files)} fixture files...")
     for path in files:
         raw = path.read_bytes()
+        content_hash = compute_content_hash(raw)
+        # Adopt only identical unfiled fixtures from older versions of the local runner.
+        (
+            sb.table("documents")
+            .update({"folder_id": EVAL_FOLDER_ID, "root_folder_id": EVAL_FOLDER_ID})
+            .eq("user_id", EVAL_USER_ID)
+            .eq("source_filename", path.name)
+            .eq("content_hash", content_hash)
+            .is_("folder_id", "null")
+            .execute()
+        )
         result = ingest_document(
             file_bytes=raw,
             filename=path.name,
             user_id=EVAL_USER_ID,
-            folder_id=None,
+            folder_id=EVAL_FOLDER_ID,
         )
+        if result["duplicate"]:
+            rows = (
+                sb.table("documents")
+                .select("id")
+                .eq("user_id", EVAL_USER_ID)
+                .eq("folder_id", EVAL_FOLDER_ID)
+                .eq("source_filename", path.name)
+                .eq("content_hash", content_hash)
+                .limit(1)
+                .execute()
+                .data
+            )
+            if not rows:
+                raise ValueError(f"Duplicate fixture outside the golden scope: {path.name}")
+        elif not result["chunks"]:
+            raise ValueError(f"Golden fixture produced no chunks: {path.name}")
         print(f"[eval]   {path.name}: chunks={result['chunks']} duplicate={result['duplicate']}")
 
 
@@ -121,13 +172,15 @@ def _score_question(q: dict, mode: str) -> dict:
 
     embedding = embed_query(q["question"])
     t0 = time.monotonic()
-    with collect_request(f"eval q={q['id']} mode={mode}") as collector:
+    scope = ExecutionScope(EVAL_USER_ID, (EVAL_FOLDER_ID,))
+    with execution_scope(scope), collect_request(f"eval q={q['id']} mode={mode}") as collector:
         results = search_documents(
             query_embedding=embedding,
             query_text=q["question"],
             user_id=EVAL_USER_ID,
             fast_mode=(mode == "fast"),
             top_k=max(K_VALUES),
+            folder_ids=list(scope.folder_ids),
         )
     latency_ms = int((time.monotonic() - t0) * 1000)
 
@@ -281,97 +334,74 @@ def _check_gate(report: dict) -> bool:
 
 
 def _run_ragas(per_question: list[dict], questions: list[dict]) -> dict:
-    """Run RAGAS on questions that have at least one retrieved context.
-
-    Re-runs retrieval per question to capture the actual content text (we only
-    kept IDs in per_question). Marginal extra cost is fine for eval.
-    """
+    """Measure every golden answer with complete, finite RAGAS scores."""
     from ragas import EvaluationDataset, SingleTurnSample, evaluate
-    from ragas.metrics import (
-        AnswerRelevancy,
-        ContextPrecision,
-        ContextRecall,
-        Faithfulness,
-    )
+    from ragas.metrics import AnswerRelevancy, ContextPrecision, ContextRecall, Faithfulness
+    from ragas.run_config import RunConfig
 
-    # Pick the "full" mode results for RAGAS — fast mode is the same retrieval
-    # path minus query expansion; scoring both doubles cost without much signal.
-    full_results = {q["id"]: q for q in per_question if q["mode"] == "full"}
-    q_by_id = {q["id"]: q for q in questions}
+    full_ids = [row["id"] for row in per_question if row["mode"] == "full"]
+    expected_ids = {q["id"] for q in questions}
+    if (
+        not expected_ids
+        or len(expected_ids) != len(questions)
+        or len(full_ids) != len(questions)
+        or set(full_ids) != expected_ids
+    ):
+        raise RagasCoverageError("Incomplete or duplicate full retrieval question coverage")
 
     samples = []
-    sample_qids: list[str] = []
-    sample_responses: dict[str, str] = {}
-    for qid in full_results:
-        q = q_by_id[qid]
-        result = answer_question(q["question"], EVAL_USER_ID)
+    scope = [EVAL_FOLDER_ID]
+    for q in questions:
+        result = answer_question(q["question"], EVAL_USER_ID, scope_folder_ids=scope)
         contexts = result["retrieved_chunks"]
         response = result["response"]
-        if not contexts:
-            continue
-        sample = SingleTurnSample(
-            user_input=q["question"],
-            response=response,
-            retrieved_contexts=contexts,
-            reference=q["ground_truth_answer"],
+        if not response.strip() or not contexts or not all(c.strip() for c in contexts):
+            raise RagasCoverageError(f"{q['id']}: missing answer or retrieved context")
+        samples.append(
+            SingleTurnSample(
+                user_input=q["question"],
+                response=response,
+                retrieved_contexts=contexts,
+                reference=q["ground_truth_answer"],
+            )
         )
-        samples.append(sample)
-        sample_qids.append(qid)
-        sample_responses[qid] = response
-
-    if not samples:
-        return {"aggregate": {}, "per_question": {}}
 
     dataset = EvaluationDataset(samples=samples)
     metrics = [Faithfulness(), AnswerRelevancy(), ContextPrecision(), ContextRecall()]
-
-    def _run_evaluate():
-        asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            return evaluate(
-                dataset=dataset,
-                metrics=metrics,
-                llm=_get_ragas_llm(EVAL_USER_ID),
-                embeddings=VoyageEmbeddings(),
-            )
-        finally:
-            loop.close()
-
-    result = _run_evaluate()
-
-    def _sanitize(v):
-        if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
-            return None
-        return v
-
-    aggregate = {k: _sanitize(v) for k, v in result._repr_dict.items()}
-
-    # Per-question scores — aligned with samples by index. Lets diagnostic
-    # tooling show "this exact question scored low, here's the answer it gave".
-    per_question: dict[str, dict] = {}
-    df = result.to_pandas()
-    metric_cols = [
-        c
-        for c in df.columns
-        if c
-        in (
-            "faithfulness",
-            "answer_relevancy",
-            "context_precision",
-            "context_recall",
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        result = evaluate(
+            dataset=dataset,
+            metrics=metrics,
+            llm=_get_ragas_llm(EVAL_USER_ID, scope),
+            embeddings=VoyageEmbeddings(),
+            run_config=RunConfig(max_workers=2),
         )
-    ]
-    for idx, qid in enumerate(sample_qids):
-        if idx >= len(df):
-            break
-        per_question[qid] = {
-            "response": sample_responses[qid],
-            "scores": {col: _sanitize(df.iloc[idx][col]) for col in metric_cols},
-        }
+    finally:
+        asyncio.set_event_loop(None)
+        loop.close()
 
-    return {"aggregate": aggregate, "per_question": per_question}
+    if len(result.scores) != len(questions):
+        raise RagasCoverageError(
+            f"RAGAS returned {len(result.scores)} rows for {len(questions)} questions"
+        )
+
+    details = {}
+    for q, sample, scores in zip(questions, samples, result.scores, strict=True):
+        for name in RAGAS_METRICS:
+            score = scores.get(name)
+            if not isinstance(score, (int, float)) or not math.isfinite(score):
+                raise RagasCoverageError(f"{q['id']}: missing or nonfinite {name}")
+        details[q["id"]] = {
+            "response": sample.response,
+            "scores": {name: float(scores[name]) for name in RAGAS_METRICS},
+        }
+    aggregate = {
+        name: sum(row["scores"][name] for row in details.values()) / len(details)
+        for name in RAGAS_METRICS
+    }
+    return {"aggregate": aggregate, "per_question": details}
 
 
 def main() -> int:
@@ -416,15 +446,23 @@ def main() -> int:
 
     aggregate = _aggregate(per_question)
 
+    ragas_per_q = {}
+    ragas_error = "retrieval jobs failed" if args.ragas and failures else None
     if args.ragas and not failures:
         print("[eval] running RAGAS (this can take a long time)...")
-        ragas_result = _run_ragas(per_question, questions)
-        aggregate["ragas"] = ragas_result.get("aggregate", {})
+        try:
+            ragas_result = _run_ragas(per_question, questions)
+        except RagasCoverageError as error:
+            ragas_error = str(error)
+        except Exception as error:
+            ragas_error = type(error).__name__
+        else:
+            aggregate["ragas"] = ragas_result["aggregate"]
+            ragas_per_q = ragas_result["per_question"]
 
         # Merge per-question RAGAS data (response + per-q scores) into
         # per_question entries with mode='full' so diagnostic tooling can show
         # "this answer for qNNN scored AR=0.X".
-        ragas_per_q = ragas_result.get("per_question", {})
         for entry in per_question:
             if entry["mode"] != "full":
                 continue
@@ -452,6 +490,11 @@ def main() -> int:
         "jobs_expected": len(jobs),
         "jobs_completed": len(per_question),
         "failures": failures,
+        "ragas": {
+            "expected": len(questions) if args.ragas else 0,
+            "completed": len(ragas_per_q),
+            "error": ragas_error,
+        },
         "mixed_sources": {
             "expected": 4 if args.gate else 0,
             "completed": len(mixed_sources),
@@ -467,6 +510,9 @@ def main() -> int:
 
     if failures:
         print(f"[eval] invalid run: {len(failures)} of {len(jobs)} retrieval jobs failed")
+        return 1
+    if ragas_error or (args.ragas and len(ragas_per_q) != len(questions)):
+        print(f"[eval] invalid RAGAS run: {ragas_error or 'incomplete question coverage'}")
         return 1
     if args.gate:
         ok = _check_gate(report)

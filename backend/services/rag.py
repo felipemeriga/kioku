@@ -228,16 +228,22 @@ def answer_question(
                 if frame.get("done") and "replace" in frame:
                     debug = frame.get("debug") or {}
                     plain = turn["request"]["profile"] == "completion"
-                    query = (
+                    job_id = turn["id"] if plain else frame.get("job_id")
+                    attempt_id = (
+                        "plain" if plain else (debug.get("execution") or {}).get("attempt_id")
+                    )
+                    if not job_id or not attempt_id:
+                        raise RuntimeError("Evaluation has no published evidence scope")
+                    traces = (
                         sb.table("tsukai_tool_traces")
                         .select("trace")
                         .eq("owner_id", user_id)
-                        .eq("job_id", turn["id"] if plain else turn["job_id"])
+                        .eq("job_id", job_id)
+                        .eq("attempt_id", attempt_id)
+                        .execute()
+                        .data
+                        or []
                     )
-                    attempt = (debug.get("execution") or {}).get("attempt_id")
-                    if attempt and not plain:
-                        query = query.eq("attempt_id", attempt)
-                    traces = query.execute().data or []
                     contexts = [
                         source["content"]
                         for row in traces
