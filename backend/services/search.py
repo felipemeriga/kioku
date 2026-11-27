@@ -628,13 +628,18 @@ def _apply_recency_decay(docs: list[dict], *, query_text: str = "") -> list[dict
     only reordered. Types without a half-life entry remain neutral."""
     # An old vendor definition is not stale because newer code mentions it.
     # Preserve freshness ranking for explicit current/latest questions.
-    if _source_intent(query_text) == "documentation" and not re.search(
-        r"\b(?:latest|newest|recent|current|updated|today|yesterday|"
-        r"mais recente|atual|hoje|ontem)\b",
-        query_text,
-        re.I,
-    ):
-        return docs
+    if _source_intent(query_text) == "documentation":
+        if not re.search(
+            r"\b(?:latest|newest|recent|current|updated|today|yesterday|"
+            r"mais recente|atual|hoje|ontem)\b",
+            query_text,
+            re.I,
+        ):
+            return docs
+        # For "latest documentation", compare document ages with each other.
+        # Undated/neutral code must not displace the requested source category.
+        documents = iter(_apply_recency_decay([d for d in docs if d.get("source_type") != "code"]))
+        return [d if d.get("source_type") == "code" else next(documents) for d in docs]
     if not docs:
         return docs
     out = []

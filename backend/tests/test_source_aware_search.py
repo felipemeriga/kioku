@@ -121,10 +121,13 @@ def test_old_vendor_definition_is_not_demoted_by_neutral_code_age():
         doc,
         code,
     ]
-    assert (
-        _apply_recency_decay([doc, code], query_text="latest vendor stream documentation")[0]["id"]
-        == "consumer"
-    )
+    fresh = {**hit("updated-definition", 0.79), "created_at": code["created_at"]}
+    assert [
+        r["id"]
+        for r in _apply_recency_decay(
+            [doc, fresh, code], query_text="latest vendor stream documentation"
+        )
+    ] == ["updated-definition", "definition", "consumer"]
     assert "recency_factor" not in doc
 
 
