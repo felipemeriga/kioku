@@ -1,6 +1,6 @@
 import json
 from types import SimpleNamespace
-from unittest.mock import MagicMock, Mock
+from unittest.mock import Mock
 
 import pytest
 
@@ -203,38 +203,3 @@ def test_ragas_failure_writes_an_invalid_report(runner, monkeypatch, tmp_path):
     assert report["jobs_completed"] == 2
     assert report["ragas"] == {"expected": 1, "completed": 0, "error": "q001: missing context"}
     assert "ragas" not in report["aggregate"]
-
-
-@pytest.mark.parametrize("profile", ["chat", "completion"])
-def test_answer_eval_reads_only_published_attempt_evidence(monkeypatch, profile):
-    from services import rag
-    from services.ai import chat
-
-    sb = MagicMock()
-    traces = MagicMock()
-    traces.select.return_value = traces
-    traces.eq.return_value = traces
-    traces.execute.return_value.data = [{"trace": {"sources": [{"content": "accepted evidence"}]}}]
-    sb.table.side_effect = lambda table: traces if table == "tsukai_tool_traces" else MagicMock()
-    monkeypatch.setattr(rag, "get_supabase_thread_safe", lambda: sb)
-    prepared = {"id": "prepared", "job_id": None, "request": {"profile": profile}}
-    monkeypatch.setattr(chat, "prepare_turn", lambda **kwargs: prepared)
-    frame = {
-        "done": True,
-        "replace": "answer",
-        "job_id": "accepted",
-        "debug": {"execution": {"attempt_id": "published-attempt"}},
-    }
-    monkeypatch.setattr(chat, "stream_turn", lambda turn: iter(["data: " + json.dumps(frame)]))
-
-    result = rag.answer_question(
-        "question", "owner", mode="plain" if profile == "completion" else "deep"
-    )
-
-    assert prepared["job_id"] is None
-    assert result["retrieved_chunks"] == ["accepted evidence"]
-    assert [call.args for call in traces.eq.call_args_list] == [
-        ("owner_id", "owner"),
-        ("job_id", "prepared" if profile == "completion" else "accepted"),
-        ("attempt_id", "plain" if profile == "completion" else "published-attempt"),
-    ]

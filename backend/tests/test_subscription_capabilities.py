@@ -100,29 +100,43 @@ def test_ragas_judge_preserves_scope_across_async_threads():
     assert judge.is_finished(result)
 
 
-def test_evaluation_answer_uses_production_native_bridge_and_cleans_up():
+@pytest.mark.parametrize("profile", ["chat", "completion"])
+def test_evaluation_answer_uses_production_native_bridge_and_cleans_up(profile):
     import json
 
     from services.rag import answer_question
 
     sb = MagicMock()
-    query = sb.table.return_value.select.return_value.eq.return_value.eq.return_value
-    query.execute.return_value.data = [{"trace": {"sources": [{"content": "retrieved original"}]}}]
-    frame = {"done": True, "replace": "grounded answer", "debug": {"tool_calls": [{}]}}
+    traces = sb.table.return_value.select.return_value
+    traces.eq.return_value = traces
+    traces.execute.return_value.data = [{"trace": {"sources": [{"content": "retrieved original"}]}}]
+    frame = {
+        "done": True,
+        "replace": "grounded answer",
+        "job_id": "accepted-job",
+        "debug": {"tool_calls": [{}], "execution": {"attempt_id": "accepted-attempt"}},
+    }
+    prepared = {"id": "turn-id", "job_id": None, "request": {"profile": profile}}
+    mode = "plain" if profile == "completion" else "deep"
     with (
         patch("services.rag.get_supabase_thread_safe", return_value=sb),
         patch("services.scope.validate_scope_folder") as validate,
         patch("services.scope.descendant_folder_ids", return_value=["folder", "child"]),
-        patch(
-            "services.ai.chat.prepare_turn",
-            return_value={"job_id": "job", "request": {"profile": "chat"}},
-        ) as prepare,
+        patch("services.ai.chat.prepare_turn", return_value=prepared) as prepare,
         patch("services.ai.chat.stream_turn", return_value=["data: " + json.dumps(frame)]),
     ):
-        result = answer_question("question", "tenant", scope_folder_ids=["folder", "child"])
+        result = answer_question(
+            "question", "tenant", mode=mode, scope_folder_ids=["folder", "child"]
+        )
     validate.assert_called_once_with("folder", "tenant")
     assert prepare.call_args.kwargs["owner_id"] == "tenant"
     assert prepare.call_args.kwargs["folder_id"] == "folder"
+    assert prepared["job_id"] is None
+    assert [call.args for call in traces.eq.call_args_list] == [
+        ("owner_id", "tenant"),
+        ("job_id", "turn-id" if profile == "completion" else "accepted-job"),
+        ("attempt_id", "plain" if profile == "completion" else "accepted-attempt"),
+    ]
     assert result["response"] == "grounded answer"
     assert result["retrieved_chunks"] == ["retrieved original"]
     sb.table.return_value.delete.assert_called_once()
