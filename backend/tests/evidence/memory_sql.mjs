@@ -99,6 +99,31 @@ await db.exec(fs.readFileSync(new URL(
   "../../../supabase/migrations/20261127132000_memory_search_index_terms.sql",
   import.meta.url
 ), "utf8"));
+const widthPlan = (await db.query(`SELECT pg_get_functiondef(
+  'search_agent_memory_v2(uuid,uuid[],text[],timestamptz,timestamptz,text,text,integer,integer,text[],text)'::regprocedure
+) body`)).rows[0].body;
+await db.exec(widthPlan.replace("public.search_agent_memory_v2(", "public.memory_search_width_plan("));
+await db.exec(fs.readFileSync(new URL(
+  "../../../supabase/migrations/20261127153031_memory_search_wide_scoring.sql",
+  import.meta.url
+), "utf8"));
+const matchingVectors = (await db.query(`
+  WITH docs(v) AS (
+    VALUES ($$'alpha':1A,6B 'beta':2D 'alpha_beta':4D$$::tsvector),
+           ($$'memória':1A 'operação':6B$$::tsvector),
+           (to_tsvector('simple','foo_bar checksum-alpha 31 camelCase arquivo')),
+           (to_tsvector('english','threaded query evidence wrapper docs')),
+           (''::tsvector)
+  ), queries(q) AS (
+    SELECT ('('||plainto_tsquery('simple',t)::text||
+      CASE WHEN plainto_tsquery('english',t)::text<>''
+      THEN ' | '||plainto_tsquery('english',t)::text ELSE '' END||')')::tsquery
+    FROM unnest(ARRAY['alpha','alpha_beta','alpha beta','foo_bar','checksum-alpha',
+      'camelCase','the','31','docs wrapper','memória','operação','arquivo','nohit']) t
+  )
+  SELECT bool_and((v@@q)=(strip(v)@@q)) AS identical FROM docs CROSS JOIN queries
+`)).rows[0].identical;
+if (!matchingVectors) throw Error("stripping positions changed plain boolean term matches");
 const identicalVectors = (await db.query(`
   SELECT bool_and(v = (v || ''::tsvector)) AS identical
   FROM unnest(ARRAY[
@@ -126,8 +151,10 @@ const call = async (name, args) => {
     const before = await invoke("memory_search_baseline", args);
     const deployed = await invoke("memory_search_custom_plan", args);
     const identifier = await invoke("memory_search_identifier_plan", args);
+    const width = await invoke("memory_search_width_plan", args);
     if (JSON.stringify(deployed) !== JSON.stringify(result) ||
-        JSON.stringify(identifier) !== JSON.stringify(result))
+        JSON.stringify(identifier) !== JSON.stringify(result) ||
+        JSON.stringify(width) !== JSON.stringify(result))
       throw Error("indexed memory search changed RPC output");
     const normalize = (value) => ({ ...value, matches: value.matches.map(
       (row) => ({ ...row, matched_terms: [...row.matched_terms].sort() })
