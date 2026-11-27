@@ -22,6 +22,8 @@ export PYTHON_DOTENV_DISABLED=1
 .venv/bin/python -m pytest -q eval/memory_audit/tests
 ```
 
+The backend CI job runs the scorer and archive-integrity contract tests with temporary dependencies. The explicit PostgreSQL, corpus download and replay commands below are the manual audit.
+
 Keep `AUDIT_DIR` outside the checkout with owner-only permissions. Use a new output path for each run. The dataset filenames, exact revisions and SHA-256 values are in [public_data.py](public_data.py), [supplemental.py](supplemental.py) and [stateful_proxies.py](stateful_proxies.py). The protocol links to each upstream release and its terms.
 
 ## Public retrieval replay
@@ -49,6 +51,8 @@ Use `--family locomo` for the second replay. The `primary` and `holdout` subsets
 
 Freeze `beam_100k` and `mab_conflict` with `supplemental freeze`. Freeze `state_train_replay` and `memoryarena_prefix` with `stateful_proxies`. Each takes `--family`, `--data` and `--output`. Reuse the replay and score commands with the corresponding family. For `mab_conflict`, use the separate `supplemental score-mab` command with `--frozen`, `--replay` and `--output` to measure answer-string availability.
 
+Use `beam_scale` with the same arguments for `beam_500k_sample`, `beam_1m_sample` and `beam_10m_sample`. It streams one released conversation at a time and seals the complete selected conversation with its original pointers. The LoCoMo caption sensitivity can be reproduced with `supplemental freeze --family locomo_captions`. Use `full_long_score` with both sealed LongMemEval-S directories and both replay files to combine evidence counts across the disjoint phases.
+
 Keep the raw source files, frozen corpus, gold and unredacted results outside Git. The replay process needs the sealed corpus and query manifest. It can run without access to `gold.json`.
 
 ## Operational and capacity controls
@@ -67,6 +71,8 @@ Keep the raw source files, frozen corpus, gold and unredacted results outside Gi
   --segments 64 --records-per-segment 64
 ```
 
-Run capacity experiments separately from latency replays. The liveness command uses real `process_session` with dedicated database connections, not cron or queue scheduling. It records capture, parser and memory publication stages, observed wait events and broad versus selective query timings. Its timeout requests a stop between worker calls. The PostgreSQL connection may still be completing the current bounded statement.
+Run capacity experiments separately from latency replays. The liveness command makes scoped `process_session` calls with dedicated database connections. It records capture, parser and memory publication stages, observed wait events and broad versus selective query timings. Its timeout requests a stop between worker calls. The PostgreSQL connection may still be completing the current bounded statement.
+
+The supplementary check commands expose their separate inputs with `--help`. `sentinels` freezes the page-size and timestamp probes. `read_budget` freezes a source-ID sample and compares signed reads, wider windows and the next relevance page. `edge_controls` uses the seeded engineering fixture to test citations and adds fresh language and inventory-limit controls. `quiescent` repeats a fixed ten-result request after the lab workers stop. `mechanism` profiles the frozen parser predicate and candidate stages against the already-seeded liveness scopes.
 
 Close the lab connection, stop the audit database instance and discard its isolated volume and disposable credentials after the run. Keep a copy of the aggregate scores and frozen hashes to compare with later runs.
