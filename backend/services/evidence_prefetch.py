@@ -41,7 +41,9 @@ def history_question(question):
     low = question.lower()
     # A document discussing agent memory is still a document question.
     if re.search(
-        r"\b(?:document|documentation|spec|manual|pdf)\b.*\b(?:say|describe|define)\b", low
+        r"\b(?:document|documentation|spec|manual|pdf|documentação|documentacao|documento)\b"
+        r".*\b(?:say|describe|define|diz|descreve|explica)\b",
+        low,
     ):
         return False
     return bool(
@@ -55,7 +57,9 @@ def history_question(question):
             r"|\bsessions?\s+(?:discussed|recorded|worked)\b"
             r"|\bremember\s+(?:why|when|how|what|whether|if)\b"
             r"|\b(?:já\s+)?(?:tentamos|mudamos|decidimos|discutimos|investigamos|"
-            r"rejeitamos|fizemos|trabalhamos|corrigimos|testamos)\b"
+            r"rejeitamos|fizemos|trabalhamos|corrigimos|testamos|tivemos|resolvemos)\b"
+            r"|\ba gente\s+(?:fez|tentou|mudou|decidiu|discutiu|investigou|"
+            r"trabalhou|corrigiu|testou)\b"
             r"|\b(?:lembra|lembre|lembro)\s+(?:por que|por quê|quando|como|o que|se)\b",
             low,
         )
@@ -81,19 +85,34 @@ def date_filters(question, timezone, now=None):
             return {"as_of": stamp}  # Let the typed tool reject an invalid cutoff.
     low = question.lower()
     start = end = None
-    if "yesterday" in low:
+    if re.search(
+        r"\b(?:(?:de|entre) ontem (?:pra|para|a|até|e) hoje"
+        r"|(?:from|between) yesterday (?:to|through|and) today)\b",
+        low,
+    ):
+        start, end = today - timedelta(days=1), today
+    elif re.search(r"\b(?:day before yesterday|anteontem)\b", low):
+        start = end = today - timedelta(days=2)
+    elif re.search(r"\b(?:yesterday|ontem)\b", low):
         start = end = today - timedelta(days=1)
-    elif re.search(r"\b(?:this|last) week\b", low):
+    elif re.search(
+        r"\b(?:(?:this|last) week|(?:esta|essa|nesta|nessa) semana|semana passada)\b", low
+    ):
         start = today - timedelta(days=today.weekday())
-        if "last week" in low:
+        if re.search(r"\b(?:last week|semana passada)\b", low):
             start -= timedelta(days=7)
         end = min(start + timedelta(days=6), today)
-    elif re.search(r"\b(?:this|last) month\b", low):
+    elif re.search(
+        r"\b(?:(?:this|last) month|(?:este|esse|neste|nesse) m[eê]s|m[eê]s passado)\b", low
+    ):
         start = today.replace(day=1)
-        if "last month" in low:
+        if re.search(r"\b(?:last month|m[eê]s passado)\b", low):
             start = (start - timedelta(days=1)).replace(day=1)
         end = min(start.replace(day=calendar.monthrange(start.year, start.month)[1]), today)
-    elif re.search(r"\b(?:work|worked|recorded|issues|experiments)\b.*\btoday\b", low):
+    elif re.search(r"\b(?:today|hoje)\b", low) and (
+        history_question(question)
+        or re.search(r"\b(?:work|worked|recorded|issues|experiments)\b", low)
+    ):
         start = end = today
     else:
         iso = re.findall(rf"\b{ISO_DATE}\b", low)
@@ -125,7 +144,8 @@ def date_filters(question, timezone, now=None):
             return {}  # The agent must clarify malformed/ambiguous dates, not guess.
     if start is None or end is None or start > end:
         return {}
-    if re.search(r"\bbefore\b", low) and start == end:
+    cutoff_words = re.sub(r"\bday before yesterday\b", "", low)
+    if re.search(r"\bbefore\b", cutoff_words) and start == end:
         return {"as_of": (end - timedelta(days=1)).isoformat()}
     if re.search(r"\b(?:as of|by the end of|by end of|até)\b", low):
         return {"as_of": end.isoformat()}
@@ -214,7 +234,11 @@ def prefetch(question, user_timezone, execute, *, filename=None, folders=(), rep
     overview = dated_issue_overview or bool(
         re.search(
             r"\b(?:what did we work|what have we worked|group.*(?:day|repository)"
-            r"|work.*(?:this|last) (?:week|month))",
+            r"|work.*(?:this|last) (?:week|month))"
+            r"|\b(?:o que|em que)\s+(?:(?:a gente|nós)\s+)?"
+            r"(?:fizemos|fez|trabalhamos|trabalhou)\s+(?:(?:na|no)\s+)?"
+            r"(?:hoje|ontem|anteontem|semana passada|(?:nesta|nessa|esta|essa) semana"
+            r"|m[eê]s passado|(?:neste|nesse|este|esse) m[eê]s)\b",
             question,
             re.I,
         )
