@@ -33,6 +33,8 @@ The fixed related-word policy affected 51 answerable LongMemEval-S questions and
 
 The LongMemEval-S abstention controls returned matches on all 30 queries and exposed an annotated distractor session in the relevance top ten for all 30. The LoCoMo adversarial controls returned matches on all 446 queries and exposed an annotated distractor in the relevance top ten for 262. A lexical match on an unanswerable question is plausible-looking evidence a downstream answerer must qualify.
 
+The separately frozen LoCoMo caption projection appended the authors’ caption text to the corresponding native-shaped turns and reran the same questions. Relevance Any@10 increased from 996 to 1,013 of 1,531, with 28 gains and eleven losses. All@10 increased from 802 to 823 of 1,527. Among 697 cases with a caption-bearing labeled pointer, Any rose from 451 to 474. The other eligible cases fell from 545 to 539 of 834. This isolates the effect of one released text representation in the audit. Image bytes and attachment OCR were outside the replay.
+
 ### Larger BEAM inputs
 
 The supplemental scale run hash-selected four complete conversations from each of the 500K and 1M splits, and one complete conversation from the 10M split. Each preserved the released question set, roles, source order and date anchors. The selected 10M conversation retained all 100 dated batches, with 54,957,629 raw JSONL bytes and 61,959 recall chunks. All segments indexed in 70.75 seconds for that conversation. All probes completed.
@@ -90,6 +92,8 @@ Latency is wall time entering the MCP callable and reading its serialized result
 
 The tunneled laptop-to-lab PostgreSQL round trip was 134 ms median over 50 uncached-at-caller `SELECT 1` calls. Public benchmark measurements were subsequently colocated and omit that network hop. The live convenience probes used local CLI → public MCP → hosted dependencies. Four succeeded in 10.9–22.0 seconds and two returned `evidence_query_timeout`. They describe the live archive and transport rather than the lab corpus. [Live observations](memory-quality-live-observations.md)
 
+A final warm check selected one fixed question in each of ten corpus variants and issued five relevance calls at a ten-event limit. All 50 calls succeeded and every question kept the same order. The database had 25,169 sessions, 383,986 records, 602,283 chunks and no other observed client backends before and after the check. For the selected 10M question, discovery had a 4.49-second median and a 7.90-second maximum, almost entirely in the PostgreSQL call. With five repetitions, the nearest-rank p95 is the maximum. These fixed warm cases confirm repeatability for their queries and workloads.
+
 ### Index throughput and query shape
 
 The synthetic workload first committed 64 segments containing 4,096 records. Each four-record unit included a user message, a tool call, and short and rich representations of the same tool response. The existing parser deduplicated the visible tool result to leave 3,072 displayable events. The experiment held record and segment counts fixed and assigned them to one or four sessions. Workers independently called the normal `process_session` code. Duplicate assignments model overlapping scans of the same work. Each cell ran once, in the displayed order, under the same CPU cap. Database cache state and accumulated fixture volume can vary across cells.
@@ -108,12 +112,16 @@ Two follow-up one-session serial inputs held the 4,096 records and 64 segments. 
 
 Five warmed broad queries in the fully indexed four-session cells returned 3,072 events and took 171–174 ms median. Appending one strong identifier reduced the final count to one while leaving the medians at 179–192 ms. Narrowing the date reduced the result set to 48 and the medians to 54–87 ms. These are fixed-case timings on a synthetic workload, with SQL and dependency calls measured inside the same container boundary.
 
+On a separate fully indexed 16,384-record input, a read-only probe counted candidates using the frozen search CTEs. The broad query left all 16,384 chunks after candidate focusing and took 1.38 seconds. Appending a unique identifier still sent all 16,384 chunks through the earlier stage before focusing reduced them to one, taking 1.93 seconds. The identifier alone yielded one candidate at both stages in 208 ms. The date-narrowed query produced 256 candidates and took 3.00 seconds. These timings come from one count query for each shape. The normal MCP page at valid offset 10,000 returned 50 records, `has_more=true` and `next_offset=10050`. Following that advertised offset returned `invalid_pagination` despite 16,384 reported matches.
+
+The frozen deduplication predicate in a read-only plan rejected 1,572,352 join pairs and found 1,024 richer results after 531 ms in the concentrated duplicate fixture. Splitting the input across four sessions produced 98,176 rejected pairs per session and individual count runtimes of 20–153 ms. The concentrated distinct-ID control rejected even more pairs in its read-only count (4,194,304 in 1.31 seconds) while completing parser publication much faster in the worker experiment. That comparison rules out rejected pair count alone as an explanation for publication time. The count probe performs no updates or worker concurrency.
+
 ## Standards coverage
 
 | Standard | Execution completed | Other layers |
 | --- | --- | --- |
 | LongMemEval-S | All 500 complete haystacks and original-evidence retrieval | Official generated-answer scoring and the M/oracle variants |
-| LoCoMo | All ten published dialogues and 1,986 text QA probes | Generative QA, image bytes, event summarization and multimodal generation |
+| LoCoMo | All ten published dialogues and 1,986 QA probes, plus a matched caption-text sensitivity replay | Generative QA, image bytes, event summarization and multimodal generation |
 | BEAM | All 20 conversations and 400 original-evidence probes in 100K, plus nine complete conversations and 180 probes from the larger splits | Official generated-answer judge and a census of larger splits |
 | MemoryAgentBench | Four full FactConsolidation contexts and 800 source-string probes | Official task-answer score and other sub-benchmarks |
 | STATE-Bench | Twelve published training transcripts selected across travel, shopping and support | Simulated customer workflows, held-out environments and completion |
@@ -130,6 +138,7 @@ The frozen edit scope contains evaluation code, an audit CI check and documentat
 | Initial LongMemEval-S | `98ea803827cb05da9cb2b5295c1f5bed819dbf1e4035895edb647543a7fab4ee` | `350cd260ad916fc5313d705a99f302146f2ad308437afcad80d7b5d01112caae` |
 | LongMemEval-S extension | `ac80419e6addd2e54cecc48d27668a1d9a7f78f319468b7e598cce2c6d8eb242` | `2eceac8d60d20a38fd95f631ad80016609ac1230a659d69ac5f3865769ad7612` |
 | LoCoMo | `98ea803827cb05da9cb2b5295c1f5bed819dbf1e4035895edb647543a7fab4ee` | `4413506f536732aba6273600c84133e2a44d22e9e0c11f7f688a56188a9d0705` |
+| LoCoMo caption projection | `1717d5ef0da165047fbf85031c607a70e9af4110437cbeb005ed39f8e7acdeb8` | `aa5bc7adb3de5ca645d5c63cdff0d17c61817d09d4dd11f2e15b1a83b75aa4c3` |
 | BEAM 100K | `8a29e0c026b0d24fdffe39da09d91d01a24776750f2f9806c5d0752e028e319e` | `4712c00a2ee2fc2a14f0f38049b8ce5af6e9ad1cc8baee36043e79730254a6ca` |
 | BEAM 500K sample | `1b3930d17dc8987b70f0c0db8bb72a1d018156c902943829cff519a9af6b0310` | `0e7940b61598bf44bcbfd03885fa997521b6a67ff0a645b4c7720ea3c6579122` |
 | BEAM 1M sample | `6f16de4f3673d0c8cbb5085dbb3c1828dd72f0e866b8ec6aad7d3bcc403b1643` | `ddb8b3d629ee38c954f2dd1a872399ee0babd23799b7911e4be0bf69ce263cbb` |
