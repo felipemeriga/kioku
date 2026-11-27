@@ -196,7 +196,7 @@ The full STATE extension indexed 7,688 records and 8,269 chunks across 100 candi
 | Full quoted request | 2/300 | 289/300 | 288/300 | 288/300 |
 | First 18 words | 2/300 | 285/300 | 284/300 | 284/300 |
 
-Among the 209 meaningfully shortened requests, the signed pair score fell from 206 to 202, with four losses and no gains. All 91 identical controls preserved their ranked first page. One correct travel session per formulation had no tool result in its latest ten and never reached the signed read. There were 1,798 calls across 600 attempts and zero tool or source-integrity errors. The combined component median and p95 were 326 and 741 ms. The experiment establishes what session navigation recovered from the recorded trajectories under the quoted-request formulations. It measures evidence retrieval with fixed historical actions.
+Among the 209 meaningfully shortened requests, the signed pair score fell from 206 to 202, with four losses and no gains. All 91 identical controls preserved their ranked first page. One correctly identified trajectory per formulation had no tool result in its latest ten and never reached the signed read. There were 1,798 calls across 600 attempts and zero tool or source-integrity errors. The combined component median and p95 were 326 and 741 ms. The experiment establishes what session navigation recovered from the recorded trajectories under the quoted-request formulations. It measures evidence retrieval with fixed historical actions.
 
 ## Verification and outputs
 
