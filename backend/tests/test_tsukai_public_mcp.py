@@ -116,3 +116,46 @@ def test_api_key_scope_is_rechecked_against_current_folder_owner():
     scoped.execute.return_value.data = []
     with patch.object(mcp_server, "get_supabase", return_value=sb):
         assert mcp_server._verify_api_key("fixture-key") is None
+
+
+def test_public_mcp_session_can_be_reinitialized_after_termination(monkeypatch):
+    from mcp.server.fastmcp import FastMCP
+
+    import mcp_server
+
+    monkeypatch.setattr(
+        mcp_server, "mcp", FastMCP("public-test", host="0.0.0.0", streamable_http_path="/mcp")
+    )
+
+    headers = {"Authorization": "Bearer fixture", "Accept": "application/json, text/event-stream"}
+    initialize = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-11-25",
+            "capabilities": {},
+            "clientInfo": {"name": "public-test", "version": "1"},
+        },
+    }
+    with (
+        patch.object(mcp_server, "_verify_api_key", return_value=("owner", "folder")),
+        patch.object(mcp_server, "_descendant_folder_ids", return_value=["folder"]),
+        patch.object(mcp_server, "get_supabase"),
+        TestClient(mcp_server.build_app()) as client,
+    ):
+        unknown = {**headers, "Mcp-Session-Id": "stale-session"}
+        assert client.post("/mcp", headers=unknown, json=initialize).status_code == 404
+        initial = client.post("/mcp", headers=headers, json=initialize)
+        assert initial.status_code == 200
+        session = initial.headers["Mcp-Session-Id"]
+        active = {
+            **headers,
+            "Mcp-Session-Id": session,
+            "MCP-Protocol-Version": "2025-11-25",
+        }
+        assert client.delete("/mcp", headers=active).status_code == 200
+        assert client.post("/mcp", headers=active, json=initialize).status_code == 404
+        restarted = client.post("/mcp", headers=headers, json=initialize)
+        assert restarted.status_code == 200
+        assert restarted.headers["Mcp-Session-Id"] != session
