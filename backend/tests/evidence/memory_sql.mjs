@@ -91,6 +91,22 @@ await db.exec(fs.readFileSync(new URL(
   "../../../supabase/migrations/20261127130000_memory_search_scalar_query.sql",
   import.meta.url
 ), "utf8"));
+const identifierPlan = (await db.query(`SELECT pg_get_functiondef(
+  'search_agent_memory_v2(uuid,uuid[],text[],timestamptz,timestamptz,text,text,integer,integer,text[],text)'::regprocedure
+) body`)).rows[0].body;
+await db.exec(identifierPlan.replace("public.search_agent_memory_v2(", "public.memory_search_identifier_plan("));
+await db.exec(fs.readFileSync(new URL(
+  "../../../supabase/migrations/20261127132000_memory_search_index_terms.sql",
+  import.meta.url
+), "utf8"));
+const identicalVectors = (await db.query(`
+  SELECT bool_and(v = (v || ''::tsvector)) AS identical
+  FROM unnest(ARRAY[
+    ''::tsvector, 'bare'::tsvector, $$'word':3A,7B 'other':1$$::tsvector,
+    $$'word':2,3A,5D 'alpha':1C 'omega':10$$::tsvector
+  ]) v
+`)).rows[0].identical;
+if (!identicalVectors) throw Error("detaching a chunk vector changed its positions or weights");
 const owner = "11111111-1111-4111-8111-111111111111",
   other = "11111111-1111-4111-8111-111111111112";
 const first = "22222222-2222-4222-8222-222222222222",
@@ -109,8 +125,10 @@ const call = async (name, args) => {
   if (name === "search_agent_memory_v2") {
     const before = await invoke("memory_search_baseline", args);
     const deployed = await invoke("memory_search_custom_plan", args);
-    if (JSON.stringify(deployed) !== JSON.stringify(result))
-      throw Error("scalar memory search changed RPC output");
+    const identifier = await invoke("memory_search_identifier_plan", args);
+    if (JSON.stringify(deployed) !== JSON.stringify(result) ||
+        JSON.stringify(identifier) !== JSON.stringify(result))
+      throw Error("indexed memory search changed RPC output");
     const normalize = (value) => ({ ...value, matches: value.matches.map(
       (row) => ({ ...row, matched_terms: [...row.matched_terms].sort() })
     ) });
@@ -317,6 +335,16 @@ if (r.total_matches !== 0) throw Error("v2 cross-tenant leak");
 r = await search2(["unknown_symbol", "archive"], { ids: ["unknown_symbol"] });
 if (!r.unmatched_identifiers.includes("unknown_symbol"))
   throw Error("identifier miss was hidden");
+// Both execution paths retain exact order and metadata across the size boundary.
+for (const eventCount of [32767, 32768]) {
+  await db.query("UPDATE agent_evidence_sessions SET event_count=$2 WHERE id=$1", [a, eventCount]);
+  await search2(["sdk", "archive", "archive", "GOMEMLIMIT", "unknown_symbol"], {
+    ids: ["sdk", "gomemlimit", "unknown_symbol"],
+    before: "2026-11-07T03:00:00Z",
+  });
+  await search2(["sdk", "archive"], { session: "01prefix-f", order: "latest" });
+  await search2(["", null]);
+}
 await db.exec(
   "GRANT USAGE ON SCHEMA public,auth TO authenticated; SET ROLE authenticated;"
 );
