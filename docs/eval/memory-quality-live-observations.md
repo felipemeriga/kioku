@@ -97,3 +97,13 @@ Key lookup took 133–164 ms, root ownership 139–153 ms, and traversal of the 
 ## Post-lab checkpoint at 08:05 UTC
 
 After lab removal at 07:38 UTC, the first prespecified production soak checkpoint observed 83 active sessions, 9,001 committed segments, and 3,091 pending both parser and recall indexing. Both convenience controls, D01 and D10, returned typed `evidence_query_timeout` at approximately 9.6 and 9.8 seconds. D10 had previously been the known-anchor positive control. These failures occurred without the disposable benchmark workload running. This does not identify their production cause, isolate changing database state, or estimate a general failure rate.
+
+## Post-lab checkpoint at 09:05 UTC
+
+The second prespecified checkpoint observed 83 active sessions, 9,063 committed segments, and 3,091 pending both parser and recall indexing at 09:05:08 UTC. Both D01 and D10 again returned typed `evidence_query_timeout`, at 9.643 and 9.230 seconds. Pending counts were unchanged from 08:05 while committed segments increased. These changing, non-transactional counts do not establish which objects progressed or why a backlog persisted. The lab remained removed; no production repair, parameter change, model call or indexing trigger was introduced.
+
+## Final scheduled checkpoint at 09:45 UTC
+
+The final prespecified checkpoint observed 83 active sessions, 9,102 committed segments, and 3,092 pending both parser and recall indexing at 09:45:08 UTC. D01 and D10 returned typed `evidence_query_timeout` at 10.316 and 9.513 seconds. The background observer then exited normally. Across the three post-lab checkpoints, all six calls on these two selected convenience controls timed out. These dependent controls establish persistent observed failures, not a population failure-rate estimate or a measured root cause. No further production search probes were scheduled.
+
+The retained private soak artifact SHA-256 is `61dbf9ac9d3555ddf2196d75df90025c3a65287cb168f5aaf8786e25aae08a31`. It contains the sealed-cutoff requests and responses; original bodies and signed references remain outside Git.
