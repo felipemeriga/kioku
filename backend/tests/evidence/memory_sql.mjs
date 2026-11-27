@@ -107,6 +107,14 @@ await db.exec(fs.readFileSync(new URL(
   "../../../supabase/migrations/20261127153031_memory_search_wide_scoring.sql",
   import.meta.url
 ), "utf8"));
+const scorerPlan = (await db.query(`SELECT pg_get_functiondef(
+  'search_agent_memory_v2(uuid,uuid[],text[],timestamptz,timestamptz,text,text,integer,integer,text[],text)'::regprocedure
+) body`)).rows[0].body;
+await db.exec(scorerPlan.replace("public.search_agent_memory_v2(", "public.memory_search_scorer_plan("));
+await db.exec(fs.readFileSync(new URL(
+  "../../../supabase/migrations/20261127161759_memory_search_bound_density.sql",
+  import.meta.url
+), "utf8"));
 const matchingVectors = (await db.query(`
   WITH docs(v) AS (
     VALUES ($$'alpha':1A,6B 'beta':2D 'alpha_beta':4D$$::tsvector),
@@ -152,9 +160,11 @@ const call = async (name, args) => {
     const deployed = await invoke("memory_search_custom_plan", args);
     const identifier = await invoke("memory_search_identifier_plan", args);
     const width = await invoke("memory_search_width_plan", args);
+    const scorer = await invoke("memory_search_scorer_plan", args);
     if (JSON.stringify(deployed) !== JSON.stringify(result) ||
         JSON.stringify(identifier) !== JSON.stringify(result) ||
-        JSON.stringify(width) !== JSON.stringify(result))
+        JSON.stringify(width) !== JSON.stringify(result) ||
+        JSON.stringify(scorer) !== JSON.stringify(result))
       throw Error("indexed memory search changed RPC output");
     const normalize = (value) => ({ ...value, matches: value.matches.map(
       (row) => ({ ...row, matched_terms: [...row.matched_terms].sort() })
@@ -389,6 +399,44 @@ const qualifying = (await db.query(`
 `, [a])).rows[0].count;
 if (qualifying !== 4096) throw Error("large-search width fixture did not reach the threshold");
 await search2(["sdk", "archive", "unknown_symbol"], { ids: ["unknown_symbol"] });
+// Higher-base ties span multiple pages. Preserve every lower event in the total.
+await db.query(`
+  INSERT INTO agent_evidence_events
+    (session_id,user_id,folder_id,event_id,object_id,stream_id,generation,record_sequence,
+     byte_offset,byte_length,event_at,role,event_type,content_preview,content_length,parser_version)
+  SELECT source.session_id,source.user_id,source.folder_id,'prune-'||n,source.object_id,
+         source.stream_id,source.generation,20000+n,0,1,'2026-11-05T10:00:00Z',
+         'user','message','x',1,source.parser_version
+  FROM (SELECT * FROM agent_evidence_events WHERE session_id=$1 LIMIT 1) source
+  CROSS JOIN generate_series(1,32) n
+`, [a]);
+await db.query(`
+  INSERT INTO agent_memory_chunks
+    (session_id,event_id,object_id,user_id,folder_id,char_start,char_length,lexemes)
+  SELECT session_id,event_id,object_id,user_id,folder_id,0,1,to_tsvector('simple',
+    CASE WHEN record_sequence<=20012 THEN 'zephyric quasaric astroline nebular'
+         WHEN record_sequence=20013 THEN 'zephyric aio'
+         ELSE 'zephyric' END)
+  FROM agent_evidence_events WHERE session_id=$1 AND event_id LIKE 'prune-%'
+`, [a]);
+const boundTerms = ["zephyric", "quasaric", "astroline", "nebular", "aio"];
+const bounded = await call("search_agent_memory_v2", [
+  owner, [first], boundTerms, null, null, null, "relevance", 4, 6, ["aio"], "UTC",
+]);
+if (bounded.total_matches !== 32 || !bounded.has_more || bounded.matches.length !== 4 ||
+    bounded.unmatched_identifiers.length !== 0 ||
+    bounded.matches.some(row => row.record_sequence > 20012))
+  throw Error("bounded ranking lost order, total, or the pruned weak-identifier witness");
+await db.query(`
+  INSERT INTO agent_memory_chunks
+    (session_id,event_id,object_id,user_id,folder_id,char_start,char_length,lexemes)
+  SELECT session_id,event_id,object_id,user_id,folder_id,1,1,to_tsvector('simple','zephyric abi')
+  FROM agent_evidence_events WHERE session_id=$1 AND event_id='prune-13'
+`, [a]);
+await call("search_agent_memory_v2", [
+  owner, [first], [...boundTerms, "abi"], null, null, null, "relevance", 4, 6, ["abi"], "UTC",
+]);
+await db.query("DELETE FROM agent_evidence_events WHERE session_id=$1 AND event_id LIKE 'prune-%'", [a]);
 await db.query("DELETE FROM agent_memory_chunks WHERE session_id=$1 AND char_start=24096", [a]);
 await search2(["sdk", "archive", "unknown_symbol"], { ids: ["unknown_symbol"] });
 await db.query("DELETE FROM agent_memory_chunks WHERE session_id=$1 AND char_start>20000", [a]);
