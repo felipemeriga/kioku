@@ -5,7 +5,13 @@ from unittest.mock import patch
 
 import pytest
 
-from services.search import _apply_recency_decay, _deduplicate_code, _rerank_sources, _source_intent
+from services.search import (
+    _apply_recency_decay,
+    _deduplicate_code,
+    _rerank_sources,
+    _source_intent,
+    search_documents,
+)
 
 
 def hit(name, score, kind="pdf", folder="repo-a", body=None):
@@ -137,3 +143,23 @@ def test_empty_reranker_and_small_budgets_keep_contract():
         assert _rerank_sources("explain", docs, code, 5) == []
     with patch("services.search.rerank", side_effect=ranked):
         assert len(_rerank_sources("explain", docs, code, 1)) == 1
+
+
+@pytest.mark.parametrize("fast_mode", [True, False])
+def test_document_and_code_candidates_compete_in_both_search_modes(fast_mode):
+    question = "What is the stream definition?"
+    definition = hit("stream-definition", 0.7)
+    consumer = hit("consumer.rs", 0.8, "code", body="fn consume() {}")
+    copy = hit("copy.rs", 0.8, "code", body="fn consume() {}")
+
+    with (
+        patch("services.search._run_hybrid_search", return_value=([definition], [])),
+        patch("services.search._code_candidates", return_value=[consumer, copy]),
+        patch("services.search.rerank", side_effect=ranked),
+        patch("services.search.rewrite_query", return_value=question),
+        patch("services.search.generate_multi_queries", return_value=[]),
+        patch("services.search._expand_with_neighbors", side_effect=lambda results: results),
+    ):
+        results = search_documents([0.1], query_text=question, fast_mode=fast_mode)
+
+    assert [row["id"] for row in results] == ["stream-definition", "consumer.rs"]
