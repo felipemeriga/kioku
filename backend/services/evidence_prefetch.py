@@ -90,8 +90,11 @@ def date_filters(question, timezone, now=None):
         r"|(?:from|between) yesterday (?:to|through|and) today)\b",
         low,
     ):
-        start, end = today - timedelta(days=1), today
-    elif re.search(r"\b(?:day before yesterday|anteontem)\b", low):
+        return {
+            "from_date": (today - timedelta(days=1)).isoformat(),
+            "through_date": today.isoformat(),
+        }
+    if re.search(r"\b(?:day before yesterday|anteontem)\b", low):
         start = end = today - timedelta(days=2)
     elif re.search(r"\b(?:yesterday|ontem)\b", low):
         start = end = today - timedelta(days=1)

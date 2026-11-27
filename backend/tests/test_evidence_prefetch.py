@@ -88,6 +88,10 @@ def test_source_intent(question, expected):
             {"from_date": "2026-11-07", "through_date": "2026-11-08"},
         ),
         (
+            "O que fizemos de ontem até hoje?",
+            {"from_date": "2026-11-07", "through_date": "2026-11-08"},
+        ),
+        (
             "What did we work on from yesterday through today?",
             {"from_date": "2026-11-07", "through_date": "2026-11-08"},
         ),
