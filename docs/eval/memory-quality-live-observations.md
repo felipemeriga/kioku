@@ -68,7 +68,11 @@ Seven searches returned `evidence_query_timeout`; five returned results. Among t
 
 Nine signed reads returned successfully. Of their thirty returned records, twenty-two belonged to the frozen parent and were independently matched to local source projections/locators. The remaining eight came from other authorized sessions and were not compared against this parent file. The one recovered case had two native representations of the same user statement, which count as one question-level success.
 
-The blinded wording follow-up retains the same source cutoff and labels. Its query author saw only the question file, then sealed English normalization, byte-identical English repeat controls, and concise keyword variants. Any later comparison must preserve the distinction between wording effects, repeated requests, changing production state, and unlabeled supporting evidence.
+The blinded wording follow-up retained the same source cutoff and labels. Its query author saw only the question file, then sealed five Portuguese-to-English translations, seven byte-identical English repeat controls, and twelve concise keyword variants. The English arm completed 4/12 searches with eight typed query timeouts; the keyword arm completed 8/12 with four typed timeouts. Neither arm exposed a frozen anchor. All eight English signed reads succeeded; fifteen of sixteen keyword signed reads succeeded, with one failure whose structured reason was not retained. Source availability stayed complete for the known anchors. More completed keyword queries did not establish more supporting evidence or better answers. These are dependent repeated topics, with changing production state and potentially useful unlabeled records; they do not establish a causal language or latency improvement.
+
+The original successful searches took 16.0 seconds median (n=5); search plus issued signed reads took 29.1 seconds median. English-arm completed searches had a 14.5-second median (n=4), and keyword-arm completed searches a 13.5-second median (n=8). Their differing completed subsets and failure censoring preclude a direct speedup claim.
+
+The typed cutoff specifically suppresses journal activity. These topical queries would omit period reports even without the cutoff. The experiment does not grade the ordinary enriched chat flow, briefing context, or current code/knowledge-base answers. The verbatim question about editing managed instructions can appropriately be answered from current CLI source rather than its selected historical record.
 
 ## MCP session lifecycle and request overhead
 
@@ -79,3 +83,7 @@ The middleware's in-memory binding map treats an unknown/terminated session and 
 In this single Python-SDK probe, initialization took 1.32 seconds and normal transport termination 1.17 seconds. Authenticated request response headers generally arrived after about 1.2 seconds. These are time-to-header measurements, not database execution times; an open SSE request's lifetime is not a server-processing metric. Two identical no-match history calls returned a tool error in 9.60 seconds (its detail code was not retained) and a successful empty result in 2.88 seconds. The fresh initialization after the terminated-session check took 0.88 seconds. This is a small lifecycle diagnostic with uncontrolled deployment/cache state, not a latency percentile estimate or a trace of the installed CLI's exact SDK sequence.
 
 Source review identifies repeated authenticated database checks and descendant-folder traversal on each HTTP request; the history dispatcher then resolves descendants again. Their actual contribution must be measured before prescribing a cache or weakening authorization. The session lifecycle result is independently actionable while preserving cross-owner and cross-scope denials.
+
+## Archive snapshot at 07:12 UTC
+
+The same read-only active-owner query returned 83 active sessions, 8,901 committed segments, and 3,057 pending both parser and memory indexing. The earlier snapshots remain separate observations of the changing archive; no production repair or parameter change was made.
