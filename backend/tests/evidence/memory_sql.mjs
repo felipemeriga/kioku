@@ -345,6 +345,26 @@ for (const eventCount of [32767, 32768]) {
   await search2(["sdk", "archive"], { session: "01prefix-f", order: "latest" });
   await search2(["", null]);
 }
+// Qualify the width guard using only projected vector metadata.
+await db.query(`
+  INSERT INTO agent_memory_chunks
+    (session_id,event_id,object_id,user_id,folder_id,char_start,char_length,lexemes)
+  SELECT source.session_id,source.event_id,source.object_id,source.user_id,source.folder_id,
+         20000+n,1,wide.lexemes
+  FROM (SELECT * FROM agent_memory_chunks WHERE session_id=$1 LIMIT 1) source
+  CROSS JOIN (SELECT to_tsvector('simple','archive '||string_agg(md5(i::text),' ')) lexemes
+              FROM generate_series(1,80) i) wide
+  CROSS JOIN generate_series(1,4096) n
+`, [a]);
+const qualifying = (await db.query(`
+  SELECT count(*)::integer AS count FROM agent_memory_chunks WHERE session_id=$1
+  AND (pg_column_size(lexemes)>=2048 OR pg_column_compression(lexemes) IS NOT NULL)
+`, [a])).rows[0].count;
+if (qualifying !== 4096) throw Error("large-search width fixture did not reach the threshold");
+await search2(["sdk", "archive", "unknown_symbol"], { ids: ["unknown_symbol"] });
+await db.query("DELETE FROM agent_memory_chunks WHERE session_id=$1 AND char_start=24096", [a]);
+await search2(["sdk", "archive", "unknown_symbol"], { ids: ["unknown_symbol"] });
+await db.query("DELETE FROM agent_memory_chunks WHERE session_id=$1 AND char_start>20000", [a]);
 await db.exec(
   "GRANT USAGE ON SCHEMA public,auth TO authenticated; SET ROLE authenticated;"
 );
