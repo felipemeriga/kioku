@@ -29,6 +29,22 @@ ELSIF cardinality(p_terms)>1
  AND (p_after IS NULL OR s.last_event_at IS NULL OR s.last_event_at>=p_after)
  AND (p_before IS NULL OR s.first_event_at IS NULL OR s.first_event_at<p_before)
  AND (p_session IS NULL OR starts_with(s.native_session_id,p_session) OR s.id::text=p_session);
+ IF wide_search THEN
+  -- Require thousands of vectors that may benefit from one detoast per chunk.
+  -- 4,096 vectors of 2 KiB represent 8 MiB before any repeated term scoring.
+  SELECT EXISTS (
+   SELECT 1 FROM public.agent_memory_chunks c
+   JOIN public.agent_evidence_sessions s
+    ON s.id=c.session_id AND s.user_id=c.user_id AND s.folder_id=c.folder_id
+   WHERE c.user_id=p_user_id AND c.folder_id=ANY(p_folder_ids) AND s.deleted_at IS NULL
+   AND (p_after IS NULL OR s.last_event_at IS NULL OR s.last_event_at>=p_after)
+   AND (p_before IS NULL OR s.first_event_at IS NULL OR s.first_event_at<p_before)
+   AND (p_session IS NULL OR starts_with(s.native_session_id,p_session) OR s.id::text=p_session)
+   AND (pg_catalog.pg_column_size(c.lexemes)>=2048
+        OR pg_catalog.pg_column_compression(c.lexemes) IS NOT NULL)
+   LIMIT 1 OFFSET 4095
+  ) INTO wide_search;
+ END IF;
 END IF;
 WITH terms AS MATERIALIZED (
  SELECT DISTINCT lower(t) term,
