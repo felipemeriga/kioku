@@ -35,6 +35,18 @@ The LongMemEval-S abstention controls returned matches on all 30 queries and exp
 
 The separately frozen LoCoMo caption projection appended the authors’ caption text to the corresponding native-shaped turns and reran the same questions. Relevance Any@10 increased from 996 to 1,013 of 1,531, with 28 gains and eleven losses. All@10 increased from 802 to 823 of 1,527. Among 697 cases with a caption-bearing labeled pointer, Any rose from 451 to 474. The other eligible cases fell from 545 to 539 of 834. This isolates the effect of one released text representation in the audit. Image bytes and attachment OCR were outside the replay.
 
+### Follow-up evidence budgets
+
+A separate sample compared follow-ups after the same ten-result relevance search. Two signed reads opened the first two distinct returned sessions, using one or three neighbors on each side and up to 4,000 characters per record. The second-page arm retrieved ten more relevance results with a single additional search. The figures below count marked event identities across the base page and each follow-up.
+
+| Corpus | Eligible | First page Any / All | Two nearby reads | Two wider reads | Second page |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| LongMemEval-S | 96 | 70 / 56 | 71 / 57 | 72 / 60 | 79 / 65 |
+| LoCoMo | 100 | 62 / 46 | 67 / 48 | 73 / 56 | 71 / 57 |
+| BEAM 100K | 198 | 96 / 38 | 118 / 46 | 127 / 50 | 114 / 52 |
+
+All 396 first searches and their follow-ups completed. Two sampled BEAM cases lacked resolvable marks. The nearby follow-ups took 20–24 ms median across corpus variants and the wider follow-ups 22–26 ms. The second search took 43–85 ms median. Wider reads yielded 458 truncated record occurrences across the 200 BEAM cases, up from 168 with nearby reads. Deduplicating the first two contexts by excerpt instead of session produced Any / All of 71 / 56 in LongMemEval-S, 69 / 50 in LoCoMo and 115 / 46 in BEAM. These options issue different numbers of calls and expose different amounts of source text. Event identity coverage does not establish that every needed span fit in the returned excerpt.
+
 ### Larger BEAM inputs
 
 The supplemental scale run hash-selected four complete conversations from each of the 500K and 1M splits, and one complete conversation from the 10M split. Each preserved the released question set, roles, source order and date anchors. The selected 10M conversation retained all 100 dated batches, with 54,957,629 raw JSONL bytes and 61,959 recall chunks. All segments indexed in 70.75 seconds for that conversation. All probes completed.
@@ -108,6 +120,12 @@ The synthetic workload first committed 64 segments containing 4,096 records. Eac
 
 The 120-second cooperative stop requested an end between worker calls. Near that point, the one-session cells had parsed 62 and 42 segments respectively. Neither had published a searchable segment yet. The in-flight passes finished parsing and each condition ended with eight searchable segments, so the last-worker timings are incomplete-drain observations. The one-session overlap registered 1,119 sampled transaction-ID waits through the stop request. These are repeated samples of active connections. All three completed four-session cells passed the first/last object checksum and idempotency checks. The lab emitted no SQLSTATE failures. These controlled results establish that concentration and redundant workers increased time and contention in this fixture. Production backlog and SQLSTATE failures remain separate observations.
 
+A repeat in fresh namespaces at a later point in the lab run completed both one-session cases. Serial indexed all 64 segments in 7.30 seconds. Two overlapping workers indexed all 64 in 12.24 seconds and made 128 parser publication calls versus 64 serial calls. The overlapping case registered 89 sampled transaction-ID waits. Boundary integrity and idempotency passed for both. The two phases reproduced redundant work and lock contention. Their absolute latencies differ substantially under the same generator shape and resource cap. Archive cardinality, relation statistics, cache state and surrounding host activity changed over the run.
+
+Under worker-connection settings of a one-second lock timeout and a five-second statement timeout, the two overlapping workers completed 48 of 64 parser stages by 120.08 seconds and published no searchable segment. After current calls returned at 156.8 seconds, 58 segments were parsed and none were searchable. The 180 parser publication attempts produced 76 `55P03` lock failures and two `57014` cancellations. A fresh serial connection with ordinary lab defaults finished the same committed objects in 12.13 seconds without an error. All 64 originals matched their hashes, the manifest matched and a repeated pass left index state unchanged. This reproduces the observed PostgreSQL error classes under the stated lab configuration. The production settings and cause require their own evidence.
+
+A temporary PostgreSQL function set its internal statement timer to 1 ms and waited for 50 ms. With the inherited two-minute connection setting, it returned after 52 ms. With a five-millisecond connection timer, it canceled with `57014` after 5.8 ms. This establishes which deadline applied in the tested PostgreSQL 16.15 session.
+
 Two follow-up one-session serial inputs held the 4,096 records and 64 segments. The all-message workload fully indexed in 5.41 seconds. The original role mix with distinct tool-result identities fully indexed in 3.18 seconds. Parser publication p95 was 130.3 ms and 44.4 ms, respectively, across 64 calls each. The largest delay appeared when repeated tool-result identities were concentrated in one session.
 
 Five warmed broad queries in the fully indexed four-session cells returned 3,072 events and took 171–174 ms median. Appending one strong identifier reduced the final count to one while leaving the medians at 179–192 ms. Narrowing the date reduced the result set to 48 and the medians to 54–87 ms. These are fixed-case timings on a synthetic workload, with SQL and dependency calls measured inside the same container boundary.
@@ -127,7 +145,7 @@ The frozen deduplication predicate in a read-only plan rejected 1,572,352 join p
 | STATE-Bench | Twelve published training transcripts selected across travel, shopping and support | Simulated customer workflows, held-out environments and completion |
 | MemoryArena | Twelve published travel histories through the prefix before the last subtask, with 24 retrieval probes | Solving later subtasks, environment feedback, success rate and progress |
 
-For the STATE training replay, relevance found at least one of the final tool call/result in three of twelve transcripts and recovered both in zero. Two signed reads did not improve those counts. The corpus retained actual recorded tool outcomes with synthetic call IDs. For MemoryArena, every history prefix fit within ten records. All 24 probes recovered all their marked inputs. These were the published initial itinerary and earlier user prompts. The lab did not produce a travel action or observe its result. [STATE-Bench training trajectories](https://github.com/microsoft/STATE-Bench/tree/5644b1838d96bc4483da29642d058ecaa6f80f7f/datasets/train_task_trajectories) · [MemoryArena travel inputs](https://huggingface.co/datasets/ZexueHe/memoryarena/tree/da1a37c8b19280e18627ca01cf368195a5e1d92e/group_travel_planner)
+For the STATE training replay, relevance found at least one of the final tool call/result in three of twelve transcripts and recovered both in zero. Two adjacent signed reads did not improve those counts. The corpus retained actual recorded tool outcomes with synthetic call IDs. A follow-up took the top result’s session, requested its ten latest events and opened the latest tool result with a signed read. The chosen session held the marked pair in all twelve synthetic scopes, which each contain one training trajectory. Both the latest page and paired read recovered both original records in all twelve. The three-call component sum was 130 ms and 31.8 KB median. For MemoryArena, every history prefix fit within ten records. All 24 probes recovered all their marked inputs. These were the published initial itinerary and earlier user prompts. The lab did not produce a travel action or observe its result. [STATE-Bench training trajectories](https://github.com/microsoft/STATE-Bench/tree/5644b1838d96bc4483da29642d058ecaa6f80f7f/datasets/train_task_trajectories) · [MemoryArena travel inputs](https://huggingface.co/datasets/ZexueHe/memoryarena/tree/da1a37c8b19280e18627ca01cf368195a5e1d92e/group_travel_planner)
 
 ## Verification and outputs
 
@@ -146,8 +164,14 @@ The frozen edit scope contains evaluation code, an audit CI check and documentat
 | FactConsolidation | `b8f900398be0e84e667e4313d08512c8442e0122f7c2278d900fd2b4aa13d975` | `f87c80e3e439186c79c380785cc23354708dc71a84f1e68a69008758baa7c067` |
 | Operational fixtures | `b02b8af513ed80a11496a7a9a2b21f5186b900bc0b50da08d938f2d6dea07e33` | `18b83ab193398b82404c73e42c4220a450d98fb2d6ac4b6233905efcb77b0a9d` |
 | 4,096-record liveness control | Fixed synthetic generator | `620b3243ceb2df9d839694e115b5794ef1f8e84994036ee5f7284d5816cfbf39` |
+| Concentrated liveness repeat | Fixed synthetic generator | `063460812aa7a578533a5b0bfe7837e0d319327f67e8d749b4dbd71678b1e828` |
+| Worker timeout and recovery | Fixed synthetic generator | `aafc833f24e2207dfd8a53e55bef54569a719eb44bfdc43395d7d9ee1c593628` |
+| Follow-up evidence budgets | `b8952b2410814d429b6fcff68439582cb5640415a83fc5cccde54a353752b503` | `e8801815ffd2c77f9312e0bcbe89000ecc02989c1b7bbe2f53ce37d20e214ed3` |
 | STATE training replay | `648393a54003ef566f4e0eb74f788e134360acb2e702239d33fac94a9afc8251` | `1fe00bb01022f3de390f870455da3d7cc5263ca7841b4eb83c6adae4cdfb9ec3` |
+| STATE training latest-session follow-up | `648393a54003ef566f4e0eb74f788e134360acb2e702239d33fac94a9afc8251` | `d3e13169bd0a28f6484f7a7d338fbc622e2269d345157c0578ef5a3a42af2f4d` |
 | MemoryArena prefixes | `b0388ee57fe29c47b0fa14dc29e75ed2cc528674d3fc1c6d7e5f38dbb4dd7c81` | `6f829ce7d5bf5536b239606038ef25cc2159e7a06a223ad30b0d1cd83640c54e` |
+| Warm fixed queries | Previously listed per-family manifests | `d0d50ff0fad8aaafc365b2dfd6996488a1de298dcb951e3d95dbf769ffbd4e0c` |
+| Read-only PostgreSQL plans | Previously listed liveness scopes | `fbbc2eed24b3c7e566259f7edee3f6a3381f049c07432b37783869f608fb17fc` |
 
 Raw source, per-query labels, payload text and credentials stay outside the pull request.
 
