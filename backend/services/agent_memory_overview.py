@@ -27,7 +27,16 @@ def overview(sb, user_id, folders, after, before, tz, session):
     )
     rows = snapshot["entries"]
     days = journal_activity(
-        sb, user_id, list(scope), after, before, tz, limit=2000, session=session, rows=rows
+        sb,
+        user_id,
+        list(scope),
+        after,
+        before,
+        tz,
+        limit=2000,
+        session=session,
+        rows=rows,
+        inventory_limited=snapshot["entry_count"] > 2000,
     )["days"]
     entries = defaultdict(list)
     for row in rows[:2000]:

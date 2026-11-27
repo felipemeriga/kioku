@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
+from threading import Lock
 
 from db.client import get_supabase_thread_safe
 from services.agent_evidence import EvidenceStore, enabled, rpc
@@ -201,12 +202,22 @@ def reap_evidence(sb, after_id=None):
     return sessions[-1]["id"] if len(sessions) == 25 else None
 
 
-async def agent_evidence_maintenance(ctx):
-    # A disabled capture feature must not disable account/folder erasure.
-    await asyncio.to_thread(purge_evidence_outbox, get_supabase_thread_safe())
-    await asyncio.to_thread(purge_tombstoned_sessions, get_supabase_thread_safe())
-    if not enabled():
+def _maintain_evidence(ctx, lock):
+    # Cron ticks can overlap on slow backlog pages. A thread owns the gate so
+    # cancellation of the awaiting job does not release a still-running scan.
+    if not lock.acquire(blocking=False):
         return
-    ctx["evidence_cursor"] = await asyncio.to_thread(
-        reap_evidence, get_supabase_thread_safe(), ctx.get("evidence_cursor")
-    )
+    try:
+        sb = get_supabase_thread_safe()
+        # A disabled capture feature must not disable account/folder erasure.
+        purge_evidence_outbox(sb)
+        purge_tombstoned_sessions(sb)
+        if enabled():
+            ctx["evidence_cursor"] = reap_evidence(sb, ctx.get("evidence_cursor"))
+    finally:
+        lock.release()
+
+
+async def agent_evidence_maintenance(ctx):
+    lock = ctx.setdefault("evidence_maintenance_lock", Lock())
+    await asyncio.to_thread(_maintain_evidence, ctx, lock)

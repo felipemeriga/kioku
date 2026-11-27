@@ -20,6 +20,11 @@ NOW = datetime(2026, 11, 9, 2, tzinfo=timezone.utc)  # Still Sunday in São Paul
     [
         ("What did we work on this week?", True),
         ("Have we tried the smaller budget?", True),
+        ("Remember why we rejected the smaller budget?", True),
+        ("Já tentamos reaproveitar o conteúdo dessa revisão?", True),
+        ("O que a gente fez na semana passada?", True),
+        ("Quais problemas tivemos ontem?", True),
+        ("O que a documentação diz sobre o que fizemos?", False),
         ("What were the issues we had yesterday?", True),
         ("Summarize earlier experiments from the agent records", True),
         ("What did the documentation say about memory?", False),
@@ -55,12 +60,61 @@ def test_source_intent(question, expected):
             {"from_date": "2026-10-01", "through_date": "2026-10-31"},
         ),
         (
+            "O que a gente fez na semana passada?",
+            {"from_date": "2026-10-26", "through_date": "2026-11-01"},
+        ),
+        (
+            "Em que trabalhamos nesta semana?",
+            {"from_date": "2026-11-02", "through_date": "2026-11-08"},
+        ),
+        (
+            "O que fizemos no mês passado?",
+            {"from_date": "2026-10-01", "through_date": "2026-10-31"},
+        ),
+        ("O que fizemos neste mes?", {"from_date": "2026-11-01", "through_date": "2026-11-08"}),
+        (
+            "Quais problemas tivemos ontem?",
+            {"from_date": "2026-11-07", "through_date": "2026-11-07"},
+        ),
+        ("O que fizemos anteontem?", {"from_date": "2026-11-06", "through_date": "2026-11-06"}),
+        (
+            "What did we work on the day before yesterday?",
+            {"from_date": "2026-11-06", "through_date": "2026-11-06"},
+        ),
+        ("What did we know before the day before yesterday?", {"as_of": "2026-11-05"}),
+        ("Hoje, o que a gente fez?", {"from_date": "2026-11-08", "through_date": "2026-11-08"}),
+        (
+            "O que fizemos de ontem pra hoje?",
+            {"from_date": "2026-11-07", "through_date": "2026-11-08"},
+        ),
+        (
+            "O que fizemos de ontem até hoje?",
+            {"from_date": "2026-11-07", "through_date": "2026-11-08"},
+        ),
+        (
+            "What did we work on from yesterday through today?",
+            {"from_date": "2026-11-07", "through_date": "2026-11-08"},
+        ),
+        (
             "What did we work on in November 2026?",
             {"from_date": "2026-11-01", "through_date": "2026-11-08"},
         ),
         ("When later sessions discussed the October incident, was its cause proven?", {}),
         ("What is our latest setting, not whether it is deployed today?", {}),
         ("Recorded on November 31, 2026", {}),
+        ("Have we fixed the SSE outage from 2026-11-12?", {}),
+        (
+            "As of 2026-11-21 at exactly 01:00:00 in America/New_York, what did we observe?",
+            {"as_of": "2026-11-21T01:00:00-05:00"},
+        ),
+        (
+            "What did we observe as of 2026-11-21T01:00:00-05:00?",
+            {"as_of": "2026-11-21T01:00:00-05:00"},
+        ),
+        (
+            "What did we observe before 2026-11-21T06:00:00Z?",
+            {"as_of": "2026-11-21T05:59:59.999999+00:00"},
+        ),
     ],
 )
 def test_time_is_local_and_incident_mentions_do_not_become_record_filters(question, expected):
@@ -77,6 +131,41 @@ def test_document_scope_cannot_expand_into_history():
     evidence, _ = prefetch("What did we try?", "UTC", execute, filename="only-this.pdf")
     assert calls == ["knowledge_base_search"]
     assert evidence == "Document evidence [1]"
+
+
+@pytest.mark.parametrize(
+    "question,overview,start,end",
+    [
+        ("O que a gente fez na semana passada?", True, "2026-10-26", "2026-11-01"),
+        ("O que fizemos de ontem até hoje?", True, "2026-11-07", "2026-11-08"),
+        ("O que fizemos de ontem pra hoje?", True, "2026-11-07", "2026-11-08"),
+        ("O que fizemos para corrigir o Mongo ontem?", False, "2026-11-07", "2026-11-07"),
+    ],
+)
+def test_portuguese_activity_preserves_dates_and_topical_queries(
+    monkeypatch, question, overview, start, end
+):
+    monkeypatch.setattr(
+        "services.evidence_prefetch.date_filters", lambda q, tz: date_filters(q, tz, NOW)
+    )
+    calls = []
+
+    def execute(name, args):
+        calls.append((name, args))
+        return json.dumps({"status": "ok", "matches": [], "activity": {"days": []}})
+
+    prefetch(question, "America/Sao_Paulo", execute)
+    name, args = calls[0]
+    assert name == "search_agent_history"
+    assert args["timezone"] == "America/Sao_Paulo"
+    assert args["from_date"] == start
+    assert args["through_date"] == end
+    if overview:
+        assert args["query"] == ""
+        assert args["projection"] == "overview"
+    else:
+        assert args["query"] == question
+        assert "projection" not in args
 
 
 def test_vague_current_code_question_uses_scoped_source_query_once():
@@ -269,3 +358,16 @@ def test_invalid_history_result_is_not_replaced_by_unrelated_documents():
     evidence, calls = prefetch("What did we try?", "UTC", lambda *_: "upstream unavailable")
     assert len(calls) == 1 and calls[0]["name"] == "search_agent_history"
     assert json.loads(evidence)["pages"][0]["code"] == "invalid_history_result"
+
+
+def test_prefetch_uses_discovery_for_a_cutoff_overview_question():
+    def execute(name, args):
+        assert name == "search_agent_history"
+        assert args["as_of"] == "2026-11-21"
+        assert args["query"] == ""
+        assert args["order"] == "latest"
+        assert args.get("projection", "discovery") == "discovery"
+        return json.dumps({"status": "ok", "matches": []})
+
+    _, calls = prefetch("As of 2026-11-21, what did we work on?", "UTC", execute)
+    assert len(calls) == 1

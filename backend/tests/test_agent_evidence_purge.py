@@ -1,4 +1,5 @@
 import asyncio
+from threading import Event
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -66,3 +67,48 @@ def test_tombstone_purge_respects_storage_bulk_limit():
         purge_session(sb, {"id": "session", "user_id": "owner", "folder_id": "folder"})
     calls = sb.storage.from_.return_value.remove.call_args_list
     assert [len(call.args[0]) for call in calls] == [1000, 1]
+
+
+def test_evidence_cron_skips_overlapping_sweeps_until_scan_releases_gate():
+    from services.agent_evidence_jobs import agent_evidence_maintenance
+
+    entered = Event()
+    release = Event()
+
+    def reap(_sb, cursor):
+        if cursor is None:
+            entered.set()
+            assert release.wait(2)
+            return "next-page"
+        assert cursor == "next-page"
+        return None
+
+    async def check():
+        from contextlib import suppress
+
+        ctx = {}
+        first = asyncio.create_task(agent_evidence_maintenance(ctx))
+        assert await asyncio.to_thread(entered.wait, 2)
+        first.cancel()
+        with suppress(asyncio.CancelledError):
+            await first
+        await agent_evidence_maintenance(ctx)
+        assert "evidence_cursor" not in ctx
+        release.set()
+        # Synchronize with the worker-owned lock before sending the next tick.
+        lock = ctx["evidence_maintenance_lock"]
+        assert await asyncio.to_thread(lock.acquire, True, 2)
+        lock.release()
+        assert ctx["evidence_cursor"] == "next-page"
+        await agent_evidence_maintenance(ctx)
+        assert ctx["evidence_cursor"] is None
+
+    with (
+        patch("services.agent_evidence_jobs.enabled", return_value=True),
+        patch("services.agent_evidence_jobs.get_supabase_thread_safe", return_value="db"),
+        patch("services.agent_evidence_jobs.purge_evidence_outbox"),
+        patch("services.agent_evidence_jobs.purge_tombstoned_sessions"),
+        patch("services.agent_evidence_jobs.reap_evidence", side_effect=reap) as capture,
+    ):
+        asyncio.run(check())
+    assert [call.args for call in capture.call_args_list] == [("db", None), ("db", "next-page")]
