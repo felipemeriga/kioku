@@ -15,9 +15,9 @@ from .lab import Lab
 from .public_data import (
     ARMS,
     BASELINE,
-    DATASETS,
     READ_COUNT,
     READ_WINDOW,
+    RELATED,
     expansions,
     file_sha256,
     freeze_public,
@@ -42,7 +42,7 @@ class SourceRecord:
             locator.get("object_id") == self.object_id
             and locator.get("byte_offset") == self.byte_offset
             and locator.get("byte_length") == self.byte_length
-            and 0 <= start < len(self.text)
+            and 0 <= start <= len(self.text)
             and self.text[start : start + len(actual)] == actual
             and evidence["has_more"] == (start + len(actual) < len(self.text))
         )
@@ -193,7 +193,17 @@ def verify_frozen(directory, family):
     for name in ("queries.json", f"{family}.jsonl"):
         if file_sha256(directory / name) != manifest["sha256"][name]:
             raise ValueError("The replay files changed after freezing")
-    if manifest["policy"]["arms"] != ARMS or manifest["policy"]["read_window"] != READ_WINDOW:
+    expected_policy = json.loads(
+        json_text(
+            {
+                "arms": ARMS,
+                "related": RELATED,
+                "read_window": READ_WINDOW,
+                "reads": READ_COUNT,
+            }
+        )
+    )
+    if manifest["policy"] != expected_policy or family not in manifest["datasets"]:
         raise ValueError("The replay policy changed after freezing")
     return manifest
 
@@ -322,7 +332,7 @@ def main(argv=None):
     replay.add_argument("--lab", type=Path, required=True)
     replay.add_argument("--frozen", type=Path, required=True)
     replay.add_argument("--output", type=Path, required=True)
-    replay.add_argument("--family", choices=sorted(DATASETS), required=True)
+    replay.add_argument("--family", required=True)
     replay.add_argument("--split", choices=("primary", "holdout", "all"), default="primary")
     replay.add_argument("--warm-repeats", type=int, default=5)
     arguments = parser.parse_args(argv)
