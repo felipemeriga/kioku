@@ -3,7 +3,7 @@
 Baseline: `3636866fc7094606cc1e498ad79eaf3840d72f99`, deployed backend/MCP `0.3.126`.
 Observations began on 2026-11-27 at approximately 05:00 UTC; individual checkpoints are recorded below.
 These are convenience probes and operational observations, not independently labeled benchmark scores.
-No production data, configuration, keys, indexes, or services were changed for these checks.
+No production data was repaired or deleted, no indexing job was manually triggered, and no production configuration, keys, indexes or services were changed for these checks. Normal archival capture continued during the audit, including new agent activity; owned transient MCP sessions were initialized and closed normally.
 
 ## Archive availability
 
