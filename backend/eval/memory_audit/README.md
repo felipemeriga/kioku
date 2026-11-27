@@ -51,6 +51,8 @@ Use `--family locomo` for the second replay. The `primary` and `holdout` subsets
 
 Freeze `beam_100k` and `mab_conflict` with `supplemental freeze`. Freeze `state_train_replay` and `memoryarena_prefix` with `stateful_proxies`. Each takes `--family`, `--data` and `--output`. Reuse the replay and score commands with the corresponding family. For `mab_conflict`, use the separate `supplemental score-mab` command with `--frozen`, `--replay` and `--output` to measure answer-string availability.
 
+Freeze `state_train_full` with the same `stateful_proxies` command for the 300-trajectory STATE training study. `state_followup run --family state_train_full` then archives all three domain scopes and runs the sealed full-request and shortened-request questions. `state_followup score` takes the sealed directory, replay file and output path. It uses the separate labels to measure exact final-call and result coverage from the search page, ten latest in the selected session and signed paired read. The source is an observed training corpus, with no environment actions or answer judging.
+
 Use `beam_scale` with the same arguments for `beam_500k_sample`, `beam_1m_sample` and `beam_10m_sample`. It streams one released conversation at a time and seals the complete selected conversation with its original pointers. The LoCoMo caption sensitivity can be reproduced with `supplemental freeze --family locomo_captions`. Use `full_long_score` with both sealed LongMemEval-S directories and both replay files to combine evidence counts across the disjoint phases.
 
 Keep the raw source files, frozen corpus, gold and unredacted results outside Git. The replay process needs the sealed corpus and query manifest. It can run without access to `gold.json`.

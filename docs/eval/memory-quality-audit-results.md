@@ -162,10 +162,19 @@ The frozen deduplication predicate in a read-only plan rejected 1,572,352 join p
 | LoCoMo | All ten published dialogues and 1,986 QA probes, plus a matched caption-text sensitivity replay | Generative QA, image bytes, event summarization and multimodal generation |
 | BEAM | All 20 conversations and 400 original-evidence probes in 100K, plus nine complete conversations and 180 probes from the larger splits | Official generated-answer judge and a census of larger splits |
 | MemoryAgentBench | Four full FactConsolidation contexts and 800 source-string probes | Official task-answer score and other sub-benchmarks |
-| STATE-Bench | Twelve published training transcripts selected across travel, shopping and support | Simulated customer workflows, held-out environments and completion |
+| STATE-Bench | All 300 published training trajectories across travel, shopping and support, plus the earlier twelve-trajectory pilot | Simulated customer workflows, held-out environments and completion |
 | MemoryArena | Twelve published travel histories through the prefix before the last subtask, with 24 retrieval probes | Solving later subtasks, environment feedback, success rate and progress |
 
 For the STATE training replay, relevance found at least one of the final tool call/result in three of twelve transcripts and recovered both in zero. Two adjacent signed reads did not improve those counts. The corpus retained actual recorded tool outcomes with synthetic call IDs. Each of three authorized domain scopes held four full training trajectories. The question quoted the original user request. A follow-up took the top result’s session, requested its ten latest events and opened the latest tool result with a signed read. It chose the correct trajectory in all twelve trials. Both the latest page and paired read recovered both original records in all twelve. The three-call component sum was 130 ms and 31.8 KB median. For MemoryArena, every history prefix fit within ten records. All 24 probes recovered all their marked inputs. These were the published initial itinerary and earlier user prompts. The lab did not produce a travel action or observe its result. [STATE-Bench training trajectories](https://github.com/microsoft/STATE-Bench/tree/5644b1838d96bc4483da29642d058ecaa6f80f7f/datasets/train_task_trajectories) · [MemoryArena travel inputs](https://huggingface.co/datasets/ZexueHe/memoryarena/tree/da1a37c8b19280e18627ca01cf368195a5e1d92e/group_travel_planner)
+
+The full STATE extension indexed 7,688 records and 8,269 chunks across 100 candidate trajectories per domain. Each blank latest search used the session actually returned at rank one. The signed read opened the most recent tool result from that page with a zero-neighbor window, allowing the service to supply its paired call.
+
+| Earlier request in the question | First page has both marked records | Correct session at rank one | Latest page has both | Signed read has both |
+| --- | ---: | ---: | ---: | ---: |
+| Full quoted request | 2/300 | 289/300 | 288/300 | 288/300 |
+| First 18 words | 2/300 | 285/300 | 284/300 | 284/300 |
+
+Among the 209 meaningfully shortened requests, the signed pair score fell from 206 to 202, with four losses and no gains. All 91 identical controls preserved their ranked first page. One correct travel session per formulation had no tool result in its latest ten and never reached the signed read. There were 1,798 calls across 600 attempts and zero tool or source-integrity errors. The combined component median and p95 were 326 and 741 ms. The experiment establishes what session navigation recovered from the recorded trajectories under the quoted-request formulations. It measures evidence retrieval with fixed historical actions.
 
 ## Verification and outputs
 
@@ -193,6 +202,7 @@ The edit scope contains evaluation code, an audit CI check and documentation. Th
 | Follow-up evidence budgets | `b8952b2410814d429b6fcff68439582cb5640415a83fc5cccde54a353752b503` | `e8801815ffd2c77f9312e0bcbe89000ecc02989c1b7bbe2f53ce37d20e214ed3` |
 | STATE training replay | `648393a54003ef566f4e0eb74f788e134360acb2e702239d33fac94a9afc8251` | `1fe00bb01022f3de390f870455da3d7cc5263ca7841b4eb83c6adae4cdfb9ec3` |
 | STATE training latest-session follow-up | `648393a54003ef566f4e0eb74f788e134360acb2e702239d33fac94a9afc8251` | `d3e13169bd0a28f6484f7a7d338fbc622e2269d345157c0578ef5a3a42af2f4d` |
+| STATE full training collection | `6a98499cf93e46fbc65417490f2ff6927376c8680798526367f46490553efa60` | `938eea5767d2f1a411524d9154ca44f65872d5867e1f8351da4767959ba02c06` |
 | MemoryArena prefixes | `b0388ee57fe29c47b0fa14dc29e75ed2cc528674d3fc1c6d7e5f38dbb4dd7c81` | `6f829ce7d5bf5536b239606038ef25cc2159e7a06a223ad30b0d1cd83640c54e` |
 | Warm fixed queries | Previously listed per-family manifests | `d0d50ff0fad8aaafc365b2dfd6996488a1de298dcb951e3d95dbf769ffbd4e0c` |
 | Read-only PostgreSQL plans | Previously listed liveness scopes | `fbbc2eed24b3c7e566259f7edee3f6a3381f049c07432b37783869f608fb17fc` |

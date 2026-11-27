@@ -35,6 +35,10 @@ DATASETS = {
         "without answer labels.",
     },
 }
+DATASETS["state_train_full"] = {
+    **DATASETS["state_train_replay"],
+    "projection": "All 300 training transcripts, full and first-18-word user request probes.",
+}
 EPOCH = datetime(2026, 10, 1, tzinfo=timezone.utc)
 
 
@@ -89,8 +93,8 @@ def state_session(turns, when):
     return records, final_pair
 
 
-def load_state(path, stream, add_case):
-    family = "state_train_replay"
+def load_state(path, stream, add_case, *, family="state_train_replay"):
+    exhaustive = family == "state_train_full"
     groups = defaultdict(list)
     with tarfile.open(path) as archive:
         for member in archive.getmembers():
@@ -103,7 +107,11 @@ def load_state(path, stream, add_case):
             ):
                 groups[name.parent.name].append(member)
         for domain, members in sorted(groups.items()):
-            selection = sorted(members, key=lambda m: stable_priority(m.name))[:4]
+            selection = sorted(members, key=lambda m: stable_priority(m.name))
+            if exhaustive and len(selection) != 100:
+                raise ValueError("The full STATE replay requires all 100 histories per domain")
+            if not exhaustive:
+                selection = selection[:4]
             scope = namespace(family, domain)
             for ordinal, member in enumerate(selection):
                 source_id = PurePosixPath(member.name).name
@@ -119,12 +127,35 @@ def load_state(path, stream, add_case):
                         "Selected STATE training transcript has no recorded tool action"
                     )
                 log_line(stream, session_row(scope, native, records))
-                question = (
-                    "For my earlier request below, what was the final tool action and its observed "
-                    f"result? Earlier request: {query_text(initial_request)[:1600]}"
-                )
                 anchors = [gold_event(scope, native, index) for index in pair]
-                add_case(*proxy_case(family, scope, source_id, domain, question, native, anchors))
+                initial = query_text(initial_request)[:1600]
+                prefix = (
+                    "For my earlier request below, what was the final tool action and its observed "
+                    "result? Earlier request: "
+                )
+                if not exhaustive:
+                    add_case(
+                        *proxy_case(
+                            family, scope, source_id, domain, prefix + initial, native, anchors
+                        )
+                    )
+                    continue
+                shorter = " ".join(initial.split()[:18])
+                for formulation, quoted in (("full_request", initial), ("short_request", shorter)):
+                    add_case(
+                        *proxy_case(
+                            family,
+                            scope,
+                            f"{source_id}:{formulation}",
+                            domain,
+                            prefix + quoted,
+                            native,
+                            anchors,
+                            source_trajectory=source_id,
+                            formulation=formulation,
+                            actually_shortened=shorter != initial,
+                        )
+                    )
 
 
 def load_arena(path, stream, add_case):
@@ -181,7 +212,13 @@ def main():
     parser.add_argument("--data", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    load = load_state if args.family == "state_train_replay" else load_arena
+
+    def load(path, stream, add_case):
+        if args.family == "memoryarena_prefix":
+            load_arena(path, stream, add_case)
+        else:
+            load_state(path, stream, add_case, family=args.family)
+
     result = freeze_family(args.family, DATASETS[args.family], args.data, args.output, load)
     print(f"Froze {result['cases']} {args.family} history probes.")
 
