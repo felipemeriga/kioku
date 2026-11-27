@@ -22,7 +22,7 @@ export PYTHON_DOTENV_DISABLED=1
 .venv/bin/python -m pytest -q eval/memory_audit/tests
 ```
 
-The backend CI job runs the scorer and archive-integrity contract tests with temporary dependencies. The explicit PostgreSQL, corpus download and replay commands below are the manual audit.
+The backend CI job runs 39 scorer, archive-integrity and live-replay contract checks with temporary dependencies. The explicit PostgreSQL, corpus download and replay commands below are the manual audit.
 
 Keep `AUDIT_DIR` outside the checkout with owner-only permissions. Use a new output path for each run. The dataset filenames, exact revisions and SHA-256 values are in [public_data.py](public_data.py), [supplemental.py](supplemental.py) and [stateful_proxies.py](stateful_proxies.py). The protocol links to each upstream release and its terms.
 
@@ -78,3 +78,18 @@ The supplementary check commands expose their separate inputs with `--help`. `se
 The `timeout_drain` command exercises a fixed workload with connection-local lock and statement budgets. It then runs a serial worker with ordinary lab defaults against the original objects, validates every source checksum, and checks idempotency. `publication_plan` varies only the PostgreSQL plan mode on the audit worker connections. These controls use fresh namespaces and require the disposable PostgreSQL audit database.
 
 Close the lab connection, stop the audit database instance and discard its isolated volume and disposable credentials after the run. Keep a copy of the aggregate scores and frozen hashes to compare with later runs.
+
+## Sealed live CLI questions
+
+Run live probes from a checkout already connected to the authorized Kioku folder. The CLI resolves connection and scope from its current working directory. Use the isolated audit checkout as the absolute Python module path. Reuse the existing connection for the audit. The replay never needs `kioku init`, a new key, or a gold file.
+
+```bash
+cd "$KIOKU_CONNECTED_CHECKOUT"
+PYTHONPATH="$KIOKU_AUDIT_CHECKOUT/backend" "$AUDIT_PYTHON" \
+  -m eval.memory_audit.live_replay \
+  --queries "$PRIVATE_QUERY_MANIFEST" --sha256 "$SEALED_QUERY_SHA256" \
+  --cutoff-ceiling "$AUDIT_CUTOFF_UTC" --timeout-seconds 45 \
+  --output "$PRIVATE_REPLAY_OUTPUT"
+```
+
+Use a new private output file, an independently recorded manifest hash and an explicit cutoff at or before the scoring window begins. Supply targets in the authorized folder. Run conservatively because the replay uses the live service. Keep the manifest, independent evidence labels and raw replay outside the checkout. The replay checks the query file and writes locators, status and timing metadata. Grade those locators against separately sealed labels after the calls finish.
