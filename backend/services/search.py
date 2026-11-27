@@ -1,6 +1,7 @@
 """Hybrid search: vector + keyword with RRF fusion and reranking."""
 
 import logging
+import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
@@ -23,14 +24,11 @@ CODE_BLEND_TOP_N = 20
 # Over-fetch before junk filtering (see _is_code_junk).
 CODE_BLEND_FETCH = 40
 
-# Reserve a few final slots for code that is genuinely relevant, so a rich set
-# of docs can't sweep every slot and starve the code side. Only code clearing
-# CODE_RESERVE_THRESHOLD (well above the 0.2 doc threshold, below the ~0.55+
-# that real matching code scores) is eligible — so doc-only questions, where no
-# code clears the bar, are unaffected. This is what makes knowledge_base_search
-# surface code+doc relationships together instead of docs-only.
+# Reserve sources only when the question asks for their role.
 CODE_RESERVE_SLOTS = 4
 CODE_RESERVE_THRESHOLD = 0.45
+DOCUMENT_RESERVE_SLOTS = 3
+SOURCE_RELEVANCE_MARGIN = 0.15
 
 # Candidate pool size per leg (vector, keyword) before rerank. Wider than the
 # old 20 so the cross-encoder has more to choose from — it trims back to top_k,
@@ -44,32 +42,94 @@ _PRIMARY_VARIANT_WEIGHT = 1.0
 _AUX_VARIANT_WEIGHT = 0.6
 
 
-def _rerank_with_code_reservation(
+def _source_intent(query: str) -> str:
+    """Conservative source preference, without another model or network call."""
+    code = bool(
+        re.search(
+            r"\b(?:implement(?:ation|ed|s)?|source code|codebase|function|method|class|crate|"
+            r"call site|stack trace|which file|"
+            r"where.{0,60}(?:code|handled|defined|retry|retries))\b"
+            r"|\b[\w/-]+\.(?:rs|py|tsx?|jsx?|go|java|cpp)\b"
+            r"|\b(?:get|set|read|write|parse|handle)_[a-z_]+\b"
+            r"|\b(?:implementa[çc][aã]o|fun[çc][aã]o|m[eé]todo|qual arquivo)\b",
+            query,
+            re.I,
+        )
+    )
+    docs = bool(
+        re.search(
+            r"\b(?:documentation|docs|vendor|manual|guide|documenta[çc][aã]o|fornecedor|guia)\b",
+            query,
+            re.I,
+        )
+    )
+    if code:
+        return "balanced" if docs else "implementation"
+    conceptual = bool(
+        re.search(
+            r"\b(?:difference|differences|definition|meaning|explain|compare|versus|vs|"
+            r"what (?:is|are)|diferen[çc]a|explique|o que [eé]|o que s[aã]o)\b",
+            query,
+            re.I,
+        )
+    )
+    return "documentation" if docs or conceptual else "balanced"
+
+
+def _deduplicate_code(rows: list[dict]) -> list[dict]:
+    """Collapse copied bodies within one repo; retain separate repo evidence.
+
+    Only remove our generated location header. Preserve code whitespace and
+    literals so indentation cannot hide a meaningful difference.
+    """
+    seen = set()
+    out = []
+    for row in rows:
+        meta = row.get("metadata") or {}
+        body = row.get("content") or ""
+        if body.startswith("[repo ") and "[file " in body.partition("\n")[0]:
+            body = body.partition("\n")[2]
+        folder = meta.get("folder_id")
+        key = (folder, meta.get("code_language"), body.strip("\r\n"))
+        if folder and key[2]:
+            if key in seen:
+                continue
+            seen.add(key)
+        out.append(row)
+    return out
+
+
+def _rerank_sources(
     query_text: str, fused: list[dict], code_results: list[dict], top_k: int
 ) -> list[dict]:
-    """Rerank docs + code jointly, then guarantee up to CODE_RESERVE_SLOTS of
-    the most relevant code chunks a place in the top_k (promoting them past
-    docs only when they clear CODE_RESERVE_THRESHOLD)."""
+    code_results = _deduplicate_code(code_results)
     if not code_results:
         return rerank(query_text or "query", fused, top_k=top_k)
     pool = rerank(query_text or "query", fused + code_results, top_k=top_k + 8)
-    strong_code = [
-        d
-        for d in pool
-        if d.get("source_type") == "code" and d.get("rerank_score", 0.0) >= CODE_RESERVE_THRESHOLD
-    ][:CODE_RESERVE_SLOTS]
-    if not strong_code:
+    if not pool:
+        return []
+    intent = _source_intent(query_text)
+    if intent == "documentation":
+        floor = max(0.2, pool[0].get("rerank_score", 0.0) - SOURCE_RELEVANCE_MARGIN)
+        preferred = [
+            d
+            for d in pool
+            if d.get("source_type") != "code" and d.get("rerank_score", 0.0) >= floor
+        ][: min(DOCUMENT_RESERVE_SLOTS, top_k)]
+    elif intent == "implementation":
+        preferred = [
+            d
+            for d in pool
+            if d.get("source_type") == "code"
+            and d.get("rerank_score", 0.0) >= CODE_RESERVE_THRESHOLD
+        ][: min(CODE_RESERVE_SLOTS, top_k)]
+    else:
         return pool[:top_k]
-    keep = {id(d) for d in strong_code}
-    final = list(strong_code)
-    for d in pool:
-        if len(final) >= top_k:
-            break
-        if id(d) not in keep:
-            final.append(d)
-            keep.add(id(d))
-    final.sort(key=lambda d: pool.index(d))  # restore relevance order
-    return final[:top_k]
+    keep = {id(d) for d in preferred}
+    final = (preferred + [d for d in pool if id(d) not in keep])[:top_k]
+    if intent == "implementation":
+        final.sort(key=lambda d: pool.index(d))
+    return final
 
 
 def _is_code_junk(row: dict) -> bool:
@@ -127,8 +187,6 @@ def _code_candidates(
         return []
     out: list[dict] = []
     for r in rows:
-        if len(out) >= top_n:
-            break
         if _is_code_junk(r):
             continue
         location = f"{r.get('file')}:{r.get('start_line')}-{r.get('end_line')}"
@@ -148,7 +206,7 @@ def _code_candidates(
                 },
             }
         )
-    return out
+    return _deduplicate_code(out)[:top_n]
 
 
 def _vector_search(
@@ -406,8 +464,8 @@ def search_documents(
                 fused = _reciprocal_rank_fusion(vector_results, keyword_results)
 
             with stage("rerank", indent=3):
-                reranked = _rerank_with_code_reservation(query_text, fused, code_results, top_k)
-            reranked = _apply_recency_decay(reranked)
+                reranked = _rerank_sources(query_text, fused, code_results, top_k)
+            reranked = _apply_recency_decay(reranked, query_text=query_text)
             with stage("neighbor_expansion (parallel)", indent=3):
                 return _expand_with_neighbors(reranked)
 
@@ -520,8 +578,8 @@ def search_documents(
         # Step 5: Rerank with score threshold filtering — code candidates join
         # the pool here and compete with doc chunks on the same cross-encoder.
         with stage("rerank", indent=3):
-            reranked = _rerank_with_code_reservation(query_text, fused, code_results, top_k)
-        reranked = _apply_recency_decay(reranked)
+            reranked = _rerank_sources(query_text, fused, code_results, top_k)
+        reranked = _apply_recency_decay(reranked, query_text=query_text)
 
         # Step 6: Parent document retrieval — expand each result with adjacent chunks
         with stage("neighbor_expansion (parallel)", indent=3):
@@ -561,13 +619,22 @@ def _recency_factor(doc: dict, now: datetime | None = None) -> float:
     return 0.5 ** (age_days / half_life)
 
 
-def _apply_recency_decay(docs: list[dict]) -> list[dict]:
+def _apply_recency_decay(docs: list[dict], *, query_text: str = "") -> list[dict]:
     """Downrank stale chunks: blend the rerank score with a per-type
     time decay and re-sort. Decay is COHORT-RELATIVE — factors are normalized
     by the best factor in this result set — so freshness only matters when the
     results actually differ in age. A corpus (or folder) whose only relevant
     material is old keeps its pure relevance order; nothing is ever dropped,
     only reordered. Types without a half-life entry remain neutral."""
+    # An old vendor definition is not stale because newer code mentions it.
+    # Preserve freshness ranking for explicit current/latest questions.
+    if _source_intent(query_text) == "documentation" and not re.search(
+        r"\b(?:latest|newest|recent|current|updated|today|yesterday|"
+        r"mais recente|atual|hoje|ontem)\b",
+        query_text,
+        re.I,
+    ):
+        return docs
     if not docs:
         return docs
     out = []
