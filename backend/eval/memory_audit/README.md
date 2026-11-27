@@ -85,6 +85,8 @@ The output filename selects a fresh fixture namespace. For the optional `mechani
 | `capacity-distinct-results-4096.jsonl` | `distinct_results` | 64 | `one_serial` |
 | `capacity-messages-16384.jsonl` | `messages` | 256 | `one_serial four_serial` |
 
+Use `mechanism --inspect-search` after seeding the same 16,384-chunk scope to measure the actual nested search in place. It uses the synthetic scope’s MCP callable and logs plan shapes and filter counts with `auto_explain` on its lab connection.
+
 The `timeout_drain` command exercises a fixed workload with connection-local lock and statement budgets. It then runs a serial worker with ordinary lab defaults against the original objects, validates every source checksum, and checks idempotency. `publication_plan` varies only the PostgreSQL plan mode on the audit worker connections. These controls use fresh namespaces and require the disposable PostgreSQL audit database.
 
 To inspect the actual nested publication plan, first run `liveness` with `--conditions one_serial --deadline 420` on the same 64-segment duplicate workload. Pass the completed output basename to `publication_plan --inspect-completed`. The optional inspection loads PostgreSQL’s `auto_explain` module on its own lab connections, passes an empty event list to the publisher and rolls back every invocation. [PostgreSQL 16 module setup](https://www.postgresql.org/docs/16/auto-explain.html)

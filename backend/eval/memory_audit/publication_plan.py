@@ -1,13 +1,12 @@
 """Measure worker sensitivity to PostgreSQL plan mode in the disposable lab."""
 
 import argparse
-import json
 import time
 from pathlib import Path
 
 from .lab import Lab
 from .liveness import drain, seed, verify_drain
-from .mechanism import relevant_plan, stored_targets
+from .mechanism import collect_nested_plans, stored_targets
 from .public_data import BASELINE, uuid_for, write_private
 from .replay import log_line, open_output
 
@@ -76,40 +75,11 @@ def run_mode(lab, lab_file, output, mode, worker_layout):
 def inspect_publication(lab_file, session, segment, mode):
     lab = Lab(lab_file, application_name="kioku-audit-publication-plan-inspection")
     try:
-        lab.pg.execute("LOAD 'auto_explain'")
-        settings = {
-            "client_min_messages": "notice",
-            "auto_explain.log_level": "notice",
-            "auto_explain.log_min_duration": "0ms",
-            "auto_explain.log_nested_statements": "on",
-            "auto_explain.log_analyze": "on",
-            "auto_explain.log_buffers": "on",
-            "auto_explain.log_format": "json",
-            "auto_explain.log_parameter_max_length": "0",
-            "plan_cache_mode": mode,
-        }
-        for name, value in settings.items():
-            lab.pg.execute("SELECT set_config(%s,%s,false)", [name, value])
+        lab.pg.execute("SELECT set_config('plan_cache_mode',%s,false)", [mode])
+        observations = collect_nested_plans(
+            lab, "UPDATE public.agent_evidence_events e SET displayable=false"
+        )
         executions = []
-        observations = []
-
-        def notice(message):
-            head, separator, plan_text = (message.message_primary or "").partition("plan:\n")
-            if not separator:
-                return
-            plan = json.loads(plan_text)
-            if isinstance(plan, list):
-                plan = plan[0]
-            if (
-                plan.get("Query Text", "")
-                .lstrip()
-                .startswith("UPDATE public.agent_evidence_events e SET displayable=false")
-            ):
-                observations.append(
-                    {"notice_duration": head.strip(), "statement_plan": relevant_plan(plan["Plan"])}
-                )
-
-        lab.pg.add_notice_handler(notice)
         for _ in range(7 if mode == "auto" else 3):
             observations.clear()
             with lab.pg.transaction(force_rollback=True):

@@ -1,8 +1,9 @@
-"""Profile a read-only counterpart of the release parser's tool-result scan."""
+"""Inspect frozen recall and publication query plans in the disposable audit lab."""
 
 import argparse
 import json
 import re
+import time
 from pathlib import Path
 
 from psycopg import sql
@@ -11,6 +12,7 @@ from services.agent_memory import bounds, lexical_terms, technical_terms
 
 from .lab import Lab
 from .public_data import BASELINE, uuid_for, write_private
+from .replay import code
 
 SIGNATURE = "public.publish_agent_evidence_index(uuid,text,jsonb,jsonb,integer,boolean)"
 MEMORY_SQL = (
@@ -24,6 +26,10 @@ def relevant_plan(node):
         "Node Type",
         "Parent Relationship",
         "Index Name",
+        "Relation Name",
+        "Alias",
+        "Subplan Name",
+        "CTE Name",
         "Actual Rows",
         "Actual Loops",
         "Rows Removed by Filter",
@@ -34,8 +40,45 @@ def relevant_plan(node):
     )
     return {
         **{field: node[field] for field in fields if field in node},
+        "FTS Predicates": [
+            field
+            for field in ("Filter", "Join Filter", "Index Cond", "Recheck Cond")
+            if "@@" in node.get(field, "")
+        ],
         "children": [relevant_plan(child) for child in node.get("Plans", [])],
     }
+
+
+def collect_nested_plans(lab, statement_prefix):
+    lab.pg.execute("LOAD 'auto_explain'")
+    settings = {
+        "client_min_messages": "notice",
+        "auto_explain.log_level": "notice",
+        "auto_explain.log_min_duration": "0ms",
+        "auto_explain.log_nested_statements": "on",
+        "auto_explain.log_analyze": "on",
+        "auto_explain.log_buffers": "on",
+        "auto_explain.log_format": "json",
+        "auto_explain.log_parameter_max_length": "0",
+    }
+    for name, value in settings.items():
+        lab.pg.execute("SELECT set_config(%s,%s,false)", [name, value])
+    observations = []
+
+    def notice(message):
+        head, separator, plan_text = (message.message_primary or "").partition("plan:\n")
+        if not separator:
+            return
+        plan = json.loads(plan_text)
+        if isinstance(plan, list):
+            plan = plan[0]
+        if plan.get("Query Text", "").lstrip().startswith(statement_prefix):
+            observations.append(
+                {"notice_duration": head.strip(), "statement_plan": relevant_plan(plan["Plan"])}
+            )
+
+    lab.pg.add_notice_handler(notice)
+    return observations
 
 
 def dedup_predicate(lab):
@@ -155,6 +198,51 @@ def memory_query_shape(lab):
     return {"status": "ok", "availability": availability, "queries": data, "pagination": paging}
 
 
+def inspect_search(lab):
+    artifact = "capacity-messages-16384.jsonl"
+    owner = uuid_for(artifact, "one_serial", "owner")
+    folder = uuid_for(artifact, "one_serial", "repo")
+    initial = lab.index_state(owner, folder)
+    if initial["indexed_segments"] != 64 or initial["chunks"] != 16384:
+        raise ValueError("Nested search inspection requires the full existing 16,384-chunk fixture")
+    observations = collect_nested_plans(lab, "WITH terms AS MATERIALIZED")
+    broad = "Have we checked the relay checkpoint checksum?"
+    queries = {
+        "absent_identifier": "NOHITQZ909773",
+        "present_identifier": "LOAD_ANCHOR_42",
+        "broad": broad,
+        "broad_with_identifier": broad + " LOAD_ANCHOR_42",
+    }
+    attempts = {key: [] for key in queries}
+    with lab.tools(owner, folder) as mcp:
+        labels = list(queries)
+        for trial in range(3):
+            for key in labels[trial:] + labels[:trial]:
+                observations.clear()
+                started = time.perf_counter()
+                result = json.loads(
+                    mcp.search_agent_history(queries[key], order="relevance", limit=10)
+                )
+                if len(observations) != 1:
+                    raise RuntimeError("Expected one nested search SQL statement per real MCP call")
+                attempts[key].append(
+                    {
+                        "lab_wall_ms": (time.perf_counter() - started) * 1000,
+                        "status": code(result),
+                        "total_matches": result.get("total_matches"),
+                        **observations[0],
+                    }
+                )
+    return {
+        "baseline": BASELINE,
+        "fixture": artifact,
+        "boundary": "actual nested frozen search SQL through the MCP callable, instrumented",
+        "initial": initial,
+        "final": lab.index_state(owner, folder),
+        "attempts": attempts,
+    }
+
+
 def measure(lab):
     predicate = dedup_predicate(lab)
     query = sql.SQL(
@@ -199,12 +287,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--lab", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--inspect-search", action="store_true")
     args = parser.parse_args()
     lab = Lab(args.lab)
     try:
-        result = measure(lab)
+        result = inspect_search(lab) if args.inspect_search else measure(lab)
         write_private(args.output, result)
-        print(f"Measured {len(result['groups'])} reference plan shapes.")
+        shapes = result["attempts"] if args.inspect_search else result["groups"]
+        print(f"Measured {len(shapes)} reference plan shapes.")
     finally:
         lab.close()
 
