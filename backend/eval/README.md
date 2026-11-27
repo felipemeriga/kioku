@@ -30,7 +30,9 @@ Flags compose: `--gate --capture`, `--ragas --gate`, etc.
 Tsukai subscription for generation and judging. Each metric makes multiple judge
 calls per question, so a full run can take tens of minutes or longer. The command
 writes a report and exits unsuccessfully if any expected RAGAS row, context, or
-finite score is missing. Numeric RAGAS thresholds remain diagnostic.
+finite score is missing. If the judge returns rows with missing or nonfinite
+scores, the report keeps the per-question scores and identifies each failed cell,
+while omitting the aggregate. Numeric RAGAS thresholds remain diagnostic.
 
 The script:
 - starts the local Supabase stack if needed (`supabase start`)

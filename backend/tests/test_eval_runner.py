@@ -129,6 +129,7 @@ def test_incomplete_eval_writes_failed_question_and_exits_unsuccessfully(
         ("no-response", "q2: missing answer or retrieved context"),
         ("short-result", "RAGAS returned 1 rows for 2 questions"),
         ("nan", "q2: missing or nonfinite faithfulness"),
+        ("infinity", "q2: missing or nonfinite faithfulness"),
         ("missing-field", "q2: missing or nonfinite context_recall"),
         (None, None),
     ],
@@ -156,8 +157,8 @@ def test_ragas_requires_all_answers_contexts_and_metrics(runner, monkeypatch, pr
     rows = [dict.fromkeys(runner.RAGAS_METRICS, float(i)) for i in (0, 1)]
     if problem == "short-result":
         rows.pop()
-    if problem == "nan":
-        rows[1]["faithfulness"] = float("nan")
+    if problem in {"nan", "infinity"}:
+        rows[1]["faithfulness"] = float(problem)
     if problem == "missing-field":
         del rows[1]["context_recall"]
     evaluate = Mock(return_value=SimpleNamespace(scores=rows))
@@ -167,8 +168,13 @@ def test_ragas_requires_all_answers_contexts_and_metrics(runner, monkeypatch, pr
     monkeypatch.setattr(ragas, "evaluate", evaluate)
 
     if error:
-        with pytest.raises(runner.RagasCoverageError, match=error):
+        with pytest.raises(runner.RagasCoverageError, match=error) as exc_info:
             runner._run_ragas(full, questions)
+        if problem in {"nan", "infinity", "missing-field"}:
+            metric = "context_recall" if problem == "missing-field" else "faithfulness"
+            assert exc_info.value.failed_cells == [{"id": "q2", "metric": metric}]
+            assert exc_info.value.per_question["q1"]["scores"] == rows[0]
+            assert exc_info.value.per_question["q2"]["scores"][metric] is None
     else:
         result = runner._run_ragas(full, questions)
         assert list(result["per_question"]) == ["q1", "q2"]
@@ -201,5 +207,61 @@ def test_ragas_failure_writes_an_invalid_report(runner, monkeypatch, tmp_path):
     assert runner.main() == 1
     report = json.loads((tmp_path / "latest.json").read_text())
     assert report["jobs_completed"] == 2
-    assert report["ragas"] == {"expected": 1, "completed": 0, "error": "q001: missing context"}
+    assert report["ragas"] == {
+        "expected": 1,
+        "completed": 0,
+        "failed_cells": [],
+        "error": "q001: missing context",
+    }
     assert "ragas" not in report["aggregate"]
+
+
+def test_ragas_partial_score_report_retains_observed_cells_without_an_aggregate(
+    runner, monkeypatch, tmp_path
+):
+    golden = tmp_path / "golden.yaml"
+    golden.write_text("- id: q001\n- id: q002\n")
+    monkeypatch.setattr(runner, "GOLDEN_SET", golden)
+    monkeypatch.setattr(runner, "EVAL_RESULTS_DIR", tmp_path)
+    monkeypatch.setattr(runner, "_ingest_corpus", lambda: None)
+    monkeypatch.setattr(runner.sys, "argv", ["eval.runner", "--ragas"])
+    monkeypatch.setattr(
+        runner,
+        "_score_question",
+        lambda question, mode: {
+            "id": question["id"],
+            "mode": mode,
+            "difficulty": "easy",
+            "scores": dict.fromkeys(runner.IR_METRICS, 1.0),
+            "latency_ms": 1,
+        },
+    )
+
+    valid_scores = dict.fromkeys(runner.RAGAS_METRICS, 0.5)
+    partial_scores = {**valid_scores, "faithfulness": None, "context_recall": None}
+    invalid = runner.RagasCoverageError(
+        "q002: missing or nonfinite faithfulness",
+        per_question={
+            "q001": {"response": "complete", "scores": valid_scores},
+            "q002": {"response": "partial", "scores": partial_scores},
+        },
+        failed_cells=[
+            {"id": "q002", "metric": "faithfulness"},
+            {"id": "q002", "metric": "context_recall"},
+        ],
+    )
+    monkeypatch.setattr(runner, "_run_ragas", Mock(side_effect=invalid))
+
+    assert runner.main() == 1
+    report = json.loads((tmp_path / "latest.json").read_text())
+    assert report["jobs_completed"] == 4
+    assert report["ragas"] == {
+        "expected": 2,
+        "completed": 1,
+        "failed_cells": invalid.failed_cells,
+        "error": str(invalid),
+    }
+    assert "ragas" not in report["aggregate"]
+    full = {row["id"]: row for row in report["per_question"] if row["mode"] == "full"}
+    assert full["q001"]["ragas_scores"] == valid_scores
+    assert full["q002"]["ragas_scores"] == partial_scores

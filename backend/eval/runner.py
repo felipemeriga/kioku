@@ -98,6 +98,17 @@ RAGAS_METRICS = ("faithfulness", "answer_relevancy", "context_precision", "conte
 class RagasCoverageError(ValueError):
     """The requested run did not produce all required observations."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        per_question: dict[str, dict] | None = None,
+        failed_cells: list[dict[str, str]] | None = None,
+    ):
+        super().__init__(message)
+        self.per_question = per_question or {}
+        self.failed_cells = failed_cells or []
+
 
 def _ingest_corpus() -> None:
     """Put the golden corpus in the same owned subtree used for retrieval and chat."""
@@ -388,15 +399,24 @@ def _run_ragas(per_question: list[dict], questions: list[dict]) -> dict:
         )
 
     details = {}
+    failed_cells = []
     for q, sample, scores in zip(questions, samples, result.scores, strict=True):
+        row = {}
         for name in RAGAS_METRICS:
             score = scores.get(name)
-            if not isinstance(score, (int, float)) or not math.isfinite(score):
-                raise RagasCoverageError(f"{q['id']}: missing or nonfinite {name}")
-        details[q["id"]] = {
-            "response": sample.response,
-            "scores": {name: float(scores[name]) for name in RAGAS_METRICS},
-        }
+            if isinstance(score, (int, float)) and math.isfinite(score):
+                row[name] = float(score)
+            else:
+                row[name] = None
+                failed_cells.append({"id": q["id"], "metric": name})
+        details[q["id"]] = {"response": sample.response, "scores": row}
+    if failed_cells:
+        first = failed_cells[0]
+        raise RagasCoverageError(
+            f"{first['id']}: missing or nonfinite {first['metric']}",
+            per_question=details,
+            failed_cells=failed_cells,
+        )
     aggregate = {
         name: sum(row["scores"][name] for row in details.values()) / len(details)
         for name in RAGAS_METRICS
@@ -447,6 +467,7 @@ def main() -> int:
     aggregate = _aggregate(per_question)
 
     ragas_per_q = {}
+    ragas_failed_cells = []
     ragas_error = "retrieval jobs failed" if args.ragas and failures else None
     if args.ragas and not failures:
         print("[eval] running RAGAS (this can take a long time)...")
@@ -454,6 +475,8 @@ def main() -> int:
             ragas_result = _run_ragas(per_question, questions)
         except RagasCoverageError as error:
             ragas_error = str(error)
+            ragas_per_q = error.per_question
+            ragas_failed_cells = error.failed_cells
         except Exception as error:
             ragas_error = type(error).__name__
         else:
@@ -471,6 +494,11 @@ def main() -> int:
                 continue
             entry["response"] = merged["response"]
             entry["ragas_scores"] = merged["scores"]
+
+    ragas_completed = sum(
+        all(row["scores"].get(metric) is not None for metric in RAGAS_METRICS)
+        for row in ragas_per_q.values()
+    )
 
     mixed_sources = []
     mixed_error = None
@@ -492,7 +520,8 @@ def main() -> int:
         "failures": failures,
         "ragas": {
             "expected": len(questions) if args.ragas else 0,
-            "completed": len(ragas_per_q),
+            "completed": ragas_completed,
+            "failed_cells": ragas_failed_cells,
             "error": ragas_error,
         },
         "mixed_sources": {
@@ -511,7 +540,7 @@ def main() -> int:
     if failures:
         print(f"[eval] invalid run: {len(failures)} of {len(jobs)} retrieval jobs failed")
         return 1
-    if ragas_error or (args.ragas and len(ragas_per_q) != len(questions)):
+    if ragas_error or (args.ragas and ragas_completed != len(questions)):
         print(f"[eval] invalid RAGAS run: {ragas_error or 'incomplete question coverage'}")
         return 1
     if args.gate:
