@@ -29,12 +29,23 @@ CONDITIONS = {
 START = datetime(2026, 10, 1, tzinfo=timezone.utc)
 
 
-def generated_records(segment, records):
+def generated_records(segment, records, shape):
     result = []
     for i in range(0, records, 4):
         when = START + timedelta(days=segment, seconds=i)
         check = f"load-{segment}-{i}"
         unusual = " LOAD_ANCHOR_42." if segment == 0 and i == 0 else ""
+        if shape == "messages":
+            for j in range(4):
+                result.append(
+                    codex_record(
+                        "assistant" if j else "user",
+                        "Relay checkpoint checksum validation produced an observation."
+                        + (unusual if j == 0 else ""),
+                        when + timedelta(seconds=j),
+                    )
+                )
+            continue
         result.extend(
             [
                 codex_record("user", "Check the relay checkpoint and checksum." + unusual, when),
@@ -53,7 +64,7 @@ def generated_records(segment, records):
                     "Relay checkpoint checksum validation on this packet completed. "
                     "Exit zero. Runtime and byte count recorded in the synthetic workload.",
                     (when + timedelta(seconds=3)).isoformat(),
-                    check,
+                    check if shape == "duplicate_results" else check + "-second",
                     result=True,
                 ),
             ]
@@ -61,7 +72,7 @@ def generated_records(segment, records):
     return result
 
 
-def seed(lab, owner, folder, sessions, segments, records_per_segment):
+def seed(lab, owner, folder, sessions, segments, records_per_segment, shape):
     references = {}
     for ordinal in range(segments):
         key = f"lane-{ordinal % sessions}"
@@ -69,7 +80,7 @@ def seed(lab, owner, folder, sessions, segments, records_per_segment):
             owner,
             folder,
             key,
-            generated_records(ordinal, records_per_segment),
+            generated_records(ordinal, records_per_segment, shape),
             append=key in references,
             index=False,
         )
@@ -133,6 +144,7 @@ def query_trials(lab, owner, folder, segments, count=5):
     shapes = {
         "broad": {"query": query},
         "identifier": {"query": query + " LOAD_ANCHOR_42"},
+        "identifier_only": {"query": "LOAD_ANCHOR_42"},
         "last_day": {"query": query, "from_date": final_day, "through_date": final_day},
     }
     measurements = defaultdict(list)
@@ -188,7 +200,7 @@ def verify_drain(lab, targets):
     return integrity
 
 
-def condition(lab, lab_file, key, segments, records, deadline_seconds, output):
+def condition(lab, lab_file, key, segments, records, deadline_seconds, output, shape):
     sessions, worker_count, overlap = CONDITIONS[key]
     root = uuid_for(output.name, key, "root")
     owner = uuid_for(output.name, key, "owner")
@@ -197,7 +209,7 @@ def condition(lab, lab_file, key, segments, records, deadline_seconds, output):
     lab.create_folder(root, owner, "capacity")
     lab.create_folder(folder, owner, "relay-capacity", root)
     seed_start = time.perf_counter()
-    targets = seed(lab, owner, folder, sessions, segments, records)
+    targets = seed(lab, owner, folder, sessions, segments, records, shape)
     seed_ms = (time.perf_counter() - seed_start) * 1000
     initial = lab.index_state(owner, folder)
     assignments = [
@@ -249,7 +261,10 @@ def condition(lab, lab_file, key, segments, records, deadline_seconds, output):
     return {
         "condition": key,
         "source_records": segments * records,
-        "expected_visible_after_native_tool_dedup": segments * records * 3 // 4,
+        "expected_visible_after_native_tool_dedup": (
+            segments * records * 3 // 4 if shape == "duplicate_results" else segments * records
+        ),
+        "record_shape": shape,
         "seed_ms": seed_ms,
         "drain_ms": drain_ms,
         "fully_indexed": complete,
@@ -276,6 +291,11 @@ def main():
     parser.add_argument("--records-per-segment", type=int, default=64)
     parser.add_argument("--deadline", type=float, default=120)
     parser.add_argument(
+        "--record-shape",
+        choices=("duplicate_results", "distinct_results", "messages"),
+        default="duplicate_results",
+    )
+    parser.add_argument(
         "--conditions", choices=sorted(CONDITIONS), nargs="+", default=list(CONDITIONS)
     )
     args = parser.parse_args()
@@ -295,6 +315,7 @@ def main():
                     "baseline": BASELINE,
                     "segments": args.segments,
                     "records_per_segment": args.records_per_segment,
+                    "record_shape": args.record_shape,
                     "pg_version": lab.pg.info.server_version,
                     "deadline_seconds_per_condition": args.deadline,
                     "sample_interval_seconds": 1.0,
@@ -311,6 +332,7 @@ def main():
                     args.records_per_segment,
                     args.deadline,
                     args.output,
+                    args.record_shape,
                 )
                 log_line(stream, result)
                 final = result["snapshots"][-1]

@@ -368,7 +368,7 @@ def score(path, frozen, split):
         "cases_executed": len(case_ids),
         "cases_expected": len(population),
         "execution_file_completed": completion is not None,
-        "independent_histories": len(scored_clusters),
+        "isolated_histories": len(scored_clusters),
         "annotation_controls": {
             "abstention_cases": sum(labels["expect_abstain"] for labels in dataset_controls),
             "missing_event_annotations": sum(
@@ -439,7 +439,7 @@ def main(argv=None):
     write_private(arguments.output, result)
     print(
         f"Scored {result['cases_executed']}/{result['cases_expected']} cases "
-        f"from {result['independent_histories']} histories."
+        f"from {result['isolated_histories']} scopes."
     )
 
 
