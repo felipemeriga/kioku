@@ -67,7 +67,7 @@ Keep the raw source files, frozen corpus, gold and unredacted results outside Gi
   --summary "$AUDIT_DIR/ops-score.json"
 
 .venv/bin/python -m eval.memory_audit.liveness \
-  --lab "$AUDIT_LAB" --output "$AUDIT_DIR/capacity.jsonl" \
+  --lab "$AUDIT_LAB" --output "$AUDIT_DIR/capacity-replay-4096.jsonl" \
   --segments 64 --records-per-segment 64
 ```
 
@@ -75,7 +75,17 @@ Run capacity experiments separately from latency replays. The liveness command m
 
 The supplementary check commands expose their separate inputs with `--help`. `sentinels` freezes the page-size and timestamp probes. `read_budget` freezes a source-ID sample and compares signed reads, wider windows and the next relevance page. `edge_controls` uses the seeded engineering fixture to test citations and adds fresh language and inventory-limit controls. `quiescent` repeats a fixed ten-result request after the lab workers stop. `mechanism` profiles the frozen parser predicate and candidate stages against the already-seeded liveness scopes. Use `candidate_diagnostic` after indexing both LongMemEval-S phases to count event identities before and after the frozen identifier focus. Use `temporal_sensitivity` with the same phases and the upstream source to seal question-time cutoffs and score only records eligible for each cutoff.
 
+The output filename selects a fresh fixture namespace. For the optional `mechanism` profile, first seed the supplementary liveness scopes with these basenames and keep them in the same database:
+
+| Output basename | `--record-shape` | `--records-per-segment` | `--conditions` |
+| --- | --- | ---: | --- |
+| `capacity-messages-4096.jsonl` | `messages` | 64 | `one_serial` |
+| `capacity-distinct-results-4096.jsonl` | `distinct_results` | 64 | `one_serial` |
+| `capacity-messages-16384.jsonl` | `messages` | 256 | `one_serial four_serial` |
+
 The `timeout_drain` command exercises a fixed workload with connection-local lock and statement budgets. It then runs a serial worker with ordinary lab defaults against the original objects, validates every source checksum, and checks idempotency. `publication_plan` varies only the PostgreSQL plan mode on the audit worker connections. These controls use fresh namespaces and require the disposable PostgreSQL audit database.
+
+To inspect the actual nested publication plan, first run `liveness` with `--conditions one_serial --deadline 420` on the same 64-segment duplicate workload. Pass the completed output basename to `publication_plan --inspect-completed`. The optional inspection loads PostgreSQL’s `auto_explain` module on its own lab connections, passes an empty event list to the publisher and rolls back every invocation. [PostgreSQL 16 module setup](https://www.postgresql.org/docs/16/auto-explain.html)
 
 Close the lab connection, stop the audit database instance and discard its isolated volume and disposable credentials after the run. Keep a copy of the aggregate scores and frozen hashes to compare with later runs.
 

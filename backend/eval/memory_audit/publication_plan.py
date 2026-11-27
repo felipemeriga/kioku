@@ -1,11 +1,14 @@
 """Measure worker sensitivity to PostgreSQL plan mode in the disposable lab."""
 
 import argparse
+import json
+import time
 from pathlib import Path
 
 from .lab import Lab
 from .liveness import drain, seed, verify_drain
-from .public_data import BASELINE, uuid_for
+from .mechanism import relevant_plan, stored_targets
+from .public_data import BASELINE, uuid_for, write_private
 from .replay import log_line, open_output
 
 SEGMENTS = 64
@@ -70,13 +73,102 @@ def run_mode(lab, lab_file, output, mode, worker_layout):
     }
 
 
+def inspect_publication(lab_file, session, segment, mode):
+    lab = Lab(lab_file, application_name="kioku-audit-publication-plan-inspection")
+    try:
+        lab.pg.execute("LOAD 'auto_explain'")
+        settings = {
+            "client_min_messages": "notice",
+            "auto_explain.log_level": "notice",
+            "auto_explain.log_min_duration": "0ms",
+            "auto_explain.log_nested_statements": "on",
+            "auto_explain.log_analyze": "on",
+            "auto_explain.log_buffers": "on",
+            "auto_explain.log_format": "json",
+            "auto_explain.log_parameter_max_length": "0",
+            "plan_cache_mode": mode,
+        }
+        for name, value in settings.items():
+            lab.pg.execute("SELECT set_config(%s,%s,false)", [name, value])
+        executions = []
+        observations = []
+
+        def notice(message):
+            head, separator, plan_text = (message.message_primary or "").partition("plan:\n")
+            if not separator:
+                return
+            plan = json.loads(plan_text)
+            if isinstance(plan, list):
+                plan = plan[0]
+            if (
+                plan.get("Query Text", "")
+                .lstrip()
+                .startswith("UPDATE public.agent_evidence_events e SET displayable=false")
+            ):
+                observations.append(
+                    {"notice_duration": head.strip(), "statement_plan": relevant_plan(plan["Plan"])}
+                )
+
+        lab.pg.add_notice_handler(notice)
+        for _ in range(7 if mode == "auto" else 3):
+            observations.clear()
+            with lab.pg.transaction(force_rollback=True):
+                started = time.perf_counter()
+                lab.pg.execute(
+                    "SELECT public.publish_agent_evidence_index(%s,%s,'[]','{}',1,false)",
+                    [session, segment],
+                )
+                wall_ms = (time.perf_counter() - started) * 1000
+            if len(observations) != 1:
+                raise RuntimeError("Expected one observed nested deduplication plan")
+            executions.append({"lab_wall_ms": wall_ms, **observations[0]})
+        return executions
+    finally:
+        lab.close()
+
+
+def inspect_completed(lab, lab_file, artifact):
+    sessions = stored_targets(lab, artifact, "one_serial")
+    if len(sessions) != 1:
+        raise ValueError("The inspection requires one completed serial workload")
+    session = sessions[0]
+    ready = lab.pg.execute(
+        """SELECT object_id FROM public.agent_evidence_objects
+           WHERE session_id=%s AND kind='segment' AND indexed_parser_version=1
+             AND memory_index_version=2 ORDER BY committed_revision""",
+        [session],
+    ).fetchall()
+    if len(ready) != SEGMENTS:
+        raise ValueError("The inspection requires the fully indexed synthetic source")
+    owner, folder = (uuid_for(artifact, "one_serial", kind) for kind in ("owner", "repo"))
+    before = lab.index_state(owner, folder)
+    plans = {
+        mode: inspect_publication(lab_file, session, ready[0]["object_id"], mode)
+        for mode in ("auto", "force_custom_plan", "force_generic_plan")
+    }
+    return {
+        "baseline": BASELINE,
+        "artifact": artifact,
+        "before": before,
+        "after": lab.index_state(owner, folder),
+        "writes_rolled_back": True,
+        "no_new_records": True,
+        "plans": plans,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--lab", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--inspect-completed", help="basename of a completed liveness run")
     args = parser.parse_args()
     lab = Lab(args.lab)
     try:
+        if args.inspect_completed:
+            write_private(args.output, inspect_completed(lab, args.lab, args.inspect_completed))
+            print("Captured actual nested publication plans; all test writes rolled back.")
+            return
         with open_output(args.output) as stream:
             log_line(
                 stream,

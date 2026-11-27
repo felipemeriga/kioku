@@ -134,6 +134,18 @@ Under worker-connection settings of a one-second lock timeout and a five-second 
 
 A temporary PostgreSQL function set its internal statement timer to 1 ms and waited for 50 ms. With the inherited two-minute connection setting, it returned after 52 ms. With a five-millisecond connection timer, it canceled with `57014` after 5.8 ms. This establishes which deadline applied in the tested PostgreSQL 16.15 session.
 
+A later six-cell control varied the worker connection’s plan cache mode with the same concentrated duplicate workload in fresh namespaces. Each condition ran once in fixed order with a 120-second cooperative stop. All serial runs eventually indexed 64 segments, as did the forced-custom overlap run. The auto and forced-generic overlap runs had zero searchable segments at the stop request and nine by the end of their in-flight calls.
+
+| Connection mode | Serial last return · indexed | Overlap last return · indexed |
+| --- | ---: | ---: |
+| `auto` | 109.17 s · 64/64 | 212.39 s · 9/64 |
+| `force_custom_plan` | 103.06 s · 64/64 | 63.90 s · 64/64 |
+| `force_generic_plan` | 103.07 s · 64/64 | 293.65 s · 9/64 |
+
+Each overlap made 128 parser publication calls. The four completed cells passed boundary-byte and idempotency checks. All six reported zero SQLSTATE failures with the ordinary lab timeouts. The serial runs were similarly slow across all modes, and relation statistics updated during the matrix. This shows variability across tested connections and index states. It leaves the right production planning policy open. [PostgreSQL 16 plan cache mode](https://www.postgresql.org/docs/16/runtime-config-query.html#GUC-PLAN-CACHE-MODE)
+
+The exact nested deduplication `UPDATE` revealed a cached-plan transition. A separate connection invoked the frozen publisher against the same completed 4,096-record synthetic session with an empty event list and rolled back each invocation. In `auto`, the first five nested executions used a hash join and took 38–129 ms. The sixth and seventh used a nested loop and took 7.38 and 5.44 seconds. The slow plan made 2,048 inner index scans, rejected 1,572,352 join pairs and recorded 4.44–5.86 million logical buffer hits. Three forced-custom invocations stayed on the hash join at 99–183 ms. Three forced-generic invocations stayed on the nested loop at 4.10–6.54 seconds. Index state matched before and after. This isolates a severe plan transition in the lab. The worker matrix includes the full parser and indexing path, and the live database’s actual plan remains unmeasured. [PostgreSQL 16 nested plan logging](https://www.postgresql.org/docs/16/auto-explain.html)
+
 Two follow-up one-session serial inputs held the 4,096 records and 64 segments. The all-message workload fully indexed in 5.41 seconds. The original role mix with distinct tool-result identities fully indexed in 3.18 seconds. Parser publication p95 was 130.3 ms and 44.4 ms, respectively, across 64 calls each. The largest delay appeared when repeated tool-result identities were concentrated in one session.
 
 Five warmed broad queries in the fully indexed four-session cells returned 3,072 events and took 171–174 ms median. Appending one strong identifier reduced the final count to one while leaving the medians at 179–192 ms. Narrowing the date reduced the result set to 48 and the medians to 54–87 ms. These are fixed-case timings on a synthetic workload, with SQL and dependency calls measured inside the same container boundary.
@@ -176,6 +188,8 @@ The edit scope contains evaluation code, an audit CI check and documentation. Th
 | 4,096-record liveness control | Fixed synthetic generator | `620b3243ceb2df9d839694e115b5794ef1f8e84994036ee5f7284d5816cfbf39` |
 | Concentrated liveness repeat | Fixed synthetic generator | `063460812aa7a578533a5b0bfe7837e0d319327f67e8d749b4dbd71678b1e828` |
 | Worker timeout and recovery | Fixed synthetic generator | `aafc833f24e2207dfd8a53e55bef54569a719eb44bfdc43395d7d9ee1c593628` |
+| Worker plan mode control | Fixed synthetic generator | `7151894576e8373473be0fe0929959931067f4e5aa37cd5a621a9d44e0497a59` |
+| Nested publication plan transition | Completed synthetic hot session | `260e4460a59ccb4c759d2ea744f111500af687f170e09b96b0845b0597410c79` |
 | Follow-up evidence budgets | `b8952b2410814d429b6fcff68439582cb5640415a83fc5cccde54a353752b503` | `e8801815ffd2c77f9312e0bcbe89000ecc02989c1b7bbe2f53ce37d20e214ed3` |
 | STATE training replay | `648393a54003ef566f4e0eb74f788e134360acb2e702239d33fac94a9afc8251` | `1fe00bb01022f3de390f870455da3d7cc5263ca7841b4eb83c6adae4cdfb9ec3` |
 | STATE training latest-session follow-up | `648393a54003ef566f4e0eb74f788e134360acb2e702239d33fac94a9afc8251` | `d3e13169bd0a28f6484f7a7d338fbc622e2269d345157c0578ef5a3a42af2f4d` |
