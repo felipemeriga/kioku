@@ -112,6 +112,8 @@ Latency is wall time entering the MCP callable and reading its serialized result
 
 The tunneled laptop-to-lab PostgreSQL round trip was 134 ms median over 50 uncached-at-caller `SELECT 1` calls. Public benchmark measurements were subsequently colocated and omit that network hop. The live convenience probes used local CLI → public MCP → hosted dependencies. Four succeeded in 10.9–22.0 seconds and two returned `evidence_query_timeout`. They describe the live archive and transport rather than the lab corpus. [Live observations](memory-quality-live-observations.md)
 
+The separate live developer-question replay used a typed cutoff at the audit start to exclude source records timestamped during the audit. This form omits journal activity and report orientation. Its outcome measures the original-record historical tool for a narrow known-anchor set. Richer chat routing, synthesis and ordinary journal-assisted questions are outside that probe. [Live developer-question observations](memory-quality-live-observations.md)
+
 A final warm check selected one fixed question in each of ten corpus variants and issued five relevance calls at a ten-event limit. All 50 calls succeeded and every question kept the same order. The database had 25,169 sessions, 383,986 records, 602,283 chunks and no other observed client backends before and after the check. For the selected 10M question, discovery had a 4.49-second median and a 7.90-second maximum, almost entirely in the PostgreSQL call. With five repetitions, the nearest-rank p95 is the maximum. These fixed warm cases confirm repeatability for their queries and workloads.
 
 ### Index throughput and query shape
@@ -156,6 +158,24 @@ Instrumenting the actual frozen PostgreSQL call showed the same candidate cost. 
 
 The frozen deduplication predicate in a read-only plan rejected 1,572,352 join pairs and found 1,024 richer results after 531 ms in the concentrated duplicate fixture. Splitting the input across four sessions produced 98,176 rejected pairs per session and individual count runtimes of 20–153 ms. The concentrated distinct-ID control rejected even more pairs in its read-only count (4,194,304 in 1.31 seconds) while completing parser publication much faster in the worker experiment. That comparison rules out rejected pair count alone as an explanation for publication time. The count probe performs no updates or worker concurrency.
 
+### Lab-only scalar text-query prototype
+
+The prototype cloned the installed search function under a disposable name and computed its identical text query into a scalar before the main query. The ranking, identifier focus, filters, query alias and joins remained in place. The audit switched only the search RPC name on the same MCP callable, within one repeatable-read transaction. It compared the full PostgreSQL JSON, including the order of every array, and the full MCP response under a fixed Python clock. The transaction rolled back, leaving the original function definition and archive counters unchanged and the prototype absent.
+
+All 1,019 pairs that invoked search SQL matched exactly. They comprised 1,000 literal and default LongMemEval-S calls across the full 500-question release and 19 synthetic search controls. Thirteen other controls returned identical input and scope errors without invoking the target RPC. The separate overview guard also bypassed that RPC. Its only output difference was the snapshot timestamp, including when each arm repeated itself. A preflight stopped on this clock difference. The resealed comparison recorded it as a separate guard and corrected the synthetic exact-cutoff date before replaying the same public questions.
+
+The table shows paired PostgreSQL RPC medians with six measured calls per arm, interleaved in ABBA order after one warm-up per arm. All 60 timings also preserved full response fingerprints. Both selective queries met the predeclared improvement gate and the remaining three stayed within the median regression budget.
+
+| Fixed workload | Frozen RPC median | Scalar RPC median |
+| --- | ---: | ---: |
+| Present unique identifier · 16,384-chunk scope | 223.4 ms | 39.7 ms |
+| Absent identifier · same scope | 193.3 ms | 25.0 ms |
+| Broad query · same scope | 1.430 s | 1.264 s |
+| LongMemEval-S fixed small query | 68.9 ms | 70.0 ms |
+| BEAM 10M fixed query | 3.642 s | 3.591 s |
+
+Separate actual plan samples show how the selective queries sped up. Both versions used the folder-scope B-tree and visited all 16,384 chunk rows. The scalar moved the full-text predicate onto that scan, so the event-lookup loops fell from 16,384 to one for the present identifier and to zero for the absent identifier. Neither plan used the GIN index. In those instrumented samples, logical buffer hits fell from 64,589 to 806 and from 66,363 to 859, respectively. The measured benefit is for the synthetic selective workloads. Production query plans, latency and workload-wide impact remain open.
+
 ## Standards coverage
 
 | Standard | Execution completed | Other layers |
@@ -180,7 +200,7 @@ Among the 209 meaningfully shortened requests, the signed pair score fell from 2
 
 ## Verification and outputs
 
-The edit scope contains evaluation code, an audit CI check and documentation. The production service, SQL, inference configuration and deployed containers were untouched. The focused archive, history, prefetch, period-report and audit test selection passed 405 tests. Thirty-two existing CLI capture and journal tests and five PostgreSQL-WASM fixture suites also passed. The live observations document supplies the distinct production check.
+The edit scope contains evaluation code, an audit CI check and documentation. The production service, SQL, inference configuration and deployed containers were untouched. The focused archive, history, prefetch, period-report and audit test selection passed 407 tests. Thirty-two existing CLI capture and journal tests and five PostgreSQL-WASM fixture suites also passed. The live observations document supplies the distinct production check.
 
 | Run | SHA-256 of sealed manifest | SHA-256 of raw replay metadata |
 | --- | --- | --- |
@@ -209,6 +229,8 @@ The edit scope contains evaluation code, an audit CI check and documentation. Th
 | Warm fixed queries | Previously listed per-family manifests | `d0d50ff0fad8aaafc365b2dfd6996488a1de298dcb951e3d95dbf769ffbd4e0c` |
 | Read-only PostgreSQL plans | Previously listed liveness scopes | `fbbc2eed24b3c7e566259f7edee3f6a3381f049c07432b37783869f608fb17fc` |
 | Nested search index and FTS plans | Fully indexed 16,384-chunk liveness scope | `02e86391cafa821d4140efe6ef2c84c48d539f71bf4d3b6eed1e0a8c24acfcb9` |
+| Scalar prototype initial clock preflight | `f35c9115459a96610c386a12faf594540db6d70e9617fb5319685c825e398ff3` | `66a3e46c0a7b8a144cca7177c7485b30d3df1c3ef84dad7755694d646251c431` |
+| Scalar prototype finalized comparison | `2c728fea672390406ca09514a96ba5acbc0539b7de11091aef48d12c08cad12f` | `fd01a64c232706ed49ff0d4c90982cd71b8d521265b349f2c0ca9500efb27bec` |
 
 Raw source, per-query labels, payload text and credentials stay outside the pull request.
 

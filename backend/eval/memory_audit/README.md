@@ -22,7 +22,7 @@ export PYTHON_DOTENV_DISABLED=1
 .venv/bin/python -m pytest -q eval/memory_audit/tests
 ```
 
-The backend CI job runs 39 scorer, archive-integrity and live-replay contract checks with temporary dependencies. The explicit PostgreSQL, corpus download and replay commands below are the manual audit.
+The backend CI job runs 41 scorer, archive-integrity and live-replay contract checks with temporary dependencies. The explicit PostgreSQL, corpus download and replay commands below are the manual audit.
 
 Keep `AUDIT_DIR` outside the checkout with owner-only permissions. Use a new output path for each run. The dataset filenames, exact revisions and SHA-256 values are in [public_data.py](public_data.py), [supplemental.py](supplemental.py) and [stateful_proxies.py](stateful_proxies.py). The protocol links to each upstream release and its terms.
 
@@ -86,6 +86,12 @@ The output filename selects a fresh fixture namespace. For the optional `mechani
 | `capacity-messages-16384.jsonl` | `messages` | 256 | `one_serial four_serial` |
 
 Use `mechanism --inspect-search` after seeding the same 16,384-chunk scope to measure the actual nested search in place. It uses the synthetic scope’s MCP callable and logs plan shapes and filter counts with `auto_explain` on its lab connection.
+
+### Scalar text-query prototype
+
+Run `scalar_search freeze` with `--initial`, `--extension`, `--beam` and `--plan` after preparing the two LongMemEval-S phases and the BEAM 10M sample. Supply the BEAM 10M frozen directory to `--beam`. The comparison also uses the `operational-frozen-v2` fixture, `sentinel-results.json` scope control and `capacity-messages-16384.jsonl` liveness scope in the disposable database. Those names choose the corresponding synthetic namespaces.
+
+Run `scalar_search run` with `--lab`, the sealed `--plan`, its separately recorded `--sha256`, and a new `--output`. The harness clones the installed search function under a private experiment name within a PostgreSQL transaction that rolls back. It compares exact SQL responses including array order, and separately compares caller guards that bypass the target RPC. It aborts on a changed search response and records the verification after rollback. Only a passing comparison reaches the interleaved timing and instrumented plan checks.
 
 The `timeout_drain` command exercises a fixed workload with connection-local lock and statement budgets. It then runs a serial worker with ordinary lab defaults against the original objects, validates every source checksum, and checks idempotency. `publication_plan` varies only the PostgreSQL plan mode on the audit worker connections. These controls use fresh namespaces and require the disposable PostgreSQL audit database.
 

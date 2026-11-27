@@ -49,7 +49,7 @@ def relevant_plan(node):
     }
 
 
-def collect_nested_plans(lab, statement_prefix):
+def collect_nested_plans(lab, statement_prefix, *, contains=None):
     lab.pg.execute("LOAD 'auto_explain'")
     settings = {
         "client_min_messages": "notice",
@@ -72,7 +72,8 @@ def collect_nested_plans(lab, statement_prefix):
         plan = json.loads(plan_text)
         if isinstance(plan, list):
             plan = plan[0]
-        if plan.get("Query Text", "").lstrip().startswith(statement_prefix):
+        query = plan.get("Query Text", "").lstrip()
+        if query.startswith(statement_prefix) and (contains is None or contains in query):
             observations.append(
                 {"notice_duration": head.strip(), "statement_plan": relevant_plan(plan["Plan"])}
             )
