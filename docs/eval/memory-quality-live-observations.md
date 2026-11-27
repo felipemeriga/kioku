@@ -1,7 +1,7 @@
 # Read-only production observations during the memory audit
 
 Baseline: `3636866fc7094606cc1e498ad79eaf3840d72f99`, deployed backend/MCP `0.3.126`.
-Observation window: 2026-11-27, approximately 05:00–05:51 UTC.
+Observations began on 2026-11-27 at approximately 05:00 UTC; individual checkpoints are recorded below.
 These are convenience probes and operational observations, not independently labeled benchmark scores.
 No production data, configuration, keys, indexes, or services were changed for these checks.
 
@@ -57,3 +57,25 @@ Raw private outputs and fixture hashes are retained outside Git under the audit 
 Read-only counts still showed 83 active sessions: 8,694 committed segment objects, with 2,973 pending parser indexing and 2,973 pending memory indexing. The earlier 05:03 counts were 8,530 committed and 2,908 pending. These are separate, non-transactional metadata observations over a changing archive, not an estimate of lost records, unique unavailable facts, or a forecast of drain time.
 
 All seven Kioku containers were running on the same release images, with zero recorded restarts and no OOM kills. Worker logs since 05:00 contained 33 `55P03` and 19 `57014` RPC-error entries. The counts are log occurrences, not unique failing objects or users. Running containers do not establish indexing liveness.
+
+## Frozen real developer-history probes
+
+A later audit phase sealed twelve questions against the actual native Kioku conversation, with one verbatim user question and eleven retrospective/paraphrased questions. They span recorded requirements, assistant reports, two observed command results and a source listing. The source roles remain distinct: an assistant report is not proof of deployment. Query SHA-256: `9f46ea521cd88f243160dedca11d194598858907bbb013ee75487bf3d388c1e9`.
+
+Every query searched the authorized Kioku repository, with relevance order, a ten-result page and the common typed cutoff `2026-11-27T04:53:34Z`. No target session ID or gold evidence was supplied to the caller. The cutoff excludes new audit questions and labels from their own retrieval. A separate read-only metadata join confirmed all 34 acceptable alternative anchor IDs were present, displayable, non-inherited and chunk-backed, across eleven fully parsed/indexed objects. The source ledger and selected compressed-segment hashes were independently checked against the native original before execution.
+
+Seven searches returned `evidence_query_timeout`; five returned results. Among the five completed searches, one surfaced its specific known anchor and expanded it successfully. The other four returned records outside the labeled set. This is **known-anchor exposure**, not a generated-answer score or exhaustive relevance judgment. Other returned records may legitimately support an answer. Timeouts are censored retrieval outcomes, rather than accuracy misses. The first attempted harness launch ran outside a connected CLI repository and failed locally; it made no public search calls and is retained separately. The connected run kept the same sealed queries and gold.
+
+Nine signed reads returned successfully. Of their thirty returned records, twenty-two belonged to the frozen parent and were independently matched to local source projections/locators. The remaining eight came from other authorized sessions and were not compared against this parent file. The one recovered case had two native representations of the same user statement, which count as one question-level success.
+
+The blinded wording follow-up retains the same source cutoff and labels. Its query author saw only the question file, then sealed English normalization, byte-identical English repeat controls, and concise keyword variants. Any later comparison must preserve the distinction between wording effects, repeated requests, changing production state, and unlabeled supporting evidence.
+
+## MCP session lifecycle and request overhead
+
+A small authenticated live probe used two newly created, owned MCP sessions. It did not restart a service, rotate a key, change configuration, or invoke a model. With the same valid key, it initialized a session, terminated it normally with HTTP DELETE, and then attempted a read-only ping bearing that terminated session identifier. The server returned HTTP 403 with the scope-mismatch message. A subsequent fresh initialization using the unchanged key succeeded.
+
+The middleware's in-memory binding map treats an unknown/terminated session and a known session belonging to another scope as the same rejection branch. This also explains why a server restart can produce that error, although the cause of the earlier pre-existing client failure was not independently observed. The MCP transport specification requires 404 for a terminated session and describes starting a new initialization after that response. The observed 403 therefore obstructs the protocol's recovery path; changing it does not by itself prove that every client will automatically retry correctly. [MCP session management](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management)
+
+In this single Python-SDK probe, initialization took 1.32 seconds and normal transport termination 1.17 seconds. Authenticated request response headers generally arrived after about 1.2 seconds. These are time-to-header measurements, not database execution times; an open SSE request's lifetime is not a server-processing metric. Two identical no-match history calls returned a tool error in 9.60 seconds (its detail code was not retained) and a successful empty result in 2.88 seconds. The fresh initialization after the terminated-session check took 0.88 seconds. This is a small lifecycle diagnostic with uncontrolled deployment/cache state, not a latency percentile estimate or a trace of the installed CLI's exact SDK sequence.
+
+Source review identifies repeated authenticated database checks and descendant-folder traversal on each HTTP request; the history dispatcher then resolves descendants again. Their actual contribution must be measured before prescribing a cache or weakening authorization. The session lifecycle result is independently actionable while preserving cross-owner and cross-scope denials.
