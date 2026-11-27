@@ -202,9 +202,16 @@ def reap_evidence(sb, after_id=None):
     return sessions[-1]["id"] if len(sessions) == 25 else None
 
 
-def _maintain_evidence(ctx, lock):
+def initialize_evidence_maintenance(ctx):
+    # ARQ shallow-copies its worker context for every job. Initialize this object
+    # on the worker, before those copies, so the cursor and gate survive a tick.
+    ctx["evidence_maintenance_state"] = {"cursor": None, "lock": Lock()}
+
+
+def _maintain_evidence(state):
     # Cron ticks can overlap on slow backlog pages. A thread owns the gate so
     # cancellation of the awaiting job does not release a still-running scan.
+    lock = state["lock"]
     if not lock.acquire(blocking=False):
         return
     try:
@@ -213,11 +220,13 @@ def _maintain_evidence(ctx, lock):
         purge_evidence_outbox(sb)
         purge_tombstoned_sessions(sb)
         if enabled():
-            ctx["evidence_cursor"] = reap_evidence(sb, ctx.get("evidence_cursor"))
+            state["cursor"] = reap_evidence(sb, state["cursor"])
     finally:
         lock.release()
 
 
 async def agent_evidence_maintenance(ctx):
-    lock = ctx.setdefault("evidence_maintenance_lock", Lock())
-    await asyncio.to_thread(_maintain_evidence, ctx, lock)
+    state = ctx.get("evidence_maintenance_state")
+    if state is None:
+        raise RuntimeError("Evidence maintenance requires initialized worker state")
+    await asyncio.to_thread(_maintain_evidence, state)
