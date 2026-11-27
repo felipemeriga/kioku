@@ -43,10 +43,11 @@ def ndcg_at_k(retrieved: list[str], relevant: set[str] | Iterable[str], k: int) 
     if not relevant_set:
         return 0.0
 
-    def _gain(doc_id: str) -> int:
-        return 1 if doc_id in relevant_set else 0
-
-    dcg = sum(_gain(d) / math.log2(i + 2) for i, d in enumerate(retrieved[:k]))
     ideal_hits = min(len(relevant_set), k)
+    dcg = 0.0
+    for i, doc_id in enumerate(retrieved[:k]):
+        if doc_id in relevant_set:
+            dcg += 1 / math.log2(i + 2)
+            relevant_set.remove(doc_id)
     idcg = sum(1 / math.log2(i + 2) for i in range(ideal_hits))
     return dcg / idcg if idcg > 0 else 0.0

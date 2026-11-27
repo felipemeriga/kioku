@@ -42,6 +42,23 @@ The script:
 Reports land in `backend/eval/eval-results/<timestamp>.json` (and `latest.json`).
 The `eval-results/` dir is gitignored.
 
+The IR run requests up to 20 results per question and evaluates fast and full
+mode against the same floors independently. Search can return fewer results.
+Reports include expected and completed job counts. A scoring job exception makes
+the run fail even if the remaining jobs score above the floors.
+
+The gate also runs four mixed-source checks in fast mode on temporary local
+fixtures. They check the vendor definition, the implementation, a comparison
+requiring both sources, and isolation between two folders. The fixtures use the
+same Voyage embeddings, Supabase search, and Voyage reranker as regular
+retrieval. Their results are reported separately from the 25-question corpus.
+
+The GitHub Actions eval supplies Voyage credentials. Full mode attempts query
+rewriting and expansion, then falls back to the original query when that provider
+is unavailable. Check `query_expansion.n_variants` and
+`query_expansion.rewrite_changed_text` on the full-mode rows before interpreting
+the full-mode score as evidence about query expansion.
+
 ## When to recapture the baseline
 
 Run `./backend/eval/run_local.sh --capture` only when you've *intentionally*

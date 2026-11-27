@@ -22,6 +22,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import yaml
 from dotenv import load_dotenv
@@ -41,7 +42,7 @@ _os.environ.setdefault("LANGCHAIN_TRACING_V2", "false")
 _os.environ.setdefault("LANGSMITH_TRACING", "false")
 
 
-def _guard_against_prod() -> None:
+def _guard_against_prod(*, allow_remote: bool = True) -> None:
     """Refuse to run if SUPABASE_URL points at a remote (prod-looking) host.
 
     The eval harness ingests fixture documents and runs queries against
@@ -51,11 +52,14 @@ def _guard_against_prod() -> None:
     url = os.environ.get("SUPABASE_URL", "")
     if not url:
         sys.exit("[eval] SUPABASE_URL is not set. Export local stack URL before running.")
-    if "127.0.0.1" in url or "localhost" in url:
+    parsed = urlsplit(url)
+    if parsed.scheme in {"http", "https"} and parsed.hostname in {"127.0.0.1", "localhost", "::1"}:
         return
-    if os.environ.get("EVAL_ALLOW_REMOTE") == "1":
+    if allow_remote and os.environ.get("EVAL_ALLOW_REMOTE") == "1":
         print(f"[eval] WARNING: SUPABASE_URL={url!r} looks remote; EVAL_ALLOW_REMOTE=1 honored.")
         return
+    if not allow_remote:
+        sys.exit("[eval] --gate requires a local Supabase URL for mixed-source fixtures.")
     sys.exit(
         f"[eval] refusing to run against non-local SUPABASE_URL={url!r}. "
         "Set SUPABASE_URL=http://127.0.0.1:54321 (and matching SUPABASE_SERVICE_KEY) "
@@ -68,6 +72,7 @@ _guard_against_prod()
 from concurrent.futures import ThreadPoolExecutor  # noqa: E402
 
 from eval.ir_metrics import mrr, ndcg_at_k, recall_at_k  # noqa: E402
+from eval.mixed_sources import run_mixed_sources  # noqa: E402
 from services.embeddings import embed_query  # noqa: E402
 from services.evaluation import VoyageEmbeddings, _get_ragas_llm  # noqa: E402
 from services.ingestion import ingest_document  # noqa: E402
@@ -82,6 +87,8 @@ EVAL_RESULTS_DIR = Path(__file__).resolve().parent / "eval-results"
 BASELINE_PATH = Path(__file__).resolve().parent / "baseline.json"
 
 K_VALUES = (5, 10, 20)
+IR_METRICS = tuple(f"recall_at_{k}" for k in K_VALUES) + ("mrr", "ndcg_at_10")
+MODES = ("fast", "full")
 
 
 def _ingest_corpus() -> None:
@@ -120,6 +127,7 @@ def _score_question(q: dict, mode: str) -> dict:
             query_text=q["question"],
             user_id=EVAL_USER_ID,
             fast_mode=(mode == "fast"),
+            top_k=max(K_VALUES),
         )
     latency_ms = int((time.monotonic() - t0) * 1000)
 
@@ -161,13 +169,11 @@ def _aggregate(per_question: list[dict]) -> dict:
         "proxy_metrics_means": {},
     }
 
-    metric_keys = [f"recall_at_{k}" for k in K_VALUES] + ["mrr", "ndcg_at_10"]
-
     def _mean(values: list[float | None]) -> float | None:
         filtered = [v for v in values if v is not None]
         return round(sum(filtered) / len(filtered), 4) if filtered else None
 
-    for metric in metric_keys:
+    for metric in IR_METRICS:
         all_vals = [q["scores"][metric] for q in per_question]
         out["ir"][metric] = _mean(all_vals)
 
@@ -177,11 +183,11 @@ def _aggregate(per_question: list[dict]) -> dict:
         vals = [q["proxy_metrics"].get(pk) for q in per_question]
         out["proxy_metrics_means"][pk] = _mean(vals)
 
-    for mode in ("fast", "full"):
+    for mode in MODES:
         mode_qs = [q for q in per_question if q["mode"] == mode]
         if mode_qs:
             out["by_mode"][mode] = {
-                metric: _mean([q["scores"][metric] for q in mode_qs]) for metric in metric_keys
+                metric: _mean([q["scores"][metric] for q in mode_qs]) for metric in IR_METRICS
             }
             out["by_mode"][mode + "_latency_p50_ms"] = int(
                 _percentile([q["latency_ms"] for q in mode_qs], 50)
@@ -193,7 +199,7 @@ def _aggregate(per_question: list[dict]) -> dict:
         diff_qs = [q for q in per_question if q["difficulty"] == diff]
         if diff_qs:
             out["by_difficulty"][diff] = {
-                metric: _mean([q["scores"][metric] for q in diff_qs]) for metric in metric_keys
+                metric: _mean([q["scores"][metric] for q in diff_qs]) for metric in IR_METRICS
             }
 
     return out
@@ -235,40 +241,42 @@ def _check_gate(report: dict) -> bool:
     Hard-gates on IR metrics; warns on RAGAS deltas without failing.
     """
     if not BASELINE_PATH.exists():
-        print("[eval] no baseline.json yet — gate bypassed (first run).")
-        return True
+        print("[eval] [FAIL] missing baseline.json")
+        return False
 
     baseline = json.loads(BASELINE_PATH.read_text())
     thresholds = baseline.get("thresholds", {})
-    all_pass = True
+    missing = {f"ir.{metric}" for metric in IR_METRICS} - thresholds.keys()
+    if missing:
+        print(f"[eval] [FAIL] missing IR thresholds: {', '.join(sorted(missing))}")
+    all_pass = not missing
     for key, spec in thresholds.items():
         section, metric = key.split(".", 1)
+        if section == "ir":
+            floor = spec["min"] - spec["tolerance"]
+            for mode in MODES:
+                mode_scores = report["aggregate"]["by_mode"].get(mode) or {}
+                actual = mode_scores.get(metric)
+                ok = actual is not None and math.isfinite(actual) and actual >= floor
+                print(
+                    f"[eval]   [{'PASS' if ok else 'FAIL'}] {mode}.{key}: "
+                    f"actual={actual} floor={floor:.4f}"
+                )
+                all_pass = all_pass and ok
+            continue
         actual_section = report["aggregate"].get(section) or {}
         actual = actual_section.get(metric)
         if actual is None:
-            if section == "ir":
-                # IR metrics are hard-gated and should always be present.
-                print(f"[eval]   [FAIL] {key}: missing in report")
-                all_pass = False
-            else:
-                # Non-IR thresholds (RAGAS) only apply when --ragas was used.
-                # Skip rather than fail — baseline can legitimately carry
-                # RAGAS floors from a prior diagnostic run.
-                print(f"[eval]   [SKIP] {key}: not in this run (use --ragas)")
+            print(f"[eval]   [SKIP] {key}: not in this run (use --ragas)")
             continue
         floor = spec["min"] - spec["tolerance"]
         ok = actual >= floor
-        if section == "ir":
-            sym = "PASS" if ok else "FAIL"
-        else:
-            sym = "OK" if ok else "WARN"
+        sym = "OK" if ok else "WARN"
         soft_tag = " (soft)" if section == "ragas" else ""
         print(
             f"[eval]   [{sym}] {key}{soft_tag}: actual={actual:.4f} "
             f"min={spec['min']:.4f} floor={floor:.4f}"
         )
-        if not ok and section == "ir":
-            all_pass = False
     return all_pass
 
 
@@ -383,6 +391,8 @@ def main() -> int:
         ),
     )
     args = parser.parse_args()
+    if args.gate:
+        _guard_against_prod(allow_remote=False)
 
     questions = yaml.safe_load(GOLDEN_SET.read_text())
     print(f"[eval] loaded {len(questions)} golden questions")
@@ -390,21 +400,23 @@ def main() -> int:
     _ingest_corpus()
 
     # Build the list of (question, mode) jobs upfront
-    jobs = [(q, mode) for q in questions for mode in ("full", "fast")]
+    jobs = [(q, mode) for q in questions for mode in MODES]
     print(f"[eval] scoring {len(jobs)} (question × mode) jobs in parallel...")
 
+    failures = []
     with ThreadPoolExecutor(max_workers=10) as pool:
         futures = [submit_with_context(pool, _score_question, q, mode) for q, mode in jobs]
         per_question = []
-        for f in futures:
+        for (question, mode), f in zip(jobs, futures, strict=True):
             try:
                 per_question.append(f.result())
             except Exception as e:
-                print(f"[eval] scoring job failed: {e}")
+                failures.append({"id": question["id"], "mode": mode, "error": type(e).__name__})
+                print(f"[eval] scoring job {question['id']} ({mode}) failed: {type(e).__name__}")
 
     aggregate = _aggregate(per_question)
 
-    if args.ragas:
+    if args.ragas and not failures:
         print("[eval] running RAGAS (this can take a long time)...")
         ragas_result = _run_ragas(per_question, questions)
         aggregate["ragas"] = ragas_result.get("aggregate", {})
@@ -422,20 +434,45 @@ def main() -> int:
             entry["response"] = merged["response"]
             entry["ragas_scores"] = merged["scores"]
 
+    mixed_sources = []
+    mixed_error = None
+    if args.gate and not failures:
+        try:
+            mixed_sources = run_mixed_sources(EVAL_USER_ID)
+        except Exception as error:
+            mixed_error = type(error).__name__
+            print(f"[eval] mixed-source checks could not run: {mixed_error}")
+
     report = {
         "git_sha": _git_sha(),
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "aggregate": aggregate,
         "per_question": per_question,
+        "retrieval_limit": max(K_VALUES),
+        "jobs_expected": len(jobs),
+        "jobs_completed": len(per_question),
+        "failures": failures,
+        "mixed_sources": {
+            "expected": 4 if args.gate else 0,
+            "completed": len(mixed_sources),
+            "passed": sum(case["passed"] for case in mixed_sources),
+            "error": mixed_error,
+            "cases": mixed_sources,
+        },
     }
 
     path = _write_report(report)
     print(f"[eval] wrote {path}")
     print(json.dumps(report["aggregate"], indent=2))
 
+    if failures:
+        print(f"[eval] invalid run: {len(failures)} of {len(jobs)} retrieval jobs failed")
+        return 1
     if args.gate:
         ok = _check_gate(report)
-        return 0 if ok else 1
+        mixed = report["mixed_sources"]
+        print(f"[eval] mixed-source checks passed: {mixed['passed']}/{mixed['expected']}")
+        return 0 if ok and mixed["passed"] == mixed["completed"] == mixed["expected"] else 1
     return 0
 
 
