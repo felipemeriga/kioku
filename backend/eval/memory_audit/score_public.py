@@ -47,7 +47,7 @@ def score_groups(ranked, groups, k):
     }
 
 
-def metric(rows, gold, unit, k):
+def metric(rows, gold, unit, k, *, ranked=True):
     values = []
     for row in rows:
         labels = gold[row["case_id"]]
@@ -57,14 +57,16 @@ def metric(rows, gold, unit, k):
         if item is not None:
             values.append(item)
     complete = [value for value in values if value["all"] is not None]
-    return {
+    score = {
         "any_n": len(values),
         "any_hit": sum(value["any"] for value in values),
         "all_n": len(complete),
         "all_hit": sum(value["all"] for value in complete),
         "mean_group_recall": average(value["recall_resolvable"] for value in values),
-        "mrr": average(value["reciprocal"] for value in values),
     }
+    if ranked:
+        score["mrr"] = average(value["reciprocal"] for value in values)
+    return score
 
 
 def average(values):
@@ -158,18 +160,19 @@ def latency(rows):
 def score_arm(rows, gold, arm):
     completed = [row for row in rows if is_complete(row)]
     top = [10] if arm == "product" else [1, 5, 10]
+    # The chronological display is a selected set, separate from relevance rank.
+    ranked = arm != "product"
     all_attempt_metrics = {
-        unit: {f"at_{k}": metric(rows, gold, unit, k) for k in top} for unit in GOLD_FIELDS
+        unit: {f"at_{k}": metric(rows, gold, unit, k, ranked=ranked) for k in top}
+        for unit in GOLD_FIELDS
     }
-    if arm == "product":
-        # The returned selected set is chronological, independent of a relevance rank.
-        for metric_family in all_attempt_metrics.values():
-            metric_family["at_10"].pop("mrr")
     equal_page_sessions = metric(
-        [{**row, "events": row["events"][:10]} for row in rows], gold, "session", 10
+        [{**row, "events": row["events"][:10]} for row in rows],
+        gold,
+        "session",
+        10,
+        ranked=ranked,
     )
-    if arm == "product":
-        equal_page_sessions.pop("mrr")
     return {
         "attempts": len(rows),
         "completed": len(completed),
@@ -184,7 +187,9 @@ def score_arm(rows, gold, arm):
         "has_next_page": sum(row.get("has_more", False) is True for row in rows),
         "metrics_all_attempts": all_attempt_metrics,
         "session_metrics_within_first_10_events": equal_page_sessions,
-        "conditional_metrics": {unit: metric(completed, gold, unit, 10) for unit in GOLD_FIELDS}
+        "conditional_metrics": {
+            unit: metric(completed, gold, unit, 10, ranked=ranked) for unit in GOLD_FIELDS
+        }
         if len(rows) != len(completed)
         else None,
         "expansion": expand_metrics(completed, gold),
@@ -401,12 +406,15 @@ def score(path, frozen, split):
         "ingest_ms": distribution(inventory[cluster]["ingest_ms"] for cluster in scored_clusters),
         "arms": {arm: score_arm(items, gold, arm) for arm, items in sorted(arms.items())},
         "strata": {
-            f"{stratum}/{arm}": {unit: metric(items, gold, unit, 10) for unit in GOLD_FIELDS}
+            f"{stratum}/{arm}": {
+                unit: metric(items, gold, unit, 10, ranked=arm != "product") for unit in GOLD_FIELDS
+            }
             for (stratum, arm), items in sorted(strata.items())
         },
         "histories": {
             f"{cluster}/{arm}": {
-                unit: metric(items, gold, unit, 10) for unit in ("session", "literal_turn")
+                unit: metric(items, gold, unit, 10, ranked=arm != "product")
+                for unit in ("session", "literal_turn")
             }
             for (cluster, arm), items in sorted(by_cluster.items())
         },

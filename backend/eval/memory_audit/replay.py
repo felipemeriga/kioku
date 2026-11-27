@@ -1,6 +1,7 @@
 """Execute frozen recall arms without opening the gold manifest."""
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -9,6 +10,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
+from services.agent_evidence import EvidenceStore
 from services.agent_evidence_models import BUCKET
 
 from .lab import Lab
@@ -61,6 +63,34 @@ def fixture_text(record, agent="codex"):
     return item["content"]
 
 
+def existing_segments(lab, scope):
+    return {
+        row["native_session_id"]: row
+        for row in lab.pg.execute(
+            """SELECT s.native_session_id,o.object_id,o.storage_path,o.sha256,o.byte_length
+               FROM agent_evidence_objects o
+               JOIN agent_evidence_sessions s ON s.id=o.session_id
+               WHERE o.user_id=%s AND o.folder_id=%s
+                 AND o.kind='segment' AND o.committed_revision IS NOT NULL
+                 AND s.deleted_at IS NULL""",
+            [scope["owner"], scope["folder"]],
+        )
+    }
+
+
+def verify_reused_source(store, stored, size, digest):
+    if (
+        not stored
+        or stored["object_id"] != "segment-1"
+        or stored["byte_length"] != size
+        or stored["sha256"] != digest
+    ):
+        raise ValueError("The previously archived segment differs from the frozen source")
+    # The EvidenceStore also verifies the live object's original byte count and
+    # checksum after decoding. A manifest alone cannot prove bytes still exist.
+    store.download(stored)
+
+
 def archive_fixture(lab, scope, histories):
     expected = {}
     lab.create_owner(scope["owner"])
@@ -72,18 +102,23 @@ def archive_fixture(lab, scope, histories):
         raise RuntimeError("Partially seeded public namespace needs a fresh audit database")
     reused = bool(previous["committed_segments"])
     committed = previous["committed_segments"]
+    stored = existing_segments(lab, scope) if reused else {}
+    store = EvidenceStore(lab, scope["owner"], scope["folder"])
     errors = []
     for row in histories:
         native = row["native"]
         records = row["records"]
         offset = 0
+        digest = hashlib.sha256()
         for position, record in enumerate(records, start=1):
             raw = (json.dumps(record, ensure_ascii=False) + "\n").encode()
             expected[gold_event(scope, native, position)] = SourceRecord(
                 "segment-1", offset, len(raw), fixture_text(record)
             )
+            digest.update(raw)
             offset += len(raw)
         if reused:
+            verify_reused_source(store, stored.get(native), offset, digest.hexdigest())
             continue
         try:
             lab.capture(scope["owner"], scope["folder"], native, records)

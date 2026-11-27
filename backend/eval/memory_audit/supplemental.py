@@ -27,7 +27,7 @@ from .public_data import (
     write_private,
 )
 from .replay import log_line, open_output
-from .score_public import distribution, json_lines, ranked_units
+from .score_public import distribution, json_lines, ranked_units, read_replay
 
 EXTRA_DATASETS = {
     "locomo_captions": {
@@ -222,7 +222,7 @@ def freeze_extra(family, data_dir, output):
 
 def mab_score(replay_path, frozen):
     manifest = json.loads((frozen / "freeze.json").read_text())
-    checked = ("mab_conflict.jsonl", "gold.json")
+    checked = ("mab_conflict.jsonl", "gold.json", "queries.json")
     for name in checked:
         if file_sha256(frozen / name) != manifest["sha256"][name]:
             raise ValueError("The frozen scoring corpus changed")
@@ -237,17 +237,11 @@ def mab_score(replay_path, frozen):
     results = defaultdict(Counter)
     latency = defaultdict(list)
     presence = {}
-    expected = None
-    completed = None
-    for trial in json_lines(replay_path):
-        if trial["record_type"] == "run":
-            if trial["gold_hash"] != manifest["sha256"]["gold.json"]:
-                raise ValueError("This run used different answers")
-            expected = trial["expected_cases"]
-        if trial["record_type"] == "completion":
-            completed = trial["cases"]
-        if trial["record_type"] != "trial":
-            continue
+    query_path = frozen / "queries.json"
+    header, complete, inventory, trials, _ = read_replay(
+        replay_path, frozen, manifest, query_path, json.loads(query_path.read_text())
+    )
+    for trial in trials.values():
         case_id = trial["case_id"]
         group_key = f"{trial['stratum']}/{trial['arm']}"
         stats = results[group_key]
@@ -270,8 +264,17 @@ def mab_score(replay_path, frozen):
         )
     return {
         "dataset": "mab_conflict",
-        "expected_cases": expected,
-        "completed_cases": completed,
+        "expected_cases": header["expected_cases"],
+        "completed_cases": complete["cases"] if complete else None,
+        "inventory": {
+            key: sum(history[key] for history in inventory.values())
+            for key in (
+                "committed_segments",
+                "parsed_segments",
+                "indexed_segments",
+                "displayable_events",
+            )
+        },
         "method": "Case-insensitive answer substring in full source records; no answer generation.",
         "groups": {key: dict(counts) for key, counts in sorted(results.items())},
         "search_ms": {key: distribution(values) for key, values in sorted(latency.items())},

@@ -94,7 +94,9 @@ def combine(initial, initial_raw, extension, extension_raw):
         ),
         "scores": scores,
         "strata": {
-            f"{stratum}/{arm}": {unit: metric(items, gold, unit, 10) for unit in GOLD_FIELDS}
+            f"{stratum}/{arm}": {
+                unit: metric(items, gold, unit, 10, ranked=arm != "product") for unit in GOLD_FIELDS
+            }
             for (stratum, arm), items in sorted(strata.items())
         },
         "paired_reformulation": paired(rows, gold),
