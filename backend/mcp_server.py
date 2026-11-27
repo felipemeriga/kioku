@@ -1805,6 +1805,11 @@ class ApiKeyAuthMiddleware:
         )
         if session_key:
             bound = self._session_scopes.get(session_key)
+            if bound is None and session:
+                await JSONResponse({"error": "MCP session not found"}, status_code=404)(
+                    scope, receive, send
+                )
+                return
             if bound is None or bound[:2] != (user_id, scope_folder_id):
                 await JSONResponse(
                     {"error": "MCP session does not belong to this API key scope"}, status_code=403
@@ -1825,6 +1830,8 @@ class ApiKeyAuthMiddleware:
             nonlocal endpoint_bound
             if message["type"] == "http.response.start":
                 response_headers = dict(message.get("headers", []))
+                if session_key and scope.get("method") == "DELETE" and message["status"] < 300:
+                    self._session_scopes.pop(session_key, None)
                 identifier = response_headers.get(b"mcp-session-id")
                 if identifier and message["status"] < 400:
                     bind("mcp:" + identifier.decode())
@@ -1862,8 +1869,6 @@ class ApiKeyAuthMiddleware:
         finally:
             _current_user_id.reset(user_token)
             _current_scope_folder_id.reset(scope_token)
-            if session_key and scope.get("method") == "DELETE":
-                self._session_scopes.pop(session_key, None)
 
 
 # ── Code graph tools ────────────────────────────────────────────────
