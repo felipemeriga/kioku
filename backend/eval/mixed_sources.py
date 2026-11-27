@@ -116,7 +116,7 @@ def run_mixed_sources(user_id: str) -> list[dict]:
             ),
             (
                 "implementation",
-                "Where does decode_delivery_mode map Lumen relay topic suffixes?",
+                "How does the decode_delivery_mode function map Lumen relay topic suffixes?",
                 scope,
                 scoped,
                 [({decoder}, 3)],
