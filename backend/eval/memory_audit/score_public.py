@@ -240,34 +240,106 @@ def abstention_controls(rows, gold):
     return {key: dict(value) for key, value in sorted(controls.items())}
 
 
+def read_replay(path, frozen, manifest, query_path, queries):
+    """Reject mixed or duplicated trials while retaining explicit partial runs."""
+    stream = json_lines(path)
+    header = next(stream, None)
+    if header is None or header["record_type"] != "run":
+        raise ValueError("Replay must start with one immutable run record")
+    expected = {
+        "gold_hash": manifest["sha256"]["gold.json"],
+        "query_hash": file_sha256(query_path),
+        "freeze_hash": file_sha256(frozen / "freeze.json"),
+        "baseline": manifest["baseline"],
+    }
+    if any(header.get(key) != value for key, value in expected.items()):
+        raise ValueError("The replay header does not match the frozen inputs")
+    population = {
+        case["case_id"]: case
+        for case in queries
+        if case["family"] == header["family"]
+        and (header["split"] == "all" or case["split"] == header["split"])
+    }
+    if header["family"] not in manifest["datasets"] or header["expected_cases"] != len(population):
+        raise ValueError("The declared replay population does not match the query manifest")
+    allowed_clusters = {case["cluster"] for case in population.values()}
+    allowed_arms = manifest["policy"]["arms"]
+    inventory = {}
+    trials = {}
+    warm = {}
+    completion = None
+    seen_first = False
+    for row in stream:
+        kind = row["record_type"]
+        if completion is not None:
+            raise ValueError("The completion record must be the last record")
+        if kind == "availability":
+            key = row["cluster"]
+            if key not in allowed_clusters or key in inventory:
+                raise ValueError("Invalid or duplicate replay inventory")
+            inventory[key] = row
+        elif kind in {"trial", "warm"}:
+            case = population.get(row["case_id"])
+            if case is None or row["arm"] not in allowed_arms:
+                raise ValueError("Replay contains a trial outside its frozen population")
+            for field in ("family", "stratum", "split", "cluster"):
+                if row[field] != case[field]:
+                    raise ValueError("Replay trial metadata differs from its frozen question")
+            if row["cluster"] not in inventory:
+                raise ValueError("Replay trial is missing its source availability")
+            if row["availability"] != inventory[row["cluster"]]["available"]:
+                raise ValueError("Replay trial disagrees with its source availability")
+            key = (row["case_id"], row["arm"])
+            if kind == "trial":
+                if key in trials:
+                    raise ValueError("Duplicate scored trial")
+                trials[key] = row
+                if row["cache"] == "first_in_process":
+                    if seen_first or len(trials) != 1:
+                        raise ValueError("There must be only one first invocation")
+                    seen_first = True
+            else:
+                warm_key = (*key, row["trial"])
+                if warm_key in warm or key not in trials:
+                    raise ValueError("Invalid or duplicate warm trial")
+                warm[warm_key] = row
+        elif kind == "completion":
+            completion = row
+        else:
+            raise ValueError("Unknown replay record")
+    if completion is not None:
+        required_trials = {(case_id, arm) for case_id in population for arm in allowed_arms}
+        if (
+            completion["cases"] != len(population)
+            or completion["arms"] != len(required_trials)
+            or required_trials != set(trials)
+            or allowed_clusters != set(inventory)
+        ):
+            raise ValueError("Completion record does not account for every frozen trial")
+    return header, completion, inventory, trials, warm
+
+
 def score(path, frozen, split):
     manifest = json.loads((frozen / "freeze.json").read_text())
     gold_path = frozen / "gold.json"
+    query_path = frozen / "queries.json"
     if file_sha256(gold_path) != manifest["sha256"]["gold.json"]:
         raise ValueError("The gold file changed after freezing")
+    if file_sha256(query_path) != manifest["sha256"]["queries.json"]:
+        raise ValueError("The query file changed after freezing")
     gold = json.loads(gold_path.read_text())
-    header = None
-    completion = None
-    rows = []
-    inventory = {}
+    queries = json.loads(query_path.read_text())
+    if len({case["case_id"] for case in queries}) != len(queries):
+        raise ValueError("The query manifest repeats case IDs")
+    header, completion, inventory, tried, warmth = read_replay(
+        path, frozen, manifest, query_path, queries
+    )
+    rows = [row for row in tried.values() if split == "all" or row["split"] == split]
+    first = next((row for row in rows if row["cache"] == "first_in_process"), None)
     warm = defaultdict(list)
-    first = None
-    for row in json_lines(path):
-        kind = row["record_type"]
-        if kind == "run":
-            header = row
-        elif kind == "availability":
-            inventory[row["cluster"]] = row
-        elif kind == "trial" and (split == "all" or row["split"] == split):
-            if row["cache"] == "first_in_process":
-                first = row
-            rows.append(row)
-        elif kind == "warm" and (split == "all" or row["split"] == split):
+    for row in warmth.values():
+        if split == "all" or row["split"] == split:
             warm[row["arm"]].append(row)
-        elif kind == "completion":
-            completion = row
-    if header is None or header["gold_hash"] != manifest["sha256"]["gold.json"]:
-        raise ValueError("The recorded run and frozen labels do not correspond")
     strata = defaultdict(list)
     arms = defaultdict(list)
     by_cluster = defaultdict(list)
@@ -278,8 +350,10 @@ def score(path, frozen, split):
     case_ids = {row["case_id"] for row in rows}
     population = [
         case
-        for case in json.loads((frozen / "queries.json").read_text())
-        if case["family"] == header["family"] and (split == "all" or case["split"] == split)
+        for case in queries
+        if case["family"] == header["family"]
+        and (split == "all" or case["split"] == split)
+        and (header["split"] == "all" or case["split"] == header["split"])
     ]
     scored_clusters = {row["cluster"] for row in rows}
     dataset_controls = [gold[case_id] for case_id in case_ids]

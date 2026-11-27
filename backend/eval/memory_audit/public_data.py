@@ -162,9 +162,12 @@ def select_longmem(path, primary_per_type, holdout_per_type):
     return selected
 
 
-def freeze_longmem(path, add_case, add_session, primary_per_type, holdout_per_type):
+def freeze_longmem(
+    path, add_case, add_session, primary_per_type, holdout_per_type, *, selected=None
+):
     family = "longmemeval_s"
-    selected = select_longmem(path, primary_per_type, holdout_per_type)
+    if selected is None:
+        selected = select_longmem(path, primary_per_type, holdout_per_type)
     date_format = "%Y/%m/%d (%a) %H:%M"
     for row in longmem_rows(path):
         source_id = row["question_id"]
