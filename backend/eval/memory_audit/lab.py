@@ -1,10 +1,12 @@
 """Bridge the frozen Kioku services to a disposable PostgreSQL audit database."""
 
+import argparse
 import hashlib
 import io
 import json
 import os
 import secrets
+import tempfile
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -85,7 +87,7 @@ def comma(items):
 
 
 def column(name):
-    base, separator, key = name.partition("->>")
+    base, separator, key = name.strip().partition("->>")
     identifier = sql.Identifier(base)
     if separator:
         return sql.SQL("{}->>{}").format(identifier, sql.Literal(key))
@@ -224,14 +226,20 @@ class Bucket:
     def upload(self, path, body, options):
         path = self.object_path(path)
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        flags = os.O_WRONLY | os.O_CREAT
-        flags |= os.O_TRUNC if options.get("upsert") == "true" else os.O_EXCL
+        filename = None
         try:
-            fd = os.open(path, flags, 0o600)
+            with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as handle:
+                filename = Path(handle.name)
+                handle.write(body if isinstance(body, bytes) else body.read())
+            if options.get("upsert") == "true":
+                filename.replace(path)
+            else:
+                os.link(filename, path)
         except FileExistsError:
             raise StorageApiError("Already stored", "409", "409") from None
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(body if isinstance(body, bytes) else body.read())
+        finally:
+            if filename is not None:
+                filename.unlink(missing_ok=True)
 
     def download(self, path):
         try:
@@ -250,7 +258,7 @@ class Bucket:
 class Lab:
     """Materials and defaults are isolated from all configured Supabase services."""
 
-    def __init__(self, connection_file):
+    def __init__(self, connection_file, *, application_name="kioku-audit"):
         path = Path(connection_file)
         if path.stat().st_mode & 0o077:
             raise ValueError("Lab connection file must be private")
@@ -267,6 +275,7 @@ class Lab:
             autocommit=True,
             cursor_factory=ClientCursor,
             row_factory=dict_row,
+            application_name=application_name,
         )
         if (
             self.pg.execute("SELECT to_regnamespace('kioku_audit_guard') AS guard").fetchone()[
@@ -282,6 +291,7 @@ class Lab:
         self._service_key = secrets.token_hex(32)
         self.db_wall = {"table": 0.0, "rpc": 0.0}
         self.db_calls = {"table": 0, "rpc": 0}
+        self.rpc_observations = None
 
     def initialize(self):
         if (
@@ -316,6 +326,8 @@ class Lab:
         )
 
         def execute():
+            started = time.perf_counter()
+            sqlstate = None
             parameters = [
                 Jsonb(value)
                 if isinstance(value, dict) or key in {"p_events", "p_chunks", "p_entries"}
@@ -326,8 +338,14 @@ class Lab:
                 data = self.measured_sql("rpc", statement, parameters).fetchone()["data"]
             except psycopg.Error as exc:
                 # The production RPC wrapper inspects PostgREST's SQLSTATE property.
+                sqlstate = exc.sqlstate
                 exc.code = exc.sqlstate
                 raise
+            finally:
+                if self.rpc_observations is not None:
+                    self.rpc_observations.append(
+                        (name, (time.perf_counter() - started) * 1000, sqlstate)
+                    )
             return SimpleNamespace(data=data)
 
         return SimpleNamespace(execute=execute)
@@ -492,3 +510,19 @@ class Lab:
             for number in range(first_record, last_record + 1)
         ]
         return receipt["session_id"], anchor_ids
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Initialize a fresh guarded audit database")
+    parser.add_argument("--lab", type=Path, required=True)
+    args = parser.parse_args()
+    lab = Lab(args.lab)
+    try:
+        lab.initialize()
+        print(f"Applied {len(MIGRATIONS)} frozen migrations")
+    finally:
+        lab.close()
+
+
+if __name__ == "__main__":
+    main()

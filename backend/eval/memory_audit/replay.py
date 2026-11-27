@@ -48,6 +48,19 @@ class SourceRecord:
         )
 
 
+def fixture_text(record, agent="codex"):
+    if agent == "claude_code":
+        return record["message"]["content"]
+    if record["type"] != "response_item":
+        return ""
+    item = record["payload"]
+    if item["type"] == "function_call":
+        return item["name"] + "\n" + item["arguments"]
+    if item["type"] == "function_call_output":
+        return item["output"]
+    return item["content"]
+
+
 def archive_fixture(lab, scope, histories):
     expected = {}
     lab.create_owner(scope["owner"])
@@ -67,7 +80,7 @@ def archive_fixture(lab, scope, histories):
         for position, record in enumerate(records, start=1):
             raw = (json.dumps(record, ensure_ascii=False) + "\n").encode()
             expected[gold_event(scope, native, position)] = SourceRecord(
-                "segment-1", offset, len(raw), record["payload"]["content"]
+                "segment-1", offset, len(raw), fixture_text(record)
             )
             offset += len(raw)
         if reused:
