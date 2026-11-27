@@ -1,7 +1,7 @@
 # Read-only production observations during the memory audit
 
 Baseline: `3636866fc7094606cc1e498ad79eaf3840d72f99`, deployed backend/MCP `0.3.126`.
-Observation window: 2026-11-27, approximately 05:00–05:23 UTC.
+Observation window: 2026-11-27, approximately 05:00–05:51 UTC.
 These are convenience probes and operational observations, not independently labeled benchmark scores.
 No production data, configuration, keys, indexes, or services were changed for these checks.
 
@@ -51,3 +51,9 @@ A separate pure-function diagnostic exercised history-prefetch routing without g
 An incident date embedded in a question such as “Have we fixed the SSE outage from 2026-11-12?” was interpreted as a one-day search filter. Such narrowing can exclude a later resolution. Source-time cutoff tests and final-status questions should explicitly cover this ambiguity.
 
 Raw private outputs and fixture hashes are retained outside Git under the audit artifact directory. This report intentionally contains no original transcript text, access tokens, credentials, or signed evidence references.
+
+## Follow-up snapshot at 05:50–05:51 UTC
+
+Read-only counts still showed 83 active sessions: 8,694 committed segment objects, with 2,973 pending parser indexing and 2,973 pending memory indexing. The earlier 05:03 counts were 8,530 committed and 2,908 pending. These are separate, non-transactional metadata observations over a changing archive, not an estimate of lost records, unique unavailable facts, or a forecast of drain time.
+
+All seven Kioku containers were running on the same release images, with zero recorded restarts and no OOM kills. Worker logs since 05:00 contained 33 `55P03` and 19 `57014` RPC-error entries. The counts are log occurrences, not unique failing objects or users. Running containers do not establish indexing liveness.
