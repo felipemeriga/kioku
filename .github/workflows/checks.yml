@@ -90,6 +90,15 @@ jobs:
       - name: Pytest
         run: uv run --python 3.12 pytest tests/ -v
 
+      - name: Memory audit scoring and artifact contracts
+        # Optional audit dependencies stay outside the product dependency lock.
+        # These synthetic checks need no benchmark downloads or running database.
+        run: >-
+          uv run --frozen --python 3.12
+          --with ijson==3.4.0
+          --with "psycopg[binary]==3.2.13"
+          pytest eval/memory_audit/tests -q
+
   frontend-lint:
     name: Frontend Lint & Typecheck
     runs-on: ubuntu-latest
