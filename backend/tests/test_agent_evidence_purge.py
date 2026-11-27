@@ -1,7 +1,9 @@
 import asyncio
 from threading import Event
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from services.agent_evidence_purge import purge_evidence_outbox
 
@@ -40,7 +42,10 @@ def test_empty_receipt_finishes_without_storage_call():
 
 
 def test_disabled_capture_still_processes_erasure_receipts():
-    from services.agent_evidence_jobs import agent_evidence_maintenance
+    from services.agent_evidence_jobs import (
+        agent_evidence_maintenance,
+        initialize_evidence_maintenance,
+    )
 
     with (
         patch("services.agent_evidence_jobs.enabled", return_value=False),
@@ -49,7 +54,9 @@ def test_disabled_capture_still_processes_erasure_receipts():
         patch("services.agent_evidence_jobs.purge_tombstoned_sessions") as tombstones,
         patch("services.agent_evidence_jobs.reap_evidence") as capture,
     ):
-        asyncio.run(agent_evidence_maintenance({}))
+        ctx = {}
+        initialize_evidence_maintenance(ctx)
+        asyncio.run(agent_evidence_maintenance({**ctx}))
     purge.assert_called_once_with("db")
     tombstones.assert_called_once_with("db")
     capture.assert_not_called()
@@ -70,7 +77,10 @@ def test_tombstone_purge_respects_storage_bulk_limit():
 
 
 def test_evidence_cron_skips_overlapping_sweeps_until_scan_releases_gate():
-    from services.agent_evidence_jobs import agent_evidence_maintenance
+    from services.agent_evidence_jobs import (
+        agent_evidence_maintenance,
+        initialize_evidence_maintenance,
+    )
 
     entered = Event()
     release = Event()
@@ -86,22 +96,24 @@ def test_evidence_cron_skips_overlapping_sweeps_until_scan_releases_gate():
     async def check():
         from contextlib import suppress
 
-        ctx = {}
-        first = asyncio.create_task(agent_evidence_maintenance(ctx))
+        worker_ctx = {}
+        initialize_evidence_maintenance(worker_ctx)
+        state = worker_ctx["evidence_maintenance_state"]
+        first = asyncio.create_task(agent_evidence_maintenance({**worker_ctx, "job_id": "first"}))
         assert await asyncio.to_thread(entered.wait, 2)
         first.cancel()
         with suppress(asyncio.CancelledError):
             await first
-        await agent_evidence_maintenance(ctx)
-        assert "evidence_cursor" not in ctx
+        await agent_evidence_maintenance({**worker_ctx, "job_id": "overlapping"})
+        assert state["cursor"] is None
         release.set()
         # Synchronize with the worker-owned lock before sending the next tick.
-        lock = ctx["evidence_maintenance_lock"]
+        lock = state["lock"]
         assert await asyncio.to_thread(lock.acquire, True, 2)
         lock.release()
-        assert ctx["evidence_cursor"] == "next-page"
-        await agent_evidence_maintenance(ctx)
-        assert ctx["evidence_cursor"] is None
+        assert state["cursor"] == "next-page"
+        await agent_evidence_maintenance({**worker_ctx, "job_id": "next"})
+        assert state["cursor"] is None
 
     with (
         patch("services.agent_evidence_jobs.enabled", return_value=True),
@@ -112,3 +124,93 @@ def test_evidence_cron_skips_overlapping_sweeps_until_scan_releases_gate():
     ):
         asyncio.run(check())
     assert [call.args for call in capture.call_args_list] == [("db", None), ("db", "next-page")]
+
+
+def test_failed_sweep_releases_shared_gate_without_advancing_cursor():
+    from services.agent_evidence_jobs import (
+        agent_evidence_maintenance,
+        initialize_evidence_maintenance,
+    )
+
+    async def check():
+        worker_ctx = {}
+        initialize_evidence_maintenance(worker_ctx)
+        with pytest.raises(RuntimeError, match="database unavailable"):
+            await agent_evidence_maintenance({**worker_ctx, "job_id": "failed"})
+        assert worker_ctx["evidence_maintenance_state"]["cursor"] is None
+        await agent_evidence_maintenance({**worker_ctx, "job_id": "retry"})
+        assert worker_ctx["evidence_maintenance_state"]["cursor"] == "next-page"
+
+    with (
+        patch("services.agent_evidence_jobs.enabled", return_value=True),
+        patch("services.agent_evidence_jobs.get_supabase_thread_safe", return_value="db"),
+        patch("services.agent_evidence_jobs.purge_evidence_outbox"),
+        patch("services.agent_evidence_jobs.purge_tombstoned_sessions"),
+        patch(
+            "services.agent_evidence_jobs.reap_evidence",
+            side_effect=[RuntimeError("database unavailable"), "next-page"],
+        ),
+    ):
+        asyncio.run(check())
+
+
+def test_actual_arq_jobs_share_scan_state_across_distinct_contexts():
+    import fakeredis.aioredis
+    from arq import func
+    from arq.connections import ArqRedis
+    from arq.worker import Worker
+
+    from services.agent_evidence_jobs import agent_evidence_maintenance
+    from services.queue.settings import WorkerSettings
+
+    contexts = []
+
+    async def sweep(ctx):
+        contexts.append(ctx)
+        await agent_evidence_maintenance(ctx)
+
+    async def check():
+        fake = fakeredis.aioredis.FakeRedis()
+        pool = ArqRedis(connection_pool=fake.connection_pool)
+        worker = Worker(
+            [func(sweep, name="sweep")],
+            redis_pool=pool,
+            on_startup=WorkerSettings.on_startup,
+            burst=True,
+            max_jobs=1,
+            poll_delay=0.01,
+            handle_signals=False,
+            keep_result=0,
+        )
+        try:
+            for index in range(3):
+                await pool.enqueue_job("sweep", _job_id=f"context-{index}")
+            await asyncio.wait_for(worker.async_run(), timeout=5)
+            assert worker.jobs_complete == 3
+            assert worker.jobs_failed == 0
+            assert len({id(ctx) for ctx in contexts}) == 3
+            state = worker.ctx["evidence_maintenance_state"]
+            assert all(ctx["evidence_maintenance_state"] is state for ctx in contexts)
+            assert state["cursor"] is None
+        finally:
+            await worker.close()
+            await fake.aclose()
+
+    with (
+        patch("arq.worker.log_redis_info", new_callable=AsyncMock),
+        patch("services.queue.settings._reap_stale_jobs", new_callable=AsyncMock),
+        patch("services.agent_evidence_jobs.enabled", return_value=True),
+        patch("services.agent_evidence_jobs.get_supabase_thread_safe", return_value="db"),
+        patch("services.agent_evidence_jobs.purge_evidence_outbox"),
+        patch("services.agent_evidence_jobs.purge_tombstoned_sessions"),
+        patch(
+            "services.agent_evidence_jobs.reap_evidence",
+            side_effect=["page-two", "page-three", None],
+        ) as capture,
+    ):
+        asyncio.run(check())
+    assert [call.args for call in capture.call_args_list] == [
+        ("db", None),
+        ("db", "page-two"),
+        ("db", "page-three"),
+    ]

@@ -21,7 +21,10 @@ from dotenv import load_dotenv
 # etc. uvicorn's main.py loads it too — this makes both entry points work.
 load_dotenv()
 
-from services.agent_evidence_jobs import agent_evidence_maintenance  # noqa: E402
+from services.agent_evidence_jobs import (  # noqa: E402
+    agent_evidence_maintenance,
+    initialize_evidence_maintenance,
+)
 from services.queue.tasks import (  # noqa: E402 — env must load before task imports
     embed_and_store_batch_task,
     embed_code_chunks_task,
@@ -58,6 +61,11 @@ async def _reap_stale_jobs(ctx: dict) -> None:
         log.exception("stale-job reaper failed at startup")
 
 
+async def _startup(ctx: dict) -> None:
+    initialize_evidence_maintenance(ctx)
+    await _reap_stale_jobs(ctx)
+
+
 class WorkerSettings:
     """arq worker configuration. Discovered by `arq services.queue.settings.WorkerSettings`."""
 
@@ -70,7 +78,7 @@ class WorkerSettings:
         notion_sync_task,
         agent_evidence_maintenance,
     ]
-    on_startup = _reap_stale_jobs
+    on_startup = _startup
     # Also reap every 5 minutes so a job that goes stale while the worker is up
     # (no restart, no new enqueue) still self-heals.
     cron_jobs = [
