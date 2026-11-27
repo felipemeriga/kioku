@@ -5,6 +5,7 @@ import io
 import json
 import os
 import secrets
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -199,7 +200,7 @@ class Table:
                 "WITH changed AS ({}) SELECT to_jsonb(changed) AS data FROM changed"
             ).format(update)
             params = [adapt(value) for value in self.changes.values()] + self.parameters
-        rows = [row["data"] for row in self.lab.pg.execute(statement, params)]
+        rows = [row["data"] for row in self.lab.measured_sql("table", statement, params)]
         if self.expect_single:
             if len(rows) != 1:
                 raise ValueError("The audit query did not return exactly one row")
@@ -208,27 +209,42 @@ class Table:
 
 
 class Bucket:
-    def __init__(self):
-        self.objects = {}
+    def __init__(self, root):
+        self.root = root
+        self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.downloaded_bytes = 0
         self.download_count = 0
 
+    def object_path(self, key):
+        path = (self.root / key).resolve()
+        if not path.is_relative_to(self.root.resolve()):
+            raise ValueError("An object must remain inside the audit bucket")
+        return path
+
     def upload(self, path, body, options):
-        if path in self.objects and options.get("upsert", "false") != "true":
-            raise StorageApiError("Already stored", "409", "409")
-        self.objects[path] = body if isinstance(body, bytes) else body.read()
+        path = self.object_path(path)
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        flags = os.O_WRONLY | os.O_CREAT
+        flags |= os.O_TRUNC if options.get("upsert") == "true" else os.O_EXCL
+        try:
+            fd = os.open(path, flags, 0o600)
+        except FileExistsError:
+            raise StorageApiError("Already stored", "409", "409") from None
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(body if isinstance(body, bytes) else body.read())
 
     def download(self, path):
-        if path not in self.objects:
-            raise StorageApiError("Missing fixture", "404", "404")
-        payload = self.objects[path]
+        try:
+            payload = self.object_path(path).read_bytes()
+        except FileNotFoundError:
+            raise StorageApiError("Missing fixture", "404", "404") from None
         self.download_count += 1
         self.downloaded_bytes += len(payload)
         return payload
 
     def remove(self, paths):
         for path in paths:
-            self.objects.pop(path, None)
+            self.object_path(path).unlink(missing_ok=True)
 
 
 class Lab:
@@ -260,9 +276,12 @@ class Lab:
         ):
             self.pg.close()
             raise ValueError("The disposable database is missing its audit guard")
+        self.storage_root = path.resolve().parent / "storage"
         self.buckets = {}
         self.storage = SimpleNamespace(from_=self.bucket)
         self._service_key = secrets.token_hex(32)
+        self.db_wall = {"table": 0.0, "rpc": 0.0}
+        self.db_calls = {"table": 0, "rpc": 0}
 
     def initialize(self):
         if (
@@ -282,6 +301,14 @@ class Lab:
     def table(self, name):
         return Table(self, name)
 
+    def measured_sql(self, kind, statement, values):
+        start = time.perf_counter()
+        try:
+            return self.pg.execute(statement, values)
+        finally:
+            self.db_wall[kind] += time.perf_counter() - start
+            self.db_calls[kind] += 1
+
     def rpc(self, name, args):
         statement = sql.SQL("SELECT {}({}) AS data").format(
             sql.Identifier("public", name),
@@ -296,7 +323,7 @@ class Lab:
                 for key, value in args.items()
             ]
             try:
-                data = self.pg.execute(statement, parameters).fetchone()["data"]
+                data = self.measured_sql("rpc", statement, parameters).fetchone()["data"]
             except psycopg.Error as exc:
                 # The production RPC wrapper inspects PostgREST's SQLSTATE property.
                 exc.code = exc.sqlstate
@@ -307,7 +334,7 @@ class Lab:
 
     def bucket(self, name):
         if name not in self.buckets:
-            self.buckets[name] = Bucket()
+            self.buckets[name] = Bucket(self.storage_root / name)
         return self.buckets[name]
 
     def create_owner(self, owner):
@@ -315,9 +342,26 @@ class Lab:
 
     def create_folder(self, folder, owner, name, parent=None):
         self.pg.execute(
-            "INSERT INTO folders (id,user_id,name,kind,parent_id) VALUES (%s,%s,%s,%s,%s)",
+            "INSERT INTO folders (id,user_id,name,kind,parent_id) VALUES (%s,%s,%s,%s,%s) "
+            "ON CONFLICT (id) DO NOTHING",
             [folder, owner, name, "repo" if parent else "project", parent],
         )
+
+    def index_state(self, owner, folder):
+        return self.pg.execute(
+            """SELECT count(*) AS committed_segments,
+                      count(*) FILTER (WHERE indexed_parser_version >= 1) AS parsed_segments,
+                      count(*) FILTER (WHERE memory_index_version >= 2) AS indexed_segments,
+                      (SELECT count(*) FROM agent_evidence_events
+                       WHERE user_id = %s AND folder_id = %s
+                         AND displayable AND NOT inherited) AS displayable_events,
+                      (SELECT count(*) FROM agent_memory_chunks
+                       WHERE user_id = %s AND folder_id = %s) AS chunks
+               FROM agent_evidence_objects
+               WHERE user_id = %s AND folder_id = %s
+                 AND kind = 'segment' AND committed_revision IS NOT NULL""",
+            [owner, folder] * 3,
+        ).fetchone()
 
     def create_api_key(self, owner, scope):
         value = secrets.token_hex(32)
@@ -373,6 +417,7 @@ class Lab:
         root=None,
         attachments=None,
         index=True,
+        append=False,
     ):
         store = EvidenceStore(self, owner, folder)
         previous = self.pg.execute(
@@ -382,6 +427,8 @@ class Lab:
         ).fetchone()
         prior_segments = previous["manifest_json"]["segments"] if previous else []
         stream = "source"
+        if previous and not append:
+            raise RuntimeError("An initial capture must use an empty session")
         first_record = 1 + sum(item["record_count"] for item in prior_segments)
         source_start = sum(item["byte_length"] for item in prior_segments)
         last_record = first_record + len(records) - 1
