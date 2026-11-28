@@ -52,6 +52,10 @@ REPOS_DIR = BASE / "repos"
 # Prefix for the synthetic DATED corpus so the temporal eval can isolate its
 # own rows from the static docs/code.
 DATED_PREFIX = "obol-dated-"
+PR_POLICY = (
+    "Pull requests are capped at 400 changed lines. Two reviewers are required "
+    "for any change to the ledger service."
+)
 
 # Backdated meeting/decision notes for temporal scenarios (recency decay, date
 # filters). Inserted directly with real embeddings + a chosen created_at and
@@ -98,15 +102,13 @@ DATED = [
         "prpolicy-twin-old",
         200,
         "meeting",
-        "Sprint 47 retro: agreed to cap pull requests at 400 changed lines and "
-        "require two reviewers for any change to the ledger service.",
+        PR_POLICY,
     ),
     (
         "prpolicy-twin-fresh",
         2,
         "meeting",
-        "Sprint 61 retro: reaffirmed capping pull requests at 400 changed lines "
-        "and requiring two reviewers for any change to the ledger service.",
+        PR_POLICY,
     ),
     (
         "escalation-ref",
@@ -241,6 +243,7 @@ def _seed_dated(sb, user_id: str, root_id: str) -> int:
     rows = []
     for (name, age_days, source_type, content), emb in zip(DATED, embeddings, strict=True):
         src = f"{DATED_PREFIX}{name}"
+        timestamp = (now - timedelta(days=age_days)).isoformat()
         rows.append(
             {
                 "user_id": user_id,
@@ -255,8 +258,15 @@ def _seed_dated(sb, user_id: str, root_id: str) -> int:
                 "embedding": emb,
                 "status": "completed",
                 "content_hash": uuid.uuid4().hex,
-                "created_at": (now - timedelta(days=age_days)).isoformat(),
-                "metadata": {"source_filename": src, "chunk_index": 0},
+                "created_at": timestamp,
+                "last_updated": timestamp,
+                "metadata": {
+                    "source_filename": (
+                        f"{DATED_PREFIX}prpolicy" if name.startswith("prpolicy-twin-") else src
+                    ),
+                    "eval_fixture": name,
+                    "chunk_index": 0,
+                },
             }
         )
     for i in range(0, len(rows), 10):
