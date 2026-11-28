@@ -92,6 +92,8 @@ CORRECTNESS = [
 
 JUDGE_SYSTEM = (
     "You are a RAG evaluation judge. Grade the ANSWER, not the corpus. "
+    "When a reference answer is supplied, judge against that reference. "
+    "A correct description of a documentation/code discrepancy must pass. "
     "Check correctness, not exhaustive repetition of context. Omitted context facts "
     "are not errors unless the rubric explicitly requires them. A summary need not "
     "repeat every positive and negative statement. "
@@ -105,7 +107,13 @@ JUDGE_SYSTEM = (
 
 
 def _judge(
-    payload_instructions: str, question: str, context: str, answer: str, *, criterion="grounded"
+    payload_instructions: str,
+    question: str,
+    context: str,
+    answer: str,
+    *,
+    criterion="grounded",
+    reference: str | None = None,
 ) -> dict:
     issues = "unsupported" if criterion == "grounded" else "problems"
     schema = {
@@ -120,6 +128,7 @@ def _judge(
     msg = json.dumps(
         {
             "rubric": payload_instructions,
+            "reference_answer": reference,
             "question": question,
             "context": context,
             "answer": answer,
@@ -250,19 +259,26 @@ def _run_scoped(user_id: str) -> int:
     context = "\n\n".join(chunks)
     exposed = "processor_fees" in context and "seller_clawback" in context
     verdict = _judge(
-        "Audit the ANSWER against both CONTEXT and these independently verified "
-        "fixture facts: the money-movement document describes proportional "
-        "processor-fee AND platform-fee givebacks; the executable ledger refund "
-        "posting gives back the platform fee only, with seller_clawback = "
-        "refund amount - platform fee giveback. It does not post a processor_fees "
-        "reversal. A full refund therefore does not zero every original account. "
-        "The answer must explicitly distinguish document claims from code behavior, "
-        "cite both, and must not invent deployment proof or silently blend formulas. "
+        "Check whether ANSWER agrees with REFERENCE_ANSWER on the documentation "
+        "versus code distinction and the two seller formulas. Accurately reporting "
+        "their difference is CORRECT; the fact that the code intentionally follows "
+        "one formula does not make a reported documentary discrepancy incorrect. "
+        "Do not require the answer to call either source a bug. It must cite both "
+        "sources and must not invent proof of production deployment. "
         'Return {"consistent": true|false, "problems": ["..."]}.',
         q,
         context,
         ans,
         criterion="consistent",
+        reference=(
+            "The documentation includes proportional platform AND processor fee "
+            "givebacks, so seller_clawback = R - platform_fee_giveback - "
+            "processor_fee_giveback. The executable implementation includes only "
+            "the platform fee giveback, so seller_clawback = R - platform_fee_giveback, "
+            "with no processor_fees reversal. These sources disagree. A full "
+            "refund does not zero all original accounts in that implementation. "
+            "The excerpts do not prove what is deployed in production."
+        ),
     )
     check(
         "F2 conflicting-source-attribution",
