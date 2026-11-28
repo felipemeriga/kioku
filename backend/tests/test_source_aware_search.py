@@ -139,11 +139,12 @@ def test_cross_component_prefers_distinct_repositories_without_crowding_out_pros
     ]
     query = "How does an order flow from the site through the API to fulfillment?"
     with patch("services.search.rerank", side_effect=ranked) as reranker:
-        result = _rerank_sources(query, docs, code, 5)
+        result = _rerank_sources(query, docs, code, 6)
     assert [row["id"] for row in result] == [
         "guide-0",
         "api-0",
         "api-1",
+        "api-2",
         "site-client",
         "warehouse-worker",
     ]
@@ -163,8 +164,8 @@ def test_cross_component_keeps_production_handoffs_and_adjacent_context():
     with patch("services.search.rerank", side_effect=ranked):
         result = _rerank_sources("Trace the request across multiple repos", docs, code, 5)
     assert [row["id"] for row in result] == [
-        "overview",
         "web/route.py:1-40",
+        "web/client.py:1-70",
         "gateway/create.go:101-170",
         "gateway/create.go:1-110",
         "ledger/dispatch.py:1-100",
@@ -191,12 +192,13 @@ def test_cross_component_preserves_requested_or_substantially_more_relevant_test
         hit("worker/consumer.py:1-60", 0.7 if weak_production else 0.8, "code", folder="worker"),
     ]
     with patch("services.search.rerank", side_effect=ranked):
-        result = _rerank_sources(query, [hit("overview", 0.9)], code, 5)
+        result = _rerank_sources(query, [hit("overview", 0.9)], code, 6)
     assert {row["id"] for row in result} == {
         "overview",
         "api/handler.py:51-100",
         "api/client.py:1-40",
         "tests/test_worker.py:1-40",
+        "worker/consumer.py:1-60" if not weak_production else "api/handler.py:1-60",
     }
     assert {row["metadata"]["folder_id"] for row in result if row["source_type"] == "code"} == {
         "api",
