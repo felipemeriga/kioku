@@ -38,6 +38,8 @@ def ranked(_query, rows, top_k):
         ("Where do we retry failed original uploads?", "implementation"),
         ("How is StreamType implemented in types.rs?", "implementation"),
         ("What does get_stream_name return?", "implementation"),
+        ("Verify executable behavior rather than comments in the route", "implementation"),
+        ("Check runtime behavior of the payment handler", "implementation"),
         ("Em qual arquivo acontece o retry?", "implementation"),
         ("Compare our implementation with vendor documentation", "balanced"),
         ("How do these services interact?", "balanced"),

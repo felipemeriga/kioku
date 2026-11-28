@@ -62,7 +62,8 @@ def _source_intent(query: str, *, ambiguous_default: str | None = "balanced") ->
     code = bool(
         re.search(
             r"\b(?:implement(?:ation|ed|s)?|source code|codebase|functions?|methods?|class|crate|"
-            r"call site|stack trace|which file|"
+            r"call site|stack trace|which file|executable (?:code|behavior|logic)|"
+            r"runtime (?:behavior|logic)|"
             r"where.{0,60}(?:code|handled|defined|retry|retries))\b"
             r"|\b[\w/-]+\.(?:rs|py|tsx?|jsx?|go|java|cpp)\b"
             r"|\b(?:get|set|read|write|parse|handle|build)_[a-z_]+\b"
