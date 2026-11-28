@@ -252,6 +252,81 @@ def test_original_source_role_preserves_implementation_through_conceptual_rephra
     assert explicit_mixed[0]["id"] == "guide-0"
 
 
+def test_document_choices_cover_three_facets_even_when_company_code_is_available():
+    question = "Which storage engine, query index, and ranking approach would you choose?"
+    constraints, storage, index, option, rank = [
+        hit(name, score)
+        for name, score in [
+            ("constraints", 0.85),
+            ("storage", 0.8),
+            ("index", 0.7),
+            ("secondary-index", 0.63),
+            ("rank", 0.72),
+        ]
+    ]
+    docs = [constraints, storage, index, option, rank]
+    code = [hit("runtime.py", 0.3, "code")]
+    ranked_queries = {
+        question: [constraints, storage, code[0], index, rank],
+        "storage engine": [storage],
+        "query index": [index, option],
+        "ranking approach": [rank],
+    }
+    with patch(
+        "services.search.rerank", side_effect=lambda q, _pool, top_k: ranked_queries[q]
+    ) as rr:
+        result = _rerank_sources(question, docs, code, 5)
+    assert result == [constraints, storage, index, rank, option]
+    assert rr.call_count == 4
+    assert {call.args[0]: {r["id"] for r in call.args[1]} for call in rr.call_args_list} == {
+        query: {r["id"] for r in (docs + code if query == question else docs)}
+        for query in ranked_queries
+    }
+
+
+@pytest.mark.parametrize("bad_score", [None, 0.44, "error"])
+def test_document_choices_keep_whole_query_when_a_facet_lacks_evidence(bad_score):
+    question = "Which storage engine, query index, and ranking approach would you use?"
+    legacy = [hit("legacy", 0.75), hit("fallback", 0.7)]
+
+    def rank(query, _docs, top_k):
+        if query == question:
+            return legacy
+        if query != "query index":
+            return [hit(query, 0.8)]
+        if bad_score == "error":
+            raise RuntimeError("facet failed")
+        row = hit("weak", bad_score)
+        if bad_score is None:
+            row.pop("rerank_score")
+        return [row]
+
+    with (
+        patch("services.search.rerank", side_effect=rank) as reranker,
+        patch("services.search.record") as metrics,
+    ):
+        assert _rerank_sources(question, legacy, [], 5) == legacy
+    assert reranker.call_count == 4
+    assert metrics.call_args.kwargs["degraded"] is True
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "What differs between a table scan, a sorted lookup, and a hash lookup?",
+        "Which storage engine, and ranking approach would you choose?",
+        "Which storage engine, storage engine, and ranking approach would you choose?",
+        "Which source code module, query index, and ranking approach would you choose?",
+        "Which vendor guide, implementation, and ranking approach would you choose?",
+    ],
+)
+def test_explicit_facet_grammar_leaves_ordinary_or_code_queries_on_one_rerank(query):
+    docs = [hit("manual", 0.8)]
+    with patch("services.search.rerank", side_effect=ranked) as reranker:
+        assert _rerank_sources(query, docs, [], 5) == docs
+    reranker.assert_called_once()
+
+
 def test_freshness_keeps_implementation_evidence_ahead_of_supporting_docs():
     code = hit("implementation", 0.8, "code")
     old_doc = {**hit("old-guide", 0.87), "created_at": "2020-01-01"}

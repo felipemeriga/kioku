@@ -29,6 +29,8 @@ CODE_RESERVE_THRESHOLD = 0.45
 CROSS_COMPONENT_EVIDENCE_MARGIN = 0.075
 DOCUMENT_RESERVE_SLOTS = 3
 SOURCE_RELEVANCE_MARGIN = 0.15
+DOCUMENT_FACET_THRESHOLD = 0.45
+DOCUMENT_FACET_DEPTH = 8
 
 # Candidate pool size per leg (vector, keyword) before rerank. Wider than the
 # old 20 so the cross-encoder has more to choose from — it trims back to top_k,
@@ -215,6 +217,116 @@ def _rerank_sources(
     source_role: str | None = None,
 ) -> list[dict]:
     code_results = _deduplicate_code(code_results)
+    explicit_role = source_role or _source_intent(query_text, ambiguous_default=None)
+    if fused and top_k >= 4 and explicit_role in {None, "documentation"}:
+        match = re.search(
+            r"\bwhich\s+([^,?.]{3,90}),\s*([^,?.]{3,90}),\s*and\s+([^,?.]{3,90}?)"
+            r"\s+(?:would|should)\s+(?:you|we)\s+(?:choose|use|recommend|pick)\b",
+            query_text,
+            re.I,
+        )
+        if match:
+            facets = [phrase.strip() for phrase in match.groups()]
+            if (
+                all(len(phrase) >= 3 for phrase in facets)
+                and len({phrase.casefold() for phrase in facets}) == 3
+            ):
+                return _rerank_document_facets(
+                    query_text, facets, fused, code_results, top_k, source_role=source_role
+                )
+    return _rerank_source_roles(query_text, fused, code_results, top_k, source_role=source_role)
+
+
+def _rerank_document_facets(
+    query: str,
+    facets: list[str],
+    docs: list[dict],
+    code: list[dict],
+    top_k: int,
+    *,
+    source_role: str | None,
+) -> list[dict]:
+    """Cover explicit choices from the existing doc pool with one parallel rerank stage."""
+    reason = None
+    with (
+        stage("document facet rerank", indent=4),
+        ThreadPoolExecutor(max_workers=4) as pool,
+    ):
+        whole_job = submit_with_context(
+            pool, _rerank_source_roles, query, docs, code, top_k, source_role=source_role
+        )
+        jobs = [
+            submit_with_context(pool, rerank, facet, docs, top_k=DOCUMENT_FACET_DEPTH)
+            for facet in facets
+        ]
+        whole = whole_job.result()
+        try:
+            per_facet = [
+                [
+                    row
+                    for row in job.result()
+                    if row.get("rerank_score", 0) >= DOCUMENT_FACET_THRESHOLD
+                ]
+                for job in jobs
+            ]
+        except Exception:
+            logger.warning("Document facet rerank failed; returning whole-query results")
+            per_facet = []
+            reason = "facet_error"
+
+    def source(row: dict) -> tuple:
+        meta = row.get("metadata") or {}
+        return (meta.get("folder_id"), meta.get("source_filename") or row["id"])
+
+    selected = whole[:1]
+    used = {source(row) for row in selected}
+    if not whole or not all("rerank_score" in row for row in whole):
+        reason = reason or "whole_query_unscored"
+    elif len(per_facet) != len(facets) or not all(per_facet):
+        reason = reason or "facet_unscored"
+    else:
+        for rows in per_facet:
+            row = next((hit for hit in rows if source(hit) not in used), None)
+            if row is None:
+                reason = "facet_source_overlap"
+                break
+            selected.append(row)
+            used.add(source(row))
+
+    if reason is None and top_k > len(selected):
+        # Scores are normalized only against the best result for the same
+        # facet. Give the final coverage slot to the closest distinct option.
+        alternatives = [
+            (row["rerank_score"] / rows[0]["rerank_score"], row)
+            for rows in per_facet
+            if (row := next((hit for hit in rows if source(hit) not in used), None))
+        ]
+        if alternatives:
+            selected.append(max(alternatives, key=lambda item: item[0])[1])
+
+    record(
+        "document_facets",
+        n_facets=len(facets),
+        n_code_candidates=len(code),
+        rerank_requests=len(facets) + 1,
+        rerank_pairs=(len(facets) + 1) * len(docs) + len(code),
+        degraded=reason is not None,
+        fallback_reason=reason,
+    )
+    if reason:
+        return whole
+    selected_ids = {row["id"] for row in selected}
+    return (selected + [row for row in whole if row["id"] not in selected_ids])[:top_k]
+
+
+def _rerank_source_roles(
+    query_text: str,
+    fused: list[dict],
+    code_results: list[dict],
+    top_k: int,
+    *,
+    source_role: str | None,
+) -> list[dict]:
     if not code_results:
         return rerank(query_text or "query", fused, top_k=top_k)
     intent = source_role or _source_intent(query_text)
