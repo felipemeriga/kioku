@@ -186,6 +186,7 @@ def answer_question(
     history: list[dict] | None = None,
     scope_folder_ids: list[str] | None = None,
     scope_filename: str | None = None,
+    reasoning_effort: str = "low",
 ) -> dict:
     """Evaluate through the production subscription chat path, then remove the fixture."""
     import json
@@ -229,7 +230,7 @@ def answer_question(
             mode=mode,
             folder_id=folder_id,
             filename=scope_filename,
-            reasoning_effort="low",
+            reasoning_effort=reasoning_effort,
         )
         for event in stream_turn(turn):
             for line in event.splitlines():

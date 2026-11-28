@@ -106,7 +106,8 @@ def test_ragas_judge_preserves_scope_across_async_threads():
 
 
 @pytest.mark.parametrize("profile", ["chat", "completion"])
-def test_evaluation_answer_uses_production_native_bridge_and_cleans_up(profile):
+@pytest.mark.parametrize("effort", [None, "low", "medium"])
+def test_evaluation_answer_uses_production_native_bridge_and_cleans_up(profile, effort):
     import json
 
     from services.rag import answer_question
@@ -131,11 +132,16 @@ def test_evaluation_answer_uses_production_native_bridge_and_cleans_up(profile):
         patch("services.ai.chat.stream_turn", return_value=["data: " + json.dumps(frame)]),
     ):
         result = answer_question(
-            "question", "tenant", mode=mode, scope_folder_ids=["folder", "child"]
+            "question",
+            "tenant",
+            mode=mode,
+            scope_folder_ids=["folder", "child"],
+            **({"reasoning_effort": effort} if effort is not None else {}),
         )
     validate.assert_called_once_with("folder", "tenant")
     assert prepare.call_args.kwargs["owner_id"] == "tenant"
     assert prepare.call_args.kwargs["folder_id"] == "folder"
+    assert prepare.call_args.kwargs["reasoning_effort"] == (effort or "low")
     assert prepared["job_id"] is None
     assert [call.args for call in traces.eq.call_args_list] == [
         ("owner_id", "tenant"),
