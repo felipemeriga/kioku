@@ -131,3 +131,43 @@ python scripts/temporal_graph_poc/score_evidence.py \
 The scorer reads gold only after retrieval. Preserve the gold and replay hashes,
 including unsuccessful trials. Private receipts, source quotations and credentials
 must remain outside git.
+
+### Further controls collected before soak completion
+
+- Five repeated passes completed **240 local method calls**, with zero execution
+  errors and unchanged curated evidence coverage. Median component latency was
+  3.229 ms for equal-facts SQLite, 14.767 ms for Neo4j, and 110.257 ms for the
+  frozen lexical journal proxy. These are warm-process local component timings,
+  not production request latency or model generation time.
+- An automatic, question-independent identifier projection generated 54,937
+  co-mentions over 1,641 identifiers. SQLite adjacency and actual Neo4j traversal
+  returned identical candidates for all 16 questions. Replacing four lexical
+  results with neighboring messages reduced selected-anchor coverage from 5/40
+  to 3/40. Co-mention expansion is not a proven improvement.
+- Eight exploratory paraphrases missed their expected concept with the lexical
+  concept resolver. Reranking bare concept names was also insufficient. A separate
+  baseline embedded all 870 frozen journal bodies using Voyage-3, retaining
+  publication cutoffs, and followed their exact original-window pointers.
+  It reads no curated claims or gold to retrieve candidates. Original transcripts
+  are **not** embedded, and neither production indexes nor retrieval are modified.
+- Semantic journal discovery reached relevant histories for several paraphrases
+  missed by lexical entry selection, but broad questions remained ambiguous.
+  This is a qualitative discovery observation, **not** measured answer accuracy.
+  The exact-anchor diagnostic stayed low (4/40) for its eight-record window budget;
+  different valid supporting events can also miss the selected quotation metric.
+  Better topic discovery must not be reported as complete original-evidence recall.
+- For all 24 vector-window questions, graph and SQL expansion returned identical
+  selected originals. The initial graph window lookup was missing a composite
+  stream/sequence index and took roughly 1–2 seconds. After indexing, the eight
+  paraphrase cases had a 17.506 ms median graph expansion time versus 11.150 ms
+  for SQLite. These timings exclude **precomputed query embeddings** and therefore
+  cannot be used as live semantic-search end-to-end latency.
+- The production read-only replay completed 14/16 cases on its first pass. Two
+  encountered timeouts; retries sometimes passed. A later staged repeat reproduced
+  `evidence_query_timeout` while searching a selected session's originals, after
+  journal discovery had succeeded. This is a separate production finding, not a
+  graph failure, and has not been repaired by this isolated experiment.
+
+The evidence still supports **no demonstrated benefit from adopting a graph
+store in production**. Temporal gating and well-grounded facts help both stores.
+The long-duration run, durability checks and final artifact audit remain pending.
