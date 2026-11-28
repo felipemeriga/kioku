@@ -1,4 +1,4 @@
-"""Replay sealed, read-only real-history queries through the installed Kioku CLI.
+"""Replay sealed, read-only real-history queries through the Kioku CLI on PATH.
 
 This caller never opens gold annotations. Output includes private signed evidence
 references and source excerpts, so it is exclusively created with mode 0600.
@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import time
 from datetime import datetime, timezone
@@ -201,7 +202,8 @@ def run(
                 "cli_repository_cwd": str(Path.cwd()),
                 "query_sha256": actual_hash,
                 "expected_cases": len(queries),
-                "boundary": "installed CLI, fresh public MCP transport, live archive",
+                "boundary": "CLI on PATH -> public MCP -> live archive",
+                "cli_executable": shutil.which("kioku"),
                 "policy": {
                     "order": "relevance",
                     "strategy": strategy,
