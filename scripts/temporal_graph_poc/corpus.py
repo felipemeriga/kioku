@@ -57,7 +57,7 @@ CREATE TABLE objects(id TEXT, session_id TEXT, sha256 TEXT,
 CREATE TABLE records(id TEXT PRIMARY KEY, session_id TEXT, stream_id TEXT,
  generation INTEGER, sequence INTEGER, event_at TEXT, role TEXT, event_type TEXT, channel TEXT,
  native_id TEXT, turn_id TEXT, call_id TEXT, inherited INTEGER, displayable INTEGER,
- source_truncated INTEGER, source_sha256 TEXT, byte_offset INTEGER,
+ source_truncated INTEGER, source_sha256 TEXT, object_id TEXT, byte_offset INTEGER,
  byte_length INTEGER, text TEXT);
 CREATE INDEX records_session ON records(session_id,event_at);
 CREATE INDEX records_call ON records(session_id,call_id);
@@ -222,6 +222,7 @@ def build(private: Path, output: Path):
                 event["displayable"],
                 event.get("source_truncated", False),
                 obj["sha256"],
+                obj["object_id"],
                 event["byte_offset"],
                 event["byte_length"],
                 content,
@@ -232,6 +233,14 @@ def build(private: Path, output: Path):
                 + ")",
                 values,
             ).rowcount
+            if not inserted:
+                previous = db.execute(
+                    "SELECT text,event_at FROM records WHERE id=?", (event["event_id"],)
+                ).fetchone()
+                if previous != (content, timestamp(event.get("event_at"))):
+                    raise ValueError(
+                        "Conflicting bytes or time for a canonical source record"
+                    )
             if inserted and event["displayable"] and not event.get("inherited"):
                 db.execute(
                     "INSERT INTO record_fts VALUES(?,?)",
@@ -250,6 +259,7 @@ def build(private: Path, output: Path):
         "counts": dict(counts),
         "archive_sha256": digest(archive),
         "snapshot_sha256": digest(private / "snapshot.json"),
+        "projection_sha256": digest(Path(__file__)),
         "parser_sha256": digest(
             Path(__file__).resolve().parents[2]
             / "backend/services/agent_evidence_parser.py"

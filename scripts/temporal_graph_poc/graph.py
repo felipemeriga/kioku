@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import sqlite3
+import time
 from pathlib import Path
 
 from corpus import timestamp
@@ -105,7 +106,18 @@ def import_journals(driver, private):
 def import_records(driver, db_path):
     db = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     db.row_factory = sqlite3.Row
+    execute(
+        driver,
+        "CREATE INDEX evidence_sha IF NOT EXISTS FOR (o:EvidenceObject) ON (o.session_id,o.sha256)",
+    )
+    execute(
+        driver,
+        "CREATE INDEX record_call IF NOT EXISTS FOR (r:Record) ON (r.session_id,r.call_id)",
+    )
+    execute(driver, "CALL db.awaitIndexes(60)")
     for table in ["objects", "records"]:
+        started = time.perf_counter()
+        imported = 0
         cursor = db.execute(f"SELECT * FROM {table}")
         while batch := cursor.fetchmany(300):
             rows = [dict(row) for row in batch]
@@ -122,17 +134,21 @@ def import_records(driver, db_path):
                     row["text"] = row["text"][:12000]
                 execute(
                     driver,
-                    "UNWIND $rows AS row MERGE (r:Record {id:row.id}) SET r += row WITH r,row MATCH (s:Session {id:row.session_id}) MERGE (r)-[:IN_SESSION]->(s)",
+                    "UNWIND $rows AS row MERGE (r:Record {id:row.id}) SET r += row WITH r,row OPTIONAL MATCH (r)-[old:ARCHIVED_IN]->() DELETE old WITH DISTINCT r,row MATCH (s:Session {id:row.session_id}) MERGE (r)-[:IN_SESSION]->(s) WITH r,row MATCH (o:EvidenceObject {id:row.session_id+':'+row.object_id}) MERGE (r)-[:ARCHIVED_IN]->(o)",
                     rows=rows,
                 )
-    execute(
-        driver,
-        "CREATE INDEX evidence_sha IF NOT EXISTS FOR (o:EvidenceObject) ON (o.session_id,o.sha256)",
-    )
-    execute(
-        driver,
-        "MATCH (r:Record),(o:EvidenceObject) WHERE r.session_id=o.session_id AND r.source_sha256=o.sha256 MERGE (r)-[:ARCHIVED_IN]->(o)",
-    )
+            imported += len(rows)
+            if imported % 15000 == 0:
+                print(
+                    json.dumps(
+                        {
+                            "table": table,
+                            "imported": imported,
+                            "elapsed_seconds": time.perf_counter() - started,
+                        }
+                    ),
+                    flush=True,
+                )
     links = [dict(row) for row in db.execute("SELECT * FROM journal_links")]
     execute(
         driver,
@@ -146,14 +162,15 @@ def import_records(driver, db_path):
     )
     # Calls/results are evidence of a command and its response, not of the
     # truth of prose emitted by the command. Apply both node cutoffs at recall.
-    execute(
-        driver,
-        "CREATE INDEX record_call IF NOT EXISTS FOR (r:Record) ON (r.session_id,r.call_id)",
+    calls = db.execute(
+        "SELECT DISTINCT session_id,call_id FROM records WHERE event_type='tool_call' AND call_id IS NOT NULL"
     )
-    execute(
-        driver,
-        "MATCH (a:Record) WHERE a.event_type='tool_call' AND a.call_id IS NOT NULL MATCH (b:Record {session_id:a.session_id,call_id:a.call_id}) WHERE b.event_type='tool_result' MERGE (a)-[:HAS_RESULT]->(b)",
-    )
+    while batch := calls.fetchmany(300):
+        execute(
+            driver,
+            "UNWIND $rows AS row MATCH (a:Record {session_id:row.session_id,call_id:row.call_id}) WHERE a.event_type='tool_call' OPTIONAL MATCH (a)-[old:HAS_RESULT]->() DELETE old WITH DISTINCT a,row MATCH (b:Record {session_id:row.session_id,call_id:row.call_id}) WHERE b.event_type='tool_result' AND b.stream_id=a.stream_id AND b.generation=a.generation AND b.sequence>a.sequence MERGE (a)-[:HAS_RESULT]->(b)",
+            rows=[dict(row) for row in batch],
+        )
     db.close()
     return execute(driver, "MATCH (n) RETURN labels(n)[0] AS label,count(*) AS count")
 

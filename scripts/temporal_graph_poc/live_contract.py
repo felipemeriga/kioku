@@ -139,6 +139,10 @@ def run(env_file):
                     result = graph_facts(
                         driver, db, revision, "fixture", timestamp(at), 8, environment
                     )
+                    identities = [c["id"] for c in result["claims"]]
+                    assert len(identities) == len(set(identities)), (
+                        "Duplicate graph result consumed the result budget"
+                    )
                     return {c["key"] for c in result["claims"]}
 
                 assert recall("2026-11-03T12:00:00Z") == {"a", "d"}

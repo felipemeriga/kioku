@@ -154,12 +154,27 @@ def journal_first(db, question, cutoff, limit):
         WHERE record_fts MATCH ? AND r.event_at<=? AND r.inherited=0
           AND r.session_id IN ({placeholders}) ORDER BY score LIMIT ?
     """,
-            [query, cutoff, *sessions, limit],
+            [query, cutoff, *sessions, limit * 20],
         )
     ]
+    unique = []
+    seen = set()
+    for row in records:
+        identity = (
+            row["session_id"],
+            row["role"],
+            row["event_type"],
+            row["event_at"][:19],
+            row["text"],
+        )
+        if identity not in seen:
+            unique.append(row)
+            seen.add(identity)
+        if len(unique) == limit:
+            break
     return {
         "hints": hints[:3],
-        "records": records,
+        "records": unique,
         "baseline_note": "Frozen-corpus journal lexical discovery and scoped original lexical search; no live Voyage reranker.",
     }
 
@@ -234,7 +249,8 @@ def graph_facts(driver, db, revision, question, cutoff, limit, environment=None)
       AND all(e IN relationships(path) WHERE e.known_at<=$cutoff AND EXISTS {{
         MATCH (proof:Record {{id:e.record_id}}) WHERE proof.event_at<=$cutoff AND proof.inherited=0
       }})
-    WITH c,min(length(path)) AS distance
+    WITH c,collect(DISTINCT length(path)) AS distances
+    WITH c,reduce(best=4,depth IN distances | CASE WHEN depth<best THEN depth ELSE best END) AS distance
     ORDER BY distance,c.known_at DESC,c.key
     LIMIT $limit
     MATCH (c)-[support:SUPPORTED_BY]->(r:Record)
