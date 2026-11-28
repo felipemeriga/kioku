@@ -44,6 +44,21 @@ _PRIMARY_VARIANT_WEIGHT = 1.0
 _AUX_VARIANT_WEIGHT = 0.6
 
 
+def _requests_component_coverage(query: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(?:across|from|between|in)\s+"
+            r"(?:all(?:\s+(?:two|three|four|five|\d+))?|multiple|several|both|"
+            r"two|three|four|five|\d+)\s+(?:repos(?:itories)?|services|codebases)\b"
+            r"|\b(?:em|de|dos|das|entre)\s+"
+            r"(?:todos os|todas as|m[uú]ltiplos|v[aá]rios|ambos os|dois|tr[eê]s|quatro|\d+)"
+            r"(?:\s+(?:dois|tr[eê]s|quatro|\d+))?\s+(?:reposit[oó]rios|servi[çc]os)\b",
+            query,
+            re.I,
+        )
+    )
+
+
 def _source_intent(query: str, *, ambiguous_default: str | None = "balanced") -> str | None:
     """Conservative source preference, without another model or network call."""
     code = bool(
@@ -65,22 +80,19 @@ def _source_intent(query: str, *, ambiguous_default: str | None = "balanced") ->
             re.I,
         )
     )
-    if not docs and re.search(
-        r"\bflow\b.{0,100}\bfrom\b.{0,100}\b(?:through|via)\b.{0,100}\bto\b"
-        r"|\btrace\b.{0,100}\b(?:request|event|call|transaction|execution)\b"
-        r".{0,100}\b(?:across|between|through)\b"
-        r"|\bend[- ]to[- ]end\s+(?:flow|path)\b"
-        r"|\bfluxo\b.{0,100}\b(?:entre|atrav[eé]s dos?)\b"
-        r"|\b(?:across|from|between|in)\s+"
-        r"(?:all(?:\s+(?:two|three|four|five|\d+))?|multiple|several|both|"
-        r"two|three|four|five|\d+)\s+(?:repos(?:itories)?|services|codebases)\b"
-        r"|\b(?:em|de|dos|das|entre)\s+"
-        r"(?:todos os|todas as|m[uú]ltiplos|v[aá]rios|ambos os|dois|tr[eê]s|quatro|\d+)"
-        r"(?:\s+(?:dois|tr[eê]s|quatro|\d+))?\s+(?:reposit[oó]rios|servi[çc]os)\b"
-        r"|\b(?:calculat\w*|comput\w*)\b.{0,120}"
-        r"\b(?:record(?:s|ed)?|writ(?:e|es|ten)|persist(?:s|ed)?|stor(?:e|es|ed))\b",
-        query,
-        re.I | re.S,
+    if not docs and (
+        _requests_component_coverage(query)
+        or re.search(
+            r"\bflow\b.{0,100}\bfrom\b.{0,100}\b(?:through|via)\b.{0,100}\bto\b"
+            r"|\btrace\b.{0,100}\b(?:request|event|call|transaction|execution)\b"
+            r".{0,100}\b(?:across|between|through)\b"
+            r"|\bend[- ]to[- ]end\s+(?:flow|path)\b"
+            r"|\bfluxo\b.{0,100}\b(?:entre|atrav[eé]s dos?)\b"
+            r"|\b(?:calculat\w*|comput\w*)\b.{0,120}"
+            r"\b(?:record(?:s|ed)?|writ(?:e|es|ten)|persist(?:s|ed)?|stor(?:e|es|ed))\b",
+            query,
+            re.I | re.S,
+        )
     ):
         return "cross_component"
     if code:
@@ -148,11 +160,12 @@ def _is_test_source(path: str) -> bool:
 def _cross_component_code(code: list[dict], query: str) -> list[dict]:
     """Prefer distinct repositories and one nearby window of the same source."""
     wants_tests = bool(re.search(r"\b(?:tests?|testing|fixtures?|testes?|testagem)\b", query, re.I))
+    explicit_coverage = _requests_component_coverage(query)
     by_folder = {}
     for doc in code:
         folder = (doc.get("metadata") or {}).get("folder_id")
         representative = by_folder.setdefault(folder, doc)
-        if wants_tests or representative is doc:
+        if not explicit_coverage or wants_tests or representative is doc:
             continue
         existing, candidate = _source_window(representative), _source_window(doc)
         if (
@@ -168,6 +181,8 @@ def _cross_component_code(code: list[dict], query: str) -> list[dict]:
     representatives = list(by_folder.values())
     representative_ids = {id(doc) for doc in representatives}
     extra = [doc for doc in code if id(doc) not in representative_ids]
+    if not explicit_coverage:
+        return representatives + extra
     for index, doc in enumerate(extra):
         folder = (doc.get("metadata") or {}).get("folder_id")
         if not folder:
