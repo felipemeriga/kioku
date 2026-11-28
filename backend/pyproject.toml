@@ -1,6 +1,6 @@
 [project]
 name = "backend"
-version = "0.3.132"
+version = "0.3.133"
 description = "Add your description here"
 requires-python = ">=3.12"
 dependencies = [
