@@ -67,6 +67,7 @@ def native_completion(
     max_tokens: int,
     tools: list | None,
     fallback_scope: ExecutionScope | None = None,
+    judge_schema: dict | None = None,
 ) -> Completion | None:
     scope = operation_scope(operation) or fallback_scope
     engine_for(operation, scope.owner_id if scope else None)
@@ -122,7 +123,7 @@ def native_completion(
             "failed requires null data and typed failure. Put plain-text task output in data.text, "
             "three multi_query search strings in data.queries, or JSON-object output in data.value."
         ),
-        "response_schema": completion_schema(operation),
+        "response_schema": completion_schema(operation, judge_schema=judge_schema),
         "model": model,
         "max_tokens": transport_max_tokens,
         "metadata": {
@@ -143,7 +144,7 @@ def native_completion(
     client = client_for(scope, operation, profile)
     try:
         result = client.complete(request)
-        text = completion_text(operation, result.structured)
+        text = completion_text(operation, result.structured, judge_schema=judge_schema)
         consume_result(
             scope,
             operation,
