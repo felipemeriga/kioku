@@ -431,6 +431,7 @@ async def read_agent_evidence(
 ) -> str:
     """Read bounded originals or dated journal reports.
 
+    Native chat permits zero or one neighbor per side and 1000 to 8000 characters.
     Follow next_reference for remaining journal text.
     """
     return await asyncio.to_thread(

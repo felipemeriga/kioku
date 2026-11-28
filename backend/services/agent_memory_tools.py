@@ -92,6 +92,7 @@ DEFINITIONS = [
             "and reports/proposals/commands from observations or deployment."
             " Activity-day references expand dated journal reports, explicitly labeled "
             "separately from originals. Follow next_reference when a day is truncated."
+            " Native chat permits zero or one neighbor per side and 1000 to 8000 characters."
         ),
         "input_schema": {
             "type": "object",
