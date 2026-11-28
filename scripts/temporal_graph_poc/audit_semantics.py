@@ -102,7 +102,8 @@ def audit(corpus, env_file, revision):
     if set(actual) != set(expected):
         failures.append("claim_id_set")
     for key, c in expected.items():
-        if any(actual.get(key, {}).get(field) != value for field, value in c.items()):
+        persisted = {field: value for field, value in c.items() if value is not None}
+        if actual.get(key) != persisted:
             failures.append("claim_fields:" + key)
         if c.get("current_validity") != "not_established_by_archive":
             failures.append("unverified_current_state_promoted:" + key)
