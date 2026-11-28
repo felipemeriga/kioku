@@ -110,7 +110,8 @@ Use a hint to refine the query, pass its `session_id` to `--session` and its
 `follow_up_as_of` to `--as-of`, and keep the same date filters. This follow-up
 searches originals in one session. To page within it, pass
 `--session <selected_session_id> --as-of <pagination_as_of> --offset <next_offset>`
-with `--strategy journal-guided`. Use `--strategy original`, the default, to
+with `--strategy journal-guided`. Use `--evidence-mode cached-preview` to defer
+opening deep originals. Use `--strategy original`, the default, to
 search across authorized sessions or check for later evidence. When no journal
 can guide discovery, the result reports that it used the original strategy.
 

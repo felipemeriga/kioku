@@ -18,6 +18,14 @@ SEARCH_PROPERTIES = {
             "Use original to search across authorized sessions and check for later evidence."
         ),
     },
+    "evidence_mode": {
+        "type": "string",
+        "enum": ["hydrate", "cached_preview"],
+        "description": (
+            "Cached preview mode returns exact indexed excerpts when available. "
+            "Open references marked requires_evidence_read before citing those records."
+        ),
+    },
     "projection": {
         "type": "string",
         "enum": ["discovery", "overview"],
@@ -181,6 +189,9 @@ def execute_memory_tool(
             if w not in STOP and len(w) > 1
         }
         for row in result.get("matches", []):
+            if row.get("requires_evidence_read"):
+                row["excerpt_has_more"] = True
+                continue
             body = row["excerpt"]
             # Center a small discovery excerpt around query terms. Expansion
             # always uses the signed locator into the complete archived record.
@@ -205,6 +216,8 @@ def execute_memory_tool(
     if citations or debug_retrieval is not None:
         rows = result.get("matches", result.get("evidence", []))
         for row in rows:
+            if row.get("requires_evidence_read"):
+                continue
             fid = row.get("folder_id") or result.get("folder_id")
             sid = row.get("session_id") or result.get("session_id")
             repo = row.get("repository") or result.get("repository") or repositories.get(fid, fid)

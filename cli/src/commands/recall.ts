@@ -8,6 +8,7 @@ export interface HistoryOptions {
   timezone?: string;
   session?: string;
   strategy?: string;
+  evidenceMode?: string;
   order?: string;
   limit?: string;
   offset?: string;
@@ -55,6 +56,13 @@ export function historyArguments(
   if (strategy !== undefined && !["original", "journal-guided"].includes(strategy)) {
     throw new Error("Strategy must be original or journal-guided.");
   }
+  const evidenceMode = opts.evidenceMode;
+  if (
+    evidenceMode !== undefined &&
+    !["hydrate", "cached-preview"].includes(evidenceMode)
+  ) {
+    throw new Error("Evidence mode must be hydrate or cached-preview.");
+  }
   return Object.fromEntries(
     Object.entries({
       query,
@@ -65,6 +73,8 @@ export function historyArguments(
       timezone,
       session: opts.session,
       strategy: strategy === "journal-guided" ? "journal_guided" : strategy,
+      evidence_mode:
+        evidenceMode === "cached-preview" ? "cached_preview" : evidenceMode,
       order,
       limit: integerOption(opts.limit, 10, 1, 50),
       offset: integerOption(opts.offset, 0, 0, 1000000),

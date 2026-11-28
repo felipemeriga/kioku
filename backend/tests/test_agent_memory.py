@@ -649,7 +649,8 @@ def test_native_chat_receives_browser_timezone_and_memory_tool_contract():
     assert "timezone" not in request["metadata"]["intent"]
 
 
-def test_fresh_mcp_transport_search_then_expand_preserves_time_scope(monkeypatch):
+@pytest.mark.parametrize("evidence_mode", ["hydrate", "cached_preview"])
+def test_fresh_mcp_transport_search_then_expand_preserves_time_scope(monkeypatch, evidence_mode):
     from fastapi.testclient import TestClient
 
     import mcp_server
@@ -731,12 +732,18 @@ def test_fresh_mcp_transport_search_then_expand_preserves_time_scope(monkeypatch
                             "folder": "repo",
                             "as_of": "2026-11-05",
                             "timezone": "America/Sao_Paulo",
+                            "evidence_mode": evidence_mode,
                         },
                     },
                 },
             )
         )
-        assert result["matches"][0]["excerpt"] == full
+        match = result["matches"][0]
+        if evidence_mode == "cached_preview":
+            assert match["excerpt"] == ""
+            assert match["requires_evidence_read"] is True
+        else:
+            assert match["excerpt"] == full
         result = decoded(
             client.post(
                 "/mcp",
@@ -1412,3 +1419,70 @@ def test_journal_discovery_reranks_reports_without_searching_originals(reranked)
     assert result["journal_hints"][0]["source_kind"] == "journal_report"
     assert result["journal_hints"][0]["session_id"] == SESSION
     assert result["journal_hints"][0]["follow_up_as_of"] == "2026-11-06"
+
+
+@pytest.mark.parametrize("strategy", ["original", "journal_guided"])
+def test_cached_preview_defers_deep_span_without_changing_rank_or_reference(monkeypatch, strategy):
+    from services.agent_memory_tools import execute_memory_tool
+
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "test-only-reference-key")
+    expected = "GOMEMLIMIT=3GiB"
+    archived = "early context " * 400 + expected
+    sb = archive(archived)
+    event = sb.rows["agent_evidence_events"][0]
+    hit = {
+        **event,
+        "native_session_id": "native",
+        "agent": "codex",
+        "char_start": len("exec\n") + archived.index(expected),
+        "char_length": len(expected),
+        "content_preview": "exec\nearly context",
+    }
+    arguments = {"query": "memory", "as_of": "2026-11-06T00:00:00Z"}
+    matches = {"matches": [hit], "total_matches": 1, "has_more": False}
+    if strategy == "journal_guided":
+        arguments.update(strategy=strategy, session=SESSION)
+        result = {"folder_id": FOLDER, "session_id": SESSION, "result": matches}
+    else:
+        result = matches
+    sb.rpc = lambda *_: SimpleNamespace(execute=lambda: SimpleNamespace(data=result))
+    hydrated = search_memory(sb, OWNER, [FOLDER], **arguments)
+    assert hydrated["matches"][0]["excerpt"] == expected
+    assert "evidence_mode" not in hydrated
+
+    debug = []
+    with patch("services.agent_memory.original_text", side_effect=AssertionError("Storage read")):
+        preview = json.loads(
+            execute_memory_tool(
+                sb,
+                "search_agent_history",
+                {**arguments, "evidence_mode": "cached_preview"},
+                OWNER,
+                [FOLDER],
+                debug_retrieval=debug,
+            )
+        )
+    match = preview["matches"][0]
+    assert preview["evidence_mode"] == "cached_preview"
+    assert preview["total_matches"] == hydrated["total_matches"]
+    assert preview["time_scope"] == hydrated["time_scope"]
+    assert match["reference"] == hydrated["matches"][0]["reference"]
+    assert match["requires_evidence_read"] is True
+    assert match["excerpt_has_more"] is True
+    assert match["provenance"] == "original_locator"
+    assert match["excerpt"] == ""
+    assert debug == []
+
+    expanded = read_memory(sb, OWNER, [FOLDER], match["reference"])
+    assert expanded["time_scope"] == hydrated["time_scope"]
+    assert [record["event_id"] for record in expanded["evidence"]] == [hit["event_id"]]
+    assert expected in expanded["evidence"][0]["excerpt"]
+    with pytest.raises(HTTPException) as denied:
+        read_memory(sb, OWNER, [SIBLING], match["reference"])
+    assert denied.value.status_code == 404
+
+    hit["content_preview"] = "exec\n" + archived
+    with patch("services.agent_memory.original_text", side_effect=AssertionError("Storage read")):
+        cached = search_memory(sb, OWNER, [FOLDER], evidence_mode="cached_preview", **arguments)
+    assert cached["matches"][0]["excerpt"] == expected
+    assert "requires_evidence_read" not in cached["matches"][0]
