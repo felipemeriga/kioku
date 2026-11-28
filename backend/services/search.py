@@ -25,8 +25,7 @@ CODE_BLEND_TOP_N = 20
 CODE_BLEND_FETCH = 40
 
 # Reserve sources only when the question asks for their role.
-CODE_RESERVE_SLOTS = 4
-IMPLEMENTATION_CODE_RESERVE_SLOTS = 5
+CODE_RESERVE_SLOTS = 5
 CODE_RESERVE_THRESHOLD = 0.45
 CROSS_COMPONENT_EVIDENCE_MARGIN = 0.075
 DOCUMENT_RESERVE_SLOTS = 3
@@ -160,12 +159,11 @@ def _is_test_source(path: str) -> bool:
 def _cross_component_code(code: list[dict], query: str) -> list[dict]:
     """Prefer distinct repositories and one nearby window of the same source."""
     wants_tests = bool(re.search(r"\b(?:tests?|testing|fixtures?|testes?|testagem)\b", query, re.I))
-    explicit_coverage = _requests_component_coverage(query)
     by_folder = {}
     for doc in code:
         folder = (doc.get("metadata") or {}).get("folder_id")
         representative = by_folder.setdefault(folder, doc)
-        if not explicit_coverage or wants_tests or representative is doc:
+        if wants_tests or representative is doc:
             continue
         existing, candidate = _source_window(representative), _source_window(doc)
         if (
@@ -181,8 +179,6 @@ def _cross_component_code(code: list[dict], query: str) -> list[dict]:
     representatives = list(by_folder.values())
     representative_ids = {id(doc) for doc in representatives}
     extra = [doc for doc in code if id(doc) not in representative_ids]
-    if not explicit_coverage:
-        return representatives + extra
     for index, doc in enumerate(extra):
         folder = (doc.get("metadata") or {}).get("folder_id")
         if not folder:
@@ -240,10 +236,7 @@ def _rerank_sources(
         ]
         if intent == "cross_component":
             preferred = _cross_component_code(preferred, query_text)
-        reserve = (
-            CODE_RESERVE_SLOTS if intent == "cross_component" else IMPLEMENTATION_CODE_RESERVE_SLOTS
-        )
-        preferred = preferred[: min(reserve, top_k)]
+        preferred = preferred[: min(CODE_RESERVE_SLOTS, top_k)]
     else:
         return pool[:top_k]
     keep = {id(d) for d in preferred}
