@@ -260,8 +260,21 @@ def concept_seeds(db, revision, question):
     ][:3]
 
 
-def flat_facts(db, revision, question, cutoff, limit, environment=None, mode=None):
-    concepts = concept_seeds(db, revision, question)
+def flat_facts(
+    db,
+    revision,
+    question,
+    cutoff,
+    limit,
+    environment=None,
+    mode=None,
+    seed_concepts=None,
+):
+    concepts = (
+        concept_seeds(db, revision, question)
+        if seed_concepts is None
+        else seed_concepts
+    )
     output = []
     for row in db.execute(
         "SELECT payload FROM claims WHERE revision=? AND known_at<=? AND valid_at<=? ORDER BY known_at DESC,key",
@@ -328,12 +341,24 @@ def safe_claim(variable):
 
 
 def graph_facts(
-    driver, db, revision, question, cutoff, limit, environment=None, mode=None
+    driver,
+    db,
+    revision,
+    question,
+    cutoff,
+    limit,
+    environment=None,
+    mode=None,
+    seed_concepts=None,
 ):
     # Both stores use the same concept resolver and extracted facts. Neo4j chooses
     # its own seeds and performs actual semantic and co-topic traversal. Co-topic
     # edges are discovery only: they do not assert causality or supersession.
-    concepts = concept_seeds(db, revision, question)
+    concepts = (
+        concept_seeds(db, revision, question)
+        if seed_concepts is None
+        else seed_concepts
+    )
     parameters = {
         "revision": revision,
         "cutoff": cutoff,
@@ -351,7 +376,7 @@ def graph_facts(
     )
     seeds = [row["id"] for row in seed_rows]
     query = f"""
-    CALL {{
+    CALL () {{
     MATCH (seed:Claim) WHERE seed.id IN $seeds AND seed.revision=$revision
     MATCH path=(seed)-[:{RELATION_PATTERN}*0..3]-(c:Claim)
     WHERE all(n IN nodes(path) WHERE {safe_claim("n")})
