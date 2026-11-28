@@ -189,3 +189,13 @@ Their broad memory question now misses different anchors: SQLite omits the
 combined-controls experiment; Neo4j omits the older isolated SDK comparison.
 Equal aggregate scores do not mean identical answers or complete coverage.
 The 232 exact knowledge-boundary checks passed again after the ranking change.
+
+### Completed short load trial
+
+A ten-minute local run with four concurrent clients completed **9,379 queries**
+with zero execution/provenance/cutoff failures. All 16 frozen questions returned
+stable result fingerprints across repetitions. Median latency was 16.152 ms,
+p95 25.308 ms and maximum 77.302 ms. The corpus and manually reviewed fact overlay
+were unchanged. This is graph-component stability under bounded load; it does
+not measure generated-answer accuracy, tenant authorization or production capacity.
+The separate two-hour load and four-hour source/cutoff run remain active.
