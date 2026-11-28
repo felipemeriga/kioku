@@ -3,9 +3,10 @@
 import json
 import sqlite3
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from corpus import SCHEMA
+from graph import execute
 from recall import (
     concept_seeds,
     graph_facts,
@@ -38,6 +39,18 @@ class RecallBoundaries(unittest.TestCase):
 
     def tearDown(self):
         self.db.close()
+
+    def test_cypher_query_parameter_does_not_collide_with_helper_arguments(self):
+        driver = MagicMock()
+        driver.execute_query.return_value = ([], None, None)
+        self.assertEqual(
+            execute(driver, "RETURN $query", query="literal search text"), []
+        )
+        driver.execute_query.assert_called_once_with(
+            "RETURN $query",
+            parameters_={"query": "literal search text"},
+            database_="neo4j",
+        )
 
     def test_acronym_inside_an_unrelated_word_does_not_match(self):
         self.assertEqual(

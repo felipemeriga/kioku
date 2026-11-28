@@ -25,8 +25,10 @@ def connect(env_file):
     return driver
 
 
-def execute(driver, query, **parameters):
-    rows, _, _ = driver.execute_query(query, parameters_=parameters, database_="neo4j")
+def execute(driver, statement, /, **parameters):
+    rows, _, _ = driver.execute_query(
+        statement, parameters_=parameters, database_="neo4j"
+    )
     return [row.data() for row in rows]
 
 
