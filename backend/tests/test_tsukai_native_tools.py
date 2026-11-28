@@ -86,6 +86,7 @@ def test_tool_trace_keeps_exact_result_and_bounded_preview():
         "turn_id": "turn",
         "operation": "rag_agent",
         "tool_allowlist": ["knowledge_base_search"],
+        "source_role": "implementation",
     }
     client = MagicMock()
     exact = "x" * 5000
@@ -93,6 +94,7 @@ def test_tool_trace_keeps_exact_result_and_bounded_preview():
     def execute(*args, **kwargs):
         assert kwargs["fast_mode"] is True
         assert kwargs["full_debug"] is True
+        assert kwargs["source_role"] == "implementation"
         kwargs["debug_retrieval"].append({"content": exact, "folder_id": "folder"})
         return exact
 
