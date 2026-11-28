@@ -16,7 +16,15 @@ from corpus import timestamp
 from graph import connect, execute
 
 RELATIONS = frozenset({"SUPERSEDES", "RETESTS", "CONTRADICTS", "EXPLAINS", "RESOLVES"})
-AUTHORITIES = frozenset({"user_request", "assistant_report", "tool_observation"})
+AUTHORITIES = frozenset(
+    {
+        "user_request",
+        "user_report",
+        "user_correction",
+        "assistant_report",
+        "tool_observation",
+    }
+)
 STATUSES = frozenset(
     {
         "proposed",
@@ -41,7 +49,11 @@ def validate(bundle, db):
         raise ValueError("Extraction is not pinned to this frozen corpus")
     if not bundle.get("claims") or not bundle.get("concepts"):
         raise ValueError("No claims or concepts")
-    canonical = json.dumps(bundle, sort_keys=True, separators=(",", ":")).encode()
+    canonical = json.dumps(
+        {"normalization_schema": 2, "bundle": bundle},
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
     revision = hashlib.sha256(canonical).hexdigest()
     concepts = {row["id"] for row in bundle["concepts"]}
     claims = {row["id"]: row for row in bundle["claims"]}
@@ -78,7 +90,10 @@ def validate(bundle, db):
                 {"claim_key": key, **reference, "source_sha256": row["source_sha256"]}
             )
         roles = {row["role"] for row in sources}
-        if claim["authority"] == "user_request" and "user" not in roles:
+        if (
+            claim["authority"] in {"user_request", "user_report", "user_correction"}
+            and "user" not in roles
+        ):
             raise ValueError("User request has no user original")
         if claim["authority"] == "assistant_report" and "assistant" not in roles:
             raise ValueError("Assistant report has no assistant original")
@@ -100,6 +115,10 @@ def validate(bundle, db):
                 "authority": claim["authority"],
                 "known_at": known,
                 "valid_at": valid,
+                "valid_time_basis": "explicit_event_time"
+                if claim.get("valid_at")
+                else "original_report_time",
+                "current_validity": "not_established_by_archive",
                 "concepts": claim["concepts"],
                 "environment": claim.get("environment", "unknown"),
                 "host": claim.get("host", "unknown"),

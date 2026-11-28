@@ -55,6 +55,7 @@ class EvidenceContract(unittest.TestCase):
         _, claims, _, _ = validate(self.bundle, self.db)
         self.assertEqual(claims[0]["known_at"], timestamp("2026-11-05T12:00:00Z"))
         self.assertEqual(claims[0]["valid_at"], timestamp("2026-11-01T12:00:00Z"))
+        self.assertEqual(claims[0]["current_validity"], "not_established_by_archive")
 
     def test_fabricated_quote_is_rejected(self):
         self.bundle["claims"][0]["supports"][0]["quote"] = (
