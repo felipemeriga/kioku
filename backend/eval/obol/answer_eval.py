@@ -91,7 +91,10 @@ CORRECTNESS = [
 ]
 
 JUDGE_SYSTEM = (
-    "You are a strict RAG evaluation judge. Grade the ANSWER, not the corpus. "
+    "You are a RAG evaluation judge. Grade the ANSWER, not the corpus. "
+    "Check correctness, not exhaustive repetition of context. Omitted context facts "
+    "are not errors unless the rubric explicitly requires them. A summary need not "
+    "repeat every positive and negative statement. "
     "CONTEXT may contain mutually inconsistent sources. Reporting their disagreement "
     "accurately is not an answer error. Do not list a source discrepancy itself as an "
     "answer problem. For every failure quote the offending ANSWER claim and explain "
@@ -141,7 +144,8 @@ def _calibrate_judge() -> None:
         (
             "The code credits processor_clearing for R and reverses the platform fee only. "
             "It does not reverse the processor fee.",
-            "The code credits processor_clearing for R and reverses the platform fee only.",
+            "The code credits processor_clearing for R and reverses the platform fee only. "
+            "It does not reverse the processor fee.",
             True,
         ),
         (
