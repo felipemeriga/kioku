@@ -153,12 +153,23 @@ def test_event_behavior_returns_relevant_implementation_alongside_documentation(
             5,
         )
     assert [r["id"] for r in results] == [
+        "dispatcher",
+        "handler-body",
         "guide-0",
         "guide-1",
         "guide-2",
-        "dispatcher",
-        "handler-body",
     ]
+
+
+def test_freshness_keeps_implementation_evidence_ahead_of_supporting_docs():
+    code = hit("implementation", 0.8, "code")
+    old_doc = {**hit("old-guide", 0.87), "created_at": "2020-01-01"}
+    fresh_doc = {**hit("fresh-guide", 0.86), "created_at": datetime.now(timezone.utc).isoformat()}
+    result = _apply_recency_decay(
+        [code, old_doc, fresh_doc],
+        query_text="What happens in the backend when a job is processed?",
+    )
+    assert [r["id"] for r in result] == ["implementation", "fresh-guide", "old-guide"]
 
 
 def test_deduplication_preserves_repo_scope_literals_and_indentation():
