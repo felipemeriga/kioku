@@ -28,6 +28,7 @@ CODE_BLEND_FETCH = 40
 CODE_RESERVE_SLOTS = 4
 IMPLEMENTATION_CODE_RESERVE_SLOTS = 5
 CODE_RESERVE_THRESHOLD = 0.45
+CROSS_COMPONENT_EVIDENCE_MARGIN = 0.075
 DOCUMENT_RESERVE_SLOTS = 3
 SOURCE_RELEVANCE_MARGIN = 0.15
 
@@ -128,6 +129,68 @@ def _deduplicate_code(rows: list[dict]) -> list[dict]:
     return out
 
 
+def _source_window(result: dict) -> tuple[str, int, int] | None:
+    """Read the file and exact range of an indexed code result."""
+    location = (result.get("metadata") or {}).get("source_filename", "")
+    path, _, span = location.rpartition(":")
+    first, _, last = span.partition("-")
+    if not path or not first.isdigit() or not last.isdigit():
+        return None
+    return path, int(first), int(last)
+
+
+def _is_test_source(path: str) -> bool:
+    return bool(
+        re.search(r"(?:^|/)(?:tests?|__tests__)/|(?:^|/)test_|(?:[._-]test|[._-]spec)\.", path)
+    )
+
+
+def _cross_component_code(code: list[dict], query: str) -> list[dict]:
+    """Prefer distinct repositories and one nearby window of the same source."""
+    wants_tests = bool(re.search(r"\b(?:tests?|testing|fixtures?|testes?|testagem)\b", query, re.I))
+    by_folder = {}
+    for doc in code:
+        folder = (doc.get("metadata") or {}).get("folder_id")
+        representative = by_folder.setdefault(folder, doc)
+        if wants_tests or representative is doc:
+            continue
+        existing, candidate = _source_window(representative), _source_window(doc)
+        if (
+            existing
+            and candidate
+            and _is_test_source(existing[0])
+            and not _is_test_source(candidate[0])
+            and representative["rerank_score"] - doc["rerank_score"]
+            <= CROSS_COMPONENT_EVIDENCE_MARGIN
+        ):
+            by_folder[folder] = doc
+
+    representatives = list(by_folder.values())
+    representative_ids = {id(doc) for doc in representatives}
+    extra = [doc for doc in code if id(doc) not in representative_ids]
+    for index, doc in enumerate(extra):
+        folder = (doc.get("metadata") or {}).get("folder_id")
+        if not folder:
+            continue
+        first = _source_window(by_folder[folder])
+        second = _source_window(doc)
+        if not first or not second:
+            continue
+        path, start, end = first
+        other_path, other_start, other_end = second
+        if (
+            path == other_path
+            and other_start <= end + 1
+            and start <= other_end + 1
+            and (other_start < start or other_end > end)
+            and by_folder[folder]["rerank_score"] - doc["rerank_score"]
+            <= CROSS_COMPONENT_EVIDENCE_MARGIN
+        ):
+            extra.insert(0, extra.pop(index))
+            break
+    return representatives + extra
+
+
 def _rerank_sources(
     query_text: str,
     fused: list[dict],
@@ -161,16 +224,7 @@ def _rerank_sources(
             and d.get("rerank_score", 0.0) >= CODE_RESERVE_THRESHOLD
         ]
         if intent == "cross_component":
-            # Give each relevant repository a slot before filling with
-            # additional chunks from repositories already represented.
-            by_folder = {}
-            for doc in preferred:
-                folder = (doc.get("metadata") or {}).get("folder_id")
-                by_folder.setdefault(folder, doc)
-            representative_ids = {id(doc) for doc in by_folder.values()}
-            preferred = list(by_folder.values()) + [
-                doc for doc in preferred if id(doc) not in representative_ids
-            ]
+            preferred = _cross_component_code(preferred, query_text)
         reserve = (
             CODE_RESERVE_SLOTS if intent == "cross_component" else IMPLEMENTATION_CODE_RESERVE_SLOTS
         )
