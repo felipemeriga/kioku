@@ -2311,6 +2311,7 @@ def search_agent_history(
     offset: int = 0,
     queries: list[str] | None = None,
     projection: str = "discovery",
+    evidence_mode: str = "hydrate",
 ) -> str:
     """Recall previous agent work from originals within this key's authorized subtree.
 
@@ -2324,6 +2325,9 @@ def search_agent_history(
     supplied IANA timezone; through_date is inclusive. as_of is a local day or
     offset-aware timestamp, enforced before retrieval and evidence expansion.
     Resolve relative dates using the user's timezone; do not guess the year.
+    Use evidence_mode="cached_preview" to discover references without downloading
+    originals. A match marked requires_evidence_read has no excerpt until you
+    open its reference with read_agent_evidence.
     Follow has_more and index_pending_objects; incomplete results do not prove
     no work occurred. Returned references expand through read_agent_evidence.
     """
@@ -2341,6 +2345,7 @@ def search_agent_history(
         offset=offset,
         queries=queries,
         projection=projection,
+        evidence_mode=evidence_mode,
     )
 
 
