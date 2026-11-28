@@ -9,9 +9,13 @@ from services.ai.client import ExecutionError
 from services.ai.registry import TASK_POLICIES
 
 
-def completion_schema(operation: str) -> dict:
+def completion_schema(operation: str, *, judge_schema: dict | None = None) -> dict:
     output = TASK_POLICIES[operation].output
-    if output == "queries":
+    if judge_schema is not None:
+        if operation != "eval_judge":
+            raise ExecutionError("unsupported_judge_schema")
+        properties = {"value": judge_schema}
+    elif output == "queries":
         properties = {
             "queries": {
                 "type": "array",
@@ -149,9 +153,11 @@ def completion_envelope(data_schema: dict) -> dict:
     }
 
 
-def completion_text(operation: str, structured: dict | None) -> str:
+def completion_text(
+    operation: str, structured: dict | None, *, judge_schema: dict | None = None
+) -> str:
     try:
-        validate(structured, completion_schema(operation))
+        validate(structured, completion_schema(operation, judge_schema=judge_schema))
     except ValidationError:
         raise ExecutionError("invalid_completion_envelope") from None
     outcome = structured["outcome"]
@@ -161,7 +167,7 @@ def completion_text(operation: str, structured: dict | None) -> str:
         raise ExecutionError("invalid_completion_outcome")
     data = structured["data"]
     output = TASK_POLICIES[operation].output
-    if output == "json":
+    if output == "json" or judge_schema is not None:
         return json.dumps(data["value"], ensure_ascii=False)
     values = data["queries"] if output == "queries" else [data["text"]]
     clarification = re.compile(
