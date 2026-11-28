@@ -28,6 +28,8 @@ cover only one component, search separately for the uncovered parts; do not fill
 gaps from general knowledge. Do not add worked numerical examples unless requested.
 For implementation calculations or guarantees, a caller or comment is not sufficient evidence:
 retrieve the responsible function body, or state only what the documentation describes.
+For a conditional guarantee, state the observed executable mechanism first, then the
+conclusion. Do not start with a yes/no verdict before checking the mechanism.
 For duplicate-request protection, consider two separate requests: determine whether they reuse
 the same identifier before claiming deduplication. A different key on each request cannot
 provide that guarantee. Keep the direct answer consistent with this executable behavior.
