@@ -65,9 +65,13 @@ def _source_intent(query: str) -> str:
     )
     if not docs and re.search(
         r"\bflow\b.{0,100}\bfrom\b.{0,100}\b(?:through|via)\b.{0,100}\bto\b"
+        r"|\btrace\b.{0,100}\b(?:request|event|call|transaction|execution)\b"
+        r".{0,100}\b(?:across|between|through)\b"
+        r"|\bend[- ]to[- ]end\s+(?:flow|path)\b"
+        r"|\bfluxo\b.{0,100}\b(?:entre|atrav[eé]s dos?)\b"
         r"|\b(?:calculat\w*|comput\w*)\b.{0,120}\b(?:records?|writes?|persists?|stores?)\b",
         query,
-        re.I,
+        re.I | re.S,
     ):
         return "cross_component"
     if code:
