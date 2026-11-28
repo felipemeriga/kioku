@@ -123,10 +123,14 @@ def _judge(
         "type": "object",
         "properties": {
             criterion: {"type": "boolean"},
-            issues: {"type": "array", "items": {"type": "string"}},
+            issues: {"type": "array", "items": {"type": "string", "minLength": 1}},
         },
         "required": [criterion, issues],
         "additionalProperties": False,
+        "oneOf": [
+            {"properties": {criterion: {"const": True}, issues: {"maxItems": 0}}},
+            {"properties": {criterion: {"const": False}, issues: {"minItems": 1}}},
+        ],
     }
     msg = json.dumps(
         {
