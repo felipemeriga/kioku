@@ -270,6 +270,12 @@ def prefetch(question, user_timezone, execute, *, filename=None, folders=(), rep
     session = re.search(r"\bsession\s+([a-z0-9][a-z0-9_.:-]{6,179})", question, re.I)
     if session:
         args["session"] = session[1]
+    if (
+        not overview
+        and args["query"].strip()
+        and not {"session", "from_date", "through_date"}.intersection(args)
+    ):
+        args.update(strategy="journal_guided", evidence_mode="cached_preview")
     pages = []
 
     def decoded(value):
@@ -293,7 +299,7 @@ def prefetch(question, user_timezone, execute, *, filename=None, folders=(), rep
             decoded(run("search_agent_history", {**args, "offset": activity["next_offset"]}))
         )
     expansions = []
-    if not overview:
+    if not overview and first.get("originals_searched") is not False:
         from services.agent_memory import technical_terms
 
         # Dated reports supply concrete navigation anchors for a later status

@@ -231,6 +231,38 @@ def test_duplicate_transcript_projections_do_not_consume_both_expansions():
     assert expanded == ["event", "distinct"]
 
 
+def test_broad_history_prefetch_returns_only_journal_hints_with_the_requested_cutoff():
+    hint = {"source_kind": "journal_report", "summary_excerpt": "Upload investigation"}
+    first = {"originals_searched": False, "journal_hints": [hint], "matches": []}
+    evidence, calls = prefetch(
+        "In payments-repo, what have we tried as of 2026-11-26T23:00:00Z?",
+        "UTC",
+        lambda _name, _args: json.dumps(first),
+        folders=[{"id": "owned", "name": "payments-repo"}],
+    )
+    assert len(calls) == 1
+    assert calls[0]["name"] == "search_agent_history"
+    args = calls[0]["input"]
+    assert args["strategy"] == "journal_guided"
+    assert args["evidence_mode"] == "cached_preview"
+    assert args["folder"] == "owned"
+    assert args["as_of"] == "2026-11-26T23:00:00+00:00"
+    assert json.loads(evidence)["pages"] == [first]
+    assert json.loads(evidence)["expanded_evidence"] == []
+
+
+def test_explicit_session_prefetch_uses_original_search():
+    evidence, calls = prefetch(
+        "What have we tried in session abcdef123456?",
+        "UTC",
+        lambda _name, _args: json.dumps({"matches": []}),
+    )
+    assert evidence
+    assert calls[0]["input"]["session"] == "abcdef123456"
+    assert "strategy" not in calls[0]["input"]
+    assert "evidence_mode" not in calls[0]["input"]
+
+
 def test_journal_identifiers_focus_a_latest_original_check_without_changing_scope():
     calls = []
 
@@ -285,6 +317,8 @@ def test_history_is_prefetched_with_expansion_and_only_an_authorized_named_folde
     assert calls[0][0] == "search_agent_history"
     assert calls[0][1]["folder"] == "owned"
     assert calls[0][1]["from_date"] == "2026-11-05"
+    assert "strategy" not in calls[0][1]
+    assert "evidence_mode" not in calls[0][1]
     assert "payments-repo" not in calls[0][1]["query"]
     assert calls[1] == (
         "read_agent_evidence",
@@ -312,6 +346,7 @@ def test_overview_prefetch_pages_days_and_retains_remaining_coverage():
     evidence, _ = prefetch("What did we work on this week?", "UTC", execute)
     pages = json.loads(evidence)["pages"]
     assert len(calls) == len(pages) == 5
+    assert all(args["projection"] == "overview" and "strategy" not in args for args in calls)
     assert calls[-1]["offset"] == 40
     assert pages[-1]["activity"]["has_more"] is True
 
