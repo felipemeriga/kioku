@@ -77,6 +77,16 @@ def _source_intent(query: str) -> str:
         return "cross_component"
     if code:
         return "balanced" if docs else "implementation"
+    if not docs and re.search(
+        r"\bwhat happens\s+in\b.{1,100}\bwhen\b.{1,100}"
+        r"\b(?:is|are)\s+(?:completed|received|processed|triggered|rejected)\b"
+        r"|\bwhen\b[^,?]{1,100}\b(?:is|are)\s+"
+        r"(?:completed|received|processed|triggered|rejected)\s*,\s*"
+        r"what (?:happens\s+in\b|does\b.{1,100}\bdo\b)",
+        query,
+        re.I | re.S,
+    ):
+        return "implementation"
     conceptual = bool(
         re.search(
             r"\b(?:difference|differences|definition|meaning|explain|compare|versus|vs|"

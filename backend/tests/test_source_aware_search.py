@@ -47,6 +47,10 @@ def ranked(_query, rows, top_k):
         ("Qual é o fluxo entre o aplicativo e o serviço de cobrança?", "cross_component"),
         ("Where is sales tax computed versus recorded?", "cross_component"),
         ("What is the difference between live and fast event delivery?", "documentation"),
+        ("What happens in the ledger when a settlement event is received?", "implementation"),
+        ("When a callback is rejected, what does the gateway do?", "implementation"),
+        ("What happens in the vendor guide when a refund is completed?", "documentation"),
+        ("What happens to a stream when a client connects?", "balanced"),
         ("Trace the request across services as described in the vendor guide", "documentation"),
         (
             "Explain the vendor docs on the flow from alerts through the relay to storage",
@@ -135,6 +139,26 @@ def test_cross_component_prefers_distinct_repositories_without_crowding_out_pros
         "warehouse-worker",
     ]
     reranker.assert_called_once()
+
+
+def test_event_behavior_returns_relevant_implementation_alongside_documentation():
+    docs = [hit(f"guide-{i}", 0.87 - i * 0.01) for i in range(5)]
+    dispatcher = hit("dispatcher", 0.84, "code")
+    body = hit("handler-body", 0.81, "code")
+    with patch("services.search.rerank", side_effect=ranked):
+        results = _rerank_sources(
+            "What happens in the backend when a callback is processed?",
+            docs,
+            [dispatcher, body],
+            5,
+        )
+    assert [r["id"] for r in results] == [
+        "guide-0",
+        "guide-1",
+        "guide-2",
+        "dispatcher",
+        "handler-body",
+    ]
 
 
 def test_deduplication_preserves_repo_scope_literals_and_indentation():
