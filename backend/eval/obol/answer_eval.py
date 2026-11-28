@@ -200,6 +200,33 @@ def _run_scoped(user_id: str) -> int:
         f"{verdict.get('problems', verdict.get('_parse_error'))}",
     )
 
+    q = (
+        "Does the Obol dashboard BFF prevent a double click from creating two refunds "
+        "if the client omits the idempotency-key header? Verify executable behavior "
+        "rather than comments, and cite the route."
+    )
+    ans, chunks = _ask(user_id, scope, q)
+    verdict = _judge(
+        "The seeded BFF route uses req.header('idempotency-key') ?? randomUUID(), "
+        "with an ik_ prefix for generated keys. Each separate request without the "
+        "header gets a DIFFERENT key. The gateway can deduplicate reuse of the SAME "
+        "key, not those independent fresh-key requests. The answer must deny that "
+        "this route's key generation itself prevents a double click, explain the "
+        "key lifecycle, and not contradict that denial elsewhere. Other checks do "
+        "not establish duplicate-request protection. It must cite executable code. "
+        'Return {"consistent": true|false, "problems": ["..."]}.',
+        q,
+        "\n\n".join(chunks),
+        ans,
+    )
+    exposed = any("randomUUID" in chunk and "idempotency-key" in chunk for chunk in chunks)
+    check(
+        "I1 request-key-lifecycle",
+        exposed and bool(re.search(r"\[\d+\]", ans)) and verdict.get("consistent") is True,
+        f"evidence_exposed={exposed} problems="
+        f"{verdict.get('problems', verdict.get('_parse_error'))}",
+    )
+
     # ── ABSTENTION ────────────────────────────────────────────────────
     # An answer that isn't in the corpus must be refused, not fabricated. A
     # refusal phrase must be present AND no specific node count / region stated.
