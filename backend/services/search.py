@@ -63,13 +63,17 @@ def _source_intent(query: str, *, ambiguous_default: str | None = "balanced") ->
     """Conservative source preference, without another model or network call."""
     code = bool(
         re.search(
-            r"\b(?:implement(?:ation|ed|s)?|source code|codebase|functions?|methods?|class|crate|"
+            r"\b(?:implement(?:ation|ed|s)?|source code|codebase|"
+            r"(?:actual|executed|runtime) (?:functions?|methods?|classes)|"
             r"call site|stack trace|which file|executable (?:code|behavior|logic)|"
             r"runtime (?:behavior|logic)|"
             r"where.{0,60}(?:code|handled|defined|retry|retries))\b"
             r"|\b[\w/-]+\.(?:rs|py|tsx?|jsx?|go|java|cpp)\b"
             r"|\b(?:get|set|read|write|parse|handle|build)_[a-z_]+\b"
-            r"|\b(?:implementa[çc][aã]o|fun[çc][aã]o|m[eé]todo|qual arquivo)\b",
+            r"|\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\s+(?:function|method|class)\b"
+            r"|\b(?:function|method|class|fun[çc][aã]o|m[eé]todo)\s+"
+            r"[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b"
+            r"|\b(?:implementa[çc][aã]o|c[oó]digo[ -]fonte|qual arquivo)\b",
             query,
             re.I,
         )
