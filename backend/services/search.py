@@ -43,7 +43,7 @@ _PRIMARY_VARIANT_WEIGHT = 1.0
 _AUX_VARIANT_WEIGHT = 0.6
 
 
-def _source_intent(query: str) -> str:
+def _source_intent(query: str, *, ambiguous_default: str | None = "balanced") -> str | None:
     """Conservative source preference, without another model or network call."""
     code = bool(
         re.search(
@@ -51,7 +51,7 @@ def _source_intent(query: str) -> str:
             r"call site|stack trace|which file|"
             r"where.{0,60}(?:code|handled|defined|retry|retries))\b"
             r"|\b[\w/-]+\.(?:rs|py|tsx?|jsx?|go|java|cpp)\b"
-            r"|\b(?:get|set|read|write|parse|handle)_[a-z_]+\b"
+            r"|\b(?:get|set|read|write|parse|handle|build)_[a-z_]+\b"
             r"|\b(?:implementa[çc][aã]o|fun[çc][aã]o|m[eé]todo|qual arquivo)\b",
             query,
             re.I,
@@ -96,7 +96,7 @@ def _source_intent(query: str) -> str:
             re.I,
         )
     )
-    return "documentation" if docs or conceptual else "balanced"
+    return "documentation" if docs or conceptual else ambiguous_default
 
 
 def _deduplicate_code(rows: list[dict]) -> list[dict]:
@@ -123,12 +123,17 @@ def _deduplicate_code(rows: list[dict]) -> list[dict]:
 
 
 def _rerank_sources(
-    query_text: str, fused: list[dict], code_results: list[dict], top_k: int
+    query_text: str,
+    fused: list[dict],
+    code_results: list[dict],
+    top_k: int,
+    *,
+    source_role: str | None = None,
 ) -> list[dict]:
     code_results = _deduplicate_code(code_results)
     if not code_results:
         return rerank(query_text or "query", fused, top_k=top_k)
-    intent = _source_intent(query_text)
+    intent = source_role or _source_intent(query_text)
     # Cross-component evidence can sit below a cluster of similarly relevant
     # docs. Score the existing candidate set in the same reranker request.
     rerank_k = len(fused) + len(code_results) if intent == "cross_component" else top_k + 8
@@ -447,6 +452,7 @@ def search_documents(
     created_after: str | None = None,
     created_before: str | None = None,
     include_code: bool = True,
+    source_role: str | None = None,
 ) -> list[dict]:
     """Hybrid search pipeline with optional query enhancement.
 
@@ -505,8 +511,12 @@ def search_documents(
                 fused = _reciprocal_rank_fusion(vector_results, keyword_results)
 
             with stage("rerank", indent=3):
-                reranked = _rerank_sources(query_text, fused, code_results, top_k)
-            reranked = _apply_recency_decay(reranked, query_text=query_text)
+                reranked = _rerank_sources(
+                    query_text, fused, code_results, top_k, source_role=source_role
+                )
+            reranked = _apply_recency_decay(
+                reranked, query_text=query_text, source_role=source_role
+            )
             with stage("neighbor_expansion (parallel)", indent=3):
                 return _expand_with_neighbors(reranked)
 
@@ -619,8 +629,10 @@ def search_documents(
         # Step 5: Rerank with score threshold filtering — code candidates join
         # the pool here and compete with doc chunks on the same cross-encoder.
         with stage("rerank", indent=3):
-            reranked = _rerank_sources(query_text, fused, code_results, top_k)
-        reranked = _apply_recency_decay(reranked, query_text=query_text)
+            reranked = _rerank_sources(
+                query_text, fused, code_results, top_k, source_role=source_role
+            )
+        reranked = _apply_recency_decay(reranked, query_text=query_text, source_role=source_role)
 
         # Step 6: Parent document retrieval — expand each result with adjacent chunks
         with stage("neighbor_expansion (parallel)", indent=3):
@@ -660,7 +672,9 @@ def _recency_factor(doc: dict, now: datetime | None = None) -> float:
     return 0.5 ** (age_days / half_life)
 
 
-def _apply_recency_decay(docs: list[dict], *, query_text: str = "") -> list[dict]:
+def _apply_recency_decay(
+    docs: list[dict], *, query_text: str = "", source_role: str | None = None
+) -> list[dict]:
     """Downrank stale chunks: blend the rerank score with a per-type
     time decay and re-sort. Decay is COHORT-RELATIVE — factors are normalized
     by the best factor in this result set — so freshness only matters when the
@@ -669,7 +683,7 @@ def _apply_recency_decay(docs: list[dict], *, query_text: str = "") -> list[dict
     only reordered. Types without a half-life entry remain neutral."""
     # An old vendor definition is not stale because newer code mentions it.
     # Preserve freshness ranking for explicit current/latest questions.
-    intent = _source_intent(query_text)
+    intent = source_role or _source_intent(query_text)
     if intent == "documentation":
         if not re.search(
             r"\b(?:latest|newest|recent|current|updated|today|yesterday|"

@@ -34,6 +34,7 @@ from services.ai.evidence import (
 )
 from services.ai.facade import client_for
 from services.ai.scope import ExecutionScope, execution_scope
+from services.search import _source_intent
 from services.tools import execute_tool
 
 router = APIRouter()
@@ -161,7 +162,16 @@ def authenticate_tool(token: str) -> dict:
         grant["tool_allowlist"]
     ).issubset(attempt["tool_allowlist"]):
         raise HTTPException(403, "Tool scope changed")
-    grant["scope_filename"] = turn["request"]["metadata"]["intent"].get("scope_filename")
+    intent = turn["request"]["metadata"]["intent"]
+    grant["scope_filename"] = intent.get("scope_filename")
+    original_question = intent.get("content")
+    # This is a ranking hint from the verified turn, outside the token's
+    # authorization claims and the model-supplied tool arguments.
+    grant["source_role"] = (
+        _source_intent(original_question, ambiguous_default=None)
+        if isinstance(original_question, str)
+        else None
+    )
     grant["turn_id"] = turn["id"]
     grant["conversation_id"] = turn["conversation_id"]
     grant["operation"] = turn["request"]["operation"]
@@ -268,6 +278,7 @@ def run_tool(name: str, arguments: dict) -> str:
                     grant.get("conversation_id"),
                 ),
                 full_debug=True,
+                source_role=grant.get("source_role"),
             )
         trace["status"] = "completed"
     except Exception as exc:
