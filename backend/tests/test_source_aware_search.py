@@ -42,6 +42,12 @@ def ranked(_query, rows, top_k):
         ("Compare our implementation with vendor documentation", "balanced"),
         ("How do these services interact?", "balanced"),
         ("How does an order flow from the site through the API to fulfillment?", "cross_component"),
+        ("Trace the payment request across the web app and billing service", "cross_component"),
+        ("Show the end-to-end path for a device registration", "cross_component"),
+        ("Qual é o fluxo entre o aplicativo e o serviço de cobrança?", "cross_component"),
+        ("Where is sales tax computed versus recorded?", "cross_component"),
+        ("What is the difference between live and fast event delivery?", "documentation"),
+        ("Trace the request across services as described in the vendor guide", "documentation"),
         (
             "Explain the vendor docs on the flow from alerts through the relay to storage",
             "documentation",
