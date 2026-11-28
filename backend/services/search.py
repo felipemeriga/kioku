@@ -25,10 +25,13 @@ CODE_BLEND_TOP_N = 20
 CODE_BLEND_FETCH = 40
 
 # Reserve sources only when the question asks for their role.
-CODE_RESERVE_SLOTS = 4
 CODE_RESERVE_THRESHOLD = 0.45
+CROSS_COMPONENT_EVIDENCE_MARGIN = 0.075
 DOCUMENT_RESERVE_SLOTS = 3
 SOURCE_RELEVANCE_MARGIN = 0.15
+DOCUMENT_FACET_THRESHOLD = 0.45
+DOCUMENT_FACET_DEPTH = 8
+DOCUMENT_FACET_REQUEST_TIMEOUT = 2.0
 
 # Candidate pool size per leg (vector, keyword) before rerank. Wider than the
 # old 20 so the cross-encoder has more to choose from — it trims back to top_k,
@@ -42,16 +45,36 @@ _PRIMARY_VARIANT_WEIGHT = 1.0
 _AUX_VARIANT_WEIGHT = 0.6
 
 
-def _source_intent(query: str) -> str:
+def _requests_component_coverage(query: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(?:across|from|between|in)\s+"
+            r"(?:all(?:\s+(?:two|three|four|five|\d+))?|multiple|several|both|"
+            r"two|three|four|five|\d+)\s+(?:repos(?:itories)?|services|codebases)\b"
+            r"|\b(?:em|de|dos|das|entre)\s+"
+            r"(?:todos os|todas as|m[uú]ltiplos|v[aá]rios|ambos os|dois|tr[eê]s|quatro|\d+)"
+            r"(?:\s+(?:dois|tr[eê]s|quatro|\d+))?\s+(?:reposit[oó]rios|servi[çc]os)\b",
+            query,
+            re.I,
+        )
+    )
+
+
+def _source_intent(query: str, *, ambiguous_default: str | None = "balanced") -> str | None:
     """Conservative source preference, without another model or network call."""
     code = bool(
         re.search(
-            r"\b(?:implement(?:ation|ed|s)?|source code|codebase|function|method|class|crate|"
-            r"call site|stack trace|which file|"
+            r"\b(?:implement(?:ation|ed|s)?|source code|codebase|"
+            r"(?:actual|executed|runtime) (?:functions?|methods?|classes)|"
+            r"call site|stack trace|which file|executable (?:code|behavior|logic)|"
+            r"runtime (?:behavior|logic)|"
             r"where.{0,60}(?:code|handled|defined|retry|retries))\b"
             r"|\b[\w/-]+\.(?:rs|py|tsx?|jsx?|go|java|cpp)\b"
-            r"|\b(?:get|set|read|write|parse|handle)_[a-z_]+\b"
-            r"|\b(?:implementa[çc][aã]o|fun[çc][aã]o|m[eé]todo|qual arquivo)\b",
+            r"|\b(?:get|set|read|write|parse|handle|build)_[a-z_]+\b"
+            r"|\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\s+(?:function|method|class)\b"
+            r"|\b(?:function|method|class|fun[çc][aã]o|m[eé]todo)\s+"
+            r"[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b"
+            r"|\b(?:implementa[çc][aã]o|c[oó]digo[ -]fonte|qual arquivo)\b",
             query,
             re.I,
         )
@@ -63,8 +86,37 @@ def _source_intent(query: str) -> str:
             re.I,
         )
     )
+    if not docs and (
+        _requests_component_coverage(query)
+        or (
+            code
+            and re.search(r"\btrace\b.{1,120}\b(?:across|between|through)\b", query, re.I | re.S)
+        )
+        or re.search(
+            r"\bflow\b.{0,100}\bfrom\b.{0,100}\b(?:through|via)\b.{0,100}\bto\b"
+            r"|\btrace\b.{0,100}\b(?:request|event|call|transaction|execution)\b"
+            r".{0,100}\b(?:across|between|through)\b"
+            r"|\bend[- ]to[- ]end\s+(?:flow|path)\b"
+            r"|\bfluxo\b.{0,100}\b(?:entre|atrav[eé]s dos?)\b"
+            r"|\b(?:calculat\w*|comput\w*)\b.{0,120}"
+            r"\b(?:record(?:s|ed)?|writ(?:e|es|ten)|persist(?:s|ed)?|stor(?:e|es|ed))\b",
+            query,
+            re.I | re.S,
+        )
+    ):
+        return "cross_component"
     if code:
         return "balanced" if docs else "implementation"
+    if not docs and re.search(
+        r"\bwhat happens\s+in\b.{1,100}\bwhen\b.{1,100}"
+        r"\b(?:is|are)\s+(?:completed|received|processed|triggered|rejected)\b"
+        r"|\bwhen\b[^,?]{1,100}\b(?:is|are)\s+"
+        r"(?:completed|received|processed|triggered|rejected)\s*,\s*"
+        r"what (?:happens\s+in\b|does\b.{1,100}\bdo\b)",
+        query,
+        re.I | re.S,
+    ):
+        return "implementation"
     conceptual = bool(
         re.search(
             r"\b(?:difference|differences|definition|meaning|explain|compare|versus|vs|"
@@ -73,7 +125,7 @@ def _source_intent(query: str) -> str:
             re.I,
         )
     )
-    return "documentation" if docs or conceptual else "balanced"
+    return "documentation" if docs or conceptual else ambiguous_default
 
 
 def _deduplicate_code(rows: list[dict]) -> list[dict]:
@@ -99,16 +151,204 @@ def _deduplicate_code(rows: list[dict]) -> list[dict]:
     return out
 
 
+def _source_window(result: dict) -> tuple[str, int, int] | None:
+    """Read the file and exact range of an indexed code result."""
+    location = (result.get("metadata") or {}).get("source_filename", "")
+    path, _, span = location.rpartition(":")
+    first, _, last = span.partition("-")
+    if not path or not first.isdigit() or not last.isdigit():
+        return None
+    return path, int(first), int(last)
+
+
+def _is_test_source(path: str) -> bool:
+    return bool(
+        re.search(r"(?:^|/)(?:tests?|__tests__)/|(?:^|/)test_|(?:[._-]test|[._-]spec)\.", path)
+    )
+
+
+def _cross_component_code(code: list[dict], query: str) -> list[dict]:
+    """Prefer distinct repositories and one nearby window of the same source."""
+    wants_tests = bool(re.search(r"\b(?:tests?|testing|fixtures?|testes?|testagem)\b", query, re.I))
+    by_folder = {}
+    for doc in code:
+        folder = (doc.get("metadata") or {}).get("folder_id")
+        representative = by_folder.setdefault(folder, doc)
+        if wants_tests or representative is doc:
+            continue
+        existing, candidate = _source_window(representative), _source_window(doc)
+        if (
+            existing
+            and candidate
+            and _is_test_source(existing[0])
+            and not _is_test_source(candidate[0])
+            and representative["rerank_score"] - doc["rerank_score"]
+            <= CROSS_COMPONENT_EVIDENCE_MARGIN
+        ):
+            by_folder[folder] = doc
+
+    representatives = list(by_folder.values())
+    representative_ids = {id(doc) for doc in representatives}
+    extra = [doc for doc in code if id(doc) not in representative_ids]
+    for index, doc in enumerate(extra):
+        folder = (doc.get("metadata") or {}).get("folder_id")
+        if not folder:
+            continue
+        first = _source_window(by_folder[folder])
+        second = _source_window(doc)
+        if not first or not second:
+            continue
+        path, start, end = first
+        other_path, other_start, other_end = second
+        if (
+            path == other_path
+            and other_start <= end + 1
+            and start <= other_end + 1
+            and (other_start < start or other_end > end)
+            and by_folder[folder]["rerank_score"] - doc["rerank_score"]
+            <= CROSS_COMPONENT_EVIDENCE_MARGIN
+        ):
+            extra.insert(0, extra.pop(index))
+            break
+    return representatives + extra
+
+
 def _rerank_sources(
-    query_text: str, fused: list[dict], code_results: list[dict], top_k: int
+    query_text: str,
+    fused: list[dict],
+    code_results: list[dict],
+    top_k: int,
+    *,
+    source_role: str | None = None,
 ) -> list[dict]:
     code_results = _deduplicate_code(code_results)
+    explicit_role = source_role or _source_intent(query_text, ambiguous_default=None)
+    if fused and top_k >= 4 and explicit_role in {None, "documentation"}:
+        match = re.search(
+            r"\bwhich\s+([^,?.]{3,90}),\s*([^,?.]{3,90}),\s*and\s+([^,?.]{3,90}?)"
+            r"\s+(?:would|should)\s+(?:you|we)\s+(?:choose|use|recommend|pick)\b",
+            query_text,
+            re.I,
+        )
+        if match:
+            facets = [phrase.strip() for phrase in match.groups()]
+            if (
+                all(len(phrase) >= 3 for phrase in facets)
+                and len({phrase.casefold() for phrase in facets}) == 3
+            ):
+                return _rerank_document_facets(
+                    query_text, facets, fused, code_results, top_k, source_role=source_role
+                )
+    return _rerank_source_roles(query_text, fused, code_results, top_k, source_role=source_role)
+
+
+def _rerank_document_facets(
+    query: str,
+    facets: list[str],
+    docs: list[dict],
+    code: list[dict],
+    top_k: int,
+    *,
+    source_role: str | None,
+) -> list[dict]:
+    """Cover explicit choices from the existing doc pool with one parallel rerank stage."""
+    reason = None
+    with (
+        stage("document facet rerank", indent=4),
+        ThreadPoolExecutor(max_workers=4) as pool,
+    ):
+        whole_job = submit_with_context(
+            pool, _rerank_source_roles, query, docs, code, top_k, source_role=source_role
+        )
+        jobs = [
+            submit_with_context(
+                pool,
+                rerank,
+                facet,
+                docs,
+                top_k=DOCUMENT_FACET_DEPTH,
+                request_timeout=DOCUMENT_FACET_REQUEST_TIMEOUT,
+            )
+            for facet in facets
+        ]
+        whole = whole_job.result()
+        try:
+            per_facet = [
+                [
+                    row
+                    for row in job.result()
+                    if row.get("rerank_score", 0) >= DOCUMENT_FACET_THRESHOLD
+                ]
+                for job in jobs
+            ]
+        except Exception:
+            logger.warning("Document facet rerank failed; returning whole-query results")
+            per_facet = []
+            reason = "facet_error"
+
+    def source(row: dict) -> tuple:
+        meta = row.get("metadata") or {}
+        return (meta.get("folder_id"), meta.get("source_filename") or row["id"])
+
+    selected = whole[:1]
+    used = {source(row) for row in selected}
+    if not whole or not all("rerank_score" in row for row in whole):
+        reason = reason or "whole_query_unscored"
+    elif len(per_facet) != len(facets) or not all(per_facet):
+        reason = reason or "facet_unscored"
+    else:
+        for rows in per_facet:
+            row = next((hit for hit in rows if source(hit) not in used), None)
+            if row is None:
+                reason = "facet_source_overlap"
+                break
+            selected.append(row)
+            used.add(source(row))
+
+    if reason is None and top_k > len(selected):
+        # Scores are normalized only against the best result for the same
+        # facet. Give the final coverage slot to the closest distinct option.
+        alternatives = [
+            (row["rerank_score"] / rows[0]["rerank_score"], row)
+            for rows in per_facet
+            if (row := next((hit for hit in rows if source(hit) not in used), None))
+        ]
+        if alternatives:
+            selected.append(max(alternatives, key=lambda item: item[0])[1])
+
+    record(
+        "document_facets",
+        n_facets=len(facets),
+        n_code_candidates=len(code),
+        rerank_requests=len(facets) + 1,
+        rerank_pairs=(len(facets) + 1) * len(docs) + len(code),
+        degraded=reason is not None,
+        fallback_reason=reason,
+    )
+    if reason:
+        return whole
+    selected_ids = {row["id"] for row in selected}
+    return (selected + [row for row in whole if row["id"] not in selected_ids])[:top_k]
+
+
+def _rerank_source_roles(
+    query_text: str,
+    fused: list[dict],
+    code_results: list[dict],
+    top_k: int,
+    *,
+    source_role: str | None,
+) -> list[dict]:
     if not code_results:
         return rerank(query_text or "query", fused, top_k=top_k)
-    pool = rerank(query_text or "query", fused + code_results, top_k=top_k + 8)
+    intent = source_role or _source_intent(query_text)
+    # Eligible code can sit below a cluster of similarly relevant docs.
+    # Score the whole existing candidate set in the same reranker request.
+    implementation = intent in {"implementation", "cross_component"}
+    rerank_k = len(fused) + len(code_results) if implementation else top_k + 8
+    pool = rerank(query_text or "query", fused + code_results, top_k=rerank_k)
     if not pool:
         return []
-    intent = _source_intent(query_text)
     if intent == "documentation":
         floor = max(0.2, pool[0].get("rerank_score", 0.0) - SOURCE_RELEVANCE_MARGIN)
         preferred = [
@@ -116,20 +356,23 @@ def _rerank_sources(
             for d in pool
             if d.get("source_type") != "code" and d.get("rerank_score", 0.0) >= floor
         ][: min(DOCUMENT_RESERVE_SLOTS, top_k)]
-    elif intent == "implementation":
-        preferred = [
+    elif implementation:
+        eligible = [
             d
             for d in pool
             if d.get("source_type") == "code"
             and d.get("rerank_score", 0.0) >= CODE_RESERVE_THRESHOLD
-        ][: min(CODE_RESERVE_SLOTS, top_k)]
+        ]
+        if not eligible:
+            return [d for d in pool if d.get("source_type") != "code"][:top_k]
+        if intent == "cross_component":
+            selected = {id(d) for d in _cross_component_code(eligible, query_text)[:top_k]}
+            return [d for d in eligible if id(d) in selected]
+        return eligible[:top_k]
     else:
         return pool[:top_k]
     keep = {id(d) for d in preferred}
-    final = (preferred + [d for d in pool if id(d) not in keep])[:top_k]
-    if intent == "implementation":
-        final.sort(key=lambda d: pool.index(d))
-    return final
+    return (preferred + [d for d in pool if id(d) not in keep])[:top_k]
 
 
 def _is_code_junk(row: dict) -> bool:
@@ -406,6 +649,7 @@ def search_documents(
     created_after: str | None = None,
     created_before: str | None = None,
     include_code: bool = True,
+    source_role: str | None = None,
 ) -> list[dict]:
     """Hybrid search pipeline with optional query enhancement.
 
@@ -464,8 +708,12 @@ def search_documents(
                 fused = _reciprocal_rank_fusion(vector_results, keyword_results)
 
             with stage("rerank", indent=3):
-                reranked = _rerank_sources(query_text, fused, code_results, top_k)
-            reranked = _apply_recency_decay(reranked, query_text=query_text)
+                reranked = _rerank_sources(
+                    query_text, fused, code_results, top_k, source_role=source_role
+                )
+            reranked = _apply_recency_decay(
+                reranked, query_text=query_text, source_role=source_role
+            )
             with stage("neighbor_expansion (parallel)", indent=3):
                 return _expand_with_neighbors(reranked)
 
@@ -578,8 +826,10 @@ def search_documents(
         # Step 5: Rerank with score threshold filtering — code candidates join
         # the pool here and compete with doc chunks on the same cross-encoder.
         with stage("rerank", indent=3):
-            reranked = _rerank_sources(query_text, fused, code_results, top_k)
-        reranked = _apply_recency_decay(reranked, query_text=query_text)
+            reranked = _rerank_sources(
+                query_text, fused, code_results, top_k, source_role=source_role
+            )
+        reranked = _apply_recency_decay(reranked, query_text=query_text, source_role=source_role)
 
         # Step 6: Parent document retrieval — expand each result with adjacent chunks
         with stage("neighbor_expansion (parallel)", indent=3):
@@ -619,7 +869,9 @@ def _recency_factor(doc: dict, now: datetime | None = None) -> float:
     return 0.5 ** (age_days / half_life)
 
 
-def _apply_recency_decay(docs: list[dict], *, query_text: str = "") -> list[dict]:
+def _apply_recency_decay(
+    docs: list[dict], *, query_text: str = "", source_role: str | None = None
+) -> list[dict]:
     """Downrank stale chunks: blend the rerank score with a per-type
     time decay and re-sort. Decay is COHORT-RELATIVE — factors are normalized
     by the best factor in this result set — so freshness only matters when the
@@ -628,7 +880,8 @@ def _apply_recency_decay(docs: list[dict], *, query_text: str = "") -> list[dict
     only reordered. Types without a half-life entry remain neutral."""
     # An old vendor definition is not stale because newer code mentions it.
     # Preserve freshness ranking for explicit current/latest questions.
-    if _source_intent(query_text) == "documentation":
+    intent = source_role or _source_intent(query_text)
+    if intent == "documentation":
         if not re.search(
             r"\b(?:latest|newest|recent|current|updated|today|yesterday|"
             r"mais recente|atual|hoje|ontem)\b",
@@ -638,6 +891,11 @@ def _apply_recency_decay(docs: list[dict], *, query_text: str = "") -> list[dict
             return docs
         # For "latest documentation", compare document ages with each other.
         # Undated/neutral code must not displace the requested source category.
+        documents = iter(_apply_recency_decay([d for d in docs if d.get("source_type") != "code"]))
+        return [d if d.get("source_type") == "code" else next(documents) for d in docs]
+    if intent == "implementation" and any(d.get("source_type") == "code" for d in docs):
+        # Freshness can reorder supporting prose within its slots without
+        # undoing the implementation-source preference established by rerank.
         documents = iter(_apply_recency_decay([d for d in docs if d.get("source_type") != "code"]))
         return [d if d.get("source_type") == "code" else next(documents) for d in docs]
     if not docs:

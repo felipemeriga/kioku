@@ -23,6 +23,14 @@ EXACT_CUTOFF = re.compile(
 
 ANSWER_INSTRUCTION = """Answer the user's current question from the supplied current-turn evidence.
 Use tools only for a specific missing fact. Cite only current evidence or new tool results.
+For a multi-part question, check source support for each requested component. If results
+cover only one component, search separately for the uncovered parts; do not fill those
+gaps from general knowledge. Do not add worked numerical examples unless requested.
+For implementation calculations or guarantees, a caller or comment is not sufficient evidence:
+retrieve the responsible function body, or state only what the documentation describes.
+For duplicate-request protection, consider two separate requests: determine whether they reuse
+the same identifier before claiming deduplication. A different key on each request cannot
+provide that guarantee. Keep the direct answer consistent with this executable behavior.
 For a focused factual question, give one short paragraph or up to three short bullets,
 normally within 120 words. Stop once the requested facts are answered. Include a timeline
 or a longer overview when the user requested that scope. Do not add unsolicited technical

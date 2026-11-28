@@ -139,6 +139,30 @@ def test_scope_revocation_is_rechecked_on_every_authentication(monkeypatch):
     assert all(request.url.params["select"] != "*" for request in requests)
 
 
+@pytest.mark.parametrize(
+    ("original_question", "expected"),
+    [
+        ("What happens in the scheduler when a job is rejected?", "implementation"),
+        ("What is the vendor stream definition?", "documentation"),
+        ("Compare the implementation with the vendor documentation.", "balanced"),
+        ("Compare the documentation with build_project_snapshot.", "balanced"),
+        ("Can you help?", None),
+        (None, None),
+    ],
+)
+def test_native_role_is_derived_from_owned_turn(monkeypatch, original_question, expected):
+    row = projected_row()
+    row["intent"]["content"] = original_question
+    requests, _ = fixture(monkeypatch, row=row)
+    active_client(monkeypatch)
+
+    grant = native_tools.authenticate_tool(token(monkeypatch))
+
+    assert grant["source_role"] == expected
+    assert grant["scope_filename"] == "selected.py"
+    assert len(requests) == 2
+
+
 def test_attempt_revocation_still_requires_fresh_live_check(monkeypatch):
     fixture(monkeypatch)
     client = active_client(monkeypatch)

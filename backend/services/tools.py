@@ -398,6 +398,8 @@ def execute_tool(
     debug_retrieval: list | None = None,
     citations: CitationRegistry | None = None,
     full_debug: bool = False,
+    *,
+    source_role: str | None = None,
 ) -> str:
     """Execute a tool call and return the result as a string.
 
@@ -434,6 +436,7 @@ def execute_tool(
             source_filename=scope_filename,
             created_after=tool_input.get("created_after"),
             created_before=tool_input.get("created_before"),
+            **({"source_role": source_role} if source_role is not None else {}),
         )
         if full_debug and results:
             sb = get_supabase()
@@ -497,6 +500,10 @@ def execute_tool(
                 updated = str(r.get("created_at") or "")[:10]
                 label = f"{source} — {symbol}" if symbol else source
                 body = f"Code: {label} — updated {updated}" if updated else f"Code: {label}"
+                body += (
+                    " — comments/docstrings describe intent; verify executable statements "
+                    "for behavior and guarantees"
+                )
             else:
                 # Date in the header lets the model weigh freshness and cite
                 # as-of dates — retrieval alone can't resolve conflicting facts.

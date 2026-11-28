@@ -3,6 +3,8 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
+from requests.exceptions import Timeout
+
 
 class TestRerankScoringText(unittest.TestCase):
     """The cross-encoder must score the same contextualized text that was indexed."""
@@ -107,6 +109,28 @@ class TestRerankScoringText(unittest.TestCase):
 
         self.assertEqual(out[0]["content"], "raw chunk content")
         self.assertEqual(out[0]["rerank_score"], 0.9)
+
+    def test_rerank_sets_transport_timeouts_without_sdk_retries(self):
+        import voyageai
+
+        from services.rerank import _get_client, rerank
+
+        _get_client.cache_clear()
+        self.addCleanup(_get_client.cache_clear)
+        docs = [{"content": "test document"}]
+        with (
+            patch.dict("os.environ", {"VOYAGE_API_KEY": "test-only-voyage-token"}),
+            patch("voyageai.Client", wraps=voyageai.Client) as construct,
+            patch("requests.Session.request", side_effect=Timeout) as request,
+        ):
+            self.assertEqual(rerank("whole", docs), docs)
+            self.assertEqual(rerank("facet", docs, request_timeout=2.0), docs)
+
+        self.assertEqual(
+            [call.kwargs for call in construct.call_args_list],
+            [{"timeout": 5.0, "max_retries": 0}, {"timeout": 2.0, "max_retries": 0}],
+        )
+        self.assertEqual([call.kwargs["timeout"] for call in request.call_args_list], [5.0, 2.0])
 
 
 if __name__ == "__main__":
