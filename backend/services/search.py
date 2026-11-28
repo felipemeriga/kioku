@@ -26,6 +26,7 @@ CODE_BLEND_FETCH = 40
 
 # Reserve sources only when the question asks for their role.
 CODE_RESERVE_SLOTS = 4
+IMPLEMENTATION_CODE_RESERVE_SLOTS = 5
 CODE_RESERVE_THRESHOLD = 0.45
 DOCUMENT_RESERVE_SLOTS = 3
 SOURCE_RELEVANCE_MARGIN = 0.15
@@ -159,7 +160,10 @@ def _rerank_sources(
             preferred = list(by_folder.values()) + [
                 doc for doc in preferred if id(doc) not in representative_ids
             ]
-        preferred = preferred[: min(CODE_RESERVE_SLOTS, top_k)]
+        reserve = (
+            CODE_RESERVE_SLOTS if intent == "cross_component" else IMPLEMENTATION_CODE_RESERVE_SLOTS
+        )
+        preferred = preferred[: min(reserve, top_k)]
     else:
         return pool[:top_k]
     keep = {id(d) for d in preferred}
