@@ -1328,33 +1328,41 @@ def test_journal_guided_search_pins_session_and_cutoff_for_pagination():
     assert dated["time_scope"]["before_exclusive"] == calls[-1][1]["p_before"]
 
 
-def test_journal_guided_fallback_keeps_original_scope_and_dates():
+def test_empty_journal_discovery_keeps_scope_and_cutoff_without_searching_originals():
     sb = Database()
     calls = []
 
     def lookup(name, arguments):
         calls.append((name, arguments))
-        data = (
-            None
-            if name == "discover_agent_memory_journals"
-            else {"matches": [], "total_matches": 100, "has_more": True}
-        )
-        return SimpleNamespace(execute=lambda: SimpleNamespace(data=data))
+        assert name == "discover_agent_memory_journals"
+        return SimpleNamespace(execute=lambda: SimpleNamespace(data=[]))
 
     sb.rpc = lookup
-    result = search_memory(
-        sb, OWNER, [FOLDER, SIBLING], query="memory relay", strategy="journal_guided"
-    )
-    assert [name for name, _ in calls] == [
-        "discover_agent_memory_journals",
-        "search_agent_memory_v2",
-    ]
-    assert calls[1][1]["p_before"] is None
-    assert calls[1][1]["p_folder_ids"] == calls[0][1]["p_folder_ids"]
-    assert result["search_strategy"] == "original"
-    assert result["requested_strategy"] == "journal_guided"
-    assert result["strategy_fallback"] == "no_eligible_journal_session"
-    assert result["coverage_scope"] == "authorized_folders"
+    cutoff = "2026-11-06T10:00:00Z"
+    with patch("services.rerank.rerank") as rerank:
+        result = search_memory(
+            sb,
+            OWNER,
+            [FOLDER, SIBLING],
+            query="memory relay",
+            strategy="journal_guided",
+            as_of=cutoff,
+        )
+    rerank.assert_not_called()
+    assert len(calls) == 1
+    assert calls[0][1]["p_before"] == "2026-11-06T10:00:00.000001+00:00"
+    assert set(calls[0][1]["p_folder_ids"]) == {FOLDER, SIBLING}
+    assert result["status"] == "ok"
+    assert result["search_strategy"] == "journal_guided"
+    assert result["follow_up_as_of"] == cutoff
+    assert result["time_scope"]["before_exclusive"] == calls[0][1]["p_before"]
+    assert result["journal_ranking"] == "no_candidates"
+    assert result["journal_hints"] == result["matches"] == []
+    assert result["coverage_scope"] == "journal_candidates"
+    assert result["originals_searched"] is False
+    assert result["coverage_complete"] is False
+    assert result["needs_refinement"] is True
+    assert "total_matches" not in result
     assert set(row["id"] for row in result["scope"]) == {FOLDER, SIBLING}
 
 

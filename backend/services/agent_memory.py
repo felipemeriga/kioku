@@ -394,8 +394,6 @@ def read_journal_day(sb, user_id, folders, ref, char_limit):
 
 
 def discover_journal_hints(sb, scope, arguments, query, as_of):
-    from services.rerank import rerank
-
     candidates = rpc(
         sb,
         "discover_agent_memory_journals",
@@ -411,19 +409,26 @@ def discover_journal_hints(sb, scope, arguments, query, as_of):
             )
         },
     )
-    if not candidates:
-        return None
-    if any(candidate["folder_id"] not in scope for candidate in candidates):
-        invalid("memory_scope_mismatch", 403)
-    ranked = (
-        rerank(
-            query,
-            [{**candidate, "content": candidate["summary_excerpt"]} for candidate in candidates],
-            top_k=3,
-            request_timeout=1.5,
+    ranked = []
+    ranking = "no_candidates"
+    if candidates:
+        from services.rerank import rerank
+
+        if any(candidate["folder_id"] not in scope for candidate in candidates):
+            invalid("memory_scope_mismatch", 403)
+        ranked = (
+            rerank(
+                query,
+                [
+                    {**candidate, "content": candidate["summary_excerpt"]}
+                    for candidate in candidates
+                ],
+                top_k=3,
+                request_timeout=1.5,
+            )
+            or candidates[:3]
         )
-        or candidates[:3]
-    )
+        ranking = "reranked" if "rerank_score" in ranked[0] else "lexical_fallback"
     return {
         "status": "ok",
         "search_strategy": "journal_guided",
@@ -440,9 +445,9 @@ def discover_journal_hints(sb, scope, arguments, query, as_of):
             }
             for hint in ranked
         ],
-        "journal_ranking": "reranked"
-        if ranked and "rerank_score" in ranked[0]
-        else "lexical_fallback",
+        "journal_ranking": ranking,
+        "needs_refinement": not ranked,
+        "follow_up_as_of": as_of,
         "scope": [{"id": fid, "name": name} for fid, name in scope.items()],
         "time_scope": {
             "after": arguments["p_after"],
@@ -455,6 +460,9 @@ def discover_journal_hints(sb, scope, arguments, query, as_of):
             "session_id as session, follow_up_as_of as as_of, and a refined query. "
             "Keep your original date filters. You can request cached_preview to open deep "
             "originals individually. Use original strategy for cross-session checks."
+            if ranked
+            else "Try alternate or translated terms in queries, keeping the same folder "
+            "and cutoff. Use the original strategy to explicitly search original records."
         ),
     }
 
@@ -567,41 +575,28 @@ def search_memory(
         _, guided_before = bounds(from_date, through_date, guided_as_of, tz)
         guided_arguments = {**arguments, "p_before": guided_before}
         if session is None:
-            hints = discover_journal_hints(
+            return discover_journal_hints(
                 sb, scope, guided_arguments, query or " ".join(expanded), guided_as_of
             )
-            if hints is not None:
-                return hints
-            guided = None
-        else:
-            guided = rpc(sb, "search_agent_memory_journal_guided", guided_arguments)
+        guided = rpc(sb, "search_agent_memory_journal_guided", guided_arguments)
         if guided is None:
-            if session is not None:
-                invalid("memory_session_not_found", 404)
-            selection_metadata = {
-                "search_strategy": "original",
-                "requested_strategy": strategy,
-                "strategy_fallback": "no_eligible_journal_session",
-                "coverage_scope": "authorized_folders",
-            }
-            result = rpc(sb, "search_agent_memory_v2", arguments)
-        else:
-            selected_session = guided["session_id"]
-            selected_folder = guided["folder_id"]
-            if selected_folder not in scope or (session and selected_session != session):
-                invalid("memory_scope_mismatch", 403)
-            scope = {selected_folder: scope[selected_folder]}
-            before = guided_before
-            as_of = guided_as_of
-            result = guided["result"]
-            selection_metadata = {
-                "search_strategy": strategy,
-                "coverage_scope": "selected_session",
-                "coverage_complete": False,
-                "index_pending_scope": "selected_folder",
-                "selected_session_id": selected_session,
-                "pagination_as_of": as_of,
-            }
+            invalid("memory_session_not_found", 404)
+        selected_session = guided["session_id"]
+        selected_folder = guided["folder_id"]
+        if selected_folder not in scope or (session and selected_session != session):
+            invalid("memory_scope_mismatch", 403)
+        scope = {selected_folder: scope[selected_folder]}
+        before = guided_before
+        as_of = guided_as_of
+        result = guided["result"]
+        selection_metadata = {
+            "search_strategy": strategy,
+            "coverage_scope": "selected_session",
+            "coverage_complete": False,
+            "index_pending_scope": "selected_folder",
+            "selected_session_id": selected_session,
+            "pagination_as_of": as_of,
+        }
     else:
         result = rpc(sb, "search_agent_memory_v2", arguments)
     mode = "identifier_boosted" if identifiers else "lexical_terms"
