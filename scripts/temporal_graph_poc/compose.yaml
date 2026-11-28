@@ -1,0 +1,19 @@
+services:
+  graph:
+    image: neo4j:5.26-community@sha256:c5fd91e41d44858ea678813fd53f8e60602e771a7656c502385247ffbcb0aec0
+    environment:
+      NEO4J_AUTH: ${NEO4J_AUTH:?Use a private env file with generated local credentials}
+      NEO4J_server_memory_heap_initial__size: 512m
+      NEO4J_server_memory_heap_max__size: 1G
+      NEO4J_server_memory_pagecache_size: 512m
+      NEO4J_db_transaction_timeout: 10s
+    ports:
+      - "127.0.0.1:17687:7687"
+      - "127.0.0.1:17474:7474"
+    volumes:
+      - graph-data:/data
+    mem_limit: 2g
+    cpus: 2
+    restart: "no"
+volumes:
+  graph-data:
