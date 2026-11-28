@@ -26,6 +26,7 @@ STATUSES = frozenset(
         "deployed",
         "reverted",
         "unresolved",
+        "documented",
     }
 )
 
