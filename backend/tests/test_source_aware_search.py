@@ -150,6 +150,61 @@ def test_cross_component_prefers_distinct_repositories_without_crowding_out_pros
     reranker.assert_called_once()
 
 
+def test_cross_component_keeps_production_handoffs_and_adjacent_context():
+    code = [
+        hit("web/route.py:1-40", 0.83, "code", folder="web"),
+        hit("web/client.py:1-70", 0.82, "code", folder="web"),
+        hit("gateway/create.go:101-170", 0.8, "code", folder="gateway"),
+        hit("tests/test_ledger.py:1-60", 0.79, "code", folder="ledger"),
+        hit("gateway/create.go:1-110", 0.74, "code", folder="gateway"),
+        hit("ledger/dispatch.py:1-100", 0.73, "code", folder="ledger"),
+    ]
+    docs = [hit("overview", 0.9)]
+    with patch("services.search.rerank", side_effect=ranked):
+        result = _rerank_sources("Trace the request across multiple repos", docs, code, 5)
+    assert [row["id"] for row in result] == [
+        "overview",
+        "web/route.py:1-40",
+        "gateway/create.go:101-170",
+        "gateway/create.go:1-110",
+        "ledger/dispatch.py:1-100",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("query", "weak_production"),
+    [
+        ("Show tests for request handling across multiple repositories", False),
+        ("Show request handling from all three repositories", True),
+    ],
+)
+def test_cross_component_preserves_requested_or_substantially_more_relevant_tests(
+    query, weak_production
+):
+    code = [
+        hit("api/handler.py:51-100", 0.84, "code", folder="api"),
+        hit("api/client.py:1-40", 0.83, "code", folder="api"),
+        hit("tests/test_worker.py:1-40", 0.82, "code", folder="worker"),
+        hit("api/handler.py:51-100", 0.81, "code", folder="web", body="other revision"),
+        hit("api/handler.py:1-60", 0.75, "code", folder="api"),
+        hit("api/handler.py:1-60", 0.7, "code", folder="worker", body="unrelated overlap"),
+        hit("worker/consumer.py:1-60", 0.7 if weak_production else 0.8, "code", folder="worker"),
+    ]
+    with patch("services.search.rerank", side_effect=ranked):
+        result = _rerank_sources(query, [hit("overview", 0.9)], code, 5)
+    assert {row["id"] for row in result} == {
+        "overview",
+        "api/handler.py:51-100",
+        "api/client.py:1-40",
+        "tests/test_worker.py:1-40",
+    }
+    assert {row["metadata"]["folder_id"] for row in result if row["source_type"] == "code"} == {
+        "api",
+        "web",
+        "worker",
+    }
+
+
 def test_event_behavior_returns_relevant_implementation_alongside_documentation():
     docs = [hit(f"guide-{i}", 0.87 - i * 0.01) for i in range(5)]
     dispatcher = hit("dispatcher", 0.84, "code")
