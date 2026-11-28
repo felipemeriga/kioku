@@ -1,6 +1,7 @@
 """Rerank search results using Voyage AI reranker."""
 
 import logging
+from functools import lru_cache
 
 import voyageai
 
@@ -9,14 +10,12 @@ from services.metrics import record
 
 logger = logging.getLogger(__name__)
 
-_client: voyageai.Client | None = None
+RERANK_REQUEST_TIMEOUT = 5.0
 
 
-def _get_client() -> voyageai.Client:
-    global _client
-    if _client is None:
-        _client = voyageai.Client()
-    return _client
+@lru_cache(maxsize=2)
+def _get_client(request_timeout: float) -> voyageai.Client:
+    return voyageai.Client(timeout=request_timeout, max_retries=0)
 
 
 RERANK_SCORE_THRESHOLD = 0.2
@@ -38,6 +37,8 @@ def rerank(
     documents: list[dict],
     top_k: int = 5,
     score_threshold: float = RERANK_SCORE_THRESHOLD,
+    *,
+    request_timeout: float = RERANK_REQUEST_TIMEOUT,
 ) -> list[dict]:
     """Rerank documents by relevance to query using voyage-rerank-2.
 
@@ -53,7 +54,7 @@ def rerank(
 
     try:
         texts = [_scoring_text(doc) for doc in documents]
-        result = _get_client().rerank(
+        result = _get_client(request_timeout).rerank(
             query=query,
             documents=texts,
             model="rerank-2",
