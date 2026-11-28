@@ -30,7 +30,7 @@ def run(args):
             continue
         result = trial.get("result", {})
         retrieved = {c["key"] for c in result.get("claims", [])}
-        if trial["method"] == "journal_first":
+        if trial["method"] in {"journal_first", "entity_sqlite", "entity_graph"}:
             retrieved = {
                 key
                 for key, sources in support.items()
