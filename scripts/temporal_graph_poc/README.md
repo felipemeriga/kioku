@@ -68,3 +68,66 @@ hints with potentially revised summaries.
 
 At least four hours of active investigation and testing are required for this
 experiment. Elapsed waiting for downloads alone does not satisfy that requirement.
+
+## Interim findings (2026-11-28; experiment remains active)
+
+The frozen corpus contains 870 journal entries, 43 archived sessions, 4,803
+verified original segments and 302,607 projected native records. All records were
+compared against their SQLite projection and exact archive locators: zero field,
+locator or command/result-pairing discrepancies. Twenty journal objects were
+separately downloaded and hash-verified; all 870 indexed entries matched their
+source objects. Publication timestamps now gate journal discovery, independently
+of original-record timestamps. Eight journal sessions have no archived originals
+in the authorized corpus; their summaries cannot become verified original facts.
+
+The semantic overlay currently contains **58 manually reviewed claims**, not an
+automatically extracted representation of the full corpus. Each status retains
+its evidence authority. A report of a merge is not a deployment; a replay result
+is not a live result; a correction is known only after its own source timestamp.
+
+An initial diagnostic evaluated 40 reviewed evidence items across 11 positive
+questions, plus three journal-only and two unsupported questions. Graph traversal
+and the equal-facts SQLite baseline each covered **39/40 items (10/11 complete
+questions)** at a budget of eight claims. The missing item was an older isolated
+memory-budget experiment crowded out by newer results. **No graph advantage has
+been demonstrated by this diagnostic.**
+
+These are post-inspection, root-reviewed evidence-coverage measurements, **not
+blind answer accuracy**. Despite the original manifest's `holdout` labels, its
+questions were subsequently seen during curation. The journal-first SQLite proxy
+covered 5/40 exact reviewed quotations, but does not implement production Voyage
+reranking or adaptive follow-up searches. That number must not be presented as
+Kioku production quality or as a fair graph-versus-production accuracy comparison.
+A separate read-only production replay is being collected.
+
+The corrected 16-question replay completed 48 method calls without execution
+errors. A further 232 real-claim boundary probes passed: each of the 58 claims was
+queried one microsecond before and exactly at its knowledge boundary in both
+stores. Those probes use a larger result budget to isolate temporal gating from
+ranking; they do not measure natural-language answer quality. Earlier failed
+replay receipts remain retained privately.
+
+The four-hour provenance/cutoff soak is **still running**, against its original
+frozen query revision. It is not four hours of validation of later query changes.
+Restart durability, broader discovery without curated claims and final measured
+latency/reporting remain pending. Production retrieval is unchanged.
+
+### Additional reproducible checks
+
+After `corpus.py`, `graph.py`, `attest_journals.py` and `facts.py` have created and
+verified the private artifacts, run the local suite and real-source probes:
+
+```bash
+python -m unittest discover -s scripts/temporal_graph_poc -p 'test_*.py'
+python scripts/temporal_graph_poc/temporal_replay.py \
+  --corpus /private/corpus.sqlite --revision FACTS_REVISION \
+  --env-file /private/neo4j.env --output /private/temporal-boundaries.json
+python scripts/temporal_graph_poc/score_evidence.py \
+  --gold /private/reviewed-evidence-gold.json \
+  --replay /private/replay.jsonl --corpus /private/corpus.sqlite \
+  --output /private/evidence-coverage.json
+```
+
+The scorer reads gold only after retrieval. Preserve the gold and replay hashes,
+including unsuccessful trials. Private receipts, source quotations and credentials
+must remain outside git.
