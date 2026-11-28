@@ -89,6 +89,41 @@ class EvidenceContract(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "command result"):
             validate(self.bundle, self.db)
 
+    def tool_pair(self):
+        self.db.execute(
+            "UPDATE records SET role='tool',event_type='tool_result',session_id='s',stream_id='stream',generation=1,sequence=2,call_id='call'"
+        )
+        self.db.execute(
+            "INSERT INTO records(id,event_at,role,event_type,session_id,stream_id,generation,sequence,call_id,inherited,displayable,text,source_sha256) VALUES('command',?,'tool','tool_call','s','stream',1,1,'call',0,1,'git status and git log','command-source')",
+            (timestamp("2026-11-05T11:59:59Z"),),
+        )
+        claim = self.bundle["claims"][0]
+        claim["authority"] = "tool_observation"
+        claim["observation_kind"] = "command_result"
+        claim["supports"][0]["command_record_id"] = "command"
+
+    def test_tool_observation_preserves_its_original_command(self):
+        self.tool_pair()
+        _, claims, _, _ = validate(self.bundle, self.db)
+        self.assertEqual(claims[0]["command_record_ids"], ["command"])
+
+    def test_tool_output_without_matching_command_is_not_promoted(self):
+        self.tool_pair()
+        self.bundle["claims"][0]["supports"][0]["command_record_id"] = "absent"
+        with self.assertRaisesRegex(ValueError, "paired original command"):
+            validate(self.bundle, self.db)
+
+    def test_cross_stream_command_pair_is_rejected(self):
+        self.tool_pair()
+        self.db.execute("UPDATE records SET stream_id='other' WHERE id='command'")
+        with self.assertRaisesRegex(ValueError, "provenance mismatch"):
+            validate(self.bundle, self.db)
+
+    def test_empty_mode_scope_is_rejected(self):
+        self.bundle["claims"][0]["modes"] = []
+        with self.assertRaisesRegex(ValueError, "nonempty list"):
+            validate(self.bundle, self.db)
+
     def test_future_plan_cannot_be_a_completed_result(self):
         self.bundle["claims"][0]["valid_at"] = "2026-12-01T12:00:00Z"
         with self.assertRaisesRegex(ValueError, "future plan"):

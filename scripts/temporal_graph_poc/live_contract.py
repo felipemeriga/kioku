@@ -78,6 +78,7 @@ def run(env_file):
                     "authority": "assistant_report",
                     "text": quote,
                     "environment": environment,
+                    "mode": "cloud" if key == "c" else "on_prem",
                     "review_note": "Synthetic temporal fixture only.",
                     "supports": [{"record_id": rid, "quote": quote}],
                 }
@@ -135,9 +136,16 @@ def run(env_file):
                 assert before == after
                 checks.append("repeat_import_idempotent")
 
-                def recall(at, environment=None):
+                def recall(at, environment=None, mode=None):
                     result = graph_facts(
-                        driver, db, revision, "fixture", timestamp(at), 8, environment
+                        driver,
+                        db,
+                        revision,
+                        "fixture",
+                        timestamp(at),
+                        8,
+                        environment,
+                        mode,
                     )
                     identities = [c["id"] for c in result["claims"]]
                     assert len(identities) == len(set(identities)), (
@@ -155,6 +163,9 @@ def run(env_file):
                 checks.append("environment_not_inherited")
                 assert recall("2026-11-11T12:00:00Z", "production") == {"c"}
                 checks.append("cross_environment_edge_blocked")
+                assert recall("2026-11-11T12:00:00Z", "production", "on_prem") == set()
+                assert recall("2026-11-11T12:00:00Z", "production", "cloud") == {"c"}
+                checks.append("mode_is_distinct_from_environment")
                 # Deliberately backdate an edge while its cited original remains
                 # in the future. Filtering edge properties alone is insufficient.
                 execute(

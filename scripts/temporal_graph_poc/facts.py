@@ -15,7 +15,9 @@ from pathlib import Path
 from corpus import timestamp
 from graph import connect, execute
 
-RELATIONS = frozenset({"SUPERSEDES", "RETESTS", "CONTRADICTS", "EXPLAINS", "RESOLVES"})
+RELATIONS = frozenset(
+    {"SUPERSEDES", "RETESTS", "CONTRADICTS", "EXPLAINS", "RESOLVES", "EXTENDS"}
+)
 AUTHORITIES = frozenset(
     {
         "user_request",
@@ -50,7 +52,7 @@ def validate(bundle, db):
     if not bundle.get("claims") or not bundle.get("concepts"):
         raise ValueError("No claims or concepts")
     canonical = json.dumps(
-        {"normalization_schema": 2, "bundle": bundle},
+        {"normalization_schema": 5, "bundle": bundle},
         sort_keys=True,
         separators=(",", ":"),
     ).encode()
@@ -101,8 +103,70 @@ def validate(bundle, db):
             row["event_type"] == "tool_result" for row in sources
         ):
             raise ValueError("Tool observation has no command result")
+        commands = []
+        if claim["authority"] == "tool_observation":
+            if claim.get("observation_kind") not in {
+                "command_result",
+                "artifact_inspection",
+            }:
+                raise ValueError("Tool observation needs a reviewed observation kind")
+            for reference, row in zip(claim["supports"], sources, strict=True):
+                if row["event_type"] != "tool_result":
+                    continue
+                command = db.execute(
+                    "SELECT * FROM records WHERE id=?",
+                    (reference.get("command_record_id"),),
+                ).fetchone()
+                if (
+                    not command
+                    or command["event_type"] != "tool_call"
+                    or not row["call_id"]
+                ):
+                    raise ValueError("Tool result needs its paired original command")
+                if (
+                    any(
+                        command[field] != row[field]
+                        for field in [
+                            "session_id",
+                            "stream_id",
+                            "generation",
+                            "call_id",
+                        ]
+                    )
+                    or command["sequence"] >= row["sequence"]
+                ):
+                    raise ValueError("Command/result provenance mismatch")
+                if (
+                    not command["event_at"]
+                    or command["event_at"] > row["event_at"]
+                    or command["inherited"]
+                ):
+                    raise ValueError(
+                        "Command provenance is future, untimed, or inherited"
+                    )
+                commands.append(command["id"])
+        modes = claim.get("modes", [claim.get("mode", "unknown")])
+        if (
+            not isinstance(modes, list)
+            or not modes
+            or any(not isinstance(mode, str) or not mode for mode in modes)
+        ):
+            raise ValueError("Modes must be an explicit nonempty list")
         known = max(row["event_at"] for row in sources)
         valid = timestamp(claim.get("valid_at")) or known
+        if target_id := claim.get("valid_at_reference"):
+            target = db.execute(
+                "SELECT event_at,inherited FROM records WHERE id=?", (target_id,)
+            ).fetchone()
+            if (
+                not target
+                or target["inherited"]
+                or not target["event_at"]
+                or target["event_at"] != valid
+            ):
+                raise ValueError(
+                    "Correction valid time differs from its original target record"
+                )
         if valid > known and claim["status"] not in {"proposed", "unresolved"}:
             raise ValueError("A future plan cannot be an established result")
         normalized.append(
@@ -113,14 +177,21 @@ def validate(bundle, db):
                 "text": claim["text"],
                 "status": claim["status"],
                 "authority": claim["authority"],
+                "observation_kind": claim.get("observation_kind", "not_applicable"),
+                "command_record_ids": commands,
                 "known_at": known,
                 "valid_at": valid,
-                "valid_time_basis": "explicit_event_time"
+                "valid_time_basis": "correction_target_record_time"
+                if claim.get("valid_at_reference")
+                else "explicit_event_time"
                 if claim.get("valid_at")
                 else "original_report_time",
+                "valid_at_reference": claim.get("valid_at_reference"),
                 "current_validity": "not_established_by_archive",
                 "concepts": claim["concepts"],
                 "environment": claim.get("environment", "unknown"),
+                "mode": claim.get("mode", "unknown"),
+                "modes": claim.get("modes", [claim.get("mode", "unknown")]),
                 "host": claim.get("host", "unknown"),
                 "workload": claim.get("workload", "unknown"),
                 "version": claim.get("version", "unknown"),

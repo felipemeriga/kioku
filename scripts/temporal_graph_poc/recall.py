@@ -102,7 +102,7 @@ STOP = frozenset(
         "after",
     ]
 )
-RELATION_PATTERN = "SUPERSEDES|RETESTS|CONTRADICTS|EXPLAINS|RESOLVES"
+RELATION_PATTERN = "SUPERSEDES|RETESTS|CONTRADICTS|EXPLAINS|RESOLVES|EXTENDS"
 
 
 def terms(question):
@@ -117,6 +117,48 @@ def terms(question):
 
 def fts_query(question):
     return " OR ".join('"' + word.replace('"', '""') + '"' for word in terms(question))
+
+
+def journal_hints(db, question, cutoff):
+    query = fts_query(question)
+    if not query:
+        return []
+    return [
+        dict(row)
+        for row in db.execute(
+            """SELECT j.id,j.session_id,j.captured_at,j.title,j.body,bm25(journal_fts) AS score
+      FROM journal_fts JOIN journals j ON j.id=journal_fts.id
+      WHERE journal_fts MATCH ? AND j.captured_at<=? ORDER BY score,j.captured_at DESC LIMIT 3""",
+            (query, cutoff),
+        )
+    ]
+
+
+def annotate_coverage(db, result, cutoff):
+    missing = db.execute(
+        """SELECT count(DISTINCT j.session_id) FROM journals j WHERE j.captured_at<=?
+      AND NOT EXISTS(SELECT 1 FROM sessions s JOIN records r ON r.session_id=s.id
+        WHERE s.native_id=j.session_id AND r.displayable=1 AND r.event_at<=?)""",
+        (cutoff, cutoff),
+    ).fetchone()[0]
+    result["coverage"] = {
+        "complete": False,
+        "journal_sessions_without_timed_originals": missing,
+        "absence_proves_never": False,
+        "current_state_verified": False,
+        "historical_journal_revision_verified": False,
+    }
+    for hint in result.get("hints", []):
+        hint["source_kind"] = "revisable_journal_discovery_hint"
+        hint["original_verified"] = False
+    result["answerability"] = (
+        "original_evidence_candidates"
+        if result.get("records") or result.get("claims")
+        else "journal_hint_only"
+        if result.get("hints")
+        else "not_established"
+    )
+    return result
 
 
 def journal_first(db, question, cutoff, limit):
@@ -181,7 +223,7 @@ def journal_first(db, question, cutoff, limit):
 
 def concept_seeds(db, revision, question):
     words = set(terms(question))
-    lower = question.lower()
+    normalized_question = " " + " ".join(re.findall(r"\w+", question.casefold())) + " "
     scored = []
     for row in db.execute(
         "SELECT id,payload FROM concepts WHERE revision=?", (revision,)
@@ -191,9 +233,14 @@ def concept_seeds(db, revision, question):
         score = 0
         for alias in aliases:
             tokens = set(terms(alias))
+            normalized_alias = (
+                " " + " ".join(re.findall(r"\w+", alias.casefold())) + " "
+            )
             score = max(
                 score,
-                (4 + len(tokens)) if alias.lower() in lower else len(tokens & words),
+                (4 + len(tokens))
+                if normalized_alias.strip() and normalized_alias in normalized_question
+                else len(tokens & words),
             )
         if score:
             scored.append((row["id"], score))
@@ -207,7 +254,7 @@ def concept_seeds(db, revision, question):
     ][:3]
 
 
-def flat_facts(db, revision, question, cutoff, limit, environment=None):
+def flat_facts(db, revision, question, cutoff, limit, environment=None, mode=None):
     concepts = concept_seeds(db, revision, question)
     output = []
     for row in db.execute(
@@ -218,6 +265,8 @@ def flat_facts(db, revision, question, cutoff, limit, environment=None):
         if not set(claim["concepts"]) & set(concepts):
             continue
         if environment and claim["environment"] != environment:
+            continue
+        if mode and mode not in claim.get("modes", [claim.get("mode", "unknown")]):
             continue
         supports = [
             dict(s)
@@ -252,7 +301,12 @@ def flat_facts(db, revision, question, cutoff, limit, environment=None):
             and not proof["inherited"]
         ):
             relations.append(relation)
-    return {"concepts": concepts, "claims": output, "relations": relations}
+    return {
+        "concepts": concepts,
+        "claims": output,
+        "relations": relations,
+        "hints": journal_hints(db, question, cutoff) if not output else [],
+    }
 
 
 def safe_claim(variable):
@@ -260,18 +314,26 @@ def safe_claim(variable):
     return f"""{variable}.revision=$revision AND {variable}.known_at<=$cutoff
       AND {variable}.valid_at<=$cutoff
       AND ($environment IS NULL OR {variable}.environment=$environment)
+      AND ($mode IS NULL OR $mode IN {variable}.modes)
       AND EXISTS {{ MATCH ({variable})-[:SUPPORTED_BY]->(proof:Record)
                    WHERE proof.event_at<=$cutoff AND proof.inherited=0 }}
       AND NOT EXISTS {{ MATCH ({variable})-[:SUPPORTED_BY]->(bad:Record)
         WHERE bad.event_at IS NULL OR bad.event_at>$cutoff OR bad.inherited<>0 }}"""
 
 
-def graph_facts(driver, db, revision, question, cutoff, limit, environment=None):
+def graph_facts(
+    driver, db, revision, question, cutoff, limit, environment=None, mode=None
+):
     # Both stores use the same concept resolver and extracted facts. Neo4j chooses
     # its own seeds and performs actual semantic and co-topic traversal. Co-topic
     # edges are discovery only: they do not assert causality or supersession.
     concepts = concept_seeds(db, revision, question)
-    parameters = {"revision": revision, "cutoff": cutoff, "environment": environment}
+    parameters = {
+        "revision": revision,
+        "cutoff": cutoff,
+        "environment": environment,
+        "mode": mode,
+    }
     seed_rows = execute(
         driver,
         f"""MATCH (seed:Claim)-[:ABOUT]->(topic:Concept)
@@ -328,9 +390,21 @@ def graph_facts(driver, db, revision, question, cutoff, limit, environment=None)
         types=RELATION_PATTERN.split("|"),
         cutoff=cutoff,
     )
+    hints = []
+    if not rows and (hint_query := fts_query(question)):
+        hints = execute(
+            driver,
+            """CALL db.index.fulltext.queryNodes('journal_text',$text_query) YIELD node,score
+          WHERE node.captured_at<=$cutoff
+          RETURN node.id AS id,node.native_session_id AS session_id,node.captured_at AS captured_at,
+            node.title AS title,node.body AS body,score ORDER BY score DESC,captured_at DESC LIMIT 3""",
+            text_query=hint_query,
+            cutoff=cutoff,
+        )
     return {
         "concepts": concepts,
         "relations": relations,
+        "hints": hints,
         "claims": [
             {**row["claim"], "distance": row["distance"], "supports": row["supports"]}
             for row in rows
@@ -369,6 +443,7 @@ def run(args):
                                     cutoff,
                                     limit,
                                     case.get("environment"),
+                                    case.get("mode"),
                                 )
                             else:
                                 result = graph_facts(
@@ -379,7 +454,9 @@ def run(args):
                                     cutoff,
                                     limit,
                                     case.get("environment"),
+                                    case.get("mode"),
                                 )
+                            result = annotate_coverage(db, result, cutoff)
                             receipt = {
                                 "case_id": case["id"],
                                 "trial": trial,
