@@ -25,7 +25,6 @@ CODE_BLEND_TOP_N = 20
 CODE_BLEND_FETCH = 40
 
 # Reserve sources only when the question asks for their role.
-CODE_RESERVE_SLOTS = 5
 CODE_RESERVE_THRESHOLD = 0.45
 CROSS_COMPONENT_EVIDENCE_MARGIN = 0.075
 DOCUMENT_RESERVE_SLOTS = 3
@@ -62,7 +61,7 @@ def _source_intent(query: str, *, ambiguous_default: str | None = "balanced") ->
     """Conservative source preference, without another model or network call."""
     code = bool(
         re.search(
-            r"\b(?:implement(?:ation|ed|s)?|source code|codebase|function|method|class|crate|"
+            r"\b(?:implement(?:ation|ed|s)?|source code|codebase|functions?|methods?|class|crate|"
             r"call site|stack trace|which file|"
             r"where.{0,60}(?:code|handled|defined|retry|retries))\b"
             r"|\b[\w/-]+\.(?:rs|py|tsx?|jsx?|go|java|cpp)\b"
@@ -81,6 +80,10 @@ def _source_intent(query: str, *, ambiguous_default: str | None = "balanced") ->
     )
     if not docs and (
         _requests_component_coverage(query)
+        or (
+            code
+            and re.search(r"\btrace\b.{1,120}\b(?:across|between|through)\b", query, re.I | re.S)
+        )
         or re.search(
             r"\bflow\b.{0,100}\bfrom\b.{0,100}\b(?:through|via)\b.{0,100}\bto\b"
             r"|\btrace\b.{0,100}\b(?:request|event|call|transaction|execution)\b"
@@ -214,9 +217,10 @@ def _rerank_sources(
     if not code_results:
         return rerank(query_text or "query", fused, top_k=top_k)
     intent = source_role or _source_intent(query_text)
-    # Cross-component evidence can sit below a cluster of similarly relevant
-    # docs. Score the existing candidate set in the same reranker request.
-    rerank_k = len(fused) + len(code_results) if intent == "cross_component" else top_k + 8
+    # Eligible code can sit below a cluster of similarly relevant docs.
+    # Score the whole existing candidate set in the same reranker request.
+    implementation = intent in {"implementation", "cross_component"}
+    rerank_k = len(fused) + len(code_results) if implementation else top_k + 8
     pool = rerank(query_text or "query", fused + code_results, top_k=rerank_k)
     if not pool:
         return []
@@ -227,23 +231,23 @@ def _rerank_sources(
             for d in pool
             if d.get("source_type") != "code" and d.get("rerank_score", 0.0) >= floor
         ][: min(DOCUMENT_RESERVE_SLOTS, top_k)]
-    elif intent in {"implementation", "cross_component"}:
-        preferred = [
+    elif implementation:
+        eligible = [
             d
             for d in pool
             if d.get("source_type") == "code"
             and d.get("rerank_score", 0.0) >= CODE_RESERVE_THRESHOLD
         ]
+        if not eligible:
+            return [d for d in pool if d.get("source_type") != "code"][:top_k]
         if intent == "cross_component":
-            preferred = _cross_component_code(preferred, query_text)
-        preferred = preferred[: min(CODE_RESERVE_SLOTS, top_k)]
+            selected = {id(d) for d in _cross_component_code(eligible, query_text)[:top_k]}
+            return [d for d in eligible if id(d) in selected]
+        return eligible[:top_k]
     else:
         return pool[:top_k]
     keep = {id(d) for d in preferred}
-    final = (preferred + [d for d in pool if id(d) not in keep])[:top_k]
-    if intent == "cross_component":
-        final.sort(key=lambda d: pool.index(d))
-    return final
+    return (preferred + [d for d in pool if id(d) not in keep])[:top_k]
 
 
 def _is_code_junk(row: dict) -> bool:

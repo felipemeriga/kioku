@@ -43,6 +43,14 @@ def ranked(_query, rows, top_k):
         ("How do these services interact?", "balanced"),
         ("How does an order flow from the site through the API to fulfillment?", "cross_component"),
         ("Trace the payment request across the web app and billing service", "cross_component"),
+        (
+            "Trace a registration across the browser and scheduler. Show the actual functions.",
+            "cross_component",
+        ),
+        (
+            "Trace the vendor guide across services. Which functions does it describe?",
+            "balanced",
+        ),
         ("Show the end-to-end path for a device registration", "cross_component"),
         ("Show executable retry handling from all three repositories.", "cross_component"),
         ("Where is the session wired across multiple services?", "cross_component"),
@@ -116,7 +124,7 @@ def test_source_preference_never_forces_unrelated_documents():
     assert all(r["source_type"] == "code" for r in result)
 
 
-def test_implementation_queries_retain_code_reservation_but_balanced_queries_do_not():
+def test_implementation_returns_only_eligible_code_and_keeps_document_fallback():
     docs = [hit(f"doc-{i}", 0.95 - i * 0.01) for i in range(5)]
     code = [hit(f"code-{i}", 0.60 - i * 0.01, "code") for i in range(5)]
     with patch("services.search.rerank", side_effect=ranked):
@@ -124,12 +132,16 @@ def test_implementation_queries_retain_code_reservation_but_balanced_queries_do_
         balanced = _rerank_sources("compare our implementation with vendor docs", docs, code, 5)
         code[-1]["rerank_score"] = 0.44
         implementation_with_weak_hit = _rerank_sources("where is retry implemented", docs, code, 5)
-    assert sum(r["source_type"] == "code" for r in implementation) == 5
-    assert implementation_with_weak_hit[-1]["id"] == "doc-0"
+        weak_code = [hit("weak", 0.44, "code")]
+        fallback = _rerank_sources("where is retry implemented", docs, weak_code, 5)
+    assert len(implementation) == 5
+    assert len(implementation_with_weak_hit) == 4
+    assert all(r["source_type"] == "code" for r in implementation + implementation_with_weak_hit)
+    assert fallback == docs
     assert all(r["source_type"] != "code" for r in balanced)
 
 
-def test_cross_component_prefers_distinct_repositories_without_crowding_out_prose():
+def test_cross_component_prioritizes_distinct_repositories_with_eligible_code():
     docs = [hit(f"guide-{i}", 0.95 - i * 0.01) for i in range(18)]
     code = [
         *[hit(f"api-{i}", 0.75 - i * 0.01, "code", folder="api") for i in range(4)],
@@ -139,9 +151,8 @@ def test_cross_component_prefers_distinct_repositories_without_crowding_out_pros
     ]
     query = "How does an order flow from the site through the API to fulfillment?"
     with patch("services.search.rerank", side_effect=ranked) as reranker:
-        result = _rerank_sources(query, docs, code, 6)
+        result = _rerank_sources(query, docs, code, 5)
     assert [row["id"] for row in result] == [
-        "guide-0",
         "api-0",
         "api-1",
         "api-2",
@@ -192,9 +203,8 @@ def test_cross_component_preserves_requested_or_substantially_more_relevant_test
         hit("worker/consumer.py:1-60", 0.7 if weak_production else 0.8, "code", folder="worker"),
     ]
     with patch("services.search.rerank", side_effect=ranked):
-        result = _rerank_sources(query, [hit("overview", 0.9)], code, 6)
+        result = _rerank_sources(query, [hit("overview", 0.9)], code, 5)
     assert {row["id"] for row in result} == {
-        "overview",
         "api/handler.py:51-100",
         "api/client.py:1-40",
         "tests/test_worker.py:1-40",
@@ -207,7 +217,7 @@ def test_cross_component_preserves_requested_or_substantially_more_relevant_test
     }
 
 
-def test_event_behavior_returns_relevant_implementation_alongside_documentation():
+def test_event_behavior_does_not_backfill_remaining_slots_with_prose():
     docs = [hit(f"guide-{i}", 0.87 - i * 0.01) for i in range(5)]
     dispatcher = hit("dispatcher", 0.84, "code")
     body = hit("handler-body", 0.81, "code")
@@ -221,9 +231,6 @@ def test_event_behavior_returns_relevant_implementation_alongside_documentation(
     assert [r["id"] for r in results] == [
         "dispatcher",
         "handler-body",
-        "guide-0",
-        "guide-1",
-        "guide-2",
     ]
 
 
