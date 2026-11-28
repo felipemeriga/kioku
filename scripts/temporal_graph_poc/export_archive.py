@@ -24,7 +24,7 @@ assert objects and len(objects) <= 20000
 assert all(o["user_id"] == request["user_id"] and
            o["folder_id"] == request["folder_id"] and
            o["committed_revision"] is not None and
-           o["kind"] == "segment" for o in objects)
+           o["kind"] in {"segment","attachment"} for o in objects)
 
 def fetch(obj):
     try:
@@ -45,7 +45,7 @@ with tarfile.open(fileobj=sys.stdout.buffer, mode="w|gz") as archive:
                 if error:
                     receipt["failures"].append({"sha256": obj["sha256"], "error": error})
                     continue
-                entry = tarfile.TarInfo("objects/" + obj["sha256"] + ".jsonl")
+                entry = tarfile.TarInfo(("objects/" + obj["sha256"] + ".jsonl") if obj["kind"] == "segment" else ("attachments/" + obj["sha256"] + ".bin"))
                 entry.size, entry.mode = len(raw), 0o600
                 archive.addfile(entry, io.BytesIO(raw))
                 receipt["verified"] += 1
@@ -69,6 +69,7 @@ def main():
     parser.add_argument("--host", required=True)
     parser.add_argument("--container", default="kioku-backend")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--include-attachments", action="store_true")
     args = parser.parse_args()
     objects = json.loads(args.objects.read_text())
     if not all(
@@ -79,7 +80,9 @@ def main():
     objects = [
         obj
         for obj in objects
-        if obj["kind"] == "segment" and obj["committed_revision"] is not None
+        if obj["kind"]
+        in ({"segment", "attachment"} if args.include_attachments else {"segment"})
+        and obj["committed_revision"] is not None
     ]
     request = {"user_id": args.user_id, "folder_id": args.folder_id, "objects": objects}
     command = shlex.join(
