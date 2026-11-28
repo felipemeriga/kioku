@@ -1362,6 +1362,7 @@ def test_empty_journal_discovery_keeps_scope_and_cutoff_without_searching_origin
     assert result["originals_searched"] is False
     assert result["coverage_complete"] is False
     assert result["needs_refinement"] is True
+    assert "whether the work happened remains unknown" in result["interpretation"]
     assert "total_matches" not in result
     assert set(row["id"] for row in result["scope"]) == {FOLDER, SIBLING}
 

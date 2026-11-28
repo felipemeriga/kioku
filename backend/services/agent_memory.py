@@ -461,7 +461,9 @@ def discover_journal_hints(sb, scope, arguments, query, as_of):
             "Keep your original date filters. You can request cached_preview to open deep "
             "originals individually. Use original strategy for cross-session checks."
             if ranked
-            else "Try alternate or translated terms in queries, keeping the same folder "
+            else "No eligible journal candidates. Discovery searched journals only, "
+            "so whether the work happened remains unknown. "
+            "Try alternate or translated terms in queries, keeping the same folder "
             "and cutoff. Use the original strategy to explicitly search original records."
         ),
     }
