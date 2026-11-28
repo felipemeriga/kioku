@@ -260,6 +260,15 @@ def concept_seeds(db, revision, question):
     ][:3]
 
 
+def relevance_patterns(question):
+    # Literal word boundaries prevent SSE from matching inside WebAssembly.
+    return [r"(?is).*\b" + re.escape(word) + r"\b.*" for word in terms(question)]
+
+
+def text_relevance(text, patterns):
+    return sum(bool(re.fullmatch(pattern, text)) for pattern in patterns)
+
+
 def flat_facts(
     db,
     revision,
@@ -276,6 +285,7 @@ def flat_facts(
         else seed_concepts
     )
     output = []
+    patterns = relevance_patterns(question)
     for row in db.execute(
         "SELECT payload FROM claims WHERE revision=? AND known_at<=? AND valid_at<=? ORDER BY known_at DESC,key",
         (revision, cutoff, cutoff),
@@ -298,8 +308,9 @@ def flat_facts(
         ]
         if supports:
             output.append({**claim, "supports": supports})
-        if len(output) >= limit:
-            break
+    # The input is already newest first; stable sorting keeps that tie-breaker.
+    output.sort(key=lambda claim: -text_relevance(claim["text"], patterns))
+    output = output[:limit]
     keys = {claim["key"] for claim in output}
     relations = []
     for row in db.execute(
@@ -369,9 +380,13 @@ def graph_facts(
         driver,
         f"""MATCH (seed:Claim)-[:ABOUT]->(topic:Concept)
       WHERE topic.id IN $topics AND {safe_claim("seed")}
-      WITH DISTINCT seed ORDER BY seed.known_at DESC,seed.key LIMIT 2
+      WITH DISTINCT seed
+      WITH seed,reduce(relevance=0,pattern IN $patterns |
+        relevance+CASE WHEN seed.text =~ pattern THEN 1 ELSE 0 END) AS relevance
+      ORDER BY relevance DESC,seed.known_at DESC,seed.key LIMIT 2
       RETURN seed.id AS id""",
         topics=[revision + ":" + c for c in concepts],
+        patterns=relevance_patterns(question),
         **parameters,
     )
     seeds = [row["id"] for row in seed_rows]
@@ -532,6 +547,9 @@ def run(args):
                         "type": "complete",
                         "questions_sha256": args.sha256,
                         "revision": args.revision,
+                        "implementation_sha256": hashlib.sha256(
+                            Path(__file__).read_bytes()
+                        ).hexdigest(),
                     }
                 )
                 + "\n"

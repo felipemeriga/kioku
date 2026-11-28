@@ -6,7 +6,13 @@ import unittest
 from unittest.mock import patch
 
 from corpus import SCHEMA
-from recall import concept_seeds, graph_facts, journal_hints
+from recall import (
+    concept_seeds,
+    graph_facts,
+    journal_hints,
+    relevance_patterns,
+    text_relevance,
+)
 
 
 class RecallBoundaries(unittest.TestCase):
@@ -37,6 +43,17 @@ class RecallBoundaries(unittest.TestCase):
         self.assertEqual(
             concept_seeds(self.db, "r", "Have we used WebAssembly for decoding?"), []
         )
+
+    def test_specific_identifier_beats_generic_recent_text(self):
+        patterns = relevance_patterns(
+            "Was GOMEMLIMIT=512MiB tested on the full player?"
+        )
+        old = "An isolated SDK comparison used GOMEMLIMIT=512MiB; not a full player budget."
+        newer = "The latest full player memory settings were updated."
+        self.assertGreater(
+            text_relevance(old, patterns), text_relevance(newer, patterns)
+        )
+        self.assertEqual(text_relevance("WebAssembly", relevance_patterns("SSE")), 0)
 
     def test_real_acronym_and_hyphenated_phrase_match(self):
         self.assertEqual(concept_seeds(self.db, "r", "SSE reconnection"), ["stream"])
