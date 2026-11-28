@@ -7,6 +7,7 @@ export interface HistoryOptions {
   asOf?: string;
   timezone?: string;
   session?: string;
+  strategy?: string;
   evidenceMode?: string;
   order?: string;
   limit?: string;
@@ -51,6 +52,10 @@ export function historyArguments(
   const order = opts.order ?? "chronological";
   if (!["chronological", "latest", "relevance"].includes(order))
     throw new Error("Order must be chronological, latest or relevance.");
+  const strategy = opts.strategy;
+  if (strategy !== undefined && !["original", "journal-guided"].includes(strategy)) {
+    throw new Error("Strategy must be original or journal-guided.");
+  }
   const evidenceMode = opts.evidenceMode;
   if (
     evidenceMode !== undefined &&
@@ -67,6 +72,7 @@ export function historyArguments(
       as_of: opts.asOf,
       timezone,
       session: opts.session,
+      strategy: strategy === "journal-guided" ? "journal_guided" : strategy,
       evidence_mode:
         evidenceMode === "cached-preview" ? "cached_preview" : evidenceMode,
       order,

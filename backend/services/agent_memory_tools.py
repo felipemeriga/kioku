@@ -9,6 +9,15 @@ from fastapi import HTTPException
 from services.agent_memory import STOP, read_memory, search_memory
 
 SEARCH_PROPERTIES = {
+    "strategy": {
+        "type": "string",
+        "enum": ["original", "journal_guided"],
+        "description": (
+            "Start broad discovery with journal_guided. Journal hints guide a refined query "
+            "using session_id as session and follow_up_as_of as as_of to search one session. "
+            "Use original to search across authorized sessions and check for later evidence."
+        ),
+    },
     "evidence_mode": {
         "type": "string",
         "enum": ["hydrate", "cached_preview"],
@@ -81,6 +90,7 @@ DEFINITIONS = [
             "timezone and pass explicit dates. For as-of knowledge use as_of, which"
             " excludes later original records and omits revisable journal "
             "summaries. Read original evidence before treating reports as proof. "
+            "Try journal_guided for broad topic discovery and original for cross-session checks. "
             "Check coverage/has_more; do not infer nothing happened from "
             "empty/incomplete results."
         ),

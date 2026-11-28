@@ -44,6 +44,23 @@ test("empty query browses activity and invalid filters fail before requests", ()
     assert.throws(() => integerOption(n, 10, 1, 50));
 });
 
+test("journal-guided history sends opt-in strategy and the selected page bounds", () => {
+  const session = "33333333-3333-4333-8333-333333333333";
+  const asOf = "2026-11-22T23:59:59-03:00";
+  const args = historyArguments("memory relay", {
+    strategy: "journal-guided",
+    session,
+    asOf,
+    offset: "10",
+  });
+  assert.equal(args.strategy, "journal_guided");
+  assert.equal(args.session, session);
+  assert.equal(args.as_of, asOf);
+  assert.equal(args.offset, 10);
+  assert.equal(historyArguments("memory relay", {}).strategy, undefined);
+  assert.throws(() => historyArguments("memory relay", { strategy: "unknown" }));
+});
+
 test("recall retains references, pending-index warning and next page", () => {
   const data = {
     status: "ok",

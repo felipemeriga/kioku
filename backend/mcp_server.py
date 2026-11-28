@@ -2311,6 +2311,7 @@ def search_agent_history(
     offset: int = 0,
     queries: list[str] | None = None,
     projection: str = "discovery",
+    strategy: str = "original",
     evidence_mode: str = "hydrate",
 ) -> str:
     """Recall previous agent work from originals within this key's authorized subtree.
@@ -2325,6 +2326,10 @@ def search_agent_history(
     supplied IANA timezone; through_date is inclusive. as_of is a local day or
     offset-aware timestamp, enforced before retrieval and evidence expansion.
     Resolve relative dates using the user's timezone; do not guess the year.
+    Start broad topic discovery with strategy="journal_guided". The first call
+    returns journal reports. Follow up with a hint's session_id, follow_up_as_of,
+    and a refined query to search originals in that session. Later pages retain
+    the session and cutoff. Use strategy="original" for cross-session checks.
     Use evidence_mode="cached_preview" to discover references without downloading
     originals. A match marked requires_evidence_read has no excerpt until you
     open its reference with read_agent_evidence.
@@ -2345,6 +2350,7 @@ def search_agent_history(
         offset=offset,
         queries=queries,
         projection=projection,
+        strategy=strategy,
         evidence_mode=evidence_mode,
     )
 
