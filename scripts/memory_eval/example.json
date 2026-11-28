@@ -1,0 +1,13 @@
+{
+  "queries": [
+    {
+      "case_id": "demo_01",
+      "question": "What did we learn when we tested the sample printer?",
+      "filters": {
+        "folder": "example-workspace",
+        "as_of": "2026-01-15T18:00:00Z",
+        "timezone": "UTC"
+      }
+    }
+  ]
+}
