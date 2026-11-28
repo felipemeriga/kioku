@@ -232,24 +232,71 @@ def flat_facts(db, revision, question, cutoff, limit, environment=None):
             output.append({**claim, "supports": supports})
         if len(output) >= limit:
             break
-    return {"concepts": concepts, "claims": output}
+    keys = {claim["key"] for claim in output}
+    relations = []
+    for row in db.execute(
+        "SELECT payload FROM claim_relations WHERE revision=? AND known_at<=?",
+        (revision, cutoff),
+    ):
+        relation = json.loads(row["payload"])
+        proof = db.execute(
+            "SELECT event_at,inherited FROM records WHERE id=?",
+            (relation["support"]["record_id"],),
+        ).fetchone()
+        if (
+            relation["from"] in keys
+            and relation["to"] in keys
+            and proof
+            and proof["event_at"]
+            and proof["event_at"] <= cutoff
+            and not proof["inherited"]
+        ):
+            relations.append(relation)
+    return {"concepts": concepts, "claims": output, "relations": relations}
+
+
+def safe_claim(variable):
+    """Require original support on every traversed node, not only on leaves."""
+    return f"""{variable}.revision=$revision AND {variable}.known_at<=$cutoff
+      AND {variable}.valid_at<=$cutoff
+      AND ($environment IS NULL OR {variable}.environment=$environment)
+      AND EXISTS {{ MATCH ({variable})-[:SUPPORTED_BY]->(proof:Record)
+                   WHERE proof.event_at<=$cutoff AND proof.inherited=0 }}
+      AND NOT EXISTS {{ MATCH ({variable})-[:SUPPORTED_BY]->(bad:Record)
+        WHERE bad.event_at IS NULL OR bad.event_at>$cutoff OR bad.inherited<>0 }}"""
 
 
 def graph_facts(driver, db, revision, question, cutoff, limit, environment=None):
-    # Identical concept resolver, extracted facts, and final result budget. Start
-    # from two recent facts, then use explicit reviewed relationships to recover
-    # earlier attempts. This policy is evaluated, not assumed to improve recall.
-    flat = flat_facts(db, revision, question, cutoff, limit, environment)
-    seeds = [claim["id"] for claim in flat["claims"][:2]]
+    # Both stores use the same concept resolver and extracted facts. Neo4j chooses
+    # its own seeds and performs actual semantic and co-topic traversal. Co-topic
+    # edges are discovery only: they do not assert causality or supersession.
+    concepts = concept_seeds(db, revision, question)
+    parameters = {"revision": revision, "cutoff": cutoff, "environment": environment}
+    seed_rows = execute(
+        driver,
+        f"""MATCH (seed:Claim)-[:ABOUT]->(topic:Concept)
+      WHERE topic.id IN $topics AND {safe_claim("seed")}
+      WITH DISTINCT seed ORDER BY seed.known_at DESC,seed.key LIMIT 2
+      RETURN seed.id AS id""",
+        topics=[revision + ":" + c for c in concepts],
+        **parameters,
+    )
+    seeds = [row["id"] for row in seed_rows]
     query = f"""
+    CALL {{
     MATCH (seed:Claim) WHERE seed.id IN $seeds AND seed.revision=$revision
     MATCH path=(seed)-[:{RELATION_PATTERN}*0..3]-(c:Claim)
-    WHERE all(n IN nodes(path) WHERE n.revision=$revision AND n.known_at<=$cutoff
-              AND n.valid_at<=$cutoff AND ($environment IS NULL OR n.environment=$environment))
+    WHERE all(n IN nodes(path) WHERE {safe_claim("n")})
       AND all(e IN relationships(path) WHERE e.known_at<=$cutoff AND EXISTS {{
         MATCH (proof:Record {{id:e.record_id}}) WHERE proof.event_at<=$cutoff AND proof.inherited=0
       }})
-    WITH c,collect(DISTINCT length(path)) AS distances
+    RETURN c,length(path) AS depth
+    UNION
+    MATCH (seed:Claim)-[:ABOUT]->(:Concept)<-[:ABOUT]-(c:Claim)
+    WHERE seed.id IN $seeds AND {safe_claim("seed")} AND {safe_claim("c")}
+    RETURN c,4 AS depth
+    }}
+    WITH c,collect(DISTINCT depth) AS distances
     WITH c,reduce(best=4,depth IN distances | CASE WHEN depth<best THEN depth ELSE best END) AS distance
     ORDER BY distance,c.known_at DESC,c.key
     LIMIT $limit
@@ -265,13 +312,25 @@ def graph_facts(driver, db, revision, question, cutoff, limit, environment=None)
         driver,
         query,
         seeds=seeds,
-        revision=revision,
-        cutoff=cutoff,
         limit=limit,
-        environment=environment,
+        **parameters,
+    )
+    ids = [row["claim"]["id"] for row in rows]
+    relations = execute(
+        driver,
+        """MATCH (a:Claim)-[edge]->(b:Claim)
+      WHERE a.id IN $ids AND b.id IN $ids AND type(edge) IN $types AND edge.known_at<=$cutoff
+      MATCH (proof:Record {id:edge.record_id}) WHERE proof.event_at<=$cutoff AND proof.inherited=0
+      RETURN a.key AS from,b.key AS to,type(edge) AS type,edge.known_at AS known_at,
+        edge.record_id AS record_id,edge.quote AS quote,edge.review_note AS review_note
+      ORDER BY from,to,type""",
+        ids=ids,
+        types=RELATION_PATTERN.split("|"),
+        cutoff=cutoff,
     )
     return {
-        "concepts": flat["concepts"],
+        "concepts": concepts,
+        "relations": relations,
         "claims": [
             {**row["claim"], "distance": row["distance"], "supports": row["supports"]}
             for row in rows

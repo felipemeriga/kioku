@@ -183,6 +183,16 @@ def run(env_file):
                 )
                 assert "c" not in recall("2026-11-06T12:00:00Z")
                 checks.append("future_leaf_original_blocked")
+                execute(
+                    driver,
+                    "MATCH (c:Claim {id:$c}),(e:Claim {id:$e}) CREATE (c)-[:EXPLAINS {known_at:$known,record_id:$proof}]->(e)",
+                    c=revision + ":c",
+                    e=revision + ":e",
+                    known=timestamp("2026-11-01T12:00:00Z"),
+                    proof=prefix + ":b",
+                )
+                assert "e" not in recall("2026-11-06T12:00:00Z")
+                checks.append("future_intermediate_original_blocked")
                 assert recall("2026-11-06T12:00:00Z", "unknown") == set()
                 checks.append("unknown_environment_abstains")
             finally:
