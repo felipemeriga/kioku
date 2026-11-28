@@ -168,6 +168,38 @@ def _run_scoped(user_id: str) -> int:
         f"unsupported={verdict.get('unsupported', verdict.get('_parse_error'))}",
     )
 
+    # Conflicting evidence must be attributed, not blended into one formula.
+    # These facts are deliberately different in the seeded money-movement doc
+    # and executable refund posting; keep both fixtures unchanged.
+    q = (
+        "Compare the money-movement documentation's refund posting with "
+        "build_refund_reversal_entry in obol-ledger. Do they reverse the same "
+        "fees and seller amount? Explain any discrepancy with citations."
+    )
+    ans, chunks = _ask(user_id, scope, q)
+    context = "\n\n".join(chunks)
+    exposed = "processor_fees" in context and "seller_clawback" in context
+    verdict = _judge(
+        "Audit the ANSWER against both CONTEXT and these independently verified "
+        "fixture facts: the money-movement document describes proportional "
+        "processor-fee AND platform-fee givebacks; the executable ledger refund "
+        "posting gives back the platform fee only, with seller_clawback = "
+        "refund amount - platform fee giveback. It does not post a processor_fees "
+        "reversal. A full refund therefore does not zero every original account. "
+        "The answer must explicitly distinguish document claims from code behavior, "
+        "cite both, and must not invent deployment proof or silently blend formulas. "
+        'Return {"consistent": true|false, "problems": ["..."]}.',
+        q,
+        context,
+        ans,
+    )
+    check(
+        "F2 conflicting-source-attribution",
+        exposed and bool(re.search(r"\[\d+\]", ans)) and verdict.get("consistent") is True,
+        f"evidence_exposed={exposed} problems="
+        f"{verdict.get('problems', verdict.get('_parse_error'))}",
+    )
+
     # ── ABSTENTION ────────────────────────────────────────────────────
     # An answer that isn't in the corpus must be refused, not fabricated. A
     # refusal phrase must be present AND no specific node count / region stated.
