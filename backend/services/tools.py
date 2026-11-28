@@ -500,6 +500,10 @@ def execute_tool(
                 updated = str(r.get("created_at") or "")[:10]
                 label = f"{source} — {symbol}" if symbol else source
                 body = f"Code: {label} — updated {updated}" if updated else f"Code: {label}"
+                body += (
+                    " — comments/docstrings describe intent; verify executable statements "
+                    "for behavior and guarantees"
+                )
             else:
                 # Date in the header lets the model weigh freshness and cite
                 # as-of dates — retrieval alone can't resolve conflicting facts.
