@@ -83,15 +83,20 @@ def test_vision_completion_is_scoped_and_never_embeds_image_bytes_in_text_prompt
 
 
 def test_ragas_judge_preserves_scope_across_async_threads():
+    from ragas.metrics._context_precision import ContextPrecisionPrompt
+
     seen = []
 
     def answer(**kwargs):
         seen.append(current_scope())
-        return SimpleNamespace(content=[SimpleNamespace(text='{"score": 1}')])
+        return SimpleNamespace(
+            content=[SimpleNamespace(text='{"reason": "Evidence", "verdict": 1}')]
+        )
 
     judge = SubscriptionJudge(ExecutionScope("another-user", ("folder",)))
-    with patch("services.ai.evaluation.complete", side_effect=answer):
-        result = asyncio.run(judge.agenerate_text(StringPromptValue(text="score"), n=2))
+    prompt = StringPromptValue(text=ContextPrecisionPrompt().to_string())
+    with patch("services.ai.evaluation.native_completion", side_effect=answer):
+        result = asyncio.run(judge.agenerate_text(prompt, n=2))
     assert len(result.generations[0]) == 2
     assert all(
         scope.owner_id == "another-user" and scope.folder_ids == ("folder",) for scope in seen
