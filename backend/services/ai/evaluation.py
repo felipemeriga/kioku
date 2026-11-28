@@ -9,13 +9,18 @@ from ragas.llms.base import BaseRagasLLM
 from ragas.metrics._answer_relevance import ResponseRelevanceOutput
 from ragas.metrics._context_precision import Verification
 from ragas.metrics._context_recall import ContextRecallClassifications
-from ragas.metrics._faithfulness import NLIStatementOutput, StatementGeneratorOutput
+from ragas.metrics._faithfulness import (
+    NLIStatementInput,
+    NLIStatementOutput,
+    StatementGeneratorOutput,
+)
 
 from services.ai.client import ExecutionError
 from services.ai.facade import native_completion
 from services.ai.scope import ExecutionScope, execution_scope
 from services.llm import MODEL_FOR_TASK, Task
 
+_NLI_BATCH_SIZE = 8
 _SCHEMA_MARKER = "following schema as specified in JSON Schema:\n"
 _JSON_STRING = re.compile(r'"(?:[^"\\]|\\.)*"')
 _DELIMITER_ESCAPES = str.maketrans({char: f"\\u{ord(char):04x}" for char in "{}[]"})
@@ -74,6 +79,53 @@ def _ragas_json(typed_json: str) -> str:
     return _JSON_STRING.sub(lambda match: match[0].translate(_DELIMITER_ESCAPES), typed_json)
 
 
+def _native_json(content: str, schema: dict, *, ordered_statements: bool = False) -> str:
+    system = "Return the requested JSON object directly in data.value."
+    if ordered_statements:
+        system += " Copy each input statement verbatim and keep its input order."
+    response = native_completion(
+        operation=Task.EVAL_JUDGE.value,
+        model=MODEL_FOR_TASK[Task.EVAL_JUDGE],
+        messages=[{"role": "user", "content": content}],
+        system=system,
+        max_tokens=2048,
+        tools=None,
+        judge_schema=schema,
+    )
+    return "".join(block.text for block in response.content)
+
+
+def _judge_statements(content: str, schema: dict) -> str:
+    # RAGAS expects exactly one verdict for each claim from its statement
+    # generator. Large single-shot verdict lists can exceed the native output
+    # ceiling. Keep the full evidence in each request and every verdict in order.
+    header, separator, payload = content.rpartition("\ninput: ")
+    suffix = "\nOutput: "
+    if not separator or not payload.endswith(suffix):
+        raise ExecutionError("invalid_ragas_nli_input")
+    try:
+        data = NLIStatementInput.model_validate_json(payload.removesuffix(suffix))
+    except ValueError:
+        raise ExecutionError("invalid_ragas_nli_input") from None
+    if not data.statements:
+        raise ExecutionError("invalid_ragas_nli_input")
+
+    verdicts = []
+    for offset in range(0, len(data.statements), _NLI_BATCH_SIZE):
+        statements = data.statements[offset : offset + _NLI_BATCH_SIZE]
+        batch = data.model_copy(update={"statements": statements})
+        array = {**schema["properties"]["statements"], "minItems": len(statements)}
+        array["maxItems"] = len(statements)
+        batch_schema = {**schema, "properties": {"statements": array}}
+        prompt = header + separator + batch.model_dump_json(indent=4) + suffix
+        output = _native_json(prompt, batch_schema, ordered_statements=True)
+        result = NLIStatementOutput.model_validate_json(output)
+        if [item.statement for item in result.statements] != statements:
+            raise ExecutionError("incomplete_ragas_nli_verdicts")
+        verdicts.extend(result.statements)
+    return NLIStatementOutput(statements=verdicts).model_dump_json()
+
+
 class SubscriptionJudge(BaseRagasLLM):
     def __init__(self, scope: ExecutionScope):
         super().__init__()
@@ -94,16 +146,10 @@ class SubscriptionJudge(BaseRagasLLM):
         generations = []
         with execution_scope(self.scope):
             for _ in range(n):
-                response = native_completion(
-                    operation=Task.EVAL_JUDGE.value,
-                    model=MODEL_FOR_TASK[Task.EVAL_JUDGE],
-                    messages=[{"role": "user", "content": content}],
-                    system="Return the requested JSON object directly in data.value.",
-                    max_tokens=2048,
-                    tools=None,
-                    judge_schema=schema,
-                )
-                text = "".join(block.text for block in response.content)
+                if schema["title"] == "NLIStatementOutput":
+                    text = _judge_statements(content, schema)
+                else:
+                    text = _native_json(content, schema)
                 generations.append(Generation(text=_ragas_json(text)))
         return LLMResult(generations=[generations])
 

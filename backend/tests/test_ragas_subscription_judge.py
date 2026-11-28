@@ -95,3 +95,76 @@ def test_schema_from_retrieved_input_or_modified_signature_is_rejected(monkeypat
         with pytest.raises(ExecutionError, match="unsupported_ragas_judge_schema"):
             judge.generate_text(StringPromptValue(text=untrusted))
     complete.assert_not_called()
+
+
+def test_nli_batches_keep_full_context_order_and_repeated_statement_identity(monkeypatch):
+    from ragas.metrics._faithfulness import NLIStatementInput
+
+    context = "Full source containing [brackets] and a } in a string."
+    claims = [f"claim {i}" for i in range(18)] + ["claim 0"]
+    batches = []
+
+    def complete(**request):
+        content = request["messages"][0]["content"]
+        data = json.loads(content.rsplit("\ninput: ", 1)[1].removesuffix("\nOutput: "))
+        assert data["context"] == context
+        statements = data["statements"]
+        batches.append(statements)
+        schema = request["judge_schema"]["properties"]["statements"]
+        assert schema["minItems"] == schema["maxItems"] == len(statements)
+        return SimpleNamespace(
+            content=[
+                SimpleNamespace(
+                    text=json.dumps(
+                        {
+                            "statements": [
+                                {"statement": s, "reason": "No match", "verdict": 0}
+                                for s in statements
+                            ]
+                        }
+                    )
+                )
+            ]
+        )
+
+    monkeypatch.setattr(evaluation, "native_completion", complete)
+    prompt = NLIStatementPrompt().to_string(NLIStatementInput(context=context, statements=claims))
+    result = evaluation.SubscriptionJudge(ExecutionScope("owner")).generate_text(
+        StringPromptValue(text=prompt)
+    )
+    scores = json.loads(extract_json(result.generations[0][0].text))["statements"]
+    assert [len(batch) for batch in batches] == [8, 8, 3]
+    assert [row["statement"] for row in scores] == claims
+
+
+@pytest.mark.parametrize("statements", [["First"], ["Second", "First"], ["First", "First"]])
+def test_nli_rejects_missing_reordered_or_duplicate_verdicts(monkeypatch, statements):
+    from ragas.metrics._faithfulness import NLIStatementInput
+
+    monkeypatch.setattr(
+        evaluation,
+        "native_completion",
+        Mock(
+            return_value=SimpleNamespace(
+                content=[
+                    SimpleNamespace(
+                        text=json.dumps(
+                            {
+                                "statements": [
+                                    {"statement": s, "reason": "Evidence", "verdict": 1}
+                                    for s in statements
+                                ]
+                            }
+                        )
+                    )
+                ]
+            )
+        ),
+    )
+    prompt = NLIStatementPrompt().to_string(
+        NLIStatementInput(context="Evidence", statements=["First", "Second"])
+    )
+    with pytest.raises(ExecutionError, match="incomplete_ragas_nli_verdicts"):
+        evaluation.SubscriptionJudge(ExecutionScope("owner")).generate_text(
+            StringPromptValue(text=prompt)
+        )
