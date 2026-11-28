@@ -31,6 +31,7 @@ DOCUMENT_RESERVE_SLOTS = 3
 SOURCE_RELEVANCE_MARGIN = 0.15
 DOCUMENT_FACET_THRESHOLD = 0.45
 DOCUMENT_FACET_DEPTH = 8
+DOCUMENT_FACET_REQUEST_TIMEOUT = 2.0
 
 # Candidate pool size per leg (vector, keyword) before rerank. Wider than the
 # old 20 so the cross-encoder has more to choose from — it trims back to top_k,
@@ -260,7 +261,14 @@ def _rerank_document_facets(
             pool, _rerank_source_roles, query, docs, code, top_k, source_role=source_role
         )
         jobs = [
-            submit_with_context(pool, rerank, facet, docs, top_k=DOCUMENT_FACET_DEPTH)
+            submit_with_context(
+                pool,
+                rerank,
+                facet,
+                docs,
+                top_k=DOCUMENT_FACET_DEPTH,
+                request_timeout=DOCUMENT_FACET_REQUEST_TIMEOUT,
+            )
             for facet in facets
         ]
         whole = whole_job.result()

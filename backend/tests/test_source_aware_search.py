@@ -1,9 +1,11 @@
 """Source-role regressions: vendor definitions must survive copied code hits."""
 
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+import voyageai
 
 from services.search import (
     _apply_recency_decay,
@@ -280,11 +282,14 @@ def test_document_choices_cover_three_facets_even_when_company_code_is_available
         "ranking approach": [rank],
     }
     with patch(
-        "services.search.rerank", side_effect=lambda q, _pool, top_k: ranked_queries[q]
+        "services.search.rerank", side_effect=lambda q, _pool, **kwargs: ranked_queries[q]
     ) as rr:
         result = _rerank_sources(question, docs, code, 5)
     assert result == [constraints, storage, index, rank, option]
     assert rr.call_count == 4
+    assert {call.args[0]: call.kwargs.get("request_timeout") for call in rr.call_args_list} == {
+        query: None if query == question else 2.0 for query in ranked_queries
+    }
     assert {call.args[0]: {r["id"] for r in call.args[1]} for call in rr.call_args_list} == {
         query: {r["id"] for r in (docs + code if query == question else docs)}
         for query in ranked_queries
@@ -296,7 +301,7 @@ def test_document_choices_keep_whole_query_when_a_facet_lacks_evidence(bad_score
     question = "Which storage engine, query index, and ranking approach would you use?"
     legacy = [hit("legacy", 0.75), hit("fallback", 0.7)]
 
-    def rank(query, _docs, top_k):
+    def rank(query, _docs, **kwargs):
         if query == question:
             return legacy
         if query != "query index":
@@ -315,6 +320,37 @@ def test_document_choices_keep_whole_query_when_a_facet_lacks_evidence(bad_score
         assert _rerank_sources(question, legacy, [], 5) == legacy
     assert reranker.call_count == 4
     assert metrics.call_args.kwargs["degraded"] is True
+
+
+def test_facet_sdk_timeout_returns_exact_whole_query_order():
+    question = "Which storage engine, query index, and ranking approach would you use?"
+    docs = [dict(id=str(i), content=f"chunk {i}") for i in range(5)]
+    order = [3, 0, 1, 4, 2]
+    response = SimpleNamespace(
+        data=[SimpleNamespace(index=i, relevance_score=0.8) for i in order],
+        usage=SimpleNamespace(total_tokens=10),
+    )
+
+    def request(**kwargs):
+        if kwargs["query"] == "query index":
+            raise voyageai.error.Timeout("facet timeout")
+        return response
+
+    with (
+        patch(
+            "services.rerank._get_client",
+            side_effect=lambda timeout: voyageai.Client(
+                api_key="test-only-voyage-token", timeout=timeout, max_retries=0
+            ),
+        ),
+        patch("voyageai.Reranking.create", side_effect=request) as provider,
+        patch("services.search.record") as metrics,
+    ):
+        result = _rerank_sources(question, docs, [], 5)
+
+    assert result == [{**docs[i], "rerank_score": 0.8} for i in order]
+    assert provider.call_count == 4
+    assert metrics.call_args.kwargs["fallback_reason"] == "facet_unscored"
 
 
 @pytest.mark.parametrize(
