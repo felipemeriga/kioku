@@ -78,6 +78,11 @@ class EvidenceContract(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "untimed"):
             validate(self.bundle, self.db)
 
+    def test_internal_analysis_is_not_an_established_report(self):
+        self.db.execute("UPDATE records SET channel='analysis'")
+        with self.assertRaisesRegex(ValueError, "Private analysis"):
+            validate(self.bundle, self.db)
+
     def test_assistant_report_cannot_be_promoted_to_tool_observation(self):
         self.bundle["claims"][0]["authority"] = "tool_observation"
         with self.assertRaisesRegex(ValueError, "command result"):

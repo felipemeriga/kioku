@@ -55,6 +55,8 @@ def validate(bundle, db):
         ).fetchone()
         if not row or row["inherited"] or not row["displayable"] or not row["event_at"]:
             raise ValueError("Source absent, inherited, nondisplayable, or untimed")
+        if row["role"] == "assistant" and row["channel"] == "analysis":
+            raise ValueError("Private analysis is not a reported or observed outcome")
         quote = reference["quote"]
         if len(quote.strip()) < 12 or quote not in row["text"]:
             raise ValueError("Unsupported source quotation")

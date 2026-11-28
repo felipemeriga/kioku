@@ -31,6 +31,19 @@ def timestamp(value):
     return dt.astimezone(UTC).isoformat(timespec="microseconds")
 
 
+def native_channel(raw, event, agent):
+    try:
+        native = json.loads(
+            raw[event["byte_offset"] : event["byte_offset"] + event["byte_length"]]
+        )
+    except (ValueError, UnicodeDecodeError):
+        return None
+    if not isinstance(native, dict):
+        return None
+    payload = native.get("payload") if agent == "codex" else native.get("message")
+    return payload.get("channel") if isinstance(payload, dict) else None
+
+
 SCHEMA = """
 PRAGMA journal_mode=WAL;
 CREATE TABLE sessions(id TEXT PRIMARY KEY, native_id TEXT, agent TEXT,
@@ -42,7 +55,7 @@ CREATE TABLE objects(id TEXT, session_id TEXT, sha256 TEXT,
  stream_id TEXT, generation INTEGER, first_record INTEGER, last_record INTEGER,
  archived_at TEXT, PRIMARY KEY(session_id,id));
 CREATE TABLE records(id TEXT PRIMARY KEY, session_id TEXT, stream_id TEXT,
- generation INTEGER, sequence INTEGER, event_at TEXT, role TEXT, event_type TEXT,
+ generation INTEGER, sequence INTEGER, event_at TEXT, role TEXT, event_type TEXT, channel TEXT,
  native_id TEXT, turn_id TEXT, call_id TEXT, inherited INTEGER, displayable INTEGER,
  source_truncated INTEGER, source_sha256 TEXT, byte_offset INTEGER,
  byte_length INTEGER, text TEXT);
@@ -191,6 +204,7 @@ def build(private: Path, output: Path):
             raw, obj["descriptor"], session, state, include_content=True
         ):
             content = event.get("_content", "")
+            channel = native_channel(raw, event, session["agent"])
             values = (
                 event["event_id"],
                 obj["session_id"],
@@ -200,6 +214,7 @@ def build(private: Path, output: Path):
                 timestamp(event.get("event_at")),
                 event["role"],
                 event["event_type"],
+                channel,
                 event.get("native_id"),
                 event.get("turn_id"),
                 event.get("call_id"),
@@ -219,7 +234,8 @@ def build(private: Path, output: Path):
             ).rowcount
             if inserted and event["displayable"] and not event.get("inherited"):
                 db.execute(
-                    "INSERT INTO record_fts VALUES(?,?)", (event["event_id"], content)
+                    "INSERT INTO record_fts VALUES(?,?)",
+                    (event["event_id"], content[:12000]),
                 )
             counts["records_seen"] += 1
             counts["records_inserted"] += inserted
