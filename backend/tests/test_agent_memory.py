@@ -1255,3 +1255,104 @@ def test_capped_inventory_reference_reads_the_selected_journal_snapshot(monkeypa
     with pytest.raises(HTTPException) as exc:
         read_memory(sb, OWNER, [FOLDER], day["reference"])
     assert exc.value.detail["code"] == "journal_revision_changed_search_again"
+
+
+def test_journal_guided_search_pins_session_and_cutoff_for_pagination():
+    sb = Database()
+    calls = []
+
+    def lookup(name, arguments):
+        calls.append((name, arguments))
+        return SimpleNamespace(
+            execute=lambda: SimpleNamespace(
+                data={
+                    "folder_id": FOLDER,
+                    "session_id": SESSION,
+                    "result": {"matches": [], "total_matches": 20, "has_more": True},
+                }
+            )
+        )
+
+    sb.rpc = lookup
+    arguments = {"query": "memory relay", "strategy": "journal_guided"}
+    result = search_memory(sb, OWNER, [FOLDER, SIBLING], **arguments)
+    assert result["coverage_scope"] == "selected_session"
+    assert result["coverage_complete"] is False
+    assert "searched only the selected original session" in result["interpretation"]
+    assert result["selected_session_id"] == SESSION
+    assert result["total_matches"] == 20
+    assert result["scope"] == [{"id": FOLDER, "name": "repo"}]
+    assert result["activity"] is None
+    assert calls[-1][0] == "search_agent_memory_journal_guided"
+    assert calls[-1][1]["p_session"] is None
+    assert calls[-1][1]["p_before"] == result["time_scope"]["before_exclusive"]
+    with pytest.raises(HTTPException) as error:
+        search_memory(sb, OWNER, [FOLDER, SIBLING], offset=10, **arguments)
+    assert error.value.detail["code"] == "journal_page_requires_session_and_cutoff"
+    search_memory(
+        sb,
+        OWNER,
+        [FOLDER, SIBLING],
+        offset=result["next_offset"],
+        session=result["selected_session_id"],
+        as_of=result["pagination_as_of"],
+        **arguments,
+    )
+    assert calls[-1][1]["p_session"] == SESSION
+    assert calls[-1][1]["p_before"] == calls[0][1]["p_before"]
+    assert calls[-1][1]["p_offset"] == 10
+    dated = search_memory(
+        sb,
+        OWNER,
+        [FOLDER],
+        through_date="2026-11-04",
+        as_of="2026-11-07T20:00:00Z",
+        **arguments,
+    )
+    assert calls[-1][1]["p_before"] == "2026-11-05T00:00:00+00:00"
+    assert dated["time_scope"]["before_exclusive"] == calls[-1][1]["p_before"]
+
+
+def test_journal_guided_fallback_keeps_original_scope_and_dates():
+    sb = Database()
+    calls = []
+
+    def lookup(name, arguments):
+        calls.append((name, arguments))
+        data = (
+            None
+            if name == "search_agent_memory_journal_guided"
+            else {"matches": [], "total_matches": 100, "has_more": True}
+        )
+        return SimpleNamespace(execute=lambda: SimpleNamespace(data=data))
+
+    sb.rpc = lookup
+    result = search_memory(
+        sb, OWNER, [FOLDER, SIBLING], query="memory relay", strategy="journal_guided"
+    )
+    assert [name for name, _ in calls] == [
+        "search_agent_memory_journal_guided",
+        "search_agent_memory_v2",
+    ]
+    assert calls[1][1] == {**calls[0][1], "p_before": None}
+    assert result["search_strategy"] == "original"
+    assert result["requested_strategy"] == "journal_guided"
+    assert result["strategy_fallback"] == "no_eligible_journal_session"
+    assert result["coverage_scope"] == "authorized_folders"
+    assert set(row["id"] for row in result["scope"]) == {FOLDER, SIBLING}
+
+
+def test_journal_guided_rejects_originals_from_a_different_session():
+    sb = Database()
+    sb.rpc = lambda *_: SimpleNamespace(
+        execute=lambda: SimpleNamespace(
+            data={
+                "session_id": SESSION,
+                "folder_id": FOLDER,
+                "result": {"matches": [{"session_id": "different", "folder_id": FOLDER}]},
+            }
+        )
+    )
+    with pytest.raises(HTTPException) as error:
+        search_memory(sb, OWNER, [FOLDER], query="memory", strategy="journal_guided")
+    assert error.value.status_code == 403

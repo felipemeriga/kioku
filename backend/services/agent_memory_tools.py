@@ -9,6 +9,15 @@ from fastapi import HTTPException
 from services.agent_memory import STOP, read_memory, search_memory
 
 SEARCH_PROPERTIES = {
+    "strategy": {
+        "type": "string",
+        "enum": ["original", "journal_guided"],
+        "description": (
+            "Journal-guided discovery selects one original session using eligible journals. "
+            "Match counts cover that session. For later pages, pass selected_session_id as session "
+            "and pagination_as_of as as_of."
+        ),
+    },
     "projection": {
         "type": "string",
         "enum": ["discovery", "overview"],

@@ -7,6 +7,7 @@ export interface HistoryOptions {
   asOf?: string;
   timezone?: string;
   session?: string;
+  strategy?: string;
   order?: string;
   limit?: string;
   offset?: string;
@@ -50,6 +51,10 @@ export function historyArguments(
   const order = opts.order ?? "chronological";
   if (!["chronological", "latest", "relevance"].includes(order))
     throw new Error("Order must be chronological, latest or relevance.");
+  const strategy = opts.strategy;
+  if (strategy !== undefined && !["original", "journal-guided"].includes(strategy)) {
+    throw new Error("Strategy must be original or journal-guided.");
+  }
   return Object.fromEntries(
     Object.entries({
       query,
@@ -59,6 +64,7 @@ export function historyArguments(
       as_of: opts.asOf,
       timezone,
       session: opts.session,
+      strategy: strategy === "journal-guided" ? "journal_guided" : strategy,
       order,
       limit: integerOption(opts.limit, 10, 1, 50),
       offset: integerOption(opts.offset, 0, 0, 1000000),

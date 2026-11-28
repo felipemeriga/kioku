@@ -2309,6 +2309,7 @@ def search_agent_history(
     offset: int = 0,
     queries: list[str] | None = None,
     projection: str = "discovery",
+    strategy: str = "original",
 ) -> str:
     """Recall previous agent work from originals within this key's authorized subtree.
 
@@ -2322,6 +2323,9 @@ def search_agent_history(
     supplied IANA timezone; through_date is inclusive. as_of is a local day or
     offset-aware timestamp, enforced before retrieval and evidence expansion.
     Resolve relative dates using the user's timezone; do not guess the year.
+    strategy="journal_guided" uses eligible journals to find one original
+    session. Match counts cover that session. For later pages, pass
+    selected_session_id as session and pagination_as_of as as_of.
     Follow has_more and index_pending_objects; incomplete results do not prove
     no work occurred. Returned references expand through read_agent_evidence.
     """
@@ -2339,6 +2343,7 @@ def search_agent_history(
         offset=offset,
         queries=queries,
         projection=projection,
+        strategy=strategy,
     )
 
 

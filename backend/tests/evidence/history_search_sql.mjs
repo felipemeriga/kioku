@@ -7,7 +7,15 @@ await db.exec(`CREATE ROLE anon;CREATE ROLE authenticated;CREATE ROLE service_ro
 CREATE SCHEMA auth;CREATE TABLE auth.users(id uuid PRIMARY KEY);CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS $$SELECT nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
 CREATE TABLE folders(id uuid PRIMARY KEY,user_id uuid,kind text);CREATE SCHEMA storage;
 CREATE TABLE storage.buckets(id text PRIMARY KEY,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);`);
-for(const file of ['20261029090000_agent_journals.sql','20261105130000_agent_history_search.sql','20261106233000_history_session_prefix.sql'])
+for(const file of [
+ '20261029090000_agent_journals.sql',
+ '20261105090000_agent_evidence.sql',
+ '20261105130000_agent_history_search.sql',
+ '20261106233000_history_session_prefix.sql',
+ '20261109090000_agent_memory_recall.sql',
+ '20261127153031_memory_search_wide_scoring.sql',
+ '20261128034500_journal_guided_agent_recall.sql',
+])
  await db.exec(fs.readFileSync(new URL('../../../supabase/migrations/'+file,import.meta.url),'utf8'));
 const owner='11111111-1111-4111-8111-111111111111',other='11111111-1111-4111-8111-111111111112',folder='22222222-2222-4222-8222-222222222222';
 await db.query('INSERT INTO auth.users VALUES($1),($2)',[owner,other]);
@@ -50,7 +58,48 @@ await call('publish_agent_journal',[owner,folder,'2026-11-05',1,'path/d','d',1,[
 assert.equal((await search('memory')).coverage.pending_days,1);
 assert.equal((await search('memory')).total_sessions,1);
 const pending=await call('pending_agent_journal_search',[owner,folder,1]);assert.equal(pending.remaining_days,1);assert.equal(pending.days.length,1);
-for(const signature of ['search_agent_history(uuid,uuid,text,text,date,date,text,text,text,integer,integer,text)','index_agent_journal(uuid,uuid,date,text,jsonb)','pending_agent_journal_search(uuid,uuid,integer)']) {
+const native='33333333-3333-4333-8333-333333333333', second='33333333-3333-4333-8333-333333333334';
+await db.query(`INSERT INTO agent_evidence_sessions(id,user_id,folder_id,agent,native_session_id,root_session_id)
+ VALUES($1,$3,$4,'codex','native',$1),($2,$3,$4,'codex','second',$2)`,[native,second,owner,folder]);
+await db.query(`INSERT INTO agent_evidence_objects
+ (session_id,user_id,folder_id,object_id,descriptor,producer_id,stream_id,generation,kind,sha256,byte_length,committed_revision,memory_index_version)
+ VALUES($1,$2,$3,'segment','{}','producer','stream',1,'segment',repeat('a',64),10,1,2)`,[native,owner,folder]);
+await db.query(`INSERT INTO agent_evidence_events
+ (session_id,user_id,folder_id,event_id,object_id,stream_id,generation,record_sequence,byte_offset,byte_length,event_at,role,event_type,content_preview,content_length,parser_version)
+ VALUES($1,$2,$3,'before','segment','stream',1,1,0,5,'2026-11-04T23:00:00Z','assistant','message','memory follows',14,1),
+       ($1,$2,$3,'after','segment','stream',1,2,5,5,'2026-11-06T00:00:00Z','assistant','message','memory follows',14,1)`,[native,owner,folder]);
+await db.query(`INSERT INTO agent_memory_chunks(session_id,event_id,object_id,user_id,folder_id,char_start,char_length,lexemes)
+ SELECT session_id,event_id,object_id,user_id,folder_id,0,14,to_tsvector('simple','memory follows')
+ FROM agent_evidence_events WHERE session_id=$1`,[native]);
+await publish('2026-11-06','e',[{...entry('5','2026-11-04T23:00:00Z','future insight'),session_id:'second'}]);
+await db.exec(`UPDATE agent_journal_days SET synced_at=CASE WHEN journal_date='2026-11-06'
+ THEN '2026-11-08T00:00:00Z'::timestamptz ELSE '2026-11-05T00:00:00Z'::timestamptz END`);
+const guided=(terms,cutoff='2026-11-06T00:00:00Z',session=null,user=owner,offset=0)=>call(
+ 'search_agent_memory_journal_guided',[user,[folder],terms,null,cutoff,session,'relevance',10,offset,[],'UTC']
+);
+const discovered=await guided(['memory','follows']);
+assert.equal(discovered.session_id,native);
+assert.equal(discovered.folder_id,folder);
+assert.deepEqual(discovered.result.matches.map(match=>match.event_id),['before']);
+assert.equal(discovered.result.total_matches,1);
+assert.equal(await guided(['memory','end']),null); // Stale Nov 5 projection.
+assert.equal(await guided(['future','insight']),null); // A pre-cutoff entry in a later revision.
+assert.equal((await guided(['future','insight'],'2026-11-09T00:00:00Z')).session_id,second);
+assert.equal(await guided(['memory','follows'],undefined,null,other),null);
+await assert.rejects(guided(['memory','follows'],undefined,native,other),/evidence_not_found/);
+await assert.rejects(guided(['memory','follows'],undefined,null,owner,1),/evidence_not_found/);
+await db.exec(`UPDATE agent_journal_days SET synced_at='2026-11-07T00:00:00Z' WHERE journal_date='2026-11-04'`);
+assert.equal(await guided(['memory','follows']),null);
+const pinned=await guided(['memory','follows'],undefined,native,owner,1);
+assert.equal(pinned.session_id,native);
+assert.equal(pinned.result.total_matches,1);
+assert.deepEqual(pinned.result.matches,[]);
+await db.query('UPDATE agent_evidence_sessions SET deleted_at=now() WHERE id=$1',[second]);
+assert.equal(await guided(['future','insight'],'2026-11-09T00:00:00Z'),null);
+await assert.rejects(guided(['future','insight'],undefined,second),/evidence_not_found/);
+await db.query(`UPDATE agent_evidence_sessions SET deleted_at=NULL,native_session_id=$2 WHERE id=$1`,[second,native+'-suffix']);
+await assert.rejects(guided(['memory','follows'],undefined,native),/evidence_not_found/);
+for(const signature of ['search_agent_history(uuid,uuid,text,text,date,date,text,text,text,integer,integer,text)','index_agent_journal(uuid,uuid,date,text,jsonb)','pending_agent_journal_search(uuid,uuid,integer)','search_agent_memory_journal_guided(uuid,uuid[],text[],timestamptz,timestamptz,uuid,text,integer,integer,text[],text)']) {
  const p=(await db.query("SELECT has_function_privilege('authenticated',$1,'EXECUTE') a,has_function_privilege('anon',$1,'EXECUTE') n,has_function_privilege('service_role',$1,'EXECUTE') s",[signature])).rows[0];assert.equal(p.a,false);assert.equal(p.n,false);assert.equal(p.s,true);
 }
 await db.exec(`SET ROLE authenticated;SET request.jwt.claim.sub='${other}';`);

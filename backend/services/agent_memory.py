@@ -409,8 +409,13 @@ def search_memory(
     offset=0,
     queries=None,
     projection="discovery",
+    strategy="original",
 ):
     query = text(query, 2000, "query")
+    if strategy not in ("original", "journal_guided"):
+        invalid("invalid_memory_strategy")
+    if strategy == "journal_guided" and projection != "discovery":
+        invalid("invalid_memory_strategy_projection")
     if (
         type(limit) is not int
         or not 1 <= limit <= 50
@@ -424,6 +429,14 @@ def search_memory(
         session = text(session, 180, "session", False)
         if not re.fullmatch(r"[A-Za-z0-9_.:-]+", session):
             invalid("invalid_session")
+    if strategy == "journal_guided":
+        if session is not None:
+            try:
+                session = str(UUID(session))
+            except ValueError:
+                invalid("invalid_journal_session")
+        if offset and (session is None or as_of is None):
+            invalid("journal_page_requires_session_and_cutoff")
     if queries is None:
         queries = []
     if not isinstance(queries, list) or len(queries) > 8:
@@ -469,7 +482,47 @@ def search_memory(
         "p_identifiers": identifiers,
         "p_timezone": tz,
     }
-    result = rpc(sb, "search_agent_memory_v2", arguments)
+    selection_metadata = {}
+    selected_session = None
+    if strategy == "journal_guided":
+        if not matching_terms:
+            invalid("journal_guided_requires_query")
+        guided_as_of = as_of if as_of is not None else datetime.now(timezone.utc).isoformat()
+        _, guided_before = bounds(from_date, through_date, guided_as_of, tz)
+        guided = rpc(
+            sb,
+            "search_agent_memory_journal_guided",
+            {**arguments, "p_before": guided_before},
+        )
+        if guided is None:
+            if session is not None:
+                invalid("memory_session_not_found", 404)
+            selection_metadata = {
+                "search_strategy": "original",
+                "requested_strategy": strategy,
+                "strategy_fallback": "no_eligible_journal_session",
+                "coverage_scope": "authorized_folders",
+            }
+            result = rpc(sb, "search_agent_memory_v2", arguments)
+        else:
+            selected_session = guided["session_id"]
+            selected_folder = guided["folder_id"]
+            if selected_folder not in scope or (session and selected_session != session):
+                invalid("memory_scope_mismatch", 403)
+            scope = {selected_folder: scope[selected_folder]}
+            before = guided_before
+            as_of = guided_as_of
+            result = guided["result"]
+            selection_metadata = {
+                "search_strategy": strategy,
+                "coverage_scope": "selected_session",
+                "coverage_complete": False,
+                "index_pending_scope": "selected_folder",
+                "selected_session_id": selected_session,
+                "pagination_as_of": as_of,
+            }
+    else:
+        result = rpc(sb, "search_agent_memory_v2", arguments)
     mode = "identifier_boosted" if identifiers else "lexical_terms"
     matches = []
     stores = {}
@@ -477,7 +530,7 @@ def search_memory(
     cache = {}
     for row in result["matches"]:
         fid, sid = row["folder_id"], row["session_id"]
-        if fid not in scope:
+        if fid not in scope or (selected_session is not None and sid != selected_session):
             invalid("memory_scope_mismatch", 403)
         start, length = row["char_start"], row["char_length"]
         preview = row.get("content_preview") or ""
@@ -542,6 +595,7 @@ def search_memory(
     pagination_limited = bool(result.get("has_more")) and next_offset > MAX_OFFSET
     return {
         **result,
+        **selection_metadata,
         **({"has_more": False, "pagination_limited": True} if pagination_limited else {}),
         "period_reports": report_context(sb, user_id, list(scope), after, before, tz, session)
         if not query and not as_of and offset == 0
@@ -574,6 +628,12 @@ def search_memory(
         else None,
         "interpretation": (
             (
+                "Discovery searched only the selected original session. "
+                "Use the original strategy to search across your authorized folders. "
+                if selected_session is not None
+                else ""
+            )
+            + (
                 "Some requested identifiers had no indexed matches in this scope/time; "
                 "other matches do not establish facts about those identifiers. "
                 if result.get("unmatched_identifiers")
