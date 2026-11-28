@@ -188,6 +188,23 @@ def _calibrate_judge() -> None:
         if verdict["consistent"] is not expected:
             raise RuntimeError(f"Obol judge failed calibration control {index}")
 
+    comparison = (
+        "The document uses R - P - F, while the executable function uses R - P. "
+        "These are different formulas."
+    )
+    verdict = _judge(
+        "Check whether ANSWER agrees with REFERENCE_ANSWER. Correctly reporting "
+        "the two different formulas is correct, not a failure. "
+        'Return {"consistent": true|false, "problems": ["..."]}.',
+        "Do the document and function use the same formula?",
+        comparison,
+        comparison,
+        criterion="consistent",
+        reference=comparison,
+    )
+    if verdict["consistent"] is not True:
+        raise RuntimeError("Obol judge failed source-comparison calibration")
+
 
 def run(user_id: str) -> int:
     from services.ai.scope import ExecutionScope, execution_scope
