@@ -105,9 +105,10 @@ JSON preserves references, coverage warnings and pagination. When `has_more` is
 true, follow `next_offset` with `--offset`. Pending index objects mean results may
 be incomplete. These commands return evidence rather than a generated answer.
 
-For broad topic discovery, `--strategy journal-guided` uses eligible journals to
-choose one session and returns original evidence from it. Match counts cover that
-session. To page within it, keep the same filters and pass
+For broad topic discovery, `--strategy journal-guided` returns dated journal hints.
+Use a hint to refine the query, pass its `session_id` to `--session` and its
+`follow_up_as_of` to `--as-of`, and keep the same date filters. This follow-up
+searches originals in one session. To page within it, pass
 `--session <selected_session_id> --as-of <pagination_as_of> --offset <next_offset>`
 with `--strategy journal-guided`. Use `--strategy original`, the default, to
 search across authorized sessions or check for later evidence. When no journal

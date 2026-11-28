@@ -1282,7 +1282,7 @@ def test_journal_guided_search_pins_session_and_cutoff_for_pagination():
 
     sb.rpc = lookup
     arguments = {"query": "memory relay", "strategy": "journal_guided"}
-    result = search_memory(sb, OWNER, [FOLDER, SIBLING], **arguments)
+    result = search_memory(sb, OWNER, [FOLDER, SIBLING], session=SESSION, **arguments)
     assert result["coverage_scope"] == "selected_session"
     assert result["coverage_complete"] is False
     assert "searched only the selected original session" in result["interpretation"]
@@ -1291,7 +1291,7 @@ def test_journal_guided_search_pins_session_and_cutoff_for_pagination():
     assert result["scope"] == [{"id": FOLDER, "name": "repo"}]
     assert result["activity"] is None
     assert calls[-1][0] == "search_agent_memory_journal_guided"
-    assert calls[-1][1]["p_session"] is None
+    assert calls[-1][1]["p_session"] == SESSION
     assert calls[-1][1]["p_before"] == result["time_scope"]["before_exclusive"]
     with pytest.raises(HTTPException) as error:
         search_memory(sb, OWNER, [FOLDER, SIBLING], offset=10, **arguments)
@@ -1312,6 +1312,7 @@ def test_journal_guided_search_pins_session_and_cutoff_for_pagination():
         sb,
         OWNER,
         [FOLDER],
+        session=SESSION,
         through_date="2026-11-04",
         as_of="2026-11-07T20:00:00Z",
         **arguments,
@@ -1328,7 +1329,7 @@ def test_journal_guided_fallback_keeps_original_scope_and_dates():
         calls.append((name, arguments))
         data = (
             None
-            if name == "search_agent_memory_journal_guided"
+            if name == "discover_agent_memory_journals"
             else {"matches": [], "total_matches": 100, "has_more": True}
         )
         return SimpleNamespace(execute=lambda: SimpleNamespace(data=data))
@@ -1338,10 +1339,11 @@ def test_journal_guided_fallback_keeps_original_scope_and_dates():
         sb, OWNER, [FOLDER, SIBLING], query="memory relay", strategy="journal_guided"
     )
     assert [name for name, _ in calls] == [
-        "search_agent_memory_journal_guided",
+        "discover_agent_memory_journals",
         "search_agent_memory_v2",
     ]
-    assert calls[1][1] == {**calls[0][1], "p_before": None}
+    assert calls[1][1]["p_before"] is None
+    assert calls[1][1]["p_folder_ids"] == calls[0][1]["p_folder_ids"]
     assert result["search_strategy"] == "original"
     assert result["requested_strategy"] == "journal_guided"
     assert result["strategy_fallback"] == "no_eligible_journal_session"
@@ -1361,5 +1363,52 @@ def test_journal_guided_rejects_originals_from_a_different_session():
         )
     )
     with pytest.raises(HTTPException) as error:
-        search_memory(sb, OWNER, [FOLDER], query="memory", strategy="journal_guided")
+        search_memory(
+            sb, OWNER, [FOLDER], query="memory", strategy="journal_guided", session=SESSION
+        )
     assert error.value.status_code == 403
+
+
+@pytest.mark.parametrize("reranked", [True, False])
+def test_journal_discovery_reranks_reports_without_searching_originals(reranked):
+    sb = Database()
+    candidates = [
+        {"folder_id": FOLDER, "session_id": SESSION, "summary_excerpt": body}
+        for body in ("Generic journal", "Relevant journal")
+    ]
+
+    def lookup(name, arguments):
+        assert name == "discover_agent_memory_journals"
+        assert arguments["p_before"] == "2026-11-05T00:00:00+00:00"
+        return SimpleNamespace(execute=lambda: SimpleNamespace(data=candidates))
+
+    sb.rpc = lookup
+    with patch(
+        "services.rerank.rerank",
+        side_effect=lambda _, docs, **kwargs: (
+            [{**docs[1], "rerank_score": 0.7}] if reranked else []
+        ),
+    ) as provider:
+        result = search_memory(
+            sb,
+            OWNER,
+            [FOLDER],
+            query="memory relay",
+            through_date="2026-11-04",
+            as_of="2026-11-06",
+            strategy="journal_guided",
+        )
+    assert provider.call_args.args[0] == "memory relay"
+    assert provider.call_args.kwargs == {"top_k": 3, "request_timeout": 1.5}
+    assert provider.call_args.args[1][1]["content"] == "Relevant journal"
+    assert result["matches"] == []
+    assert "total_matches" not in result
+    assert result["originals_searched"] is False
+    assert result["coverage_complete"] is False
+    assert result["journal_ranking"] == ("reranked" if reranked else "lexical_fallback")
+    assert result["journal_hints"][0]["summary_excerpt"] == (
+        "Relevant journal" if reranked else "Generic journal"
+    )
+    assert result["journal_hints"][0]["source_kind"] == "journal_report"
+    assert result["journal_hints"][0]["session_id"] == SESSION
+    assert result["journal_hints"][0]["follow_up_as_of"] == "2026-11-06"

@@ -2325,11 +2325,10 @@ def search_agent_history(
     supplied IANA timezone; through_date is inclusive. as_of is a local day or
     offset-aware timestamp, enforced before retrieval and evidence expansion.
     Resolve relative dates using the user's timezone; do not guess the year.
-    Start broad topic discovery with strategy="journal_guided". Eligible
-    journals choose one original session and match counts cover that session.
-    For later pages, pass selected_session_id as session and pagination_as_of
-    as as_of. Use strategy="original" to search across authorized sessions
-    and check for later evidence before drawing conclusions from missing matches.
+    Start broad topic discovery with strategy="journal_guided". The first call
+    returns journal reports. Follow up with a hint's session_id, follow_up_as_of,
+    and a refined query to search originals in that session. Later pages retain
+    the session and cutoff. Use strategy="original" for cross-session checks.
     Follow has_more and index_pending_objects; incomplete results do not prove
     no work occurred. Returned references expand through read_agent_evidence.
     """

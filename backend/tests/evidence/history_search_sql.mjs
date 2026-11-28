@@ -15,6 +15,7 @@ for(const file of [
  '20261109090000_agent_memory_recall.sql',
  '20261127153031_memory_search_wide_scoring.sql',
  '20261128034500_journal_guided_agent_recall.sql',
+ '20261128040000_memory_journal_discovery.sql',
 ])
  await db.exec(fs.readFileSync(new URL('../../../supabase/migrations/'+file,import.meta.url),'utf8'));
 const owner='11111111-1111-4111-8111-111111111111',other='11111111-1111-4111-8111-111111111112',folder='22222222-2222-4222-8222-222222222222';
@@ -78,6 +79,18 @@ const guided=(terms,cutoff='2026-11-06T00:00:00Z',session=null,user=owner,offset
  'search_agent_memory_journal_guided',[user,[folder],terms,null,cutoff,session,'relevance',10,offset,[],'UTC']
 );
 const discovered=await guided(['memory','follows']);
+const hints=(terms,cutoff='2026-11-06T00:00:00Z',user=owner)=>call(
+ 'discover_agent_memory_journals',[user,[folder],terms,null,cutoff,[]]
+);
+const reports=await hints(['memory','follows']);
+assert.equal(reports.length,1);
+assert.equal(reports[0].session_id,native);
+assert.equal(reports[0].folder_id,folder);
+assert.equal(reports[0].summary_excerpt,'Investigate retention\nObserved cache eviction.\nMemory growth follows cache retention.');
+assert.equal(reports[0].truncated,false);
+assert.deepEqual(await hints(['memory','end']),[]);
+assert.deepEqual(await hints(['future','insight']),[]);
+assert.deepEqual(await hints(['memory','follows'],undefined,other),[]);
 assert.equal(discovered.session_id,native);
 assert.equal(discovered.folder_id,folder);
 assert.deepEqual(discovered.result.matches.map(match=>match.event_id),['before']);
@@ -96,10 +109,18 @@ assert.equal(pinned.result.total_matches,1);
 assert.deepEqual(pinned.result.matches,[]);
 await db.query('UPDATE agent_evidence_sessions SET deleted_at=now() WHERE id=$1',[second]);
 assert.equal(await guided(['future','insight'],'2026-11-09T00:00:00Z'),null);
+assert.deepEqual(await hints(['future','insight'],'2026-11-09T00:00:00Z'),[]);
 await assert.rejects(guided(['future','insight'],undefined,second),/evidence_not_found/);
 await db.query(`UPDATE agent_evidence_sessions SET deleted_at=NULL,native_session_id=$2 WHERE id=$1`,[second,native+'-suffix']);
 await assert.rejects(guided(['memory','follows'],undefined,native),/evidence_not_found/);
-for(const signature of ['search_agent_history(uuid,uuid,text,text,date,date,text,text,text,integer,integer,text)','index_agent_journal(uuid,uuid,date,text,jsonb)','pending_agent_journal_search(uuid,uuid,integer)','search_agent_memory_journal_guided(uuid,uuid[],text[],timestamptz,timestamptz,uuid,text,integer,integer,text[],text)']) {
+await publish('2026-11-10','bounded',Array.from({length:35},(_,i)=>
+ entry('bounded-'+i,'2026-11-10T00:00:00Z','amplitude diffraction'+' context'.repeat(800))
+));
+await db.exec("UPDATE agent_journal_days SET synced_at='2026-11-10T01:00:00Z' WHERE journal_date='2026-11-10'");
+const capped=await hints(['amplitude','diffraction'],'2026-11-11T00:00:00Z');
+assert.equal(capped.length,30);
+assert.ok(capped.every(report=>report.truncated && report.summary_excerpt.length===6000));
+for(const signature of ['search_agent_history(uuid,uuid,text,text,date,date,text,text,text,integer,integer,text)','index_agent_journal(uuid,uuid,date,text,jsonb)','pending_agent_journal_search(uuid,uuid,integer)','search_agent_memory_journal_guided(uuid,uuid[],text[],timestamptz,timestamptz,uuid,text,integer,integer,text[],text)','discover_agent_memory_journals(uuid,uuid[],text[],timestamptz,timestamptz,text[])']) {
  const p=(await db.query("SELECT has_function_privilege('authenticated',$1,'EXECUTE') a,has_function_privilege('anon',$1,'EXECUTE') n,has_function_privilege('service_role',$1,'EXECUTE') s",[signature])).rows[0];assert.equal(p.a,false);assert.equal(p.n,false);assert.equal(p.s,true);
 }
 await db.exec(`SET ROLE authenticated;SET request.jwt.claim.sub='${other}';`);

@@ -393,6 +393,70 @@ def read_journal_day(sb, user_id, folders, ref, char_limit):
     }
 
 
+def discover_journal_hints(sb, scope, arguments, query, as_of):
+    from services.rerank import rerank
+
+    candidates = rpc(
+        sb,
+        "discover_agent_memory_journals",
+        {
+            key: arguments[key]
+            for key in (
+                "p_user_id",
+                "p_folder_ids",
+                "p_terms",
+                "p_after",
+                "p_before",
+                "p_identifiers",
+            )
+        },
+    )
+    if not candidates:
+        return None
+    if any(candidate["folder_id"] not in scope for candidate in candidates):
+        invalid("memory_scope_mismatch", 403)
+    ranked = (
+        rerank(
+            query,
+            [{**candidate, "content": candidate["summary_excerpt"]} for candidate in candidates],
+            top_k=3,
+            request_timeout=1.5,
+        )
+        or candidates[:3]
+    )
+    return {
+        "status": "ok",
+        "search_strategy": "journal_guided",
+        "coverage_scope": "journal_candidates",
+        "coverage_complete": False,
+        "originals_searched": False,
+        "matches": [],
+        "journal_hints": [
+            {
+                **{key: value for key, value in hint.items() if key != "content"},
+                "source_kind": "journal_report",
+                "repository": scope[hint["folder_id"]],
+                "follow_up_as_of": as_of,
+            }
+            for hint in ranked
+        ],
+        "journal_ranking": "reranked"
+        if ranked and "rerank_score" in ranked[0]
+        else "lexical_fallback",
+        "scope": [{"id": fid, "name": name} for fid, name in scope.items()],
+        "time_scope": {
+            "after": arguments["p_after"],
+            "before_exclusive": arguments["p_before"],
+            "timezone": arguments["p_timezone"],
+        },
+        "interpretation": (
+            "These journal reports can guide discovery. Search originals with a hint's "
+            "session_id as session, follow_up_as_of as as_of, and a refined query. "
+            "Keep your original date filters. Use original strategy for cross-session checks."
+        ),
+    }
+
+
 def search_memory(
     sb,
     user_id,
@@ -489,11 +553,16 @@ def search_memory(
             invalid("journal_guided_requires_query")
         guided_as_of = as_of if as_of is not None else datetime.now(timezone.utc).isoformat()
         _, guided_before = bounds(from_date, through_date, guided_as_of, tz)
-        guided = rpc(
-            sb,
-            "search_agent_memory_journal_guided",
-            {**arguments, "p_before": guided_before},
-        )
+        guided_arguments = {**arguments, "p_before": guided_before}
+        if session is None:
+            hints = discover_journal_hints(
+                sb, scope, guided_arguments, query or " ".join(expanded), guided_as_of
+            )
+            if hints is not None:
+                return hints
+            guided = None
+        else:
+            guided = rpc(sb, "search_agent_memory_journal_guided", guided_arguments)
         if guided is None:
             if session is not None:
                 invalid("memory_session_not_found", 404)

@@ -13,8 +13,8 @@ SEARCH_PROPERTIES = {
         "type": "string",
         "enum": ["original", "journal_guided"],
         "description": (
-            "Start broad topic discovery with journal_guided. Match counts cover one session. "
-            "For later pages, pass selected_session_id as session and pagination_as_of as as_of. "
+            "Start broad discovery with journal_guided. Journal hints guide a refined query "
+            "using session_id as session and follow_up_as_of as as_of to search one session. "
             "Use original to search across authorized sessions and check for later evidence."
         ),
     },
