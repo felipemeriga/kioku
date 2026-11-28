@@ -157,7 +157,13 @@ def _run_scoped(user_id: str) -> int:
         "answer states a specific fact (a number, name, account, or state) that "
         "has NO basis in CONTEXT, or that contradicts it. Reasonable summarizing, "
         "and arithmetic derived from numbers that ARE in CONTEXT, count as "
-        'grounded. Return {"grounded": true|false, "unsupported": ["..."]}.',
+        "grounded. If retrieved documentation and executable code describe different "
+        "rules, the answer must attribute the disagreement rather than silently blend "
+        "them. For this refund fixture, code reverses the platform fee only and "
+        "does not post a processor_fees reversal, unlike the money-movement doc. "
+        "An unqualified claim that code reverses both fees or zeros all original "
+        "accounts is not grounded in the implementation. "
+        'Return {"grounded": true|false, "unsupported": ["..."]}.',
         q,
         "\n\n".join(chunks[:12]),
         ans,
