@@ -129,9 +129,25 @@ def run(user_id: str) -> int:
     r1_sources = [
         ("obol-console", "bff/src/routes/refunds.ts", "gateway.createRefund"),
         ("obol-gateway", "internal/refunds/service.go", "refund.completed"),
-        ("obol-ledger", "obol_ledger/posting/refund.py", "build_refund_reversal_entry"),
     ]
     missing = [path for repo, path, text in r1_sources if not contains_code(r, repo, path, text)]
+    # The dispatcher proves the cross-service handoff when it invokes the
+    # ledger reversal. The posting implementation also proves this leg.
+    if not (
+        contains_code(
+            r,
+            "obol-ledger",
+            "obol_ledger/events/dispatcher.py",
+            "entry = build_refund_reversal_entry(",
+        )
+        or contains_code(
+            r,
+            "obol-ledger",
+            "obol_ledger/posting/refund.py",
+            "def build_refund_reversal_entry(",
+        )
+    ):
+        missing.append("ledger reversal handoff")
     check("R1 refund-flow-spans-3-repos", not missing, f"missing={missing}")
 
     # R2 — platform fee: computed (gateway pricing) vs recorded (ledger posting).
