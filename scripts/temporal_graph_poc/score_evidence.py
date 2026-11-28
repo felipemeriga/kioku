@@ -22,9 +22,25 @@ def run(args):
         (gold["facts_revision"],),
     ):
         support.setdefault(row["claim_key"], []).append(dict(row))
+    receipts = [json.loads(line) for line in args.replay.read_text().splitlines()]
+    if not receipts or receipts[-1].get("type") != "complete":
+        raise ValueError("Replay is incomplete; do not silently drop unfinished trials")
+    terminal = receipts[-1]
+    if terminal.get("revision", gold["facts_revision"]) != gold["facts_revision"]:
+        raise ValueError("Gold and retrieved fact revisions differ")
+    if (
+        gold.get("questions_sha256")
+        and terminal.get("questions_sha256") != gold["questions_sha256"]
+    ):
+        raise ValueError("Gold and replay question manifests differ")
     scores = []
-    for line in args.replay.read_text().splitlines():
-        trial = json.loads(line)
+    seen = set()
+    for trial in receipts:
+        if trial.get("case_id"):
+            identity = (trial["case_id"], trial["method"], trial["trial"])
+            if identity in seen:
+                raise ValueError("Duplicate trial receipt")
+            seen.add(identity)
         case = trial.get("case_id")
         if case not in gold["positive_cases"]:
             continue
@@ -54,6 +70,18 @@ def run(args):
                 "retrieval_error": trial.get("status") != "ok",
             }
         )
+    if not scores:
+        raise ValueError("No positive trials to score")
+    for method, trial_number in {(s["method"], s["trial"]) for s in scores}:
+        present = {
+            s["case_id"]
+            for s in scores
+            if s["method"] == method and s["trial"] == trial_number
+        }
+        if present != set(gold["positive_cases"]):
+            raise ValueError(
+                "Positive cases are missing from a method/trial denominator"
+            )
     totals = {}
     for method in sorted({s["method"] for s in scores}):
         selected = [s for s in scores if s["method"] == method]

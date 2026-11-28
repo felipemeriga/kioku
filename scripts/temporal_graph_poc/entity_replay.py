@@ -5,6 +5,7 @@ Neither scorer gold nor curated semantic claims are opened during this replay.
 """
 
 import argparse
+import hashlib
 import json
 import sqlite3
 import time
@@ -73,6 +74,13 @@ def run(args):
     db = sqlite3.connect(f"file:{args.corpus}?mode=ro", uri=True)
     db.row_factory = sqlite3.Row
     projection = json.loads(args.projection.read_text())
+    snapshot = json.loads(
+        db.execute("SELECT value FROM metadata WHERE key='snapshot_sha256'").fetchone()[
+            0
+        ]
+    )
+    if projection["corpus_snapshot_sha256"] != snapshot:
+        raise ValueError("Entity projection corpus mismatch")
     cases = json.loads(args.questions.read_text())["cases"]
     with connect(args.env_file) as driver, args.output.open("x") as out:
         args.output.chmod(0o600)
@@ -168,6 +176,20 @@ def run(args):
                     json.dumps({k: v for k, v in receipt.items() if k != "result"}),
                     flush=True,
                 )
+        out.write(
+            json.dumps(
+                {
+                    "type": "complete",
+                    "questions_sha256": hashlib.sha256(
+                        args.questions.read_bytes()
+                    ).hexdigest(),
+                    "entity_revision": projection["revision"],
+                    "corpus_snapshot_sha256": snapshot,
+                    "expected_trials": len(cases) * 2,
+                }
+            )
+            + "\n"
+        )
     db.close()
 
 
