@@ -44,6 +44,10 @@ def initialize(driver):
         driver,
         "CREATE FULLTEXT INDEX record_text IF NOT EXISTS FOR (n:Record) ON EACH [n.text]",
     )
+    execute(
+        driver,
+        "CREATE RANGE INDEX record_stream_sequence IF NOT EXISTS FOR (r:Record) ON (r.session_id,r.stream_id,r.generation,r.sequence)",
+    )
 
 
 def import_journals(driver, private):
