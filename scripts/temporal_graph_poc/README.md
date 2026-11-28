@@ -228,3 +228,17 @@ pinned revision. The complete raw cache was rehashed independently: all 4,803
 inventory segments (4,291 unique contents) matched, with zero missing or corrupt
 objects. The one supporting attachment was also downloaded and verified, but not
 interpreted. Four-hour completion and restart durability remain pending.
+
+### Unextracted original-reference challenges
+
+Two additional post-inspection questions used reference points selected directly
+from originals, without adding their answers to the reviewed overlay first: a
+larger test host versus an untested smaller target, and CPU readings from different
+moments/workloads. The journal-first original search returned both quoted
+qualifiers; both structured fact stores omitted them. A whole-corpus Neo4j
+original-text control also recovered both. Thus the bytes were retained and
+searchable in either database: the tested extraction/projection was incomplete.
+The raw Neo4j control has a different candidate scope and is not a matched latency
+comparison. These two cases are not a general accuracy score. They demonstrate
+why selected-anchor coverage, measured only on already extracted facts, cannot
+certify memory completeness. All failures remain in the private experiment record.
