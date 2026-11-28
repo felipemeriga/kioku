@@ -139,8 +139,8 @@ def _calibrate_judge() -> None:
     """Reject a broken judge before attributing its errors to the RAG system."""
     controls = [
         (
-            "Code posts a platform_revenue debit, a seller_payable debit, and a "
-            "processor_clearing credit for R. It does not post a processor_fees reversal.",
+            "The code credits processor_clearing for R and reverses the platform fee only. "
+            "It does not reverse the processor fee.",
             "The code credits processor_clearing for R and reverses the platform fee only.",
             True,
         ),
