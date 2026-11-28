@@ -492,8 +492,15 @@ def test_public_and_native_mcp_register_readonly_offloaded_memory_tools():
     from services.ai.native_tools import native_mcp
 
     native = {tool.name: tool for tool in asyncio.run(native_mcp.list_tools())}
+    public = {tool.name: tool for tool in asyncio.run(mcp_server.mcp.list_tools())}
     assert native["search_agent_history"].inputSchema["properties"]["limit"]["maximum"] == 10
-    assert native["read_agent_evidence"].inputSchema["properties"]["char_limit"]["maximum"] == 8000
+    for tools, max_neighbors, max_chars in [(public, 3, 16000), (native, 1, 8000)]:
+        properties = tools["read_agent_evidence"].inputSchema["properties"]
+        for bound in ("before_records", "after_records"):
+            assert properties[bound]["minimum"] == 0
+            assert properties[bound]["maximum"] == max_neighbors
+        assert properties["char_limit"]["minimum"] == 1000
+        assert properties["char_limit"]["maximum"] == max_chars
     for name in ["search_agent_history", "read_agent_evidence"]:
         tool = mcp_server.mcp._tool_manager.get_tool(name)
         assert inspect.iscoroutinefunction(tool.fn)
