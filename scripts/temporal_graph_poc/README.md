@@ -91,7 +91,7 @@ These measurements separate evidence retrieval, temporal conformance, extraction
 coverage and runtime stability. They do not establish natural-language answer
 accuracy, tenant authorization, production capacity or safety for unseen questions.
 
-## Results available before long-run finalization
+## Results (completed 2026-11-28)
 
 | Check | Result | Meaning |
 | --- | --- | --- |
@@ -103,6 +103,9 @@ accuracy, tenant authorization, production capacity or safety for unseen questio
 | Repeated frozen replay | 240 component calls, zero execution errors | Five passes over 16 cases and three methods |
 | Short concurrent load | 9,379 queries in 600.125 seconds, zero failures | Four clients; p50 16.152 ms, p95 25.308 ms; stable fingerprints |
 | Separate one-hour provenance run | 7,112 probes, zero failures | Pinned earlier query/fact revision; not latest-query accuracy |
+| Four-hour source/cutoff run | 28,445 probes; 14,400.300 tested seconds; zero failures | 37,571 claim occurrences and 766 sampled original objects; original frozen implementation |
+| Two-hour concurrent replay | 112,485 queries; 7,200.228 seconds; zero failures | Four clients; p50 18.622 ms, p95 27.754 ms, max 79.461 ms; stable fingerprints for all 16 cases |
+| Restart durability | All 302,607 records and both overlays unchanged | 236 cutoff checks, 48 identical query results, 11 graph and three identifier invariants pass again |
 
 At the eight-claim budget, the broad memory question still has different omissions:
 SQLite misses the combined-controls experiment; graph misses an older isolated
@@ -165,20 +168,47 @@ trial, without establishing a production fix or answer accuracy. These are
 production query findings, not failures caused or repaired by Neo4j. No production
 code, indexes or migrations were changed.
 
-## Long-run and durability status
+## Long-run completion and durability
 
-The four-hour source/cutoff soak and separate two-hour, four-client replay are
-still running. Their durations overlap and must not be added together as seven
-hours of independent testing. The four-hour soak uses its original frozen query
-implementation; it is not four hours of the latest relevance ranking or V7 overlay.
+Both long-running processes exited successfully, and their terminal receipts were
+checked against every sample: no missing samples, malformed lines or failed probes.
+The four-hour run counted 14,400.300 tested seconds (14,400.971 wall seconds).
+It caps long gaps between probes so a suspended Mac cannot pass by elapsed time
+alone. The two-hour concurrent replay completed 112,485 queries with stable result
+fingerprints for all 16 cases and zero execution/provenance/cutoff failures.
 
-`finish_run.py` waits for both real study processes and verifies terminal receipts
-and sample counts before restarting only the isolated graph. It then checks the
-entire source projection, both pinned/current overlays, temporal boundaries,
-frozen questions, live contracts and raw-original availability. The first data
-query after process restart is timed before full scans, with OS page cache not
-purged. Private artifacts are copied to a durable owner-only folder only after
-these gates pass. Finalization and a manual audit remain pending.
+These overlapping durations are not seven independent hours of testing. The
+four-hour soak used its original frozen query implementation and overlay, not
+four hours of the latest relevance ranking or V7 extraction. The separate load
+run remained pinned to its 58-claim revision; the latest 59-claim overlay has its
+own exact audit, boundary and replay receipts. Repeated frozen cases are stability
+checks, not 112,485 independently different questions or answers.
+
+After both processes finished, the guarded coordinator verified complete receipts,
+audited the source projection and both overlays, and restarted only the isolated
+Neo4j container once. The complete before/after source fingerprints match; both
+semantic overlays also match. All 48 post-restart method results are exactly equal
+to their corresponding pre-restart results. The 236 temporal boundary checks and
+14 live invariants pass again. Both unextracted qualifiers remain searchable in
+original text after restart.
+
+The first data query after process restart took **1,317.724 ms**, compared with
+the warm timings above. OS page cache was not purged; this is a process-restart
+first-use component measurement, not a fully cold machine or model response time.
+This cost is retained rather than hidden behind the warm-load result.
+
+Private artifacts were copied to an owner-only durable folder after all writers
+finished and SQLite checkpointing completed. Manual verification compared all
+8,018 eligible copied files byte-for-byte by SHA-256, rehashed all 4,803 segment
+inventory entries, verified permissions, and checked the current running container
+identity, image, loopback ports and planned start-time change. No earlier unplanned
+restart was observed between the recorded initial state and planned restart.
+
+Durable local data is at
+`/Users/feliperamosdasilva/personal_projects/kioku-experiments/c360-graph-2026-11-28`.
+Its authentication file remains private; source data is not published with the PR.
+The original temporary directory is retained. The isolated graph remains available
+for review. Production retrieval, schema and indexes are unchanged.
 
 ## Reproduction and private artifact index
 
@@ -217,8 +247,9 @@ Compose project/file; do not remove unrelated volumes or use `--remove-orphans`.
 | `component-latency-five-trials-v1.json` | Warm repeated component timings |
 | `unextracted-source-visibility-v1.json`, `unextracted-raw-graph-visibility-v2.json` | Preserved extraction-loss challenges |
 | `live-production-replay-v2-deduplicated.jsonl` | Corrected production comparison, including errors |
-| `soak-4h-v1.jsonl`, `load-four-workers-two-hours-v1.jsonl` | Long-running sample/terminal receipts |
-| `durability-finalization.json` | Gated restart/copy result, pending finalization |
+| `soak-4h-v1.jsonl`, `load-four-workers-two-hours-v1.jsonl`, `load-two-hour-summary-v1.json` | Completed long-running samples, terminal receipts and measured latency |
+| `durability-finalization.json`, `manual-completion-audit-v1.json` | Completed restart, full source/overlay preservation and independently checked private copy |
+| `post-restart-first-query.json`, `post-restart-questions.jsonl` | First-use timing and exact pre/post result parity |
 
 Earlier failed receipts and extraction revisions remain in the private record.
 They are not silently overwritten or relabelled as successful trials.
