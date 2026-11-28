@@ -50,6 +50,7 @@ CREATE TABLE sessions(id TEXT PRIMARY KEY, native_id TEXT, agent TEXT,
  parent_id TEXT, gaps TEXT, archived_at TEXT);
 CREATE TABLE journals(id TEXT PRIMARY KEY, session_id TEXT, captured_at TEXT,
  day TEXT, title TEXT, body TEXT, summary_snapshot TEXT);
+CREATE TABLE journal_publications(day TEXT PRIMARY KEY,published_at TEXT,revision INTEGER,sha256 TEXT);
 CREATE VIRTUAL TABLE journal_fts USING fts5(id UNINDEXED,title,body);
 CREATE TABLE objects(id TEXT, session_id TEXT, sha256 TEXT,
  stream_id TEXT, generation INTEGER, first_record INTEGER, last_record INTEGER,

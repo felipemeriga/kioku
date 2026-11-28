@@ -126,10 +126,11 @@ def journal_hints(db, question, cutoff):
     return [
         dict(row)
         for row in db.execute(
-            """SELECT j.id,j.session_id,j.captured_at,j.title,j.body,bm25(journal_fts) AS score
+            """SELECT j.id,j.session_id,j.captured_at,j.title,j.body,p.published_at,p.revision AS publication_revision,p.sha256 AS publication_sha256,bm25(journal_fts) AS score
       FROM journal_fts JOIN journals j ON j.id=journal_fts.id
-      WHERE journal_fts MATCH ? AND j.captured_at<=? ORDER BY score,j.captured_at DESC LIMIT 3""",
-            (query, cutoff),
+      JOIN journal_publications p ON p.day=j.day
+      WHERE journal_fts MATCH ? AND j.captured_at<=? AND p.published_at<=? ORDER BY score,j.captured_at DESC LIMIT 3""",
+            (query, cutoff, cutoff),
         )
     ]
 
@@ -146,11 +147,15 @@ def annotate_coverage(db, result, cutoff):
         "journal_sessions_without_timed_originals": missing,
         "absence_proves_never": False,
         "current_state_verified": False,
-        "historical_journal_revision_verified": False,
+        "older_journal_revisions_available": False,
+        "journal_publication_cutoff_enforced": True,
     }
     for hint in result.get("hints", []):
         hint["source_kind"] = "revisable_journal_discovery_hint"
         hint["original_verified"] = False
+        hint["publication_verified_as_of"] = bool(
+            hint.get("published_at") and hint["published_at"] <= cutoff
+        )
     result["answerability"] = (
         "original_evidence_candidates"
         if result.get("records") or result.get("claims")
@@ -169,12 +174,13 @@ def journal_first(db, question, cutoff, limit):
         dict(row)
         for row in db.execute(
             """
-        SELECT j.id,j.session_id,j.captured_at,j.title,j.body,bm25(journal_fts) AS score
+        SELECT j.id,j.session_id,j.captured_at,j.title,j.body,p.published_at,p.revision AS publication_revision,p.sha256 AS publication_sha256,bm25(journal_fts) AS score
         FROM journal_fts JOIN journals j ON j.id=journal_fts.id
-        WHERE journal_fts MATCH ? AND j.captured_at<=?
+      JOIN journal_publications p ON p.day=j.day
+        WHERE journal_fts MATCH ? AND j.captured_at<=? AND p.published_at<=?
         ORDER BY score,j.captured_at DESC LIMIT 30
     """,
-            (query, cutoff),
+            (query, cutoff, cutoff),
         )
     ]
     selected = list(dict.fromkeys(row["session_id"] for row in hints))[:3]
@@ -395,10 +401,18 @@ def graph_facts(
         hints = execute(
             driver,
             """CALL db.index.fulltext.queryNodes('journal_text',$text_query) YIELD node,score
-          WHERE node.captured_at<=$cutoff
+          WHERE node.captured_at<=$cutoff AND node.published_at<=$cutoff
+            AND node.corpus_snapshot_sha256=$corpus
           RETURN node.id AS id,node.native_session_id AS session_id,node.captured_at AS captured_at,
+            node.published_at AS published_at,node.publication_revision AS publication_revision,
+            node.publication_sha256 AS publication_sha256,
             node.title AS title,node.body AS body,score ORDER BY score DESC,captured_at DESC LIMIT 3""",
             text_query=hint_query,
+            corpus=json.loads(
+                db.execute(
+                    "SELECT value FROM metadata WHERE key='snapshot_sha256'"
+                ).fetchone()[0]
+            ),
             cutoff=cutoff,
         )
     return {

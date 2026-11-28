@@ -87,6 +87,9 @@ def import_journals(driver, private):
             "title": j["title"],
             "body": j["body"],
             "snapshot_at": frozen["frozen_at"],
+            "corpus_snapshot_sha256": hashlib.sha256(
+                (private / "snapshot.json").read_bytes()
+            ).hexdigest(),
             "historical_revision_verified": False,
         }
         for j in journals
