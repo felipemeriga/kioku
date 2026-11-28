@@ -164,7 +164,7 @@ def _rerank_sources(
         return pool[:top_k]
     keep = {id(d) for d in preferred}
     final = (preferred + [d for d in pool if id(d) not in keep])[:top_k]
-    if intent in {"implementation", "cross_component"}:
+    if intent == "cross_component":
         final.sort(key=lambda d: pool.index(d))
     return final
 
@@ -665,7 +665,8 @@ def _apply_recency_decay(docs: list[dict], *, query_text: str = "") -> list[dict
     only reordered. Types without a half-life entry remain neutral."""
     # An old vendor definition is not stale because newer code mentions it.
     # Preserve freshness ranking for explicit current/latest questions.
-    if _source_intent(query_text) == "documentation":
+    intent = _source_intent(query_text)
+    if intent == "documentation":
         if not re.search(
             r"\b(?:latest|newest|recent|current|updated|today|yesterday|"
             r"mais recente|atual|hoje|ontem)\b",
@@ -675,6 +676,11 @@ def _apply_recency_decay(docs: list[dict], *, query_text: str = "") -> list[dict
             return docs
         # For "latest documentation", compare document ages with each other.
         # Undated/neutral code must not displace the requested source category.
+        documents = iter(_apply_recency_decay([d for d in docs if d.get("source_type") != "code"]))
+        return [d if d.get("source_type") == "code" else next(documents) for d in docs]
+    if intent == "implementation" and any(d.get("source_type") == "code" for d in docs):
+        # Freshness can reorder supporting prose within its slots without
+        # undoing the implementation-source preference established by rerank.
         documents = iter(_apply_recency_decay([d for d in docs if d.get("source_type") != "code"]))
         return [d if d.get("source_type") == "code" else next(documents) for d in docs]
     if not docs:
