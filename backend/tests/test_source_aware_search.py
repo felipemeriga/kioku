@@ -41,6 +41,12 @@ def ranked(_query, rows, top_k):
         ("Em qual arquivo acontece o retry?", "implementation"),
         ("Compare our implementation with vendor documentation", "balanced"),
         ("How do these services interact?", "balanced"),
+        ("How does an order flow from the site through the API to fulfillment?", "cross_component"),
+        (
+            "Explain the vendor docs on the flow from alerts through the relay to storage",
+            "documentation",
+        ),
+        ("What is the interest calculation and the entry that records it?", "cross_component"),
     ],
 )
 def test_source_role_is_conservative(question, intent):
@@ -102,6 +108,27 @@ def test_implementation_queries_retain_code_reservation_but_balanced_queries_do_
         balanced = _rerank_sources("compare our implementation with vendor docs", docs, code, 5)
     assert sum(r["source_type"] == "code" for r in implementation) == 4
     assert all(r["source_type"] != "code" for r in balanced)
+
+
+def test_cross_component_prefers_distinct_repositories_without_crowding_out_prose():
+    docs = [hit(f"guide-{i}", 0.95 - i * 0.01) for i in range(18)]
+    code = [
+        *[hit(f"api-{i}", 0.75 - i * 0.01, "code", folder="api") for i in range(4)],
+        hit("site-client", 0.65, "code", folder="site"),
+        hit("warehouse-worker", 0.61, "code", folder="warehouse"),
+        hit("unrelated", 0.25, "code", folder="other"),
+    ]
+    query = "How does an order flow from the site through the API to fulfillment?"
+    with patch("services.search.rerank", side_effect=ranked) as reranker:
+        result = _rerank_sources(query, docs, code, 5)
+    assert [row["id"] for row in result] == [
+        "guide-0",
+        "api-0",
+        "api-1",
+        "site-client",
+        "warehouse-worker",
+    ]
+    reranker.assert_called_once()
 
 
 def test_deduplication_preserves_repo_scope_literals_and_indentation():
