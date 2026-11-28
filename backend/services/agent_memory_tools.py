@@ -13,9 +13,9 @@ SEARCH_PROPERTIES = {
         "type": "string",
         "enum": ["original", "journal_guided"],
         "description": (
-            "Journal-guided discovery selects one original session using eligible journals. "
-            "Match counts cover that session. For later pages, pass selected_session_id as session "
-            "and pagination_as_of as as_of."
+            "Start broad topic discovery with journal_guided. Match counts cover one session. "
+            "For later pages, pass selected_session_id as session and pagination_as_of as as_of. "
+            "Use original to search across authorized sessions and check for later evidence."
         ),
     },
     "projection": {
@@ -82,6 +82,7 @@ DEFINITIONS = [
             "timezone and pass explicit dates. For as-of knowledge use as_of, which"
             " excludes later original records and omits revisable journal "
             "summaries. Read original evidence before treating reports as proof. "
+            "Try journal_guided for broad topic discovery and original for cross-session checks. "
             "Check coverage/has_more; do not infer nothing happened from "
             "empty/incomplete results."
         ),

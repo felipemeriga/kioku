@@ -94,6 +94,7 @@ The key sets the authorized scope; these calls do not require a login refresh.
 ```bash
 kioku history --from 2026-11-16 --through 2026-11-22 --timezone America/Sao_Paulo
 kioku history "NBA SSE reconnection" --folder cosm --order latest --limit 10
+kioku history "how did we diagnose SSE reconnects" --folder cosm --strategy journal-guided
 kioku evidence '<reference from history>'
 kioku code-search "where are failed uploads retried" --language python
 ```
@@ -103,6 +104,14 @@ is the default. `--as-of` retains a historical cutoff when evidence is expanded.
 JSON preserves references, coverage warnings and pagination. When `has_more` is
 true, follow `next_offset` with `--offset`. Pending index objects mean results may
 be incomplete. These commands return evidence rather than a generated answer.
+
+For broad topic discovery, `--strategy journal-guided` uses eligible journals to
+choose one session and returns original evidence from it. Match counts cover that
+session. To page within it, keep the same filters and pass
+`--session <selected_session_id> --as-of <pagination_as_of> --offset <next_offset>`
+with `--strategy journal-guided`. Use `--strategy original`, the default, to
+search across authorized sessions or check for later evidence. When no journal
+can guide discovery, the result reports that it used the original strategy.
 
 ## Journals and presence
 
