@@ -70,6 +70,12 @@ def _source_intent(query: str, *, ambiguous_default: str | None = "balanced") ->
         r".{0,100}\b(?:across|between|through)\b"
         r"|\bend[- ]to[- ]end\s+(?:flow|path)\b"
         r"|\bfluxo\b.{0,100}\b(?:entre|atrav[eé]s dos?)\b"
+        r"|\b(?:across|from|between|in)\s+"
+        r"(?:all(?:\s+(?:two|three|four|five|\d+))?|multiple|several|both|"
+        r"two|three|four|five|\d+)\s+(?:repos(?:itories)?|services|codebases)\b"
+        r"|\b(?:em|de|dos|das|entre)\s+"
+        r"(?:todos os|todas as|m[uú]ltiplos|v[aá]rios|ambos os|dois|tr[eê]s|quatro|\d+)"
+        r"(?:\s+(?:dois|tr[eê]s|quatro|\d+))?\s+(?:reposit[oó]rios|servi[çc]os)\b"
         r"|\b(?:calculat\w*|comput\w*)\b.{0,120}"
         r"\b(?:record(?:s|ed)?|writ(?:e|es|ten)|persist(?:s|ed)?|stor(?:e|es|ed))\b",
         query,
