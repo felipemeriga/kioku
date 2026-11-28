@@ -112,8 +112,9 @@ searches originals in one session. To page within it, pass
 `--session <selected_session_id> --as-of <pagination_as_of> --offset <next_offset>`
 with `--strategy journal-guided`. Use `--evidence-mode cached-preview` to defer
 opening deep originals. Use `--strategy original`, the default, to
-search across authorized sessions or check for later evidence. When no journal
-can guide discovery, the result reports that it used the original strategy.
+search across authorized sessions or check for later evidence. An empty journal
+discovery returns `needs_refinement`. Try alternate wording at the same cutoff
+or explicitly select `--strategy original`.
 
 ## Journals and presence
 
