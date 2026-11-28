@@ -81,6 +81,16 @@ test("recall retains references, pending-index warning and next page", () => {
   assert.throws(() => decodeRecallResult({ content: [] }));
 });
 
+test("cached-preview history is opt-in and preserves reference-only matches", () => {
+  assert.equal(
+    historyArguments("memory relay", { evidenceMode: "cached-preview" })
+      .evidence_mode,
+    "cached_preview"
+  );
+  assert.equal(historyArguments("memory relay", {}).evidence_mode, undefined);
+  assert.throws(() => historyArguments("memory relay", { evidenceMode: "unknown" }));
+});
+
 test("nested directories find nearest scope and never skip invalid explicit config", () => {
   const dir = mkdtempSync(join(tmpdir(), "kioku-recall-"));
   try {
