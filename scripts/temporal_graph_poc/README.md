@@ -199,3 +199,32 @@ p95 25.308 ms and maximum 77.302 ms. The corpus and manually reviewed fact overl
 were unchanged. This is graph-component stability under bounded load; it does
 not measure generated-answer accuracy, tenant authorization or production capacity.
 The separate two-hour load and four-hour source/cutoff run remain active.
+
+### Evidence and measurement corrections
+
+A later original was missing from the first reviewed overlay: the earlier
+90-minute delivered-stream report ended at 0.11 ms, while a later saved recording
+report ended at 0.14 ms. A bridging original identifies a new recording in progress
+and the same installed build. The latest overlay therefore has **59 claims and
+19 relationships**, in a new immutable namespace. Both reported experiments are
+retained; neither certifies the later patch or current runtime. Its 236 exact
+knowledge-boundary checks and full overlay audit pass. The corresponding diagnostic
+covers 40/41 selected anchors in both fact stores. This correction illustrates why
+an initially high curated-coverage score did not establish complete latest-state
+recall. The long-duration trials remain pinned to their original revisions.
+
+The initial administrative production harness also repeated original queries
+when several journal hints named the same session. `production_replay.py` now
+queries each distinct session once and preserves per-call errors. Replaying the
+same 16 questions prevented 27 redundant calls, issuing 17 original searches.
+Two broad searches still timed out. The earlier aggregate times are inflated by
+that harness defect and must not be presented as normal agent-workflow latency.
+Two concise follow-ups completed in a subsequent trial, but still matched thousands
+of originals; this is not a demonstrated production fix or an accuracy result.
+
+Separately, the one-hour source/cutoff run completed 7,112 probes with zero
+failures, checking 8,615 claim occurrences and 332 original objects against its
+pinned revision. The complete raw cache was rehashed independently: all 4,803
+inventory segments (4,291 unique contents) matched, with zero missing or corrupt
+objects. The one supporting attachment was also downloaded and verified, but not
+interpreted. Four-hour completion and restart durability remain pending.
