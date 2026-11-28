@@ -171,3 +171,21 @@ must remain outside git.
 The evidence still supports **no demonstrated benefit from adopting a graph
 store in production**. Temporal gating and well-grounded facts help both stores.
 The long-duration run, durability checks and final artifact audit remain pending.
+
+### Specific-attempt follow-up
+
+A further eight exploratory questions exercised common scope mistakes: an
+isolated SDK budget versus the full player, a corrected drift forecast, an old
+installed binary versus a later patch, cloud versus replay measurements, merge
+versus Windows rollout, and a queued versus completed deployment. Initially the
+512MiB question missed its named older experiment because seeds were chosen by
+recency alone. Literal word-boundary relevance now precedes recency in **both**
+stores; no source facts were added or rewritten for this change. All eight cases
+then retrieved their selected scope-disambiguating anchors. This is a targeted,
+post-inspection regression result, not an independent accuracy benchmark.
+
+The original 16 questions still cover 39/40 selected anchors in both fact stores.
+Their broad memory question now misses different anchors: SQLite omits the
+combined-controls experiment; Neo4j omits the older isolated SDK comparison.
+Equal aggregate scores do not mean identical answers or complete coverage.
+The 232 exact knowledge-boundary checks passed again after the ranking change.
