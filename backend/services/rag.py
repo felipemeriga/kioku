@@ -71,8 +71,16 @@ For "what changed recently / what's new" questions, use recent_changes (git-deri
 the indexed code shows a snapshot, not the delta.
 Distinguish executable behavior from comments and intended design. Do not infer retry,
 concurrency or idempotency guarantees merely from a comment or the existence of a key;
-verify how the implementation enforces the guarantee. For a missing critical call-path
-step, search its named dispatcher/handler before concluding it is unavailable.
+verify how the implementation enforces the guarantee. For calculations, account movements
+and safety guarantees, inspect the responsible executable function, not only a caller,
+comment or design description. If a retrieved dispatcher names the function without its
+body, retrieve that function before asserting its behavior; otherwise qualify the answer
+as documented design rather than verified implementation.
+For retries and duplicate requests, trace how the identifier is created and reused across
+separate requests. A fresh key per request does not deduplicate those requests. Check that
+the direct answer and its explanation agree before publishing a guarantee.
+For a missing critical call-path step, search its named dispatcher/handler before
+concluding it is unavailable.
 
 ## Agent work and memory
 For questions about what we worked on, previous attempts, this week's work or yesterday's
