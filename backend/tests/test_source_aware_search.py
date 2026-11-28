@@ -112,11 +112,14 @@ def test_source_preference_never_forces_unrelated_documents():
 
 def test_implementation_queries_retain_code_reservation_but_balanced_queries_do_not():
     docs = [hit(f"doc-{i}", 0.95 - i * 0.01) for i in range(5)]
-    code = [hit(f"code-{i}", 0.60 - i * 0.01, "code") for i in range(4)]
+    code = [hit(f"code-{i}", 0.60 - i * 0.01, "code") for i in range(5)]
     with patch("services.search.rerank", side_effect=ranked):
         implementation = _rerank_sources("where is retry implemented", docs, code, 5)
         balanced = _rerank_sources("compare our implementation with vendor docs", docs, code, 5)
-    assert sum(r["source_type"] == "code" for r in implementation) == 4
+        code[-1]["rerank_score"] = 0.44
+        implementation_with_weak_hit = _rerank_sources("where is retry implemented", docs, code, 5)
+    assert sum(r["source_type"] == "code" for r in implementation) == 5
+    assert implementation_with_weak_hit[-1]["id"] == "doc-0"
     assert all(r["source_type"] != "code" for r in balanced)
 
 
