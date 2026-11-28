@@ -63,6 +63,13 @@ def _source_intent(query: str) -> str:
             re.I,
         )
     )
+    if not docs and re.search(
+        r"\bflow\b.{0,100}\bfrom\b.{0,100}\b(?:through|via)\b.{0,100}\bto\b"
+        r"|\b(?:calculat\w*|comput\w*)\b.{0,120}\b(?:records?|writes?|persists?|stores?)\b",
+        query,
+        re.I,
+    ):
+        return "cross_component"
     if code:
         return "balanced" if docs else "implementation"
     conceptual = bool(
@@ -105,10 +112,13 @@ def _rerank_sources(
     code_results = _deduplicate_code(code_results)
     if not code_results:
         return rerank(query_text or "query", fused, top_k=top_k)
-    pool = rerank(query_text or "query", fused + code_results, top_k=top_k + 8)
+    intent = _source_intent(query_text)
+    # Cross-component evidence can sit below a cluster of similarly relevant
+    # docs. Score the existing candidate set in the same reranker request.
+    rerank_k = len(fused) + len(code_results) if intent == "cross_component" else top_k + 8
+    pool = rerank(query_text or "query", fused + code_results, top_k=rerank_k)
     if not pool:
         return []
-    intent = _source_intent(query_text)
     if intent == "documentation":
         floor = max(0.2, pool[0].get("rerank_score", 0.0) - SOURCE_RELEVANCE_MARGIN)
         preferred = [
@@ -116,18 +126,30 @@ def _rerank_sources(
             for d in pool
             if d.get("source_type") != "code" and d.get("rerank_score", 0.0) >= floor
         ][: min(DOCUMENT_RESERVE_SLOTS, top_k)]
-    elif intent == "implementation":
+    elif intent in {"implementation", "cross_component"}:
         preferred = [
             d
             for d in pool
             if d.get("source_type") == "code"
             and d.get("rerank_score", 0.0) >= CODE_RESERVE_THRESHOLD
-        ][: min(CODE_RESERVE_SLOTS, top_k)]
+        ]
+        if intent == "cross_component":
+            # Give each relevant repository a slot before filling with
+            # additional chunks from repositories already represented.
+            by_folder = {}
+            for doc in preferred:
+                folder = (doc.get("metadata") or {}).get("folder_id")
+                by_folder.setdefault(folder, doc)
+            representative_ids = {id(doc) for doc in by_folder.values()}
+            preferred = list(by_folder.values()) + [
+                doc for doc in preferred if id(doc) not in representative_ids
+            ]
+        preferred = preferred[: min(CODE_RESERVE_SLOTS, top_k)]
     else:
         return pool[:top_k]
     keep = {id(d) for d in preferred}
     final = (preferred + [d for d in pool if id(d) not in keep])[:top_k]
-    if intent == "implementation":
+    if intent in {"implementation", "cross_component"}:
         final.sort(key=lambda d: pool.index(d))
     return final
 
