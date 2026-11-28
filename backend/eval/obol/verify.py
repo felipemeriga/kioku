@@ -83,7 +83,11 @@ def _folder(r):
 def _dated_names(results):
     """Names (prefix-stripped) of the synthetic dated docs among results, in
     rank order — so temporal assertions ignore the static docs/code."""
-    return [_src(r).removeprefix(DATED_PREFIX) for r in results if _src(r).startswith(DATED_PREFIX)]
+    return [
+        r["metadata"].get("eval_fixture", _src(r).removeprefix(DATED_PREFIX))
+        for r in results
+        if _src(r).startswith(DATED_PREFIX)
+    ]
 
 
 def run(user_id: str) -> int:
@@ -107,15 +111,28 @@ def run(user_id: str) -> int:
     def repos_of_code(results):
         return {id_to_repo.get(_folder(r)) for r in results if _is_code(r)} - {None}
 
+    def contains_code(results, repo, filename, text):
+        return any(
+            _is_code(hit)
+            and id_to_repo.get(_folder(hit)) == repo
+            and _src(hit).partition(":")[0] == filename
+            and text in hit["content"]
+            for hit in results
+        )
+
     # R1 — refund flow spans all three repos.
     r = _search(
         user_id,
         "how does a refund flow from the merchant dashboard through the gateway to the ledger",
         scope,
     )
-    hit_repos = repos_of_code(r)
-    ok = {"obol-console", "obol-gateway", "obol-ledger"}.issubset(hit_repos)
-    check("R1 refund-flow-spans-3-repos", ok, f"repos={sorted(hit_repos)}")
+    r1_sources = [
+        ("obol-console", "bff/src/routes/refunds.ts", "gateway.createRefund"),
+        ("obol-gateway", "internal/refunds/service.go", "refund.completed"),
+        ("obol-ledger", "obol_ledger/posting/refund.py", "build_refund_reversal_entry"),
+    ]
+    missing = [path for repo, path, text in r1_sources if not contains_code(r, repo, path, text)]
+    check("R1 refund-flow-spans-3-repos", not missing, f"missing={missing}")
 
     # R2 — platform fee: computed (gateway pricing) vs recorded (ledger posting).
     # Implementation-oriented phrasing — the conceptual "where is X" form is
@@ -126,10 +143,15 @@ def run(user_id: str) -> int:
         "journal entry that records it",
         scope,
     )
-    files = [_src(x) for x in r if _is_code(x)]
-    has_pricing = any("pricing" in f for f in files)
-    has_posting = any("posting" in f or "settlement" in f for f in files)
-    check("R2 fee-computed-and-recorded", has_pricing and has_posting, f"code={files[:6]}")
+    has_pricing = contains_code(r, "obol-gateway", "internal/pricing/pricing.go", "PlatformFeeBps")
+    has_posting = contains_code(
+        r, "obol-ledger", "obol_ledger/posting/settlement.py", "platform_revenue"
+    )
+    check(
+        "R2 fee-computed-and-recorded",
+        has_pricing and has_posting,
+        f"pricing={has_pricing} posting={has_posting}",
+    )
 
     # R3 — idempotency enforced in the gateway.
     r = _search(user_id, "how is idempotency enforced on charge requests", scope)
@@ -186,15 +208,24 @@ def run(user_id: str) -> int:
 
     # ── TEMPORAL (backdated meeting corpus) ───────────────────────────
     # T1 — equal relevance, fresher meeting wins.
-    pr_q = "what is the pull request size limit and reviewer policy for the ledger service"
+    pr_q = "what is the latest pull request size limit and reviewer policy for the ledger service"
     r = _search(user_id, pr_q, scope)
     names = _dated_names(r)
+    twins = {
+        (hit.get("metadata") or {}).get("eval_fixture"): hit.get("rerank_score")
+        for hit in r
+        if (hit.get("metadata") or {}).get("eval_fixture")
+        in {"prpolicy-twin-fresh", "prpolicy-twin-old"}
+    }
+    fresh_score = twins.get("prpolicy-twin-fresh")
     ok = (
-        "prpolicy-twin-fresh" in names
+        fresh_score is not None
+        and fresh_score == twins.get("prpolicy-twin-old")
+        and "prpolicy-twin-fresh" in names
         and "prpolicy-twin-old" in names
         and names.index("prpolicy-twin-fresh") < names.index("prpolicy-twin-old")
     )
-    check("T1 recency-tie-fresh-wins", ok, f"dated={names[:4]}")
+    check("T1 recency-tie-fresh-wins", ok, f"dated={names[:4]} raw_scores={twins}")
 
     # T2 — a relevant year-old decision beats a fresh marginal mention.
     inc_q = "what did we decide to remediate after the INC-204 Lisbon checkout outage"
