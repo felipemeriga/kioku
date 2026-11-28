@@ -221,20 +221,27 @@ def run(user_id: str) -> int:
     r = _search(user_id, pr_q, scope)
     names = _dated_names(r)
     twins = {
-        (hit.get("metadata") or {}).get("eval_fixture"): hit.get("rerank_score")
+        (hit.get("metadata") or {}).get("eval_fixture"): (
+            hit.get("rerank_score"),
+            hit.get("recency_factor"),
+        )
         for hit in r
         if (hit.get("metadata") or {}).get("eval_fixture")
         in {"prpolicy-twin-fresh", "prpolicy-twin-old"}
     }
-    fresh_score = twins.get("prpolicy-twin-fresh")
+    fresh_score, fresh_factor = twins.get("prpolicy-twin-fresh", (None, None))
+    old_score, old_factor = twins.get("prpolicy-twin-old", (None, None))
     ok = (
         fresh_score is not None
-        and fresh_score == twins.get("prpolicy-twin-old")
+        and fresh_score == old_score
+        and fresh_factor is not None
+        and old_factor is not None
+        and fresh_factor > old_factor
         and "prpolicy-twin-fresh" in names
         and "prpolicy-twin-old" in names
         and names.index("prpolicy-twin-fresh") < names.index("prpolicy-twin-old")
     )
-    check("T1 recency-tie-fresh-wins", ok, f"dated={names[:4]} raw_scores={twins}")
+    check("T1 recency-tie-fresh-wins", ok, f"dated={names[:4]} score_and_decay={twins}")
 
     # T2 — a relevant year-old decision beats a fresh marginal mention.
     inc_q = "what did we decide to remediate after the INC-204 Lisbon checkout outage"
