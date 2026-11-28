@@ -107,3 +107,46 @@ class ReplayTests(unittest.TestCase):
             outcome = live_replay.invoke(["history", "fixture"], 5)
         self.assertEqual(outcome["error_code"], "evidence_query_timeout")
         self.assertIsNone(outcome["result"])
+
+    def test_future_original_and_signed_neighbor_stay_in_receipt(self):
+        future = {"reference": "sample-future", "recorded_at": "2026-01-15T10:00:01Z"}
+        search = {"status": "ok", "ms": 1, "result": {"matches": [future]}}
+        read = {
+            "status": "ok",
+            "result": {
+                "evidence": [
+                    {"recorded_at": "2026-01-15T07:00:00-03:00"},
+                    {"recorded_at": "2026-01-15T10:01:00Z"},
+                    {"recorded_at": None},
+                ]
+            },
+        }
+        with patch("live_replay.invoke", side_effect=[search, read]):
+            row = self.replay()[1]
+        self.assertEqual(row["metrics"]["cutoff_violations"], 2)
+        self.assertEqual(row["metrics"]["cutoff_unverifiable"], 1)
+        self.assertEqual(row["search"], search)
+        self.assertEqual(row["reads"], [read])
+
+    def test_staged_hint_checks_capture_and_sync_without_original_proof(self):
+        search = {
+            "status": "ok",
+            "ms": 1,
+            "result": {
+                "originals_searched": False,
+                "journal_hints": [
+                    {
+                        "captured_at": "2026-01-15T09:59:00Z",
+                        "synced_at": "2026-01-15T10:01:00Z",
+                    },
+                    {"captured_at": "2026-01-15T10:00:00"},
+                    {"captured_at": "invalid", "synced_at": "2026-01-15T09:55:00Z"},
+                ],
+            },
+        }
+        with patch("live_replay.invoke", return_value=search) as invoke:
+            metrics = self.replay(strategy="journal-guided")[1]["metrics"]
+        invoke.assert_called_once()
+        self.assertEqual(metrics["cutoff_violations"], 1)
+        self.assertEqual(metrics["cutoff_unverifiable"], 3)
+        self.assertEqual(metrics["original_excerpts"], 0)

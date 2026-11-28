@@ -119,6 +119,31 @@ def trial_metrics(search, reads):
     }
 
 
+def cutoff_metrics(search, reads, cutoff):
+    result = search["result"] if search["status"] == "ok" else {}
+    timestamps = [match.get("recorded_at") for match in result.get("matches", [])]
+    for hint in result.get("journal_hints", []):
+        timestamps.extend((hint.get("captured_at"), hint.get("synced_at")))
+    for read in reads:
+        if read["status"] == "ok":
+            timestamps.extend(
+                row.get("recorded_at") for row in read["result"].get("evidence", [])
+            )
+
+    violations = unverifiable = 0
+    for stamp in timestamps:
+        try:
+            recorded_at = datetime.fromisoformat(stamp)
+        except (TypeError, ValueError):
+            unverifiable += 1
+            continue
+        if recorded_at.utcoffset() is None:
+            unverifiable += 1
+        elif recorded_at > cutoff:
+            violations += 1
+    return {"cutoff_violations": violations, "cutoff_unverifiable": unverifiable}
+
+
 def run(
     manifest_path,
     expected_hash,
@@ -243,6 +268,11 @@ def run(
                 if len(reads) == 2:
                     break
             metrics = trial_metrics(search, reads)
+            metrics.update(
+                cutoff_metrics(
+                    search, reads, datetime.fromisoformat(query["filters"]["as_of"])
+                )
+            )
             write(
                 {
                     "record_type": "trial",

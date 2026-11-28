@@ -21,3 +21,5 @@ The runner opens only the input manifest and creates its receipt exclusively wit
 Journal hints, original excerpts, deferred locators, and successful signed reads are separate observations. They measure whether the retrieval stages responded and expose no answer accuracy score. The runner loads no answer annotations.
 
 Run the mocks-only tests locally with `python3 -m unittest discover -s scripts/memory_eval -p 'test_*.py'`. They make no live requests.
+
+Each trial also checks original match and signed-read recording times, and journal capture and sync times, against the query's `as_of`. The counts are per timestamp. `cutoff_violations` counts times after the cutoff. `cutoff_unverifiable` counts missing, invalid, or offset-free times. The runner retains the receipt in both cases. These checks use metadata and do not establish that a journal report is original evidence.
