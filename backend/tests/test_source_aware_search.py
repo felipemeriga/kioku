@@ -164,6 +164,22 @@ def test_event_behavior_returns_relevant_implementation_alongside_documentation(
     ]
 
 
+def test_original_source_role_preserves_implementation_through_conceptual_rephrasing():
+    docs = [hit(f"guide-{i}", 0.9 - i * 0.01) for i in range(5)]
+    code = [hit(f"code-{i}", 0.84 - i * 0.01, "code") for i in range(5)]
+    rephrased = "What is the vendor callback convention?"
+    with patch("services.search.rerank", side_effect=ranked):
+        ordinary = _rerank_sources(rephrased, docs, code, 5)
+        runtime = _rerank_sources(rephrased, docs, code, 5, source_role="implementation")
+        explicit_mixed = _rerank_sources(
+            "What is the callback implementation?", docs, code, 5, source_role="balanced"
+        )
+
+    assert ordinary[0]["id"] == "guide-0"
+    assert all(row["source_type"] == "code" for row in runtime)
+    assert explicit_mixed[0]["id"] == "guide-0"
+
+
 def test_freshness_keeps_implementation_evidence_ahead_of_supporting_docs():
     code = hit("implementation", 0.8, "code")
     old_doc = {**hit("old-guide", 0.87), "created_at": "2020-01-01"}
